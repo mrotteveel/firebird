@@ -147,12 +147,12 @@ namespace Jrd {
 		{
 			reset(nullptr);
 		}
-
+/*
 		T* unsafePointer() const		// to be removed
 		{
 			return getPointer();
 		}
-
+ */
 		T* getPointer() const
 		{
 			return hazardPointer;
@@ -418,7 +418,7 @@ namespace Jrd {
 	public:
 		enum class GarbageCollectMethod {GC_NORMAL, GC_ALL, GC_FORCE};
 		// In this and only this case disable GC in delayedDelete()
-		typedef SharedReadVector<const void*, INITIAL_SIZE, true> HazardPointersStorage;
+		typedef SharedReadVector<const void*, INITIAL_SIZE, false> HazardPointersStorage;
 		typedef HazardPointersStorage::Generation HazardPointers;
 
 		HazardDelayedDelete(MemoryPool& dbbPool, MemoryPool& attPool)
@@ -478,6 +478,16 @@ namespace Jrd {
 		dd->delayedDelete(oldGeneration, GC_ENABLED);
 	}
 
+
+	class CacheObject : public HazardObject
+	{
+	public:
+		virtual bool checkObject(thread_db* tdbb, Firebird::Arg::StatusVector&) /*const*/;
+		virtual void afterUnlock(thread_db* tdbb, unsigned flags);
+		virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
+		virtual const char* c_name() const = 0;
+		virtual void removeFromCache(thread_db* tdbb) = 0;
+	};
 
 	template <class Object, unsigned SUBARRAY_SHIFT = 8>
 	class HazardArray : public Firebird::PermanentStorage
@@ -566,7 +576,7 @@ namespace Jrd {
 				a->add()->store(sub, std::memory_order_release);
 			}
 		}
-
+/*
 		HazardPtr<Object> store(thread_db* tdbb, FB_SIZE_T id, Object* const val)
 		{
 			if (id >= getCount(tdbb))
@@ -583,12 +593,12 @@ namespace Jrd {
 			if (oldVal)
 			{
 				HZ_DEB(fprintf(stderr, "store=>delayedDelete %p\n", oldVal));
-				oldVal->delayedDelete(tdbb);
+				oldVal->removeFromCache(tdbb);
 			}
 
 			return HazardPtr<Object>(tdbb, *sub, FB_FUNCTION);
 		}
-
+ */
 		bool replace(thread_db* tdbb, FB_SIZE_T id, HazardPtr<Object>& oldVal, Object* const newVal)
 		{
 			if (id >= getCount(tdbb))
@@ -598,15 +608,22 @@ namespace Jrd {
 			SubArrayElement* sub = a->value(id >> SUBARRAY_SHIFT).load(std::memory_order_acquire);
 			fb_assert(sub);
 			sub = &sub[id & SUBARRAY_MASK];
+			Object* was = oldVal.getPointer();
 
-			return oldVal.replace(sub, newVal);
+			if (oldVal.replace(sub, newVal))
+			{
+				if (was)
+					was->removeFromCache(tdbb);
+				return true;
+			}
+			return false;
 		}
-
+/*
 		void store(thread_db* tdbb, FB_SIZE_T id, const HazardPtr<Object>& val)
 		{
 			store(tdbb, id, val.getPointer());
 		}
-
+ */
 		template <class DDS>
 		bool load(DDS* par, FB_SIZE_T id, HazardPtr<Object>& val) const
 		{
@@ -768,15 +785,6 @@ namespace Jrd {
 	private:
 		SharedReadVector<ArrayElement, 4> m_objects;
 		Firebird::Mutex objectsGrowMutex;
-	};
-
-	class CacheObject : public HazardObject
-	{
-	public:
-		virtual bool checkObject(thread_db* tdbb, Firebird::Arg::StatusVector&) /*const*/;
-		virtual void afterUnlock(thread_db* tdbb);
-		virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
-		virtual const char* c_name() const = 0;
 	};
 
 } // namespace Jrd

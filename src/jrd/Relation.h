@@ -45,7 +45,7 @@ class IndexBlock;
 
 // Relation trigger definition
 
-class Trigger : public HazardObject
+class Trigger : public CacheObject
 {
 public:
 	typedef MetaName Key;
@@ -100,6 +100,16 @@ public:
 	virtual ~Trigger()
 	{
 		delete extTrigger;
+	}
+
+	void removeFromCache(thread_db* tdbb) override
+	{
+		delayedDelete(tdbb);
+	}
+
+	const char* c_name() const override
+	{
+		return name.c_str();
 	}
 };
 
@@ -361,6 +371,11 @@ public:
 
 	bool hasData() { return true; }
 	const char* c_name() const override;
+
+	void removeFromCache(thread_db* tdbb) override
+	{
+		idl_lock.removeFromCache(tdbb);
+	}
 };
 
 
@@ -481,7 +496,15 @@ public:
 	void fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
 
 	bool checkObject(thread_db* tdbb, Firebird::Arg::StatusVector&) override;
-	void afterUnlock(thread_db* tdbb) override;
+	void afterUnlock(thread_db* tdbb, unsigned flags) override;
+
+	void removeFromCache(thread_db* tdbb) override
+	{
+		if (rel_existence_lock)
+			rel_existence_lock->removeFromCache(tdbb);
+		else
+			delayedDelete(tdbb);
+	}
 
 private:
 	typedef Firebird::SortedArray<

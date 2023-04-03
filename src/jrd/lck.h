@@ -201,7 +201,7 @@ class ExistenceLock
 public:
 	ExistenceLock(MemoryPool& p, thread_db* tdbb, lck_t type, SLONG key, CacheObject* obj)
 		: lck(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), type, this, ast)),
-		  flags(0),
+		  flags(inCache),
 		  object(obj)
 	{
 		lck->setKey(key);
@@ -220,6 +220,9 @@ public:
 			incrementError();
 		}
 
+		if (fl & countMask)
+			printf("inc1\n");
+
 		return (fl & locked) && !(fl & unlocking) ? Resource::State::Locked : Resource::State::Counted;
 	}
 
@@ -232,14 +235,15 @@ public:
 		fb_assert(!(fl & countChk));
 		//fb_assert(((fl + 1) & count) > 0);
 
-		return (fl & countMask == 0) && (fl & blocking) ? Resource::State::Unlocking : Resource::State::Posted;
+		return ((fl & countMask) == 0) && (fl & blocking) ? Resource::State::Unlocking : Resource::State::Posted;
 	}
 
 	// release shared lock if needed (or unconditionally when forced set)
 	void leave245(thread_db* tdbb, bool force = false);
 
-	unsigned getUseCount()
+	unsigned getUseCount() const
 	{
+		static_assert(sharedMask & 1);						// Other cases shift is needed to return use count
 		return flags & sharedMask;
 	}
 
@@ -248,8 +252,8 @@ public:
 	bool hasExclLock(thread_db* tdbb);						// Is object locked exclusively?
 #endif
 	void unlock(thread_db* tdbb);							// Release exclusive lock
-
 	void releaseLock(thread_db* tdbb, ReleaseMethod rm);	// Release any lock
+	void removeFromCache(thread_db* tdbb);					// Invoked when object is removed from MDC
 
 private:
 	static int ast(void* self)
@@ -262,6 +266,9 @@ private:
 	void incrementError [[noreturn]] ();
 	SSHORT getLockWait(thread_db* tdbb);
 
+	void internalUnlock(thread_db* tdbb, unsigned fl, bool flLockRelease = true);
+	void internalObjectDelete(thread_db* tdbb, unsigned fl);
+
 public:
 	Firebird::Mutex mutex;
 
@@ -270,12 +277,14 @@ private:
 	std::atomic<unsigned> flags;
 	CacheObject* object;
 
+public:
 	static const unsigned sharedMask =	0x000FFFFF;
-	static const unsigned exclMask =	0x0FE00000;
+	static const unsigned exclMask =	0x07E00000;
 	static const unsigned countMask =	sharedMask | exclMask;
 	static const unsigned countChk =	0x00100000;
 	static const unsigned exclusive =	0x00200000;
-	static const unsigned exCheck =		0x10000000;
+	static const unsigned exCheck =		0x08000000;
+	static const unsigned inCache =		0x10000000;
 	static const unsigned unlocking =	0x20000000;
 	static const unsigned locked =		0x40000000;
 	static const unsigned blocking =	0x80000000;

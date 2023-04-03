@@ -1603,12 +1603,8 @@ void ExistenceLock::blockingAst()
 	MutexLockGuard g(mutex, FB_FUNCTION);
 
 	unsigned fl = (flags |= unlocking);
-	if (fl & countMask == 0)
-	{
-		if (fl & locked)
-			LCK_release(tdbb, lck);
-		flags &= ~(locked | unlocking | blocking);
-	}
+	if ((fl & countMask) == 0)
+		internalUnlock(tdbb, fl, fl & locked);
 	else
 	{
 		flags |= blocking;
@@ -1621,7 +1617,7 @@ void ExistenceLock::enter245(thread_db* tdbb)
 	Firebird::MutexLockGuard g(mutex, FB_FUNCTION);
 
 	unsigned fl = flags;
-	fb_assert(fl & sharedMask > 0);
+	fb_assert((fl & sharedMask) > 0);
 
 	if (!(fl & locked))
 	{
@@ -1647,13 +1643,8 @@ void ExistenceLock::leave245(thread_db* tdbb, bool force)
 	unsigned fl = (flags |= unlocking);
 	fb_assert(fl & locked);
 
-	if (((fl & countMask == 0) && (fl & blocking)) | force)
-	{
-		LCK_release(tdbb, lck);			// repost ??????????????
-		if (object)
-			object->afterUnlock(tdbb);
-		flags &= ~(locked | unlocking | blocking);
-	}
+	if ((((fl & countMask) == 0) && (fl & blocking)) | force)
+		internalUnlock(tdbb, fl);
 	else
 		flags &= ~unlocking;
 }
@@ -1663,17 +1654,18 @@ bool ExistenceLock::exclLock(thread_db* tdbb)
 	Firebird::MutexLockGuard g(mutex, FB_FUNCTION);
 	unsigned fl = (flags += exclusive);
 
-	if (fl & countMask != exclusive)
+	if ((fl & countMask) != exclusive)
 	{
 		flags -= exclusive;
+		printf("false1\n");
 		return false;
 	}
 
-	//std::function<bool(thread_db*, Lock*, USHORT, SSHORT)> lckFunction = fl & locked ? LCK_convert : LCK_lock;
 	auto lckFunction = fl & locked ? LCK_convert : LCK_lock;
 	if (!lckFunction(tdbb, lck, LCK_EX, getLockWait(tdbb)))
 	{
 		flags -= exclusive;
+		printf("false2\n");
 		return false;
 	}
 	return true;
@@ -1689,7 +1681,7 @@ SSHORT ExistenceLock::getLockWait(thread_db* tdbb)
 bool ExistenceLock::hasExclLock(thread_db*)
 {
 	Firebird::MutexLockGuard g(mutex, FB_FUNCTION);
-	return flags & exclMask == exclusive;
+	return (flags & exclMask) == exclusive;
 }
 #endif
 
@@ -1705,18 +1697,40 @@ void ExistenceLock::unlock(thread_db* tdbb)
 		newFlags = (fl | unlocking) - exclusive;
 	} while (!flags.compare_exchange_weak(fl, newFlags, std::memory_order_release, std::memory_order_acquire));
 
-	fb_assert(fl & countMask == 0);
+	fb_assert((fl & exclMask) == 0);
 	if ((fl & locked) && !(fl & blocking))
 	{
 		LCK_convert(tdbb, lck, LCK_SR, getLockWait(tdbb));	// always succeeds
 		flags &= ~unlocking;
 	}
 	else
+		internalUnlock(tdbb, fl);
+}
+
+void ExistenceLock::internalUnlock(thread_db* tdbb, unsigned fl, bool flLockRelease)
+{
+	fb_assert(mutex.locked());
+	fb_assert((fl & countMask) == 0);
+
+	if (flLockRelease)
 	{
 		LCK_release(tdbb, lck);			// repost ??????????????
-		if (object)
-			object->afterUnlock(tdbb);
-		flags &= ~(blocking | unlocking | locked);
+		internalObjectDelete(tdbb, fl);
+	}
+	else
+		fb_assert(!(fl & inCache));
+
+	flags &= ~(blocking | unlocking | locked);
+}
+
+void ExistenceLock::internalObjectDelete(thread_db* tdbb, unsigned fl)
+{
+	if (object)
+	{
+		object->afterUnlock(tdbb, fl);
+
+		if (!(fl & inCache))
+			object->delayedDelete(tdbb);
 	}
 }
 
@@ -1769,6 +1783,15 @@ void ExistenceLock::releaseLock(thread_db* tdbb, ReleaseMethod rm)
 
 	case ReleaseMethod::CloseCache:
 		LCK_release(tdbb, lck);
+		internalObjectDelete(tdbb, flags);
 		break;
 	}
+}
+
+void ExistenceLock::removeFromCache(thread_db* tdbb)
+{
+	fb_assert(flags & inCache);
+	unsigned fl = (flags &= ~inCache);
+	if (((fl & countMask) == 0) && (fl & locked))
+		leave245(tdbb, true);
 }

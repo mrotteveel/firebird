@@ -720,15 +720,14 @@ namespace
 			const QualifiedName name(work->dfw_name, work->dfw_package);
 			HazardPtr<Routine> routine(FB_FUNCTION);
 
+			fprintf(stderr, "routine %d %s ph %d\n", work->dfw_id, name.c_str(), phase);
+
 			switch (phase)
 			{
 				case 0:
 					routine = lookupById(tdbb, work->dfw_id, false, true, 0);
-					if (!routine)
-						return false;
-
-					if (routine->existenceLock)
-						LCK_convert(tdbb, routine->existenceLock, LCK_SR, transaction->getLockWait());
+					if (routine && routine->existenceLock)
+						routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
 
 					return false;
 
@@ -745,11 +744,8 @@ namespace
 					{
 						// Let routine be deleted if only this transaction is using it
 
-						if (!LCK_convert(tdbb, routine->existenceLock, LCK_EX,
-								transaction->getLockWait()))
-						{
+						if (!routine->existenceLock->exclLock(tdbb))
 							raiseRoutineInUseError(routine, name);
-						}
 					}
 
 					// If we are in a multi-client server, someone else may have marked
@@ -777,7 +773,7 @@ namespace
 							raiseTooManyVersionsError(routine->getObjectType(), work->dfw_name);
 
 						if (routine->existenceLock)
-							LCK_release(tdbb, routine->existenceLock);
+							routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
 						Self::clearId(tdbb, routine->getId());
 
@@ -816,11 +812,7 @@ namespace
 					routine->flags = (Routine::FLAG_OBSOLETE | Routine::FLAG_BEING_ALTERED);
 
 					if (routine->existenceLock)
-						LCK_release(tdbb, routine->existenceLock);
-
-					// remove routine from cache
-
-					routine->remove(tdbb);
+						routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
 					// Now handle the new definition
 					bool compile = !work->findArg(dfw_arg_check_blr);
@@ -881,7 +873,7 @@ namespace
 						return false;
 
 					if (routine->existenceLock)
-						LCK_convert(tdbb, routine->existenceLock, LCK_SR, transaction->getLockWait());
+						routine->existenceLock->unlock(tdbb);
 
 					return false;
 
@@ -897,11 +889,10 @@ namespace
 
 					if (routine->existenceLock)
 					{
-						if (!LCK_convert(tdbb, routine->existenceLock, LCK_EX,
-								transaction->getLockWait()))
-						{
+						// Let routine be deleted if only this transaction is using it
+
+						if (!routine->existenceLock->exclLock(tdbb))
 							raiseRoutineInUseError(routine, name);
-						}
 					}
 
 					// If we are in a multi-client server, someone else may have marked
@@ -930,7 +921,7 @@ namespace
 							MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
 
 						if (routine->existenceLock)
-							LCK_release(tdbb, routine->existenceLock);
+							routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
 						Self::clearId(tdbb, routine->getId());
 						return false;
@@ -956,7 +947,7 @@ namespace
 						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
 
 					if (routine->existenceLock)
-						LCK_release(tdbb, routine->existenceLock);
+						routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
 					break;
 				}
@@ -4665,8 +4656,8 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				ERR_post(Arg::Gds(isc_random) << "Index block gone unexpestedly");
 			fb_assert(!arrVal);
 			index->idl_lock.releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
-			fprintf(stderr, "delayedDelete index, replace NULL, to be reviewed\n");
-			index->delayedDelete(tdbb);
+			// fprintf(stderr, "delayedDelete index, replace NULL, to be reviewed\n");
+			// --- index->delayedDelete(tdbb);
 
 			// Release index refresh lock and memory.
 			for (IndexBlock** iptr = &relation->rel_index_blocks; *iptr; iptr = &(*iptr)->idb_next)

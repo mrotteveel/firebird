@@ -29,7 +29,11 @@
 #include "../jrd/HazardPtr.h"
 #include "../common/classes/NestConst.h"
 #include "../common/MsgMetadata.h"
+#include "../common/classes/auto.h"
 #include "../common/classes/Nullable.h"
+#include "../common/ThreadStart.h"
+
+#include <condition_variable>
 
 namespace Jrd
 {
@@ -40,6 +44,52 @@ namespace Jrd
 	class Format;
 	class Parameter;
 	class UserId;
+	class ExistenceLock;
+
+	class StartupBarrier
+	{
+	public:
+		StartupBarrier()
+			: thd(Thread::getId()), flg(false)
+		{ }
+
+		void open()
+		{
+			// only creator thread may open barrier
+			fb_assert(thd == Thread::getId());
+
+			// no need opening barrier twice
+			if (flg)
+				return;
+
+			std::unique_lock<std::mutex> g(mtx);
+			if (flg)
+				return;
+
+			flg = true;
+			cond.notify_all();
+		}
+
+		void wait()
+		{
+			// if barrier is already opened nothing to be done
+			// also enable recursive use by creator thread
+			if (flg || (thd == Thread::getId()))
+				return;
+
+			std::unique_lock<std::mutex> g(mtx);
+			if (flg)
+				return;
+
+			cond.wait(g, [this]{return flg;});
+		}
+
+	private:
+		std::condition_variable cond;
+		std::mutex mtx;
+		const ThreadId thd;
+		bool flg;
+	};
 
 	class Routine : public Firebird::PermanentStorage, public CacheObject
 	{
@@ -59,7 +109,6 @@ namespace Jrd
 			  inputFields(p),
 			  outputFields(p),
 			  flags(0),
-			  useCount(0),
 			  intUseCount(0),
 			  alterCount(0),
 			  existenceLock(NULL),
@@ -107,6 +156,8 @@ namespace Jrd
 		const MetaName& getSecurityName() const { return securityName; }
 		void setSecurityName(const MetaName& value) { securityName = value; }
 
+		void removeFromCache(thread_db* tdbb) override;
+
 		/*const*/ Statement* getStatement() const { return statement; }
 		void setStatement(Statement* value);
 
@@ -143,27 +194,28 @@ namespace Jrd
 
 		bool isUsed() const
 		{
-			return useCount != 0;
+			return getUseCount() != 0;
 		}
 
-		int getUseCount() const
-		{
-			return useCount;
-		}
+		int getUseCount() const;
 
 		virtual void releaseFormat()
 		{
 		}
 
-		void addRef();
-		int release(thread_db* tdbb);
+		void afterDecrement(Jrd::thread_db*);
+		void afterUnlock(thread_db* tdbb, unsigned fl);
 		void releaseStatement(thread_db* tdbb);
-		void remove(thread_db* tdbb);
+		//void remove(thread_db* tdbb);
 		virtual void releaseExternal()
 		{
 		}
 
 		void adjust_dependencies();
+
+		void sharedCheckLock(thread_db* tdbb);
+		void sharedCheckUnlock(thread_db* tdbb);
+		void releaseLocks(thread_db* tdbb);
 
 	public:
 		virtual int getObjectType() const = 0;
@@ -191,9 +243,7 @@ namespace Jrd
 
 	public:
 		USHORT flags;
-
-	private:
-		USHORT useCount;		// requests compiled with routine
+		StartupBarrier startup;
 
 	public:
 		SSHORT intUseCount;		// number of routines compiled with routine, set and
@@ -201,7 +251,8 @@ namespace Jrd
 								// no code should rely on value of this field
 								// (it will usually be 0)
 		USHORT alterCount;		// No. of times the routine was altered
-		Lock* existenceLock;	// existence lock, if any
+
+		Firebird::AutoPtr<ExistenceLock> existenceLock;	// existence lock, if any
 
 		MetaName owner;
 		Jrd::UserId* invoker;		// Invoker ID

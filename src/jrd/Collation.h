@@ -39,7 +39,7 @@ namespace Jrd {
 class Lock;
 class BaseSubstringSimilarMatcher;
 
-class Collation : public TextType, public HazardObject
+class Collation : public TextType, public CacheObject
 {
 public:
 	static Collation* createInstance(MemoryPool& pool, TTYPE_ID id, texttype* tt, USHORT attributes, CharSet* cs);
@@ -87,6 +87,16 @@ public:
 	bool hasData()
 	{
 		return true;
+	}
+
+	void removeFromCache(thread_db* tdbb) override
+	{
+		delayedDelete(tdbb);
+	}
+
+	const char* c_name() const override
+	{
+		return name.c_str();
 	}
 
 public:

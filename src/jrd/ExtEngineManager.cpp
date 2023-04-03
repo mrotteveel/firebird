@@ -1401,7 +1401,7 @@ void ExtEngineManager::makeFunction(thread_db* tdbb, CompilerScratch* csb, Jrd::
 }
 
 
-void ExtEngineManager::makeProcedure(thread_db* tdbb, CompilerScratch* csb, HazardPtr<jrd_prc>& prc,
+void ExtEngineManager::makeProcedure(thread_db* tdbb, CompilerScratch* csb, jrd_prc* prc,
 	const MetaName& engine, const string& entryPoint, const string& body)
 {
 	string entryPointTrimmed = entryPoint;
@@ -1465,7 +1465,7 @@ void ExtEngineManager::makeProcedure(thread_db* tdbb, CompilerScratch* csb, Haza
 	try
 	{
 		prc->setExternal(FB_NEW_POOL(pool) Procedure(tdbb, this, attInfo->engine,
-			metadata.release(), externalProcedure, prc.getPointer()));
+			metadata.release(), externalProcedure, prc));
 
 		MemoryPool& csbPool = csb->csb_pool;
 

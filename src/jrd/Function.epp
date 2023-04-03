@@ -80,7 +80,7 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, USHORT id, bool return_del
 		}
 
 		check_function = function;
-		LCK_lock(tdbb, check_function->existenceLock, LCK_SR, LCK_WAIT);
+		check_function->sharedCheckLock(tdbb);
 	}
 
 	// We need to look up the function in RDB$FUNCTIONS
@@ -101,8 +101,8 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, USHORT id, bool return_del
 		check_function->flags &= ~Routine::FLAG_CHECK_EXISTENCE;
 		if (check_function != function)
 		{
-			LCK_release(tdbb, check_function->existenceLock);
-			check_function->flags |= Routine::FLAG_OBSOLETE;
+			check_function->sharedCheckUnlock(tdbb);
+			flags |= Routine::FLAG_OBSOLETE;
 		}
 	}
 
@@ -118,14 +118,11 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, const QualifiedName& name,
 
 	HazardPtr<Function> function = dbb->dbb_mdc->lookupFunction(tdbb, name, noscan ? 0 : Routine::FLAG_SCANNED,
 		Routine::FLAG_OBSOLETE | Routine::FLAG_CLEARED | Routine::FLAG_BEING_SCANNED | Routine::FLAG_BEING_ALTERED);
-	HazardPtr<Function> check_function = function;
 
 	if (function)
 	{
 		if (!(function->flags & Routine::FLAG_CHECK_EXISTENCE))
 			return function;
-
-		LCK_lock(tdbb, check_function->existenceLock, LCK_SR, LCK_WAIT);
 	}
 
 	// We need to look up the function in RDB$FUNCTIONS
@@ -142,16 +139,6 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, const QualifiedName& name,
 		function = loadMetadata(tdbb, X.RDB$FUNCTION_ID, noscan, 0);
 	}
 	END_FOR
-
-	if (check_function)
-	{
-		check_function->flags &= ~Routine::FLAG_CHECK_EXISTENCE;
-		if (check_function != function)
-		{
-			LCK_release(tdbb, check_function->existenceLock);
-			check_function->flags |= Routine::FLAG_OBSOLETE;
-		}
-	}
 
 	return function;
 }
@@ -177,8 +164,10 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 	}
 
 	Function* newFun = function.getPointer();
+	function.clear();
+	MemoryPool& pool = dbb->dbb_mdc->getPool();
 	if (!newFun)
-		newFun = FB_NEW_POOL(*dbb->dbb_permanent) Function(*dbb->dbb_permanent);
+		newFun = FB_NEW_POOL(*dbb->dbb_permanent) Function(pool);
 
 	try
 	{
@@ -187,16 +176,13 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 
 	newFun->setId(id);
 	function = dbb->dbb_mdc->setFunction(tdbb, id, newFun);
+	newFun = nullptr;
 
 	if (!function->existenceLock)
 	{
-		Lock* const lock = FB_NEW_RPT(*attachment->att_pool, 0)
-			Lock(tdbb, sizeof(SLONG), LCK_fun_exist, newFun, blockingAst);
-		function->existenceLock = lock;
-		lock->setKey(function->getId());
+		function->existenceLock = FB_NEW_POOL(pool)
+			ExistenceLock(pool, tdbb, LCK_fun_exist, function->getId(), function.getPointer());
 	}
-
-	LCK_lock(tdbb, function->existenceLock, LCK_SR, LCK_WAIT);
 
 	if (!noscan)
 	{
@@ -418,7 +404,7 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 						else
 							body.getBuffer(1)[0] = 0;
 
-						dbb->dbb_extManager->makeFunction(tdbb, csb, newFun, X.RDB$ENGINE_NAME,
+						dbb->dbb_extManager->makeFunction(tdbb, csb, function.getPointer(), X.RDB$ENGINE_NAME,
 							(X.RDB$ENTRYPOINT.NULL ? "" : X.RDB$ENTRYPOINT), (char*) body.begin());
 
 						if (!function->fun_external)
@@ -486,48 +472,15 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 	}	// try
 	catch (const Exception&)
 	{
-		newFun->flags &= ~(Routine::FLAG_BEING_SCANNED | Routine::FLAG_SCANNED);
-
-		if (newFun->existenceLock)
-		{
-			LCK_release(tdbb, newFun->existenceLock);
-			delete newFun->existenceLock;
-			newFun->existenceLock = nullptr;
-		}
+		if (newFun)
+			newFun->delayedDelete(tdbb);
+		if (function)
+			function->flags &= ~(Routine::FLAG_BEING_SCANNED | Routine::FLAG_SCANNED);
 
 		throw;
 	}
 
 	return function;
-}
-
-int Function::blockingAst(void* ast_object)
-{
-	Function* const function = static_cast<Function*>(ast_object);
-
-	try
-	{
-		Database* const dbb = function->existenceLock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, function->existenceLock);
-
-		LCK_release(tdbb, function->existenceLock);
-		function->flags |= Routine::FLAG_OBSOLETE;
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-void Function::releaseLocks(thread_db* tdbb)
-{
-	if (existenceLock)
-	{
-		LCK_release(tdbb, existenceLock);
-		flags |= Routine::FLAG_CHECK_EXISTENCE;
-		// !!!!!!!!!!!!!! useCount = 0;
-	}
 }
 
 bool Function::checkCache(thread_db* tdbb) const

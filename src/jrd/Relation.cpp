@@ -614,7 +614,7 @@ bool jrd_rel::checkObject(thread_db* tdbb, Arg::StatusVector& error)
 	return rc;
 }
 
-void jrd_rel::afterUnlock(thread_db* tdbb)
+void jrd_rel::afterUnlock(thread_db* tdbb, unsigned flags)
 {
 	// release trigger requests
 	releaseTriggers(tdbb, false);

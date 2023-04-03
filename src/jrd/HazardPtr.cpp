@@ -37,9 +37,13 @@ using namespace Firebird;
 HazardObject::~HazardObject()
 { }
 
+CacheObject* TRAP = nullptr;
+
 int HazardObject::delayedDelete(thread_db* tdbb)
 {
 	HazardDelayedDelete* dd = HazardBase::getHazardDelayed(tdbb);
+//	if (this == TRAP)
+//		abort();
 	dd->delayedDelete(this);
 	return 0;
 }
@@ -206,7 +210,7 @@ bool CacheObject::checkObject(thread_db*, Arg::StatusVector&)
 	return true;
 }
 
-void CacheObject::afterUnlock(thread_db* tdbb)
+void CacheObject::afterUnlock(thread_db* tdbb, unsigned flags)
 {
 	// do nothing
 }

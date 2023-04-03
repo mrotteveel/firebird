@@ -258,6 +258,7 @@ void INI_format(const char* owner, const char* charset)
 		if (relfld[RFLD_R_TYPE] == rel_persistent)
 		{
 			auto rel = MetadataCache::findRelation(tdbb, relfld[RFLD_R_ID]);
+			fb_assert(rel->rel_id == relfld[RFLD_R_ID]);
 			DPM_create_relation(tdbb, rel.getPointer());
 		}
 
@@ -665,7 +666,14 @@ void INI_init(thread_db* tdbb)
 	const int* fld;
 	for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
 	{
-		HazardPtr<jrd_rel> relation = MetadataCache::findRelation(tdbb, relfld[RFLD_R_ID]);
+		extern CacheObject* TRAP;
+
+		const auto id = relfld[RFLD_R_ID];
+		//fprintf(stderr, "INI_init %d %s\n", id, names[relfld[RFLD_R_NAME]]);
+		HazardPtr<jrd_rel> relation = MetadataCache::findRelation(tdbb, id);
+
+		if (id == 7) TRAP = relation.getPointer();
+
 		relation->rel_flags |= REL_system;
 		relation->rel_flags |= MET_get_rel_flags_from_TYPE(relfld[RFLD_R_TYPE]);
 		relation->rel_name = names[relfld[RFLD_R_NAME]];
@@ -760,7 +768,7 @@ void INI_init2(thread_db* tdbb)
 			delete relation->rel_current_format;
 			delete relation->rel_formats;
 			delete relation->rel_fields;
-			fprintf(stderr, "free the space allocated for RDB$ROLES %p (setRelation)\n", relation);
+			fprintf(stderr, "free the space allocated for %s %d (setRelation)\n", relation->rel_name.c_str(), id);
 			relation->delayedDelete(tdbb);
 			mdc->setRelation(tdbb, id, nullptr);
 

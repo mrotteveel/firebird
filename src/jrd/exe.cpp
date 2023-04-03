@@ -1735,19 +1735,14 @@ void ResourceList::transferList(thread_db* tdbb, const InternalResourceList& fro
 				}
 
 			case Resource::rsc_index:
-				// Relation locks MUST be taken before index locks.
-				/*{
-					HazardPtr<IndexLock> index = r.rsc_rel->getIndexLock(tdbb, r.rsc_id);
-					r.rsc_state = index ? index->idl_lock.inc(tdbb) : Resource::State::Locked;
-					break;
-				}*/
+				// Relation locks MUST be taken before index locks - skip it here.
 				break;
 
 			case Resource::rsc_procedure:
 			case Resource::rsc_function:
 				{
-					Routine* routine = r.rsc_routine;
-					routine->addRef();
+					ExistenceLock* lock = r.rsc_routine->existenceLock;
+					r.rsc_state = lock ? lock->inc(tdbb) : Resource::State::Locked;
 
 #ifdef DEBUG_PROCS
 					string buffer;
@@ -1806,11 +1801,8 @@ void ResourceList::transferList(thread_db* tdbb, const InternalResourceList& fro
 
 		case Resource::rsc_procedure:
 		case Resource::rsc_function:
-			{
-				Routine* routine = r.rsc_routine;		//!!!!!!!!!!!!!!!!!!!
-
-				break;
-			}
+			lock = r.rsc_routine->existenceLock;
+			break;
 
 		case Resource::rsc_collation:
 			{
@@ -1954,8 +1946,8 @@ void ResourceList::releaseResources(thread_db* tdbb, jrd_tra* transaction)
 			case Resource::rsc_procedure:
 			case Resource::rsc_function:
 				{
-					Routine* routine = r.rsc_routine;
-					routine->release(tdbb);
+					ExistenceLock* lock = r.rsc_routine->existenceLock;
+					r.rsc_state = lock ? lock->dec(tdbb) : Resource::State::Posted;
 					break;
 				}
 
@@ -1994,11 +1986,8 @@ void ResourceList::releaseResources(thread_db* tdbb, jrd_tra* transaction)
 
 		case Resource::rsc_procedure:
 		case Resource::rsc_function:
-			{
-				Routine* routine = r->rsc_routine;		//!!!!!!!!!!!!!!!!!!!
-
-				break;
-			}
+			lock = r->rsc_routine->existenceLock;
+			break;
 
 		case Resource::rsc_collation:
 			{

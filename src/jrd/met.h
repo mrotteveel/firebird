@@ -241,7 +241,18 @@ enum IndexStatus
 
 class CharSet;
 
-class CharSetContainer : public HazardObject
+class Dependency : public CacheObject
+{
+public:
+	virtual void resetDependentObject(thread_db* tdbb);
+
+	void resetDependentObjects(thread_db* tdbb, TraNumber olderThan);
+	void addDependentObject(thread_db* tdbb, Dependency* dep);
+	void removeDependentObject(thread_db* tdbb, Dependency* dep);
+};
+
+
+class CharSetContainer : public DependentObject
 {
 public:
 	typedef const char* Key;
@@ -281,6 +292,16 @@ public:
 		return cs != nullptr;
 	}
 
+	void removeFromCache(thread_db* tdbb) override
+	{
+		delayedDelete(tdbb);
+	}
+
+	const char* c_name() const override
+	{
+		return cs->getName();
+	}
+
 private:
 	static bool lookupInternalCharSet(USHORT id, SubtypeInfo* info);
 
@@ -293,7 +314,80 @@ class MetadataCache : public Firebird::PermanentStorage
 {
 	friend class CharSetContainer;
 
-	class Generator : public HazardObject
+	// to be reworked to linked list of appr.library
+	template <class OBJ>
+	class CacheList : public OBJ
+	{
+	public:
+		template <typename ... Args>
+		CacheList(Args ... args) :
+			OBJ(args), next(nullptr), lastPossible(0), flags(FL_UNCOMMITTED)
+		{ }
+
+		template <class DDS>
+		bool link(DDS* dds, std::atomic<CacheList*>* to)
+		{
+			if (*to->load(std::memory_order_acquire)->flags & FL_UNCOMMITTED)
+				return false;
+
+			do
+			{
+				HazardPtr<CacheList> current(dds, *to, FB_FUNCTION);
+				next = current;
+			} while (!current.replace(to, this));
+
+			return true;
+		}
+
+		void commit(TraNumber cur)
+		{
+			fb_assert(flags & FL_UNCOMMITTED);
+			createdBy = cur;
+			flags &= ~FL_UNCOMMITTED;
+		}
+
+		template <class DDS>
+		void rollback(DDS* dds, std::atomic<CacheList*>* to)
+		{
+			fb_assert(flags & FL_UNCOMMITTED);
+			do
+			{
+				HazardPtr<CacheList> current(dds, *to, FB_FUNCTION);
+			} while (!current.replace(to, next));
+		}
+
+		static template <class DDS>
+		void clear(DDS* dds, std::atomic<CacheList*>* headPtr, TraNumber oldestInteresting)
+		{
+			while (*headPtr)
+			{
+				if (*headPtr->createdBy < oldestInteresting)
+				{
+					CacheList* toDel = nullptr;
+					do
+					{
+						HazardPtr<CacheList> toDrop(dds, *headPtr, FB_FUNCTION);
+						toDel = toDrop.getPointer();
+					} while (!toDrop.replace(*headPtr, nullptr));
+
+					delete toDel;
+					break;
+				}
+
+				headPtr = &(headPtr->load()->next);
+			}
+		}
+
+	private:
+		std::atomic<CacheList*> next;
+		TraNumber createdBy;
+		unsigned flags;
+
+		static unsigned FL_UNCOMMITTED = 0x01;
+		static unsigned FL_ERASED = 0x02;
+	};
+
+	class Generator : public CacheObject
 	{
 	public:
 		typedef MetaName Key;
@@ -313,6 +407,16 @@ class MetadataCache : public Firebird::PermanentStorage
 		MetaName getKey() const
 		{
 			return value;
+		}
+
+		void removeFromCache(thread_db* tdbb) override
+		{
+			delayedDelete(tdbb);
+		}
+
+		const char* c_name() const override
+		{
+			return value.c_str();
 		}
 
 	public:
@@ -465,8 +569,8 @@ public:
 	static bool checkRelation(thread_db* tdbb, jrd_rel* relation);
 
 private:
-	static void inc_int_use_count(Statement* statement);
-	static void inc_int_use_count(TrigVector* vector);
+//	static void inc_int_use_count(Statement* statement);
+//	static void inc_int_use_count(TrigVector* vector);
 
 	HazardArray<jrd_rel>			mdc_relations;
 	HazardArray<jrd_prc>			mdc_procedures;

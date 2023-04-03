@@ -110,7 +110,6 @@ using namespace Jrd;
 using namespace Firebird;
 
 static int blocking_ast_dsql_cache(void* ast_object);
-static int blocking_ast_procedure(void*);
 static int partners_ast_relation(void*);
 static int rescan_ast_relation(void*);
 static ULONG get_rel_flags_from_FLAGS(USHORT);
@@ -626,8 +625,7 @@ void MetadataCache::clear_cache(thread_db* tdbb)
 				routine->releaseStatement(tdbb);
 
 				if (routine->existenceLock)
-					LCK_release(tdbb, routine->existenceLock);
-				routine->existenceLock = NULL;
+					routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
 				routine->flags |= Routine::FLAG_OBSOLETE;
 			}
 
@@ -650,8 +648,7 @@ void MetadataCache::clear_cache(thread_db* tdbb)
 				routine->releaseStatement(tdbb);
 
 				if (routine->existenceLock)
-					LCK_release(tdbb, routine->existenceLock);
-				routine->existenceLock = NULL;
+					routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
 				routine->flags |= Routine::FLAG_OBSOLETE;
 			}
 
@@ -2648,7 +2645,7 @@ HazardPtr<jrd_prc> MetadataCache::lookup_procedure(thread_db* tdbb, const Qualif
 				if (procedure->flags & Routine::FLAG_CHECK_EXISTENCE)
 				{
 					check_procedure = procedure;
-					LCK_lock(tdbb, check_procedure->existenceLock, LCK_SR, LCK_WAIT);
+					check_procedure->sharedCheckLock(tdbb);
 					break;
 				}
 
@@ -2677,8 +2674,8 @@ HazardPtr<jrd_prc> MetadataCache::lookup_procedure(thread_db* tdbb, const Qualif
 		check_procedure->flags &= ~Routine::FLAG_CHECK_EXISTENCE;
 		if (check_procedure != procedure)
 		{
-			LCK_release(tdbb, check_procedure->existenceLock);
 			check_procedure->flags |= Routine::FLAG_OBSOLETE;
+			check_procedure->sharedCheckUnlock(tdbb);
 		}
 	}
 
@@ -2715,7 +2712,8 @@ HazardPtr<jrd_prc> MetadataCache::lookup_procedure_id(thread_db* tdbb, USHORT id
 		if (procedure->flags & Routine::FLAG_CHECK_EXISTENCE)
 		{
 			check_procedure = procedure;
-			LCK_lock(tdbb, check_procedure->existenceLock, LCK_SR, LCK_WAIT);
+			if (check_procedure->existenceLock->inc(tdbb) != Resource::State::Locked)
+				check_procedure->existenceLock->enter245(tdbb);
 		}
 		else {
 			return procedure;
@@ -2740,7 +2738,8 @@ HazardPtr<jrd_prc> MetadataCache::lookup_procedure_id(thread_db* tdbb, USHORT id
 		check_procedure->flags &= ~Routine::FLAG_CHECK_EXISTENCE;
 		if (check_procedure != procedure)
 		{
-			LCK_release(tdbb, check_procedure->existenceLock);
+			check_procedure->existenceLock->dec(tdbb);
+			check_procedure->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 			check_procedure->flags |= Routine::FLAG_OBSOLETE;
 		}
 	}
@@ -2830,13 +2829,12 @@ HazardPtr<jrd_rel> MetadataCache::lookup_relation(thread_db* tdbb, const MetaNam
 		check_relation->rel_flags &= ~REL_check_existence;
 		if (check_relation != relation)
 		{
-			check_relation->rel_existence_lock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 			LCK_release(tdbb, check_relation->rel_partners_lock);
 			LCK_release(tdbb, check_relation->rel_rescan_lock);
 			check_relation->rel_flags &= ~REL_check_partners;
 			check_relation->rel_flags |= REL_deleted;
 
-			// delayedDelete() ???
+			check_relation->rel_existence_lock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 		}
 	}
 
@@ -2918,13 +2916,12 @@ HazardPtr<jrd_rel> MetadataCache::lookup_relation_id(thread_db* tdbb, SLONG id, 
 		check_relation->rel_flags &= ~REL_check_existence;
 		if (check_relation != relation)
 		{
-			check_relation->rel_existence_lock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 			LCK_release(tdbb, check_relation->rel_partners_lock);
 			LCK_release(tdbb, check_relation->rel_rescan_lock);
 			check_relation->rel_flags &= ~REL_check_partners;
 			check_relation->rel_flags |= REL_deleted;
 
-			// delayedDelete() ???
+			check_relation->rel_existence_lock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 		}
 	}
 
@@ -3194,7 +3191,16 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 
 	if (mdc->mdc_procedures.load(tdbb, id, procedure) && !(procedure->flags & Routine::FLAG_OBSOLETE))
 	{
-		// Make sure PRC_being_scanned and PRC_scanned are not set at the same time
+		/* In MT world additional protection is needed.
+		   Another thread may be scanning object right now.
+		   To make sure that scanning complete wait on initialize barrier.
+		   In most cases (i.e. when procedure was scanned long ago)
+		   this is just trivial check for a flag inside barrier.
+		 */
+
+		procedure->startup.wait();
+
+		// Make sure FLAG_BEING_SCANNED and FLAG_SCANNED are not set at the same time
 
 		fb_assert(!(procedure->flags & Routine::FLAG_BEING_SCANNED) ||
 			!(procedure->flags & Routine::FLAG_SCANNED));
@@ -3204,20 +3210,17 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 		   later in the code, it is not set when we are here first time.
 		   If (in case of rec. procedure) we get here second time it is
 		   already set and we return half baked procedure.
-		   In case of superserver this code is under the rec. mutex
-		   protection, thus the only guy (thread) who can get here and see
-		   FLAG_BEING_SCANNED bit set is the guy which started procedure scan
-		   and currently holds the mutex.
-		   In case of classic, there is always only one guy and if it
+
+		   Scanning is complete In case of classic, there is always only one guy and if it
 		   sees FLAG_BEING_SCANNED bit set it is safe to assume it is here
 		   second time.
 
-		   If procedure has already been scanned - return. This condition
-		   is for those threads that did not find procedure in cache and
-		   came here to get it from disk. But only one was able to lock
-		   the mutex and do the scanning, others were waiting. As soon as
-		   the first thread releases the mutex another thread gets in and
-		   it would be just unfair to make it do the work again.
+		   In case of superserver additional protection is needed.
+		   To make sure that scanning complete wait before initialize barrier.
+		   In most cases (i.e. when procedure was scanned long ago)
+		   this is just trivial check for a flag inside barrier.
+
+		   If procedure has already been scanned - return.
 		 */
 
 		if ((procedure->flags & Routine::FLAG_BEING_SCANNED) ||
@@ -3227,44 +3230,58 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 		}
 	}
 
-	jrd_prc* newProcedure = procedure ? procedure.getPointer() : FB_NEW_POOL(mdc->getPool()) jrd_prc(mdc->getPool());
+	jrd_prc* newProcedure = FB_NEW_POOL(mdc->getPool()) jrd_prc(mdc->getPool());
 
 	try {
 
 	newProcedure->flags |= (Routine::FLAG_BEING_SCANNED | flags);
 	newProcedure->flags &= ~(Routine::FLAG_OBSOLETE | Routine::FLAG_CLEARED);
 	newProcedure->setId(id);
-	if (!procedure)
-		procedure = dbb->dbb_mdc->mdc_procedures.store(tdbb, id, newProcedure);
 
-	if (!procedure->existenceLock)
+	if (!newProcedure->existenceLock)
 	{
-		Lock* lock = FB_NEW_RPT(mdc->getPool(), 0)
-			Lock(tdbb, sizeof(SLONG), LCK_prc_exist, newProcedure, blocking_ast_procedure);
-		procedure->existenceLock = lock;
-		lock->setKey(procedure->getId());
+		newProcedure->existenceLock = FB_NEW_POOL(mdc->getPool())
+			ExistenceLock(mdc->getPool(), tdbb, LCK_prc_exist, id, newProcedure);
 	}
 
-	LCK_lock(tdbb, procedure->existenceLock, LCK_SR, LCK_WAIT);
+	while (!dbb->dbb_mdc->mdc_procedures.replace(tdbb, id, procedure, newProcedure))
+	{
+		if (procedure)
+		{
+			procedure->startup.wait();
+
+			if (!(procedure->flags & Routine::FLAG_OBSOLETE))
+			{
+				// Someone else created required procedure
+
+				delete newProcedure->getExternal();
+				newProcedure->setExternal(NULL);
+				newProcedure->delayedDelete(tdbb);
+
+				if (procedure->flags & Routine::FLAG_SCANNED)
+					return procedure;
+			}
+		}
+	}
 
 	if (!noscan)
 	{
 		AutoCacheRequest request(tdbb, irq_r_procedure, IRQ_REQUESTS);
 
 		FOR(REQUEST_HANDLE request)
-			P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ procedure->getId()
+			P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ newProcedure->getId()
 		{
-			if (procedure->getName().toString().length() == 0)
+			if (newProcedure->getName().toString().length() == 0)
 			{
-				procedure->setName(QualifiedName(P.RDB$PROCEDURE_NAME,
+				newProcedure->setName(QualifiedName(P.RDB$PROCEDURE_NAME,
 					(P.RDB$PACKAGE_NAME.NULL ? "" : P.RDB$PACKAGE_NAME)));
 			}
 
-			procedure->setId(P.RDB$PROCEDURE_ID);
+			newProcedure->setId(P.RDB$PROCEDURE_ID);
 			Nullable<bool> ssDefiner;
 
 			if (!P.RDB$SECURITY_CLASS.NULL)
-				procedure->setSecurityName(P.RDB$SECURITY_CLASS);
+				newProcedure->setSecurityName(P.RDB$SECURITY_CLASS);
 			else if (!P.RDB$PACKAGE_NAME.NULL)
 			{
 				AutoCacheRequest requestHandle(tdbb, irq_l_procedure_pkg_class, IRQ_REQUESTS);
@@ -3274,7 +3291,7 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 					WITH PKG.RDB$PACKAGE_NAME EQ P.RDB$PACKAGE_NAME
 				{
 					if (!PKG.RDB$SECURITY_CLASS.NULL)
-						procedure->setSecurityName(PKG.RDB$SECURITY_CLASS);
+						newProcedure->setSecurityName(PKG.RDB$SECURITY_CLASS);
 
 					if (!PKG.RDB$SQL_SECURITY.NULL)
 						ssDefiner = (bool) PKG.RDB$SQL_SECURITY;
@@ -3290,15 +3307,15 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 					ssDefiner = MET_get_ss_definer(tdbb);
 			}
 
-			procedure->owner = P.RDB$OWNER_NAME;
+			newProcedure->owner = P.RDB$OWNER_NAME;
 
 			if (ssDefiner.orElse(false))
-				procedure->invoker = attachment->getUserId(procedure->owner);
+				newProcedure->invoker = attachment->getUserId(newProcedure->owner);
 
-			procedure->setImplemented(true);
-			procedure->getInputFields().resize(P.RDB$PROCEDURE_INPUTS);
-			procedure->getOutputFields().resize(P.RDB$PROCEDURE_OUTPUTS);
-			procedure->setDefaultCount(0);
+			newProcedure->setImplemented(true);
+			newProcedure->getInputFields().resize(P.RDB$PROCEDURE_INPUTS);
+			newProcedure->getOutputFields().resize(P.RDB$PROCEDURE_OUTPUTS);
+			newProcedure->setDefaultCount(0);
 
 			AutoCacheRequest request2(tdbb, irq_r_params, IRQ_REQUESTS);
 
@@ -3317,7 +3334,7 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 				bid pa_default_value = pa_default_value_null ? F.RDB$DEFAULT_VALUE : PA.RDB$DEFAULT_VALUE;
 
 				Array<NestConst<Parameter> >& paramArray = PA.RDB$PARAMETER_TYPE ?
-					procedure->getOutputFields() : procedure->getInputFields();
+					newProcedure->getOutputFields() : newProcedure->getInputFields();
 
 				// should be error if field already exists
 				Parameter* parameter = FB_NEW_POOL(mdc->getPool()) Parameter(mdc->getPool());
@@ -3340,7 +3357,7 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 					(!pa_default_value_null ||
 					 (fb_utils::implicit_domain(F.RDB$FIELD_NAME) && !F.RDB$DEFAULT_VALUE.NULL)))
 				{
-					procedure->setDefaultCount(procedure->getDefaultCount() + 1);
+					newProcedure->setDefaultCount(newProcedure->getDefaultCount() + 1);
 					MemoryPool* pool = dbb->createPool();
 					Jrd::ContextPoolHolder context(tdbb, pool);
 
@@ -3363,12 +3380,12 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 
 			const bool external = !P.RDB$ENGINE_NAME.NULL;	// ODS_12_0
 
-			Array<NestConst<Parameter> >& paramArray = procedure->getOutputFields();
+			Array<NestConst<Parameter> >& paramArray = newProcedure->getOutputFields();
 
 			if (paramArray.hasData() && paramArray[0])
 			{
-				Format* format = Format::newFormat(mdc->getPool(), procedure->getOutputFields().getCount());
-				procedure->prc_record_format = format;
+				Format* format = Format::newFormat(mdc->getPool(), newProcedure->getOutputFields().getCount());
+				newProcedure->prc_record_format = format;
 				ULONG length = FLAG_BYTES(format->fmt_count);
 				Format::fmt_desc_iterator desc = format->fmt_desc.begin();
 				Array<NestConst<Parameter> >::iterator ptr, end;
@@ -3390,7 +3407,7 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 				format->fmt_length = length;
 			}
 
-			procedure->prc_type = P.RDB$PROCEDURE_TYPE.NULL ?
+			newProcedure->prc_type = P.RDB$PROCEDURE_TYPE.NULL ?
 				prc_legacy : (prc_t) P.RDB$PROCEDURE_TYPE;
 
 			if (external || !P.RDB$PROCEDURE_BLR.NULL)
@@ -3417,21 +3434,21 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 						else
 							body.getBuffer(1)[0] = '\0';
 
-						dbb->dbb_extManager->makeProcedure(tdbb, csb, procedure, P.RDB$ENGINE_NAME,
+						dbb->dbb_extManager->makeProcedure(tdbb, csb, newProcedure, P.RDB$ENGINE_NAME,
 							(P.RDB$ENTRYPOINT.NULL ? "" : P.RDB$ENTRYPOINT), body.begin());
 					}
 					else
 					{
 						try
 						{
-							procedure->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
+							newProcedure->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 								P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
 						}
 						catch (const Exception& ex)
 						{
 							StaticStatusVector temp_status;
 							ex.stuffException(temp_status);
-							const string name = procedure->getName().toString();
+							const string name = newProcedure->getName().toString();
 							(Arg::Gds(isc_bad_proc_BLR) << Arg::Str(name)
 								<< Arg::StatusVector(temp_status.begin())).raise();
 						}
@@ -3439,32 +3456,32 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 				}
 				catch (const Exception&)
 				{
-					if (procedure->getStatement())
-						procedure->releaseStatement(tdbb);
+					if (newProcedure->getStatement())
+						newProcedure->releaseStatement(tdbb);
 					else
 						dbb->deletePool(csb_pool);
 
 					throw;
 				}
 
-				fb_assert(procedure->getStatement()->procedure == procedure);
+				fb_assert(newProcedure->getStatement()->procedure == newProcedure);
 			}
 			else
 			{
 				RefPtr<MsgMetadata> inputMetadata(REF_NO_INCR,
-					Routine::createMetadata(procedure->getInputFields(), false));
-				procedure->setInputFormat(
-					Routine::createFormat(procedure->getPool(), inputMetadata, false));
+					Routine::createMetadata(newProcedure->getInputFields(), false));
+				newProcedure->setInputFormat(
+					Routine::createFormat(newProcedure->getPool(), inputMetadata, false));
 
 				RefPtr<MsgMetadata> outputMetadata(REF_NO_INCR,
-					Routine::createMetadata(procedure->getOutputFields(), false));
-				procedure->setOutputFormat(
-					Routine::createFormat(procedure->getPool(), outputMetadata, true));
+					Routine::createMetadata(newProcedure->getOutputFields(), false));
+				newProcedure->setOutputFormat(
+					Routine::createFormat(newProcedure->getPool(), outputMetadata, true));
 
-				procedure->setImplemented(false);
+				newProcedure->setImplemented(false);
 			}
 
-			procedure->flags |= Routine::FLAG_SCANNED;
+			newProcedure->flags |= Routine::FLAG_SCANNED;
 
 			if (!dbb->readOnly() &&
 				!P.RDB$PROCEDURE_BLR.NULL &&
@@ -3483,31 +3500,22 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 	} // if !noscan
 
 	// Make sure that it is really being scanned
-	fb_assert(procedure->flags & Routine::FLAG_BEING_SCANNED);
+	fb_assert(newProcedure->flags & Routine::FLAG_BEING_SCANNED);
 
-	procedure->flags &= ~Routine::FLAG_BEING_SCANNED;
+	newProcedure->flags &= ~Routine::FLAG_BEING_SCANNED;
+	newProcedure->startup.open();
 
 	}	// try
 	catch (const Exception&)
 	{
-		if (procedure)
+		if (newProcedure->getExternal())
 		{
-			procedure->flags &= ~(Routine::FLAG_BEING_SCANNED | Routine::FLAG_SCANNED);
-
-			if (procedure->getExternal())
-			{
-				delete procedure->getExternal();
-				procedure->setExternal(NULL);
-			}
-
-			if (procedure->existenceLock)
-			{
-				LCK_release(tdbb, procedure->existenceLock);
-				delete procedure->existenceLock;
-				procedure->existenceLock = NULL;
-			}
+			delete newProcedure->getExternal();
+			newProcedure->setExternal(NULL);
 		}
 
+		newProcedure->flags &= ~Routine::FLAG_BEING_SCANNED;
+		newProcedure->startup.open();
 		throw;
 	}
 
@@ -4236,43 +4244,6 @@ DSqlCacheItem* MetadataCache::get_dsql_cache_item(thread_db* tdbb, sym_type type
 		item = attachment->att_dsql_cache.get(key);
 
 	return item;
-}
-
-
-static int blocking_ast_procedure(void* ast_object)
-{
-/**************************************
- *
- *      b l o c k i n g _ a s t _ p r o c e d u r e
- *
- **************************************
- *
- * Functional description
- *      Someone is trying to drop a proceedure. If there
- *      are outstanding interests in the existence of
- *      the relation then just mark as blocking and return.
- *      Otherwise, mark the procedure block as questionable
- *      and release the procedure existence lock.
- *
- **************************************/
-	jrd_prc* const procedure = static_cast<jrd_prc*>(ast_object);
-
-	try
-	{
-		if (procedure->existenceLock)
-		{
-			Database* const dbb = procedure->existenceLock->lck_dbb;
-
-			AsyncContextHolder tdbb(dbb, FB_FUNCTION, procedure->existenceLock);
-
-			LCK_release(tdbb, procedure->existenceLock);
-		}
-		procedure->flags |= Routine::FLAG_OBSOLETE;
-	}
-	catch (const Exception&)
-	{} // no-op
-
-	return 0;
 }
 
 
@@ -5424,10 +5395,10 @@ void MetadataCache::releaseRelations(thread_db* tdbb)
 			if (relation->rel_file)
 				EXT_fini(relation.getPointer(), false);
 
-			//relation->delayedDelete(tdbb);
-			mdc_relations.store(tdbb, n, nullptr);
+			relation->delayedDelete(tdbb);
 		}
 	}
+	// ??????? mdc_relations.clear();
 }
 
 void MetadataCache::releaseLocks(thread_db* tdbb)
@@ -5479,14 +5450,7 @@ void MetadataCache::releaseLocks(thread_db* tdbb)
 	for (auto procedure : mdc_procedures.snapshot())
 	{
 		if (procedure)
-		{
-			if (procedure->existenceLock)
-			{
-				LCK_release(tdbb, procedure->existenceLock);
-				procedure->flags |= Routine::FLAG_CHECK_EXISTENCE;
-				// !!!!!!!!!!! procedure->useCount = 0;
-			}
-		}
+			procedure->releaseLocks(tdbb);
 	}
 
 	// Release all function existence locks that might have been taken
@@ -5666,6 +5630,8 @@ int Trigger::release(thread_db* tdbb)
 
 	statement->release(tdbb);
 	statement = NULL;
+
+	delayedDelete(tdbb);
 	return 0;
 }
 

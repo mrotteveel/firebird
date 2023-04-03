@@ -259,51 +259,57 @@ void Routine::parseMessages(thread_db* tdbb, CompilerScratch* csb, BlrReader blr
 }
 
 // Decrement the routine's use count.
-int Routine::release(thread_db* tdbb)
+void Routine::afterDecrement(thread_db* tdbb)
 {
-	// Actually, it's possible for routines to have intermixed dependencies, so
-	// this routine can be called for the routine which is being freed itself.
-	// Hence we should just silently ignore such a situation.
-
-	if (!useCount)
-		return 0;
+	// intUseCount != 0 if and only if we are cleaning cache
 
 	if (intUseCount > 0)
 		intUseCount--;
+}
 
-	int use = --useCount;
 
-#ifdef DEBUG_PROCS
-	{
-		string buffer;
-		buffer.printf(
-			"Called from CMP_decrement():\n\t Decrementing use count of %s\n",
-			getName().toString().c_str());
-		JRD_print_procedure_info(tdbb, buffer.c_str());
-	}
-#endif
+void Routine::afterUnlock(thread_db* tdbb, unsigned fl)
+{
+	flags |= Routine::FLAG_OBSOLETE;
 
 	// Call recursively if and only if the use count is zero AND the routine
 	// in the cache is different than this routine.
 	// The routine will be different than in the cache only if it is a
 	// floating copy, i.e. an old copy or a deleted routine.
-	if (use == 0 && !checkCache(tdbb))
+	if (!(fl & ExistenceLock::inCache))
 	{
 		if (getStatement())
 			releaseStatement(tdbb);
 
 		flags &= ~Routine::FLAG_BEING_ALTERED;
-		remove(tdbb);
+		//remove(tdbb);
 	}
-
-	return use;
 }
 
-void Routine::addRef()
+void Routine::removeFromCache(thread_db* tdbb)
 {
-	++useCount;
+	if (existenceLock)
+		existenceLock->removeFromCache(tdbb);
+	else
+		delayedDelete(tdbb);
 }
 
+int Routine::getUseCount() const
+{
+	return existenceLock.hasData() ? existenceLock->getUseCount() : 1;
+}
+
+void Routine::sharedCheckLock(thread_db* tdbb)
+{
+	if (existenceLock->inc(tdbb) != Resource::State::Locked)
+		existenceLock->enter245(tdbb);
+}
+
+void Routine::sharedCheckUnlock(thread_db* tdbb)
+{
+	existenceLock->dec(tdbb);
+	existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
+}
 
 void Routine::releaseStatement(thread_db* tdbb)
 {
@@ -319,30 +325,11 @@ void Routine::releaseStatement(thread_db* tdbb)
 	flags &= ~FLAG_SCANNED;
 }
 
+/*
 // Remove a routine from cache.
 void Routine::remove(thread_db* tdbb)
 {
 	SET_TDBB(tdbb);
-
-	// MET_procedure locks it. Lets unlock it now to avoid troubles later
-	if (existenceLock)
-		LCK_release(tdbb, existenceLock);
-
-	// Routine that is being altered may have references
-	// to it by other routines via pointer to current meta
-	// data structure, so don't lose the structure or the pointer.
-	if (checkCache(tdbb) && !(flags & Routine::FLAG_BEING_ALTERED))
-		clearCache(tdbb);
-
-	// deallocate all structure which were allocated.  The routine
-	// blr is originally read into a new pool from which all request
-	// are allocated.  That will not be freed up.
-
-	if (existenceLock)
-	{
-		delete existenceLock;
-		existenceLock = NULL;
-	}
 
 	// deallocate input param structures
 
@@ -352,7 +339,6 @@ void Routine::remove(thread_db* tdbb)
 		if (*i)
 			delete i->getObject();
 	}
-
 	getInputFields().clear();
 
 	// deallocate output param structures
@@ -363,26 +349,19 @@ void Routine::remove(thread_db* tdbb)
 		if (*i)
 			delete i->getObject();
 	}
-
 	getOutputFields().clear();
 
-	if (!useCount)
-		releaseFormat();
+	releaseFormat();
 
-	if (!(flags & Routine::FLAG_BEING_ALTERED) && useCount == 0)
-		delete this;
-	else
-	{
-		// Fully clear routine block. Some pieces of code check for empty
-		// routine name, this is why we do it.
-		setName(QualifiedName());
-		setSecurityName("");
-		setDefaultCount(0);
-		releaseExternal();
-		flags |= FLAG_CLEARED;
-	}
+	// Fully clear routine block. Some pieces of code check for empty
+	// routine name, this is why we do it.
+	setName(QualifiedName());
+	setSecurityName("");
+	setDefaultCount(0);
+	releaseExternal();
+	flags |= FLAG_CLEARED;
 }
-
+*/
 
 bool jrd_prc::checkCache(thread_db* tdbb) const
 {
@@ -393,6 +372,16 @@ void jrd_prc::clearCache(thread_db* tdbb)
 {
 	tdbb->getDatabase()->dbb_mdc->setProcedure(tdbb, getId(), nullptr);
 }
+
+void Routine::releaseLocks(thread_db* tdbb)
+{
+	if (existenceLock)
+	{
+		existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
+		flags |= Routine::FLAG_CHECK_EXISTENCE;
+	}
+}
+
 
 
 void Routine::adjust_dependencies()
@@ -412,7 +401,7 @@ void Routine::adjust_dependencies()
 		{
 			auto routine = resource->rsc_routine;
 
-			if (routine->intUseCount == routine->useCount)
+			if (routine->intUseCount == routine->getUseCount())
 			{
 				// Mark it and all dependent procedures as undeletable
 				routine->adjust_dependencies();
@@ -423,7 +412,7 @@ void Routine::adjust_dependencies()
 		{
 			auto routine = resource->rsc_routine;
 
-			if (routine->intUseCount == routine->useCount)
+			if (routine->intUseCount == routine->getUseCount())
 			{
 				// Mark it and all dependent functions as undeletable
 				routine->adjust_dependencies();

@@ -41,8 +41,6 @@ namespace Jrd
 		static HazardPtr<Function> lookup(thread_db* tdbb, USHORT id, bool return_deleted, bool noscan, USHORT flags);
 		static HazardPtr<Function> lookup(thread_db* tdbb, const QualifiedName& name, bool noscan);
 
-		void releaseLocks(thread_db* tdbb);
-
 		explicit Function(MemoryPool& p)
 			: Routine(p),
 			  fun_entrypoint(NULL),
@@ -56,7 +54,6 @@ namespace Jrd
 		}
 
 		static HazardPtr<Function> loadMetadata(thread_db* tdbb, USHORT id, bool noscan, USHORT flags);
-		static int blockingAst(void*);
 
 	public:
 		virtual int getObjectType() const

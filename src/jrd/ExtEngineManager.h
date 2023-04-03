@@ -317,7 +317,7 @@ public:
 	void makeFunction(thread_db* tdbb, CompilerScratch* csb, Jrd::Function* udf,
 		const MetaName& engine, const Firebird::string& entryPoint,
 		const Firebird::string& body);
-	void makeProcedure(thread_db* tdbb, CompilerScratch* csb, HazardPtr<jrd_prc>& prc,
+	void makeProcedure(thread_db* tdbb, CompilerScratch* csb, jrd_prc* prc,
 		const MetaName& engine, const Firebird::string& entryPoint,
 		const Firebird::string& body);
 	void makeTrigger(thread_db* tdbb, CompilerScratch* csb, Jrd::Trigger* trg,
