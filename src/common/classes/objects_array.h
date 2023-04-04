@@ -214,6 +214,12 @@ namespace Firebird
 			return inherited::add(dataL);
 		}
 
+		size_type add(T&& item)
+		{
+			T* dataL = FB_NEW_POOL(this->getPool()) T(this->getPool(), std::move(item));
+			return inherited::add(dataL);
+		}
+
 		T& add()
 		{
 			T* dataL = FB_NEW_POOL(this->getPool()) T(this->getPool());
@@ -482,6 +488,13 @@ namespace Firebird
 				ObjectStorage, const ObjectKey*, ObjectKeyOfValue,
 				ObjectCmp> >()
 		{ }
+
+		explicit SortedObjectsArray(MemoryPool& p, const SortedObjectsArray& o) :
+			ObjectsArray <ObjectValue, SortedArray<ObjectValue*,
+				ObjectStorage, const ObjectKey*, ObjectKeyOfValue,
+				ObjectCmp> >(p, o)
+		{
+		}
 
 		bool find(const ObjectKey& item, size_type& pos) const
 		{

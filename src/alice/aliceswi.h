@@ -60,11 +60,13 @@ const SINT64 sw_buffers			= 0x0000000020000000L;
 const SINT64 sw_mode			= 0x0000000040000000L;
 const SINT64 sw_set_db_dialect	= 0x0000000080000000L;
 const SINT64 sw_trusted_auth	= QUADCONST(0x0000000100000000);	// Byte 4, Bit 0
+const SINT64 sw_parallel_workers= QUADCONST(0x0000000200000000);
 const SINT64 sw_fetch_password	= QUADCONST(0x0000000800000000);
 const SINT64 sw_nolinger		= QUADCONST(0x0000001000000000);
 const SINT64 sw_icu				= QUADCONST(0x0000002000000000);
 const SINT64 sw_role			= QUADCONST(0x0000004000000000);
 const SINT64 sw_replica			= QUADCONST(0x0000008000000000);
+const SINT64 sw_upgrade			= QUADCONST(0x0000010000000000);
 
 // Popular combination of compatible switches
 const SINT64 sw_auth_set		= sw_user | sw_password | sw_role | sw_fetch_password | sw_trusted_auth;
@@ -124,7 +126,9 @@ enum alice_switches
 	IN_SW_ALICE_NOLINGER			=	47,
 	IN_SW_ALICE_ICU					=	48,
 	IN_SW_ALICE_ROLE				=	49,
-	IN_SW_ALICE_REPLICA				=	50
+	IN_SW_ALICE_REPLICA				=	50,
+	IN_SW_ALICE_PARALLEL_WORKERS	=	51,
+	IN_SW_ALICE_UPGRADE				=	52
 };
 
 static const char* const ALICE_SW_ASYNC	= "ASYNC";
@@ -213,6 +217,9 @@ static const Switches::in_sw_tab_t alice_in_sw_table[] =
 	{IN_SW_ALICE_PROMPT, 0, "PROMPT", sw_prompt,
 		sw_list, 0, false, false, 41, 2, NULL},
 	// msg 41: \t-prompt\t\tprompt for commit/rollback (-l)
+	{IN_SW_ALICE_PARALLEL_WORKERS, isc_spb_rpr_par_workers, "PARALLEL", sw_parallel_workers,
+		sw_sweep, 0, false, false, 136, 3, NULL},
+	// msg 136:   -par(allel)          parallel workers <n> (-sweep)
 	{IN_SW_ALICE_PASSWORD, 0, "PASSWORD", sw_password,
 		0, (sw_trusted_auth | sw_fetch_password),
 		false, false, 42, 2, NULL},
@@ -254,6 +261,9 @@ static const Switches::in_sw_tab_t alice_in_sw_table[] =
 		0, (sw_user | sw_password | sw_fetch_password), false, false, 115, 3, NULL},
 	// msg 115: 	-trusted	use trusted authentication
 #endif
+	{IN_SW_ALICE_UPGRADE, isc_spb_rpr_upgrade_db, "UPGRADE", sw_upgrade,
+		0, ~(sw_upgrade | sw_user | sw_password | sw_nolinger | sw_role), false, true, 137, 2, NULL},
+	// msg 137: \t-upgrade\t\tupgrade database ODS
 	{IN_SW_ALICE_NO_RESERVE, 0, "USE", sw_no_reserve,
 		0, ~(sw_no_reserve | sw_auth_set | sw_nolinger), false, false, 49, 1, NULL},
 	// msg 49: \t-use\t\tuse full or reserve space for versions

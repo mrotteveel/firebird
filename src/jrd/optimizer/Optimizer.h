@@ -31,10 +31,13 @@
 
 //#define OPT_DEBUG
 //#define OPT_DEBUG_RETRIEVAL
+//#define OPT_DEBUG_SYS_REQUESTS
 
 #include "../common/classes/alloc.h"
 #include "../common/classes/array.h"
 #include "../common/classes/fb_string.h"
+#include "../dsql/BoolNodes.h"
+#include "../dsql/ExprNodes.h"
 #include "../jrd/RecordSourceNodes.h"
 #include "../jrd/exe.h"
 #include "../jrd/Statement.h"
@@ -43,19 +46,19 @@ namespace Jrd {
 
 // AB: 2005-11-05
 // Constants below needs some discussions and ideas
+const double REDUCE_SELECTIVITY_FACTOR_EQUALITY = 0.001;
 const double REDUCE_SELECTIVITY_FACTOR_BETWEEN = 0.0025;
 const double REDUCE_SELECTIVITY_FACTOR_LESS = 0.05;
 const double REDUCE_SELECTIVITY_FACTOR_GREATER = 0.05;
 const double REDUCE_SELECTIVITY_FACTOR_STARTING = 0.01;
-
-const double REDUCE_SELECTIVITY_FACTOR_EQUALITY = 0.1;
-const double REDUCE_SELECTIVITY_FACTOR_INEQUALITY = 0.3;
+const double REDUCE_SELECTIVITY_FACTOR_OTHER = 0.01;
 
 const double MAXIMUM_SELECTIVITY = 1.0;
 const double DEFAULT_SELECTIVITY = 0.1;
 
 const double MINIMUM_CARDINALITY = 1.0;
 const double THRESHOLD_CARDINALITY = 5.0;
+const double DEFAULT_CARDINALITY = 1000.0;
 
 // Default depth of an index tree (including one leaf page),
 // also representing the minimal cost of the index scan.
@@ -154,12 +157,10 @@ class River
 {
 public:
 	River(CompilerScratch* csb, RecordSource* rsb, RecordSourceNode* node, const StreamList& streams)
-		: m_rsb(rsb), m_nodes(csb->csb_pool), m_streams(csb->csb_pool)
+		: m_rsb(rsb), m_nodes(csb->csb_pool), m_streams(csb->csb_pool, streams)
 	{
 		if (node)
 			m_nodes.add(node);
-
-		m_streams.assign(streams);
 	}
 
 	River(CompilerScratch* csb, RecordSource* rsb, RiverList& rivers)
@@ -323,7 +324,15 @@ public:
 		return ConjunctIterator(begin, end);
 	}
 
-	ConjunctIterator getConjuncts(bool inner = false, bool outer = false)
+	ConjunctIterator getParentConjuncts()
+	{
+		const auto begin = conjuncts.begin() + baseParentConjuncts;
+		const auto end = conjuncts.end();
+
+		return ConjunctIterator(begin, end);
+	}
+
+	ConjunctIterator getConjuncts(bool outer = false, bool inner = false)
 	{
 		const auto begin = conjuncts.begin() + (outer ? baseParentConjuncts : 0);
 		const auto end = inner ? begin + baseMissingConjuncts : conjuncts.end();
@@ -336,18 +345,69 @@ public:
 		return statement ? statement->getPlan(tdbb, detailed) : "";
 	}
 
-	static RecordSource* compile(thread_db* tdbb,
-								 CompilerScratch* csb,
-								 RseNode* rse,
-								 BoolExprNodeStack* parentStack = nullptr)
+	static double getSelectivity(const BoolExprNode* node)
 	{
-		return Optimizer(tdbb, csb, rse).compile(parentStack);
+		if (const auto cmpNode = nodeAs<ComparativeBoolNode>(node))
+		{
+			switch (cmpNode->blrOp)
+			{
+			case blr_eql:
+			case blr_equiv:
+				return REDUCE_SELECTIVITY_FACTOR_EQUALITY;
+
+			case blr_gtr:
+			case blr_geq:
+				return REDUCE_SELECTIVITY_FACTOR_GREATER;
+
+			case blr_lss:
+			case blr_leq:
+				return REDUCE_SELECTIVITY_FACTOR_LESS;
+
+			case blr_between:
+				return REDUCE_SELECTIVITY_FACTOR_BETWEEN;
+
+			case blr_starting:
+				return REDUCE_SELECTIVITY_FACTOR_STARTING;
+
+			default:
+				break;
+			}
+		}
+		else if (nodeIs<MissingBoolNode>(node))
+		{
+			return REDUCE_SELECTIVITY_FACTOR_EQUALITY;
+		}
+
+		return REDUCE_SELECTIVITY_FACTOR_OTHER;
+	}
+
+	static void adjustSelectivity(double& selectivity, double factor, double cardinality)
+	{
+		if (cardinality)
+		{
+			const auto minSelectivity = 1 / cardinality;
+			const auto diffSelectivity = selectivity > minSelectivity ?
+				selectivity - minSelectivity : 0;
+			selectivity = minSelectivity + diffSelectivity * factor;
+		}
+	}
+
+	static RecordSource* compile(thread_db* tdbb, CompilerScratch* csb, RseNode* rse)
+	{
+		return Optimizer(tdbb, csb, rse).compile(nullptr);
 	}
 
 	~Optimizer();
 
+	RecordSource* compile(RseNode* subRse, BoolExprNodeStack* parentStack);
 	void compileRelation(StreamType stream);
+	unsigned decomposeBoolean(BoolExprNode* boolNode, BoolExprNodeStack& stack);
 	void generateAggregateDistincts(MapNode* map);
+	RecordSource* generateRetrieval(StreamType stream,
+									SortNode** sortClause,
+									bool outerFlag,
+									bool innerFlag,
+									BoolExprNode** returnBoolean = nullptr);
 	SortedStream* generateSort(const StreamList& streams,
 							   const StreamList* dbkeyStreams,
 							   RecordSource* rsb, SortNode* sort,
@@ -383,6 +443,12 @@ public:
 		return (rse->flags & RseNode::FLAG_OPT_FIRST_ROWS) != 0;
 	}
 
+	bool checkEquiJoin(BoolExprNode* boolean);
+	bool getEquiJoinKeys(BoolExprNode* boolean,
+						 NestConst<ValueExprNode>* node1,
+						 NestConst<ValueExprNode>* node2);
+
+	Firebird::string getStreamName(StreamType stream);
 	Firebird::string makeAlias(StreamType stream);
 	void printf(const char* format, ...);
 
@@ -391,19 +457,15 @@ private:
 
 	RecordSource* compile(BoolExprNodeStack* parentStack);
 
-	RecordSource* applyLocalBoolean(const River* river);
+	RecordSource* applyLocalBoolean(RecordSource* rsb,
+									const StreamList& streams,
+									ConjunctIterator& iter);
 	void checkIndices();
 	void checkSorts();
-	unsigned decompose(BoolExprNode* boolNode, BoolExprNodeStack& stack);
 	unsigned distributeEqualities(BoolExprNodeStack& orgStack, unsigned baseCount);
 	void findDependentStreams(const StreamList& streams,
 							  StreamList& dependent_streams,
 							  StreamList& free_streams);
-	bool formRiver(unsigned streamCount,
-				   StreamList& streams,
-				   const StreamList& joinedStreams,
-				   RiverList& rivers,
-				   SortNode** sortClause);
 	void formRivers(const StreamList& streams,
 					RiverList& rivers,
 					SortNode** sortClause,
@@ -416,11 +478,9 @@ private:
 	RecordSource* generateOuterJoin(RiverList& rivers,
 								    SortNode** sortClause);
 	RecordSource* generateResidualBoolean(RecordSource* rsb);
-	RecordSource* generateRetrieval(StreamType stream,
-									SortNode** sortClause,
-									bool outerFlag,
-									bool innerFlag,
-									BoolExprNode** returnBoolean);
+	bool getEquiJoinKeys(NestConst<ValueExprNode>& node1,
+						 NestConst<ValueExprNode>& node2,
+						 bool needCast);
 	BoolExprNode* makeInferenceNode(BoolExprNode* boolean,
 									ValueExprNode* arg1,
 									ValueExprNode* arg2);
@@ -485,7 +545,7 @@ struct IndexScratchSegment
 
 struct IndexScratch
 {
-	IndexScratch(MemoryPool& p, index_desc* idx, double cardinality);
+	IndexScratch(MemoryPool& p, index_desc* idx);
 	IndexScratch(MemoryPool& p, const IndexScratch& other);
 
 	index_desc* index = nullptr;				// index descriptor
@@ -496,9 +556,11 @@ struct IndexScratch
 	unsigned lowerCount = 0;
 	unsigned upperCount = 0;
 	unsigned nonFullMatchedSegments = 0;
-	bool fuzzy = false;							// Need to use INTL_KEY_PARTIAL in btr lookups
+	bool usePartialKey = false;				// Use INTL_KEY_PARTIAL
+	bool useMultiStartingKeys = false;		// Use INTL_KEY_MULTI_STARTING
 
 	Firebird::ObjectsArray<IndexScratchSegment> segments;
+	MatchedBooleanList matches;					// matched booleans (partial indices only)
 };
 
 typedef Firebird::ObjectsArray<IndexScratch> IndexScratchList;
@@ -557,7 +619,9 @@ public:
 protected:
 	void analyzeNavigation(const InversionCandidateList& inversions);
 	bool betterInversion(const InversionCandidate* inv1, const InversionCandidate* inv2,
-		bool ignoreUnmatched) const;
+						 bool ignoreUnmatched) const;
+	bool checkIndexCondition(index_desc& idx, MatchedBooleanList& matches) const;
+	bool checkIndexExpression(const index_desc* idx, ValueExprNode* node) const;
 	InversionNode* composeInversion(InversionNode* node1, InversionNode* node2,
 		InversionNode::Type node_type) const;
 	const Firebird::string& getAlias();
@@ -606,6 +670,8 @@ class InnerJoin : private Firebird::PermanentStorage
 {
 	struct IndexRelationship
 	{
+		static const unsigned MAX_DEP_STREAMS = 8;
+
 		static bool cheaperThan(const IndexRelationship& item1, const IndexRelationship& item2)
 		{
 			if (item1.cost == 0)
@@ -645,6 +711,7 @@ class InnerJoin : private Firebird::PermanentStorage
 		bool unique = false;
 		double cost = 0;
 		double cardinality = 0;
+		Firebird::Vector<StreamType, MAX_DEP_STREAMS> depStreams;
 	};
 
 	typedef Firebird::SortedArray<IndexRelationship> IndexedRelationships;
@@ -652,8 +719,8 @@ class InnerJoin : private Firebird::PermanentStorage
 	class StreamInfo
 	{
 	public:
-		StreamInfo(MemoryPool& p, StreamType streamNumber)
-			: stream(streamNumber), indexedRelationships(p)
+		StreamInfo(MemoryPool& p, StreamType num)
+			: number(num), indexedRelationships(p)
 		{}
 
 		bool isIndependent() const
@@ -690,7 +757,7 @@ class InnerJoin : private Firebird::PermanentStorage
 			return false;
 		}
 
-		const StreamType stream;
+		const StreamType number;
 
 		bool baseUnique = false;
 		double baseCost = 0;
@@ -707,9 +774,18 @@ class InnerJoin : private Firebird::PermanentStorage
 
 	struct JoinedStreamInfo
 	{
-		// Streams and their options
-		StreamType bestStream;			// stream in best join order seen so far
-		StreamType number;				// stream in position of join order
+		static const unsigned MAX_EQUI_MATCHES = 4;
+
+		void reset (StreamType num)
+		{
+			number = num;
+			selectivity = 0.0;
+			equiMatches.clear();
+		}
+
+		StreamType number;			// stream in position of join order
+		double selectivity = 0.0;	// position selectivity
+		Firebird::Vector<BoolExprNode*, MAX_EQUI_MATCHES> equiMatches;
 	};
 
 	typedef Firebird::HalfStaticArray<JoinedStreamInfo, OPT_STATIC_ITEMS> JoinedStreamList;
@@ -717,7 +793,7 @@ class InnerJoin : private Firebird::PermanentStorage
 public:
 	InnerJoin(thread_db* tdbb, Optimizer* opt,
 			  const StreamList& streams,
-			  SortNode* sort_clause, bool hasPlan);
+			  SortNode** sortClause, bool hasPlan);
 
 	~InnerJoin()
 	{
@@ -725,11 +801,12 @@ public:
 			delete innerStream;
 	}
 
-	bool findJoinOrder(StreamList& bestStreams);
+	bool findJoinOrder();
+	River* formRiver();
 
 protected:
 	void calculateStreamInfo();
-	void estimateCost(StreamType stream, double* cost, double* resulting_cardinality, bool start) const;
+	void estimateCost(unsigned position, const StreamInfo* stream, double& cost, double& cardinality);
 	void findBestOrder(unsigned position, StreamInfo* stream,
 		IndexedRelationships& processList, double cost, double cardinality);
 	void getIndexedRelationships(StreamInfo* testStream);
@@ -746,7 +823,7 @@ private:
 	thread_db* const tdbb;
 	Optimizer* const optimizer;
 	CompilerScratch* const csb;
-	SortNode* const sort;
+	SortNode** sortPtr;
 	const bool plan;
 
 	unsigned remainingStreams = 0;
@@ -755,6 +832,7 @@ private:
 
 	StreamInfoList innerStreams;
 	JoinedStreamList joinedStreams;
+	JoinedStreamList bestStreams;
 };
 
 } // namespace Jrd

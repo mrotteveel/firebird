@@ -171,7 +171,7 @@ ISC_INT64 TraceTransactionImpl::getInitialID()
 ISC_INT64 TraceSQLStatementImpl::getStmtID()
 {
 	if (m_stmt->getRequest())
-		return m_stmt->getRequest()->getRequestId();
+		return m_stmt->getRequest()->getStatement()->getStatementId();
 
 	return 0;
 }
@@ -235,7 +235,7 @@ void TraceSQLStatementImpl::DSQLParamsImpl::fillParams()
 	if (m_descs.getCount() || !m_params || m_params->getCount() == 0)
 		return;
 
-	if (!m_stmt->isDml())
+	if (!m_stmt->getDsqlStatement()->isDml())
 	{
 		fb_assert(false);
 		return;

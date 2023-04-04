@@ -421,6 +421,30 @@ void defineComputed(DsqlCompilerScratch* dsqlScratch, RelationSourceNode* relati
 	value.assign(dsqlScratch->getBlrData());
 }
 
+void definePartial(DsqlCompilerScratch* dsqlScratch, RelationSourceNode* relation,
+	BoolSourceClause* clause, BlrDebugWriter::BlrData& value)
+{
+	// Get the table node and set up correct context.
+	dsqlScratch->resetContextStack();
+
+	PASS1_make_context(dsqlScratch, relation);
+
+	const auto input = Node::doDsqlPass(dsqlScratch, clause->value);
+
+	// Generate the blr expression.
+
+	dsqlScratch->getBlrData().clear();
+	dsqlScratch->getDebugData().clear();
+	dsqlScratch->appendUChar(dsqlScratch->isVersion4() ? blr_version4 : blr_version5);
+
+	GEN_expr(dsqlScratch, input);
+	dsqlScratch->appendUChar(blr_eoc);
+
+	dsqlScratch->resetContextStack();
+
+	value.assign(dsqlScratch->getBlrData());
+}
+
 // Delete a record from RDB$RELATION_CONSTRAINTS based on a constraint name.
 //
 //      On deleting from RDB$RELATION_CONSTRAINTS, 2 system triggers fire:
@@ -5976,8 +6000,13 @@ void DropSequenceNode::deleteIdentity(thread_db* tdbb, jrd_tra* transaction, con
 		WITH GEN.RDB$GENERATOR_NAME EQ name.c_str()
 	{
 		ERASE GEN;
+
+		if (!GEN.RDB$SECURITY_CLASS.NULL)
+			deleteSecurityClass(tdbb, transaction, GEN.RDB$SECURITY_CLASS);
 	}
 	END_FOR
+
+	deletePrivilegesByRelName(tdbb, transaction, name, obj_generator);
 }
 
 
@@ -8707,7 +8736,7 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	dsqlScratch->resetContextStack();
 	++dsqlScratch->contextNumber;
-	RseNode* rse = PASS1_rse(dsqlScratch, selectExpr, false);
+	RseNode* rse = PASS1_rse(dsqlScratch, selectExpr, false, false);
 
 	dsqlScratch->getBlrData().clear();
 	dsqlScratch->appendUChar(dsqlScratch->isVersion4() ? blr_version4 : blr_version5);
@@ -9790,6 +9819,31 @@ void CreateIndexNode::store(thread_db* tdbb, jrd_tra* transaction, MetaName& nam
 		IDX.RDB$SEGMENT_COUNT = SSHORT(definition.columns.getCount());
 	}
 	END_STORE
+
+	if (!definition.conditionBlr.isEmpty() || !definition.conditionSource.isEmpty())
+	{
+		AutoRequest request;
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			IDX IN RDB$INDICES
+			WITH IDX.RDB$INDEX_NAME EQ name.c_str()
+		{
+			MODIFY IDX
+				if (!definition.conditionBlr.isEmpty())
+				{
+					IDX.RDB$CONDITION_BLR.NULL = FALSE;
+					IDX.RDB$CONDITION_BLR = definition.conditionBlr;
+				}
+
+				if (!definition.conditionSource.isEmpty())
+				{
+					IDX.RDB$CONDITION_SOURCE.NULL = FALSE;
+					IDX.RDB$CONDITION_SOURCE = definition.conditionSource;
+				}
+			END_MODIFY
+		}
+		END_FOR
+	}
 }
 
 
@@ -9854,6 +9908,21 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 		attachment->storeMetaDataBlob(tdbb, transaction, &definition.expressionSource,
 			computedSource);
 		attachment->storeBinaryBlob(tdbb, transaction, &definition.expressionBlr, computedValue);
+	}
+
+	if (partial)
+	{
+		const auto dbb = tdbb->getDatabase();
+		if (dbb->getEncodedOdsVersion() < ODS_13_1)
+			ERR_post(Arg::Gds(isc_wish_list));
+
+		BlrDebugWriter::BlrData partialValue;
+		definePartial(dsqlScratch, relation, partial, partialValue);
+
+		attachment->storeMetaDataBlob(tdbb, transaction,
+			&definition.conditionSource, partial->source);
+		attachment->storeBinaryBlob(tdbb, transaction,
+			&definition.conditionBlr, partialValue);
 	}
 
 	store(tdbb, transaction, name, definition);
@@ -10496,6 +10565,7 @@ string MappingNode::internalPrint(NodePrinter& printer) const
 	NODE_PRINT(printer, fromType);
 	NODE_PRINT(printer, from);
 	NODE_PRINT(printer, to);
+	NODE_PRINT(printer, comment);
 	NODE_PRINT(printer, op);
 	NODE_PRINT(printer, mode);
 	NODE_PRINT(printer, global);
@@ -10554,10 +10624,22 @@ void MappingNode::runInSecurityDb(SecDbContext* secDbContext)
 	case MAP_RPL:
 		ddl = "CREATE OR ALTER MAPPING ";
 		break;
+	case MAP_COMMENT:
+		ddl = "COMMENT ON MAPPING ";
+		break;
+	}
+	addItem(ddl, name.c_str());
+
+	if (op == MAP_COMMENT)
+	{
+		ddl += " IS ";
+		if (comment)
+			addItem(ddl, comment->c_str(), '\'');
+		else
+			ddl += "NULL";
 	}
 
-	addItem(ddl, name.c_str());
-	if (op != MAP_DROP)
+	else if (op != MAP_DROP)
 	{
 		ddl += " USING ";
 		switch (mode)
@@ -10650,6 +10732,7 @@ void MappingNode::runInSecurityDb(SecDbContext* secDbContext)
 					(Arg::Gds(isc_map_already_exists) << name).raise();
 				break;
 
+			case MAP_COMMENT:
 			case MAP_MOD:
 			case MAP_DROP:
 				if (!hasLine)
@@ -10672,6 +10755,10 @@ void MappingNode::runInSecurityDb(SecDbContext* secDbContext)
 			Field<Varying> f2(full, 255);
 			Field<Varying> nm2(full, MAX_SQL_IDENTIFIER_LEN);
 
+			Message cmnt;
+			Field<Varying> c3(cmnt, MAX_VARY_COLUMN_SIZE);
+			Field<Varying> nm3(cmnt, MAX_SQL_IDENTIFIER_LEN);
+
 			toType = role ? 1 : 0;
 			if (to)
 				t = to->c_str();
@@ -10684,7 +10771,9 @@ void MappingNode::runInSecurityDb(SecDbContext* secDbContext)
 				type2 = fromType->c_str();
 			if (from)
 				f2 = fromUtf8.c_str();
-			nm2 = name.c_str();
+			if (comment)
+				c3 = comment->c_str();
+			nm3 = nm2 = name.c_str();
 
 			Message* msg = NULL;
 			const char* sql = NULL;
@@ -10702,6 +10791,11 @@ void MappingNode::runInSecurityDb(SecDbContext* secDbContext)
 					"RDB$MAP_FROM_TYPE = ?, RDB$MAP_FROM = ? "
 					"where RDB$MAP_NAME = ?";
 				msg = &full;
+				break;
+			case MAP_COMMENT:
+				sql = "update RDB$AUTH_MAPPING set RDB$DESCRIPTION = ? "
+					"where RDB$MAP_NAME = ?";
+				msg = &cmnt;
 				break;
 			case MAP_DROP:
 				sql = "delete from RDBAUTH_MAPPING where RDB$MAP_NAME = ?";
@@ -10747,7 +10841,7 @@ void MappingNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 
-	fb_assert(op == MAP_DROP || fromType);
+	fb_assert(op == MAP_DROP || op == MAP_COMMENT || fromType);
 
 	short plugNull = plugin ? FALSE  : TRUE;
 	short dbNull = db ? FALSE : TRUE;
@@ -10800,6 +10894,17 @@ void MappingNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd
 				M.RDB$MAP_FROM.NULL = fromNull;
 				if (!fromNull)
 					strcpy(M.RDB$MAP_FROM, fromUtf8.c_str());
+			END_MODIFY
+			break;
+
+		case MAP_COMMENT:
+			MODIFY M
+				M.RDB$DESCRIPTION.NULL = !(comment && comment->hasData());
+				if (!M.RDB$DESCRIPTION.NULL)
+				{
+					AutoBlb b(tdbb, blb::create(tdbb, transaction, &M.RDB$DESCRIPTION));
+					b->BLB_put_data(tdbb, (const UCHAR*)(comment->c_str()), comment->length());
+				}
 			END_MODIFY
 			break;
 
@@ -10866,16 +10971,18 @@ void MappingNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd
 
 	case MAP_MOD:
 	case MAP_DROP:
+	case MAP_COMMENT:
 		if (!found)
 			(Arg::Gds(isc_map_not_exists) << name).raise();
 		break;
 	}
 
-	fb_assert(ddlTriggerAction > 0);
+	fb_assert(ddlTriggerAction > 0 || op == MAP_COMMENT);
 	if (ddlTriggerAction > 0)
 		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 
-	DFW_post_work(transaction, dfw_clear_cache, NULL, Mapping::MAPPING_CACHE);
+	if (op != MAP_COMMENT)
+		DFW_post_work(transaction, dfw_clear_cache, NULL, Mapping::MAPPING_CACHE);
 	savePoint.release();	// everything is ok
 }
 

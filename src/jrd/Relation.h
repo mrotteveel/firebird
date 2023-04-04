@@ -46,6 +46,7 @@ class IndexBlock;
 // Relation trigger definition
 
 class Trigger : public CacheObject
+/*
 {
 public:
 	typedef MetaName Key;
@@ -111,11 +112,51 @@ public:
 	{
 		return name.c_str();
 	}
+*/
+
+public:
+	Firebird::HalfStaticArray<UCHAR, 128> blr;			// BLR code
+	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
+	Statement* statement;							// Compiled statement
+	bool		releaseInProgress;
+	bool		sysTrigger;
+	FB_UINT64	type;						// Trigger type
+	USHORT		flags;						// Flags as they are in RDB$TRIGGERS table
+	jrd_rel*	relation;					// Trigger parent relation
+	MetaName	name;				// Trigger name
+	MetaName	engine;				// External engine name
+	Firebird::string	entryPoint;			// External trigger entrypoint
+	Firebird::string	extBody;			// External trigger body
+	ExtEngineManager::Trigger* extTrigger;	// External trigger
+	Nullable<bool> ssDefiner;
+	MetaName	owner;				// Owner for SQL SECURITY
+
+	bool isActive() const;
+
+	void compile(thread_db*);				// Ensure that trigger is compiled
+	void release(thread_db*);				// Try to free trigger request
+
+	explicit Trigger(MemoryPool& p)
+		: blr(p),
+		  debugInfo(p),
+		  releaseInProgress(false),
+		  name(p),
+		  engine(p),
+		  entryPoint(p),
+		  extBody(p),
+		  extTrigger(NULL)
+	{}
+
+	virtual ~Trigger()
+	{
+		delete extTrigger;
+	}
 };
 
 // Array of triggers (suppose separate arrays for triggers of different types)
 class TrigVector : public HazardArray<Trigger>
 {
+/*
 public:
 	explicit TrigVector(Firebird::MemoryPool& pool)
 		: HazardArray<Trigger>(pool),
@@ -159,6 +200,38 @@ public:
 private:
 	std::atomic<int> useCount;
 	std::atomic<FB_SIZE_T> addCount;
+*/
+
+public:
+	explicit TrigVector(Firebird::MemoryPool& pool)
+		: Firebird::ObjectsArray<Trigger>(pool),
+		  useCount(0)
+	{ }
+
+	TrigVector()
+		: Firebird::ObjectsArray<Trigger>(),
+		  useCount(0)
+	{ }
+
+	void addRef()
+	{
+		++useCount;
+	}
+
+	bool hasActive() const;
+
+	void decompile(thread_db* tdbb);
+
+	void release();
+	void release(thread_db* tdbb);
+
+	~TrigVector()
+	{
+		fb_assert(useCount.value() == 0);
+	}
+
+private:
+	Firebird::AtomicCounter useCount;
 };
 
 typedef std::atomic<TrigVector*> TrigVectorPtr;
@@ -212,13 +285,14 @@ public:
 	ULONG rel_pri_data_space;	// lowest pointer page with primary data page space
 	ULONG rel_sec_data_space;	// lowest pointer page with secondary data page space
 	ULONG rel_last_free_pri_dp;	// last primary data page found with space
+	ULONG rel_last_free_blb_dp;	// last blob data page found with space
 	USHORT rel_pg_space_id;
 
 	RelationPages(Firebird::MemoryPool& pool)
 		: rel_pages(NULL), rel_instance_id(0),
 		  rel_index_root(0), rel_data_pages(0), rel_slot_space(0),
 		  rel_pri_data_space(0), rel_sec_data_space(0),
-		  rel_last_free_pri_dp(0),
+		  rel_last_free_pri_dp(0), rel_last_free_blb_dp(0),
 		  rel_pg_space_id(DB_PAGE_SPACE), rel_next_free(NULL),
 		  useCount(0),
 		  dpMap(pool),
@@ -580,22 +654,21 @@ const ULONG REL_scanned					= 0x0001;	// Field expressions scanned (or being sca
 const ULONG REL_system					= 0x0002;
 const ULONG REL_deleted					= 0x0004;	// Relation known gonzo
 const ULONG REL_get_dependencies		= 0x0008;	// New relation needs dependencies during scan
-const ULONG REL_force_scan				= 0x0010;	// system relation has been updated since ODS change, force a scan
-const ULONG REL_check_existence			= 0x0020;	// Existence lock released pending drop of relation
-const ULONG REL_blocking				= 0x0040;	// Blocking someone from dropping relation
-const ULONG REL_sys_triggers			= 0x0080;	// The relation has system triggers to compile
-const ULONG REL_sql_relation			= 0x0100;	// Relation defined as sql table
-const ULONG REL_check_partners			= 0x0200;	// Rescan primary dependencies and foreign references
-const ULONG REL_being_scanned			= 0x0400;	// relation scan in progress
-const ULONG REL_sys_trigs_being_loaded	= 0x0800;	// System triggers being loaded
-const ULONG REL_deleting				= 0x1000;	// relation delete in progress
-const ULONG REL_temp_tran				= 0x2000;	// relation is a GTT delete rows
-const ULONG REL_temp_conn				= 0x4000;	// relation is a GTT preserve rows
-const ULONG REL_virtual					= 0x8000;	// relation is virtual
-const ULONG REL_jrd_view				= 0x10000;	// relation is VIEW
-const ULONG REL_gc_blocking				= 0x20000;	// request to downgrade\release gc lock
-const ULONG REL_gc_disabled				= 0x40000;	// gc is disabled temporarily
-const ULONG REL_gc_lockneed				= 0x80000;	// gc lock should be acquired
+const ULONG REL_check_existence			= 0x0010;	// Existence lock released pending drop of relation
+const ULONG REL_blocking				= 0x0020;	// Blocking someone from dropping relation
+const ULONG REL_sys_triggers			= 0x0040;	// The relation has system triggers to compile
+const ULONG REL_sql_relation			= 0x0080;	// Relation defined as sql table
+const ULONG REL_check_partners			= 0x0100;	// Rescan primary dependencies and foreign references
+const ULONG REL_being_scanned			= 0x0200;	// relation scan in progress
+const ULONG REL_sys_trigs_being_loaded	= 0x0400;	// System triggers being loaded
+const ULONG REL_deleting				= 0x0800;	// relation delete in progress
+const ULONG REL_temp_tran				= 0x1000;	// relation is a GTT delete rows
+const ULONG REL_temp_conn				= 0x2000;	// relation is a GTT preserve rows
+const ULONG REL_virtual					= 0x4000;	// relation is virtual
+const ULONG REL_jrd_view				= 0x8000;	// relation is VIEW
+const ULONG REL_gc_blocking				= 0x10000;	// request to downgrade\release gc lock
+const ULONG REL_gc_disabled				= 0x20000;	// gc is disabled temporarily
+const ULONG REL_gc_lockneed				= 0x40000;	// gc lock should be acquired
 
 
 /// class jrd_rel

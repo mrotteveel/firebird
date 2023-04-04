@@ -25,6 +25,7 @@
 #include "../jrd/jrd.h"
 #include "../jrd/req.h"
 #include "../dsql/StmtNodes.h"
+#include "../jrd/optimizer/Optimizer.h"
 
 #include "RecordSource.h"
 
@@ -42,9 +43,10 @@ LocalTableStream::LocalTableStream(CompilerScratch* csb, StreamType stream, cons
 	fb_assert(m_table);
 
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = DEFAULT_CARDINALITY;
 }
 
-void LocalTableStream::open(thread_db* tdbb) const
+void LocalTableStream::internalOpen(thread_db* tdbb) const
 {
 	const auto request = tdbb->getRequest();
 	const auto impure = request->getImpure<Impure>(m_impure);
@@ -69,7 +71,11 @@ void LocalTableStream::close(thread_db* tdbb) const
 		impure->irsb_flags &= ~irsb_open;
 }
 
-bool LocalTableStream::getRecord(thread_db* tdbb) const
+void LocalTableStream::getChildren(Array<const RecordSource*>& children) const
+{
+}
+
+bool LocalTableStream::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -102,18 +108,20 @@ bool LocalTableStream::refetchRecord(thread_db* tdbb) const
 	return true;
 }
 
-bool LocalTableStream::lockRecord(thread_db* tdbb) const
+WriteLockResult LocalTableStream::lockRecord(thread_db* tdbb, bool skipLocked) const
 {
 	status_exception::raise(Arg::Gds(isc_record_lock_not_supp));
-	return false;	// compiler silencer
 }
 
-void LocalTableStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+void LocalTableStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
 {
 	//// TODO: Use Local Table name/alias.
 
 	if (detailed)
+	{
 		plan += printIndent(++level) + "Local Table Full Scan";
+		printOptInfo(plan);
+	}
 	else
 	{
 		if (!level)

@@ -660,18 +660,37 @@ public:
 	// Check if expression could return NULL or expression can turn NULL into a true/false.
 	virtual bool possiblyUnknown() const;
 
+	// Check if expression is known to ignore NULLs
+	virtual bool ignoreNulls(const StreamList& streams) const;
+
 	// Verify if this node is allowed in an unmapped boolean.
 	virtual bool unmappable(const MapNode* mapNode, StreamType shellStream) const;
 
 	// Return all streams referenced by the expression.
 	virtual void collectStreams(SortedStreamList& streamList) const;
 
-	virtual bool containsStream(StreamType stream) const
+	bool containsStream(StreamType stream, bool only = false) const
 	{
-		SortedStreamList streams;
-		collectStreams(streams);
+		SortedStreamList nodeStreams;
+		collectStreams(nodeStreams);
 
-		return streams.exist(stream);
+		return only ?
+			nodeStreams.getCount() == 1 && nodeStreams[0] == stream :
+			nodeStreams.exist(stream);
+	}
+
+	bool containsAnyStream(const StreamList& streams) const
+	{
+		SortedStreamList nodeStreams;
+		collectStreams(nodeStreams);
+
+		for (const auto stream : streams)
+		{
+			if (nodeStreams.exist(stream))
+				return true;
+		}
+
+		return false;
 	}
 
 	virtual bool dsqlMatch(DsqlCompilerScratch* dsqlScratch, const ExprNode* other, bool ignoreMapCast) const;
@@ -1031,6 +1050,11 @@ public:
 		return true;
 	}
 
+	virtual bool ignoreNulls(const StreamList& /*streams*/) const
+	{
+		return false;
+	}
+
 	virtual void collectStreams(SortedStreamList& /*streamList*/) const
 	{
 		// ASF: Although in v2.5 the visitor happens normally for the node childs, nod_count has
@@ -1109,6 +1133,7 @@ public:
 	static const USHORT DFLAG_DT_CTE_USED				= 0x20;
 	static const USHORT DFLAG_CURSOR					= 0x40;
 	static const USHORT DFLAG_LATERAL					= 0x80;
+	static const USHORT DFLAG_PLAN_ITEM					= 0x100;
 
 	RecordSourceNode(Type aType, MemoryPool& pool)
 		: ExprNode(aType, pool),
@@ -1154,6 +1179,7 @@ public:
 	virtual RecordSourceNode* pass2(thread_db* tdbb, CompilerScratch* csb) = 0;
 	virtual void pass2Rse(thread_db* tdbb, CompilerScratch* csb) = 0;
 	virtual bool containsStream(StreamType checkStream) const = 0;
+
 	virtual void genBlr(DsqlCompilerScratch* /*dsqlScratch*/)
 	{
 		fb_assert(false);
@@ -1162,6 +1188,11 @@ public:
 	virtual bool possiblyUnknown() const
 	{
 		return true;
+	}
+
+	virtual bool ignoreNulls(const StreamList& /*streams*/) const
+	{
+		return false;
 	}
 
 	virtual bool unmappable(const MapNode* /*mapNode*/, StreamType /*shellStream*/) const
@@ -1438,6 +1469,7 @@ public:
 	static const unsigned MARK_MERGE			= 0x02;	// node is part of MERGE statement
 	static const unsigned MARK_FOR_UPDATE		= 0x04;	// implicit cursor used in UPDATE\DELETE\MERGE statement
 	static const unsigned MARK_AVOID_COUNTERS	= 0x08;	// do not touch record counters
+	static const unsigned MARK_BULK_INSERT		= 0x10; // StoreNode is used for bulk operation
 
 	struct ExeState
 	{
@@ -1527,6 +1559,11 @@ public:
 			Firebird::Arg::Num(int(getType())));
 
 		return NULL;
+	}
+
+	virtual bool isProfileAware() const
+	{
+		return true;
 	}
 
 	virtual const StmtNode* execute(thread_db* tdbb, Request* request, ExeState* exeState) const = 0;

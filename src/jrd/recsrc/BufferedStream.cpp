@@ -40,11 +40,14 @@ using namespace Jrd;
 // --------------------------
 
 BufferedStream::BufferedStream(CompilerScratch* csb, RecordSource* next)
-	: m_next(next), m_map(csb->csb_pool)
+	: BaseBufferedStream(csb),
+	  m_next(next),
+	  m_map(csb->csb_pool)
 {
 	fb_assert(m_next);
 
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = next->getCardinality();
 
 	StreamList streams;
 	m_next->findUsedStreams(streams);
@@ -112,7 +115,7 @@ BufferedStream::BufferedStream(CompilerScratch* csb, RecordSource* next)
 	m_format = format;
 }
 
-void BufferedStream::open(thread_db* tdbb) const
+void BufferedStream::internalOpen(thread_db* tdbb) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -147,7 +150,7 @@ void BufferedStream::close(thread_db* tdbb) const
 	}
 }
 
-bool BufferedStream::getRecord(thread_db* tdbb) const
+bool BufferedStream::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -306,12 +309,17 @@ bool BufferedStream::refetchRecord(thread_db* tdbb) const
 	return m_next->refetchRecord(tdbb);
 }
 
-bool BufferedStream::lockRecord(thread_db* tdbb) const
+WriteLockResult BufferedStream::lockRecord(thread_db* tdbb, bool skipLocked) const
 {
-	return m_next->lockRecord(tdbb);
+	return m_next->lockRecord(tdbb, skipLocked);
 }
 
-void BufferedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+void BufferedStream::getChildren(Array<const RecordSource*>& children) const
+{
+	children.add(m_next);
+}
+
+void BufferedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
 {
 	if (detailed)
 	{
@@ -319,9 +327,11 @@ void BufferedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigne
 		extras.printf(" (record length: %" ULONGFORMAT")", m_format->fmt_length);
 
 		plan += printIndent(++level) + "Record Buffer" + extras;
+		printOptInfo(plan);
 	}
 
-	m_next->print(tdbb, plan, detailed, level);
+	if (recurse)
+		m_next->print(tdbb, plan, detailed, level, recurse);
 }
 
 void BufferedStream::markRecursive()

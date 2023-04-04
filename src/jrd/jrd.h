@@ -62,6 +62,7 @@
 #include "../jrd/Attachment.h"
 #include "firebird/Interface.h"
 
+#include <cds/threading/model.h>	// cds::threading::Manager
 
 #define BUGCHECK(number)		ERR_bugcheck(number, __FILE__, __LINE__)
 #define SOFT_BUGCHECK(number)	ERR_soft_bugcheck(number, __FILE__, __LINE__)
@@ -141,6 +142,8 @@ public:
 	ValueExprNode* idb_expression;			// node tree for index expression
 	Statement* idb_expression_statement;	// statement for index expression evaluation
 	dsc			idb_expression_desc;		// descriptor for expression result
+	BoolExprNode* idb_condition;			// node tree for index condition
+	Statement* idb_condition_statement;		// statement for index condition evaluation
 	Lock*		idb_lock;					// lock to synchronize changes to index
 	USHORT		idb_id;
 };
@@ -597,19 +600,23 @@ class ThreadContextHolder
 {
 public:
 	explicit ThreadContextHolder(Firebird::CheckStatusWrapper* status = NULL)
-		: currentStatus(status ? status : &localStatus), context(currentStatus)
+		: context(status ? status : &localStatus)
 	{
 		context.putSpecific();
-		currentStatus->init();
+
+		if (!cds::threading::Manager::isThreadAttached())
+			cds::threading::Manager::attachThread();
 	}
 
 	ThreadContextHolder(Database* dbb, Jrd::Attachment* att, FbStatusVector* status = NULL)
-		: currentStatus(status ? status : &localStatus), context(currentStatus)
+		: context(status ? status : &localStatus)
 	{
 		context.putSpecific();
 		context.setDatabase(dbb);
 		context.setAttachment(att);
-		currentStatus->init();
+
+		if (!cds::threading::Manager::isThreadAttached())
+			cds::threading::Manager::attachThread();
 	}
 
 	~ThreadContextHolder()
@@ -633,7 +640,6 @@ private:
 	ThreadContextHolder& operator= (const ThreadContextHolder&);
 
 	Firebird::FbLocalStatus localStatus;
-	FbStatusVector* currentStatus;
 	thread_db context;
 };
 
@@ -801,6 +807,37 @@ namespace Jrd {
 		BackgroundContextHolder& operator=(const BackgroundContextHolder&);
 	};
 
+	class AttachmentHolder
+	{
+	public:
+		static const unsigned ATT_LOCK_ASYNC			= 1;
+		static const unsigned ATT_DONT_LOCK				= 2;
+		static const unsigned ATT_NO_SHUTDOWN_CHECK		= 4;
+		static const unsigned ATT_NON_BLOCKING			= 8;
+
+		AttachmentHolder(thread_db* tdbb, StableAttachmentPart* sa, unsigned lockFlags, const char* from);
+		~AttachmentHolder();
+
+	private:
+		Firebird::RefPtr<StableAttachmentPart> sAtt;
+		bool async;			// async mutex should be locked instead normal
+		bool nolock; 		// if locked manually, no need to take lock recursively
+		bool blocking;		// holder instance is blocking other instances
+
+	private:
+		// copying is prohibited
+		AttachmentHolder(const AttachmentHolder&);
+		AttachmentHolder& operator =(const AttachmentHolder&);
+	};
+
+	class EngineContextHolder final : public ThreadContextHolder, private AttachmentHolder, private DatabaseContextHolder
+	{
+	public:
+		template <typename I>
+		EngineContextHolder(Firebird::CheckStatusWrapper* status, I* interfacePtr, const char* from,
+							unsigned lockFlags = 0);
+	};
+
 	class AstLockHolder : public Firebird::ReadLockGuard
 	{
 	public:
@@ -850,18 +887,43 @@ namespace Jrd {
 	class EngineCheckout
 	{
 	public:
-		EngineCheckout(thread_db* tdbb, const char* from, bool optional = false)
+		enum Type
+		{
+			REQUIRED,
+			UNNECESSARY,
+			AVOID
+		};
+
+		EngineCheckout(thread_db* tdbb, const char* from, Type type = REQUIRED)
 			: m_tdbb(tdbb), m_from(from)
 		{
-			Attachment* const att = tdbb ? tdbb->getAttachment() : NULL;
+			if (type != AVOID)
+			{
+				Attachment* const att = tdbb ? tdbb->getAttachment() : NULL;
 
-			if (att)
-				m_ref = att->getStable();
+				if (att)
+					m_ref = att->getStable();
 
-			fb_assert(optional || m_ref.hasData());
+				fb_assert(type == UNNECESSARY || m_ref.hasData());
 
-			if (m_ref.hasData())
-				m_ref->getSync()->leave();
+				if (m_ref.hasData())
+					m_ref->getSync()->leave();
+			}
+		}
+
+		EngineCheckout(Attachment* att, const char* from, Type type = REQUIRED)
+			: m_tdbb(nullptr), m_from(from)
+		{
+			if (type != AVOID)
+			{
+				fb_assert(type == UNNECESSARY || att);
+
+				if (att && att->att_use_count)
+				{
+					m_ref = att->getStable();
+					m_ref->getSync()->leave();
+				}
+			}
 		}
 
 		~EngineCheckout()
@@ -895,7 +957,7 @@ namespace Jrd {
 		{
 			if (!m_mutex.tryEnter(from))
 			{
-				EngineCheckout cout(tdbb, from, optional);
+				EngineCheckout cout(tdbb, from, optional ? EngineCheckout::UNNECESSARY : EngineCheckout::REQUIRED);
 				m_mutex.enter(from);
 			}
 		}
@@ -923,7 +985,7 @@ namespace Jrd {
 		{
 			if (!m_sync.lockConditional(type, from))
 			{
-				EngineCheckout cout(tdbb, from, optional);
+				EngineCheckout cout(tdbb, from, optional ? EngineCheckout::UNNECESSARY : EngineCheckout::REQUIRED);
 				m_sync.lock(type);
 			}
 		}

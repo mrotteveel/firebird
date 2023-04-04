@@ -682,8 +682,13 @@ using namespace Firebird;
 %token <metaNamePtr> DEBUG
 %token <metaNamePtr> PKCS_1_5
 
+// tokens added for Firebird 4.0.2
+
+%token <metaNamePtr> BLOB_APPEND
+
 // tokens added for Firebird 5.0
 
+%token <metaNamePtr> LOCKED
 %token <metaNamePtr> TARGET
 %token <metaNamePtr> TIMEZONE_NAME
 %token <metaNamePtr> UNICODE_CHAR
@@ -722,6 +727,7 @@ using namespace Firebird;
 	BaseNullable<bool> nullableBoolVal;
 	BaseNullable<Jrd::TriggerDefinition::SqlSecurity> nullableSqlSecurityVal;
 	BaseNullable<Jrd::OverrideClause> nullableOverrideClause;
+	struct { bool first; bool second; } boolPair;
 	bool boolVal;
 	int intVal;
 	unsigned uintVal;
@@ -1631,6 +1637,14 @@ unique_opt
 
 %type index_definition(<createIndexNode>)
 index_definition($createIndexNode)
+	: index_column_expr($createIndexNode) index_condition_opt
+		{
+			$createIndexNode->partial = $2;
+		}
+	;
+
+%type index_column_expr(<createIndexNode>)
+index_column_expr($createIndexNode)
 	: column_list
 		{ $createIndexNode->columns = $1; }
 	| column_parens
@@ -1643,6 +1657,18 @@ index_definition($createIndexNode)
 		}
 	;
 
+%type <boolSourceClause> index_condition_opt
+index_condition_opt
+	: /* nothing */
+		{ $$ = nullptr; }
+	| WHERE search_condition
+		{
+			auto clause = newNode<BoolSourceClause>();
+			clause->value = $2;
+			clause->source = makeParseStr(YYPOSNARG(1), YYPOSNARG(2));
+			$$ = clause;
+		}
+	;
 
 // CREATE SHADOW
 %type <createShadowNode> shadow_clause
@@ -5647,6 +5673,8 @@ comment
 		{ $$ = newNode<CommentOnNode>($3, *$4, "", *$6); }
 	| comment_on_user
 		{ $$ = $1; }
+	| comment_on_mapping
+		{ $$ = $1; }
 	;
 
 %type <createAlterUserNode> comment_on_user
@@ -5740,7 +5768,8 @@ select
 			SelectNode* node = newNode<SelectNode>();
 			node->dsqlExpr = $1;
 			node->dsqlForUpdate = $2;
-			node->dsqlWithLock = $3;
+			node->dsqlWithLock = $3.first;
+			node->dsqlSkipLocked = $3.second;
 			$$ = node;
 		}
 	;
@@ -5757,10 +5786,16 @@ for_update_list
 	| OF column_list	{ $$ = $2; }
 	;
 
-%type <boolVal>	lock_clause
+%type <boolPair> lock_clause
 lock_clause
-	: /* nothing */	{ $$ = false; }
-	| WITH LOCK		{ $$ = true; }
+	: /* nothing */						{ $$ = {false, false}; }
+	| WITH LOCK skip_locked_clause_opt	{ $$ = {true, $3}; }
+	;
+
+%type <boolVal>	skip_locked_clause_opt
+skip_locked_clause_opt
+	: /* nothing */			{ $$ = false; }
+	| SKIP LOCKED			{ $$ = true; }
 	;
 
 
@@ -6630,15 +6665,22 @@ delete
 
 %type <stmtNode> delete_searched
 delete_searched
-	: DELETE FROM table_name where_clause plan_clause order_clause_opt rows_clause_optional returning_clause
+	: DELETE FROM table_name
+			where_clause
+			plan_clause
+			order_clause_opt
+			rows_clause_optional
+			skip_locked_clause_opt
+			returning_clause
 		{
-			EraseNode* node = newNode<EraseNode>();
+			const auto node = newNode<EraseNode>();
 			node->dsqlRelation = $3;
 			node->dsqlBoolean = $4;
 			node->dsqlPlan = $5;
 			node->dsqlOrder = $6;
 			node->dsqlRows = $7;
-			node->dsqlReturning = $8;
+			node->dsqlSkipLocked = $8;
+			node->dsqlReturning = $9;
 			$$ = node;
 		}
 	;
@@ -6666,8 +6708,14 @@ update
 
 %type <stmtNode> update_searched
 update_searched
-	: UPDATE table_name SET update_assignments(NOTRIAL(&$2->dsqlName)) where_clause plan_clause
-			order_clause_opt rows_clause_optional returning_clause
+	: UPDATE table_name
+			SET update_assignments(NOTRIAL(&$2->dsqlName))
+			where_clause
+			plan_clause
+			order_clause_opt
+			rows_clause_optional
+			skip_locked_clause_opt
+			returning_clause
 		{
 			ModifyNode* node = newNode<ModifyNode>();
 			node->dsqlRelation = $2;
@@ -6676,7 +6724,8 @@ update_searched
 			node->dsqlPlan = $6;
 			node->dsqlOrder = $7;
 			node->dsqlRows = $8;
-			node->dsqlReturning = $9;
+			node->dsqlSkipLocked = $9;
+			node->dsqlReturning = $10;
 			$$ = node;
 		}
 	;
@@ -7300,6 +7349,28 @@ drop_map_clause($global)
  			MappingNode* node = newNode<MappingNode>(MappingNode::MAP_DROP, *$1);
 			node->global = $global;
 			$$ = node;
+		}
+	;
+
+%type <mappingNode> comment_on_mapping
+comment_on_mapping
+	: COMMENT ON MAPPING map_comment(false)
+		{
+			$$ = $4;
+		}
+	| COMMENT ON GLOBAL MAPPING map_comment(true)
+		{
+			$$ = $5;
+		}
+	;
+
+%type <mappingNode> map_comment(<boolVal>)
+map_comment($global)
+	: map_name IS ddl_desc
+		{
+ 			$$ = newNode<MappingNode>(MappingNode::MAP_COMMENT, *$1);
+			$$->global = $global;
+			$$->comment = $3;
 		}
 	;
 
@@ -8143,6 +8214,7 @@ system_function_std_syntax
 	| BIN_SHL
 	| BIN_SHR
 	| BIN_XOR
+	| BLOB_APPEND
 	| CEIL
 	| CHAR_TO_UUID
 	| COS
@@ -9036,7 +9108,8 @@ non_reserved_word
 	| SERVERWIDE
 	| INCREMENT
 	| TRUSTED
-	| BASE64_DECODE		// added in FB 4.0
+	// added in FB 4.0
+	| BASE64_DECODE
 	| BASE64_ENCODE
 	| BIND
 	| CLEAR
@@ -9100,9 +9173,14 @@ non_reserved_word
 	| TOTALORDER
 	| TRAPS
 	| ZONE
-	| DEBUG				// added in FB 4.0.1
+	// added in FB 4.0.1
+	| DEBUG
 	| PKCS_1_5
-	| TARGET			// added in FB 5.0
+	// added in FB 4.0.2
+	| BLOB_APPEND
+	// added in FB 5.0
+	| LOCKED
+	| TARGET
 	| TIMEZONE_NAME
 	| UNICODE_CHAR
 	| UNICODE_VAL

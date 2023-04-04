@@ -30,6 +30,7 @@
 #include "../jrd/evl_proto.h"
 #include "../jrd/mov_proto.h"
 #include "../jrd/intl_proto.h"
+#include "../jrd/optimizer/Optimizer.h"
 
 #include "RecordSource.h"
 
@@ -43,6 +44,15 @@ using namespace Jrd;
 // NS: FIXME - Why use static hash table here??? Hash table shall support dynamic resizing
 static const ULONG HASH_SIZE = 1009;
 static const ULONG BUCKET_PREALLOCATE_SIZE = 32;	// 256 bytes per slot
+
+unsigned HashJoin::maxCapacity()
+{
+	// Binary search across 1000 collisions is computationally similar to
+	// linear search across 10 collisions. We use this number as a rough
+	// estimation of whether the lookup performance is likely to be acceptable.
+	return HASH_SIZE * 1000;
+}
+
 
 class HashJoin::HashTable : public PermanentStorage
 {
@@ -208,8 +218,10 @@ private:
 
 
 HashJoin::HashJoin(thread_db* tdbb, CompilerScratch* csb, FB_SIZE_T count,
-				   RecordSource* const* args, NestValueArray* const* keys)
-	: m_args(csb->csb_pool, count - 1)
+				   RecordSource* const* args, NestValueArray* const* keys,
+				   double selectivity)
+	: RecordSource(csb),
+	  m_args(csb->csb_pool, count - 1)
 {
 	fb_assert(count >= 2);
 
@@ -220,6 +232,8 @@ HashJoin::HashJoin(thread_db* tdbb, CompilerScratch* csb, FB_SIZE_T count,
 	const FB_SIZE_T leaderKeyCount = m_leader.keys->getCount();
 	m_leader.keyLengths = FB_NEW_POOL(csb->csb_pool) ULONG[leaderKeyCount];
 	m_leader.totalKeyLength = 0;
+
+	m_cardinality = m_leader.source->getCardinality();
 
 	for (FB_SIZE_T j = 0; j < leaderKeyCount; j++)
 	{
@@ -247,6 +261,8 @@ HashJoin::HashJoin(thread_db* tdbb, CompilerScratch* csb, FB_SIZE_T count,
 	{
 		RecordSource* const sub_rsb = args[i];
 		fb_assert(sub_rsb);
+
+		m_cardinality *= sub_rsb->getCardinality();
 
 		SubStream sub;
 		sub.buffer = FB_NEW_POOL(csb->csb_pool) BufferedStream(csb, sub_rsb);
@@ -279,9 +295,18 @@ HashJoin::HashJoin(thread_db* tdbb, CompilerScratch* csb, FB_SIZE_T count,
 
 		m_args.add(sub);
 	}
+
+	if (!selectivity)
+	{
+		selectivity = MAXIMUM_SELECTIVITY;
+		for (auto keyCount = m_leader.keys->getCount(); keyCount; keyCount--)
+			selectivity *= REDUCE_SELECTIVITY_FACTOR_EQUALITY;
+	}
+
+	m_cardinality *= selectivity;
 }
 
-void HashJoin::open(thread_db* tdbb) const
+void HashJoin::internalOpen(thread_db* tdbb) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -346,7 +371,7 @@ void HashJoin::close(thread_db* tdbb) const
 	}
 }
 
-bool HashJoin::getRecord(thread_db* tdbb) const
+bool HashJoin::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -420,35 +445,46 @@ bool HashJoin::refetchRecord(thread_db* /*tdbb*/) const
 	return true;
 }
 
-bool HashJoin::lockRecord(thread_db* /*tdbb*/) const
+WriteLockResult HashJoin::lockRecord(thread_db* /*tdbb*/, bool /*skipLocked*/) const
 {
 	status_exception::raise(Arg::Gds(isc_record_lock_not_supp));
-	return false; // compiler silencer
 }
 
-void HashJoin::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+void HashJoin::getChildren(Array<const RecordSource*>& children) const
+{
+	children.add(m_leader.source);
+
+	for (FB_SIZE_T i = 0; i < m_args.getCount(); i++)
+		children.add(m_args[i].source);
+}
+
+void HashJoin::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
 {
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Hash Join (inner)";
+		printOptInfo(plan);
 
-		m_leader.source->print(tdbb, plan, true, level);
+		if (recurse)
+		{
+			m_leader.source->print(tdbb, plan, true, level, recurse);
 
-		for (FB_SIZE_T i = 0; i < m_args.getCount(); i++)
-			m_args[i].source->print(tdbb, plan, true, level);
+			for (FB_SIZE_T i = 0; i < m_args.getCount(); i++)
+				m_args[i].source->print(tdbb, plan, true, level, recurse);
+		}
 	}
 	else
 	{
 		level++;
 		plan += "HASH (";
-		m_leader.source->print(tdbb, plan, false, level);
+		m_leader.source->print(tdbb, plan, false, level, recurse);
 		plan += ", ";
 		for (FB_SIZE_T i = 0; i < m_args.getCount(); i++)
 		{
 			if (i)
 				plan += ", ";
 
-			m_args[i].source->print(tdbb, plan, false, level);
+			m_args[i].source->print(tdbb, plan, false, level, recurse);
 		}
 		plan += ")";
 	}

@@ -655,7 +655,7 @@ int gstat(Firebird::UtilSvc* uSvc)
 				current->fil_fudge = 1;	// ignore header page once read it
 			*file_name = '\0';
 			const UCHAR* vp = header->hdr_data;
-			for (const UCHAR* const vend = vp + header->hdr_page_size;
+			for (const UCHAR* const vend = reinterpret_cast<const UCHAR*>(header) + header->hdr_page_size;
 				 vp < vend && *vp != HDR_end; vp += 2 + vp[1])
 			{
 				if (*vp == HDR_file)
@@ -1142,6 +1142,7 @@ int gstat(Firebird::UtilSvc* uSvc)
 	{
 		ex.stuffException(permStatus);
 		fb_utils::copyStatus(status_vector, ISC_STATUS_LENGTH, permStatus.value(), permStatus.length());
+		tddba->exit_code = FB_FAILURE;
 	}
 
 	// free mem

@@ -147,6 +147,8 @@ public:
 #endif
 	}
 
+	bool check(const char* name, USHORT type, USHORT version, bool raiseError = true) const;
+
 	void markAsDeleted()
 	{
 		mhb_flags |= FLAG_DELETED;
@@ -179,11 +181,14 @@ public:
 #endif
 
 class CountedFd;
+class CountedRWLock;
 
 class FileLock
 {
+	friend class CountedRWLock;
+
 public:
-	enum LockMode {FLM_EXCLUSIVE, FLM_TRY_EXCLUSIVE, FLM_SHARED, FLM_TRY_SHARED};
+	enum LockMode {FLM_EXCLUSIVE, FLM_TRY_EXCLUSIVE, FLM_SHARED};
 
 	typedef void InitFunction(int fd);
 	explicit FileLock(const char* fileName, InitFunction* init = NULL);		// main ctor
@@ -227,6 +232,20 @@ public:
 	virtual bool initialize(SharedMemoryBase*, bool) = 0;
 	virtual void mutexBug(int osErrorCode, const char* text) = 0;
 	//virtual void eventBug(int osErrorCode, const char* text) = 0;
+
+	virtual USHORT getType() const = 0;
+	virtual USHORT getVersion() const = 0;
+	virtual const char* getName() const = 0;
+
+	virtual void initHeader(MemoryHeader* header)
+	{
+		header->init(getType(), getVersion());
+	}
+
+	virtual bool checkHeader(const MemoryHeader* header, bool raiseError = true)
+	{
+		return header->check(getName(), getType(), getVersion(), raiseError);
+	}
 };
 
 
@@ -252,6 +271,8 @@ public:
 #endif
 	bool remapFile(Firebird::CheckStatusWrapper* status, ULONG newSize, bool truncateFlag);
 	void removeMapFile();
+	static void unlinkFile(const TEXT* expanded_filename) noexcept;
+	Firebird::PathName getMapFileName();
 
 	void mutexLock();
 	bool mutexLockCond();
@@ -313,7 +334,9 @@ public:
 		SRAM_TPC_HEADER = 0xF9,
 		SRAM_TPC_BLOCK = 0xF8,
 		SRAM_TPC_SNAPSHOTS = 0xF7,
-		SRAM_CHANGELOG_STATE = 0xF6
+		SRAM_CHANGELOG_STATE = 0xF6,
+		SRAM_TRACE_AUDIT_MTX = 0xF5,
+		SRAM_PROFILER = 0XF4
 	};
 
 protected:

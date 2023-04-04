@@ -519,8 +519,24 @@ int EXTRACT_list_table(const SCHAR* relation_name,
 					(RFR.RDB$IDENTITY_TYPE == IDENT_TYPE_BY_DEFAULT ? "BY DEFAULT" :
 					 RFR.RDB$IDENTITY_TYPE == IDENT_TYPE_ALWAYS ? "ALWAYS" : ""));
 
-				if (!GEN.RDB$INITIAL_VALUE.NULL && GEN.RDB$INITIAL_VALUE != 0)
-					isqlGlob.printf(" (START WITH %" SQUADFORMAT ")", GEN.RDB$INITIAL_VALUE);
+				const bool printInitial = !GEN.RDB$INITIAL_VALUE.NULL && GEN.RDB$INITIAL_VALUE != 0;
+				const bool printIncrement = !GEN.RDB$GENERATOR_INCREMENT.NULL && GEN.RDB$GENERATOR_INCREMENT != 1;
+
+				if (printInitial || printIncrement)
+				{
+					isqlGlob.printf(" (");
+
+					if (printInitial)
+					{
+						isqlGlob.printf("START WITH %" SQUADFORMAT "%s",
+							GEN.RDB$INITIAL_VALUE, (printIncrement ? " " : ""));
+					}
+
+					if (printIncrement)
+						isqlGlob.printf("INCREMENT %" SLONGFORMAT, GEN.RDB$GENERATOR_INCREMENT);
+
+					isqlGlob.printf(")");
+				}
 			}
 			END_FOR
 			ON_ERROR
@@ -3356,12 +3372,27 @@ static void list_indexes()
 			isqlGlob.printf(" COMPUTED BY ");
 			if (!IDX.RDB$EXPRESSION_SOURCE.NULL)
 				SHOW_print_metadata_text_blob(isqlGlob.Out, &IDX.RDB$EXPRESSION_SOURCE, false, true);
-			isqlGlob.printf("%s%s", isqlGlob.global_Term, NEWLINE);
 		}
 		else if (ISQL_get_index_segments (collist, sizeof(collist), IDX.RDB$INDEX_NAME, true))
 		{
-			isqlGlob.printf(" (%s)%s%s", collist, isqlGlob.global_Term, NEWLINE);
+			isqlGlob.printf(" (%s)", collist);
 		}
+
+		// Get index condition, if present
+
+		if (ENCODE_ODS(isqlGlob.major_ods, isqlGlob.minor_ods) >= ODS_13_1)
+		{
+			FOR IDX2 IN RDB$INDICES WITH
+				IDX2.RDB$INDEX_NAME = IDX.RDB$INDEX_NAME
+				AND IDX2.RDB$CONDITION_SOURCE NOT MISSING
+			{
+				isqlGlob.printf("%s ", NEWLINE);
+				SHOW_print_metadata_text_blob(isqlGlob.Out, &IDX2.RDB$CONDITION_SOURCE, false, true);
+			}
+			END_FOR
+		}
+
+		isqlGlob.printf("%s%s", isqlGlob.global_Term, NEWLINE);
 
 	END_FOR
 	ON_ERROR

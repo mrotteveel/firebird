@@ -465,10 +465,10 @@ static void gen_plan(DsqlCompilerScratch* dsqlScratch, const PlanNode* planNode)
 		// stuff the relation -- the relation id itself is redundant except
 		// when there is a need to differentiate the base tables of views
 
-		// ASF: node->dsqlRecordSourceNode may be NULL, and then a BLR error will happen.
+		// ASF: node->recordSourceNode may be NULL, and then a BLR error will happen.
 		// Example command: select * from (select * from t1) a plan (a natural);
-		if (node->dsqlRecordSourceNode)
-			node->dsqlRecordSourceNode->genBlr(dsqlScratch);
+		if (node->recordSourceNode)
+			node->recordSourceNode->genBlr(dsqlScratch);
 
 		// now stuff the access method for this stream
 
@@ -547,8 +547,11 @@ void GEN_rse(DsqlCompilerScratch* dsqlScratch, RseNode* rse)
 	for (const NestConst<RecordSourceNode>* const end = rse->dsqlStreams->items.end(); ptr != end; ++ptr)
 		GEN_expr(dsqlScratch, *ptr);
 
-	if (rse->flags & RseNode::FLAG_WRITELOCK)
+	if (rse->hasWriteLock())
 		dsqlScratch->appendUChar(blr_writelock);
+
+	if (rse->hasSkipLocked())
+		dsqlScratch->appendUChar(blr_skip_locked);
 
 	if (rse->dsqlFirst)
 	{

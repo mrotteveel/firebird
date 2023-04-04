@@ -846,7 +846,7 @@ const StmtNode* CompoundStmtNode::execute(thread_db* tdbb, Request* request, Exe
 {
 	const NestConst<StmtNode>* end = statements.end();
 
-	if (onlyAssignments)
+	if (onlyAssignments && !request->req_attachment->isProfilerActive())
 	{
 		if (request->req_operation == Request::req_evaluate)
 		{
@@ -1239,13 +1239,13 @@ DeclareCursorNode* DeclareCursorNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 	dt->querySpec = dsqlSelect->dsqlExpr;
 	dt->alias = dsqlName.c_str();
 
-	rse = PASS1_derived_table(dsqlScratch, dt, NULL, dsqlSelect->dsqlWithLock);
+	rse = PASS1_derived_table(dsqlScratch, dt, NULL, dsqlSelect->dsqlWithLock, dsqlSelect->dsqlSkipLocked);
 
 	// Assign number and store in the dsqlScratch stack.
 	cursorNumber = dsqlScratch->cursorNumber++;
 	dsqlScratch->cursors.push(this);
 
-	dsqlScratch->putDebugCursor(cursorNumber, dsqlName);
+	dsqlScratch->putDebugDeclaredCursor(cursorNumber, dsqlName);
 
 	++dsqlScratch->scopeLevel;
 
@@ -1303,14 +1303,17 @@ DeclareCursorNode* DeclareCursorNode::pass2(thread_db* tdbb, CompilerScratch* cs
 	ExprNode::doPass2(tdbb, csb, rse.getAddress());
 	ExprNode::doPass2(tdbb, csb, refs.getAddress());
 
+	MetaName cursorName;
+	csb->csb_dbg_info->declaredCursorIndexToName.get(cursorNumber, cursorName);
+
 	// Finish up processing of record selection expressions.
 
 	RecordSource* const rsb = CMP_post_rse(tdbb, csb, rse.getObject());
-	csb->csb_fors.add(rsb);
 
-	cursor = FB_NEW_POOL(*tdbb->getDefaultPool()) Cursor(csb, rsb, rse->rse_invariants,
-		(rse->flags & RseNode::FLAG_SCROLLABLE), true);
-	csb->csb_dbg_info->curIndexToName.get(cursorNumber, cursor->name);
+	cursor = FB_NEW_POOL(*tdbb->getDefaultPool())
+		Cursor(csb, rsb, rse, true, line, column, cursorName);
+
+	csb->csb_fors.add(cursor);
 
 	StreamList cursorStreams;
 	cursor->getAccessPath()->findUsedStreams(cursorStreams);
@@ -1445,10 +1448,7 @@ const StmtNode* DeclareLocalTableNode::execute(thread_db* tdbb, Request* request
 	if (request->req_operation == Request::req_evaluate)
 	{
 		if (auto& recordBuffer = getImpure(tdbb, request, false)->recordBuffer)
-		{
-			delete recordBuffer;
-			recordBuffer = nullptr;
-		}
+			recordBuffer->reset();
 
 		request->req_operation = Request::req_return;
 	}
@@ -2164,11 +2164,11 @@ DmlNode* DeclareVariableNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerS
 		csb->csb_map_item_info.put(Item(Item::TYPE_VARIABLE, node->varId), itemInfo);
 	}
 
-	if ((csb->csb_g_flags & csb_get_dependencies) && itemInfo.explicitCollation)
+	if (csb->collectingDependencies() && itemInfo.explicitCollation)
 	{
 		CompilerScratch::Dependency dependency(obj_collation);
 		dependency.number = INTL_TEXT_TYPE(node->varDesc);
-		csb->csb_dependencies.push(dependency);
+		csb->addDependency(dependency);
 	}
 
 	return node;
@@ -2281,6 +2281,7 @@ StmtNode* EraseNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 
 	const auto node = FB_NEW_POOL(dsqlScratch->getPool()) EraseNode(dsqlScratch->getPool());
 	node->dsqlCursorName = dsqlCursorName;
+	node->dsqlSkipLocked = dsqlSkipLocked;
 
 	if (dsqlCursorName.hasData() && dsqlScratch->isPsql())
 	{
@@ -2329,6 +2330,9 @@ StmtNode* EraseNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 
 		if (dsqlRows)
 			PASS1_limit(dsqlScratch, dsqlRows->length, dsqlRows->skip, rse);
+
+		if (dsqlSkipLocked)
+			rse->flags |= RseNode::FLAG_WRITELOCK | RseNode::FLAG_SKIP_LOCKED;
 	}
 
 	if (dsqlReturning && dsqlScratch->isPsql())
@@ -2794,11 +2798,11 @@ DmlNode* ErrorHandlerNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScra
 				if (!MET_load_exception(tdbb, item))
 					PAR_error(csb, Arg::Gds(isc_xcpnotdef) << item.name);
 
-				if (csb->csb_g_flags & csb_get_dependencies)
+				if (csb->collectingDependencies())
 				{
 					CompilerScratch::Dependency dependency(obj_exception);
 					dependency.number = item.code;
-					csb->csb_dependencies.push(dependency);
+					csb->addDependency(dependency);
 				}
 
 				break;
@@ -2926,6 +2930,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 {
 	SET_TDBB(tdbb);
 
+	const auto blrStartPos = csb->csb_blr_reader.getPos();
 	jrd_prc* procedure = NULL;
 	HazardPtr<jrd_prc> proc(FB_FUNCTION);
 	QualifiedName name;
@@ -2963,6 +2968,25 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 
 	if (!procedure)
 		PAR_error(csb, Arg::Gds(isc_prcnotdef) << Arg::Str(name.toString()));
+	else
+	{
+		if (procedure->isImplemented() && !procedure->isDefined())
+		{
+			if (tdbb->getAttachment()->isGbak() || (tdbb->tdbb_flags & TDBB_replicator))
+			{
+				PAR_warning(
+					Arg::Warning(isc_prcnotdef) << Arg::Str(name.toString()) <<
+					Arg::Warning(isc_modnotfound));
+			}
+			else
+			{
+				csb->csb_blr_reader.setPos(blrStartPos);
+				PAR_error(csb,
+					Arg::Gds(isc_prcnotdef) << Arg::Str(name.toString()) <<
+					Arg::Gds(isc_modnotfound));
+			}
+		}
+	}
 
 	ExecProcedureNode* node = FB_NEW_POOL(pool) ExecProcedureNode(pool);
 	node->procedure = procedure;
@@ -2972,11 +2996,11 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 	PAR_procedure_parms(tdbb, csb, procedure, node->outputMessage.getAddress(),
 		node->outputSources.getAddress(), node->outputTargets.getAddress(), false);
 
-	if ((csb->csb_g_flags & csb_get_dependencies) && !procedure->isSubRoutine())
+	if (csb->collectingDependencies() && !procedure->isSubRoutine())
 	{
 		CompilerScratch::Dependency dependency(obj_procedure);
 		dependency.procedure = procedure;
-		csb->csb_dependencies.push(dependency);
+		csb->addDependency(dependency);
 	}
 
 	return node;
@@ -3239,6 +3263,12 @@ void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) cons
 		status_exception::raise(
 			Arg::Gds(isc_proc_pack_not_implemented) <<
 				Arg::Str(procedure->getName().identifier) << Arg::Str(procedure->getName().package));
+	}
+	else if (!procedure->isDefined())
+	{
+		status_exception::raise(
+			Arg::Gds(isc_prcnotdef) << Arg::Str(procedure->getName().toString()) <<
+			Arg::Gds(isc_modnotfound));
 	}
 
 	const_cast<jrd_prc*>(procedure.getObject())->checkReload(tdbb);
@@ -4040,7 +4070,6 @@ const StmtNode* InAutonomousTransactionNode::execute(thread_db* tdbb, Request* r
 		jrd_tra* const org_transaction = request->req_transaction;
 		fb_assert(tdbb->getTransaction() == org_transaction);
 
-
 		ULONG transaction_flags = org_transaction->tra_flags;
 
 		// Replace Read Consistency by Concurrecy isolation mode
@@ -4051,6 +4080,7 @@ const StmtNode* InAutonomousTransactionNode::execute(thread_db* tdbb, Request* r
 											   org_transaction->tra_lock_timeout,
 											   org_transaction);
 
+		request->pushTransaction();
 		TRA_attach_request(transaction, request);
 		tdbb->setTransaction(transaction);
 
@@ -4061,12 +4091,13 @@ const StmtNode* InAutonomousTransactionNode::execute(thread_db* tdbb, Request* r
 		}
 		catch (Exception&)
 		{
+			TRA_detach_request(request);
+			request->popTransaction();
 			TRA_attach_request(org_transaction, request);
 			tdbb->setTransaction(org_transaction);
 			throw;
 		}
 
-		request->pushTransaction(org_transaction);
 		impure->traNumber = transaction->tra_number;
 
 		const Savepoint* const savepoint = transaction->startSavepoint();
@@ -4172,6 +4203,10 @@ const StmtNode* InAutonomousTransactionNode::execute(thread_db* tdbb, Request* r
 	}
 
 	impure->traNumber = impure->savNumber = 0;
+
+	// Normally request is detached by commit/rollback, but they may fail.
+	// It should be done before request->popTransaction().
+	TRA_detach_request(request);
 	transaction = request->popTransaction();
 
 	TRA_attach_request(transaction, request);
@@ -4233,7 +4268,7 @@ InitVariableNode* InitVariableNode::pass1(thread_db* /*tdbb*/, CompilerScratch* 
 	vec<DeclareVariableNode*>* vector = csb->csb_variables;
 
 	if (!vector || varId >= vector->count() || !(varDecl = (*vector)[varId]))
-		PAR_error(csb, Arg::Gds(isc_badvarnum));
+		status_exception::raise(Arg::Gds(isc_badvarnum));
 
 	return this;
 }
@@ -4580,11 +4615,11 @@ DmlNode* ExceptionNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch
 					if (!MET_load_exception(tdbb, *item))
 						PAR_error(csb, Arg::Gds(isc_xcpnotdef) << item->name);
 
-					if (csb->csb_g_flags & csb_get_dependencies)
+					if (csb->collectingDependencies())
 					{
 						CompilerScratch::Dependency dependency(obj_exception);
 						dependency.number = item->code;
-						csb->csb_dependencies.push(dependency);
+						csb->addDependency(dependency);
 					}
 				}
 				break;
@@ -4880,6 +4915,9 @@ DmlNode* ForNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb,
 {
 	ForNode* node = FB_NEW_POOL(pool) ForNode(pool);
 
+	if (auto cursorName = csb->csb_dbg_info->forCursorOffsetToName.get(csb->csb_blr_reader.getOffset() - 1))
+		csb->csb_forCursorNames.put(node, *cursorName);
+
 	if (csb->csb_blr_reader.peekByte() == blr_marks)
 		node->marks |= PAR_marks(csb);
 
@@ -4923,14 +4961,11 @@ ForNode* ForNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 		dt->querySpec = dsqlSelect->dsqlExpr;
 		dt->alias = dsqlCursor->dsqlName.c_str();
 
-		node->rse = PASS1_derived_table(dsqlScratch, dt, NULL, dsqlSelect->dsqlWithLock);
+		node->rse = PASS1_derived_table(dsqlScratch, dt, NULL, dsqlSelect->dsqlWithLock, dsqlSelect->dsqlSkipLocked);
 
 		dsqlCursor->rse = node->rse;
 		dsqlCursor->cursorNumber = dsqlScratch->cursorNumber++;
 		dsqlScratch->cursors.push(dsqlCursor);
-
-		// ASF: We cannot write this cursor name in debug info, as dsqlScratch->cursorNumber is
-		// decremented below. But for now we don't need it.
 	}
 	else
 		node->rse = dsqlSelect->dsqlPass(dsqlScratch)->dsqlRse;
@@ -5000,6 +5035,9 @@ void ForNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 
 	// Generate FOR loop
 
+	if (dsqlCursor)
+		dsqlScratch->putDebugForCursor(dsqlCursor->dsqlName);
+
 	dsqlScratch->appendUChar(blr_for);
 
 	if (marks)
@@ -5067,15 +5105,16 @@ StmtNode* ForNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 	// Finish up processing of record selection expressions.
 
 	RecordSource* const rsb = CMP_post_rse(tdbb, csb, rse.getObject());
-	csb->csb_fors.add(rsb);
 
-	cursor = FB_NEW_POOL(*tdbb->getDefaultPool()) Cursor(csb, rsb, rse->rse_invariants,
-		(rse->flags & RseNode::FLAG_SCROLLABLE), !(marks & MARK_AVOID_COUNTERS));
-	// ASF: We cannot define the name of the cursor here, but this is not a problem,
-	// as implicit cursors are always positioned in a valid record, and the name is
-	// only used to raise isc_cursor_not_positioned.
+	MetaName cursorName;
+	csb->csb_forCursorNames.get(this, cursorName);
 
-	if (rse->flags & RseNode::FLAG_WRITELOCK)
+	cursor = FB_NEW_POOL(*tdbb->getDefaultPool())
+		Cursor(csb, rsb, rse, !(marks & MARK_AVOID_COUNTERS), line, column, cursorName);
+
+	csb->csb_fors.add(cursor);
+
+	if (rse->hasWriteLock())
 		withLock = true;
 
 	if (marks & MARK_MERGE)
@@ -6589,6 +6628,9 @@ StmtNode* ModifyNode::internalDsqlPass(DsqlCompilerScratch* dsqlScratch, bool up
 
 		if (dsqlRows)
 			PASS1_limit(dsqlScratch, dsqlRows->length, dsqlRows->skip, rse);
+
+		if (dsqlSkipLocked)
+			rse->flags |= RseNode::FLAG_WRITELOCK | RseNode::FLAG_SKIP_LOCKED;
 	}
 
 	node->dsqlReturning = dsqlProcessReturning(dsqlScratch,
@@ -7170,30 +7212,7 @@ DmlNode* OuterMapNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch*
 			{
 				const USHORT outerNumber = blrReader.getWord();
 				const USHORT innerNumber = blrReader.getWord();
-
 				csb->outerMessagesMap.put(innerNumber, outerNumber);
-
-				const auto outerMessage = CMP_csb_element(csb->mainCsb, outerNumber)->csb_message;
-				if (!outerMessage)
-				{
-					fb_assert(false);
-					PAR_error(csb, Arg::Gds(isc_random) <<
-						"Invalid blr_outer_map_message: outer message does not exist");
-				}
-
-				const auto tail = CMP_csb_element(csb, innerNumber);
-				if (tail->csb_message)
-				{
-					fb_assert(false);
-					PAR_error(csb, Arg::Gds(isc_random) <<
-						"Invalid blr_outer_map_message: inner message already exist");
-				}
-
-				tail->csb_message = outerMessage;
-
-				if (innerNumber > csb->csb_msg_number)
-					csb->csb_msg_number = innerNumber;
-
 				break;
 			}
 
@@ -7201,29 +7220,8 @@ DmlNode* OuterMapNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch*
 			{
 				const USHORT outerNumber = blrReader.getWord();
 				const USHORT innerNumber = blrReader.getWord();
-
 				csb->mainCsb->csb_variables_used_in_subroutines.add(outerNumber);
 				csb->outerVarsMap.put(innerNumber, outerNumber);
-
-				auto& outerVariables = *csb->mainCsb->csb_variables;
-				if (outerNumber >= outerVariables.count() || !outerVariables[outerNumber])
-				{
-					fb_assert(false);
-					PAR_error(csb, Arg::Gds(isc_random) <<
-						"Invalid blr_outer_map_variable: outer variable does not exist");
-				}
-
-				auto& innerVariables = *(csb->csb_variables = vec<DeclareVariableNode*>::newVector(
-					*tdbb->getDefaultPool(), csb->csb_variables, innerNumber + 1));
-
-				if (innerVariables[innerNumber])
-				{
-					fb_assert(false);
-					PAR_error(csb, Arg::Gds(isc_random) <<
-						"Invalid blr_outer_map_variable: inner variable already exist");
-				}
-
-				innerVariables[innerNumber] = outerVariables[outerNumber];
 				break;
 			}
 
@@ -7233,6 +7231,68 @@ DmlNode* OuterMapNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch*
 	}
 
 	return node;
+}
+
+OuterMapNode* OuterMapNode::pass1(thread_db* tdbb, CompilerScratch* csb)
+{
+	fb_assert(csb->mainCsb);
+	if (!csb->mainCsb)
+		status_exception::raise(Arg::Gds(isc_random) << "Invalid blr_outer_map. Must be inside subroutine.");
+
+	for (const auto& pair : csb->outerMessagesMap)
+	{
+		const auto innerNumber = pair.first;
+		const auto outerNumber = pair.second;
+
+		const auto outerMessage = CMP_csb_element(csb->mainCsb, outerNumber)->csb_message;
+		if (!outerMessage)
+		{
+			fb_assert(false);
+			status_exception::raise(Arg::Gds(isc_random) <<
+				"Invalid blr_outer_map_message: outer message does not exist");
+		}
+
+		const auto tail = CMP_csb_element(csb, innerNumber);
+		if (tail->csb_message)
+		{
+			fb_assert(false);
+			status_exception::raise(Arg::Gds(isc_random) <<
+				"Invalid blr_outer_map_message: inner message already exist");
+		}
+
+		tail->csb_message = outerMessage;
+
+		if (innerNumber > csb->csb_msg_number)
+			csb->csb_msg_number = innerNumber;
+	}
+
+	for (const auto& pair : csb->outerVarsMap)
+	{
+		const auto innerNumber = pair.first;
+		const auto outerNumber = pair.second;
+
+		auto& outerVariables = *csb->mainCsb->csb_variables;
+		if (outerNumber >= outerVariables.count() || !outerVariables[outerNumber])
+		{
+			fb_assert(false);
+			status_exception::raise(Arg::Gds(isc_random) <<
+				"Invalid blr_outer_map_variable: outer variable does not exist");
+		}
+
+		auto& innerVariables = *(csb->csb_variables = vec<DeclareVariableNode*>::newVector(
+			*tdbb->getDefaultPool(), csb->csb_variables, innerNumber + 1));
+
+		if (innerVariables[innerNumber])
+		{
+			fb_assert(false);
+			status_exception::raise(Arg::Gds(isc_random) <<
+				"Invalid blr_outer_map_variable: inner variable already exist");
+		}
+
+		innerVariables[innerNumber] = outerVariables[outerNumber];
+	}
+
+	return this;
 }
 
 const StmtNode* OuterMapNode::execute(thread_db* tdbb, Request* request, ExeState* exeState) const
@@ -7496,7 +7556,7 @@ StmtNode* StoreNode::internalDsqlPass(DsqlCompilerScratch* dsqlScratch,
 		if (dsqlRse && dsqlScratch->isPsql() && dsqlReturning)
 			selExpr->dsqlFlags |= RecordSourceNode::DFLAG_SINGLETON;
 
-		RseNode* rse = PASS1_rse(dsqlScratch, selExpr, false);
+		RseNode* rse = PASS1_rse(dsqlScratch, selExpr, false, false);
 		node->dsqlRse = rse;
 		values = rse->dsqlSelectList;
 		needSavePoint = false;
@@ -8013,6 +8073,9 @@ const StmtNode* StoreNode::store(thread_db* tdbb, Request* request, WhichTrigger
 	record_param* rpb = &request->req_rpb[stream];
 	jrd_rel* relation = rpb->rpb_relation;
 
+	if ((marks & MARK_BULK_INSERT) || request->req_batch_mode)
+		rpb->rpb_stream_flags |= RPB_s_bulk;
+
 	const auto localTableSource = nodeAs<LocalTableSourceNode>(target);
 	const auto localTable = localTableSource ?
 		request->getStatement()->localTables[localTableSource->tableNumber] :
@@ -8173,7 +8236,7 @@ SelectNode* SelectNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 	node->dsqlForUpdate = dsqlForUpdate;
 
 	const DsqlContextStack::iterator base(*dsqlScratch->context);
-	node->dsqlRse = PASS1_rse(dsqlScratch, dsqlExpr, dsqlWithLock);
+	node->dsqlRse = PASS1_rse(dsqlScratch, dsqlExpr, dsqlWithLock, dsqlSkipLocked);
 	dsqlScratch->context->clear(base);
 
 	if (dsqlForUpdate)
@@ -8690,6 +8753,10 @@ string ReturnNode::internalPrint(NodePrinter& printer) const
 void ReturnNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 {
 	dsqlScratch->appendUChar(blr_begin);
+
+	if (hasLineColumn)
+		dsqlScratch->putDebugSrcInfo(line, column);
+
 	dsqlScratch->appendUChar(blr_assignment);
 	GEN_expr(dsqlScratch, value);
 	dsqlScratch->appendUChar(blr_variable);
@@ -9181,10 +9248,7 @@ const StmtNode* TruncateLocalTableNode::execute(thread_db* tdbb, Request* reques
 		const auto localTable = request->getStatement()->localTables[tableNumber];
 
 		if (auto& recordBuffer = localTable->getImpure(tdbb, request, false)->recordBuffer)
-		{
-			delete recordBuffer;
-			recordBuffer = nullptr;
-		}
+			recordBuffer->reset();
 
 		request->req_operation = Request::req_return;
 	}
@@ -9556,7 +9620,12 @@ void UserSavepointNode::execute(thread_db* tdbb, DsqlRequest* request, jrd_tra**
 		{
 			// Release the savepoint
 			if (savepoint)
-				savepoint->rollforward(tdbb, previous);
+			{
+				if (savepoint == transaction->tra_save_point)
+					transaction->releaseSavepoint(tdbb);
+				else
+					savepoint->rollforward(tdbb, previous);
+			}
 
 			savepoint = transaction->startSavepoint();
 			savepoint->setName(name);
@@ -9566,7 +9635,10 @@ void UserSavepointNode::execute(thread_db* tdbb, DsqlRequest* request, jrd_tra**
 		case CMD_RELEASE_ONLY:
 		{
 			// Release the savepoint
-			savepoint->rollforward(tdbb, previous);
+			if (savepoint == transaction->tra_save_point)
+				transaction->releaseSavepoint(tdbb);
+			else
+				savepoint->rollforward(tdbb, previous);
 			break;
 		}
 
@@ -10221,7 +10293,7 @@ static ReturningClause* dsqlProcessReturning(DsqlCompilerScratch* dsqlScratch, d
 	else if (dsqlScratch->isPsql() && !input->second)
 	{
 		// This trick because we don't copy lexer positions when copying lists.
-		const ValueListNode* errSrc = inputFirst;
+		const ValueListNode* errSrc = input->first;
 		// RETURNING without INTO is not allowed for PSQL
 		ERRD_post(Arg::Gds(isc_sqlerr) << Arg::Num(-104) <<
 				  // Unexpected end of command
@@ -10505,7 +10577,7 @@ static void forceWriteLock(thread_db * tdbb, record_param * rpb, jrd_tra * trans
 
 		// VIO_writelock returns false if record has been deleted or modified
 		// by someone else.
-		if (VIO_writelock(tdbb, rpb, transaction))
+		if (VIO_writelock(tdbb, rpb, transaction, false) == WriteLockResult::LOCKED)
 			break;
 	}
 }

@@ -224,6 +224,7 @@ bool dscHasData(const dsc* param);
 // specific setParams functions
 void setParamsAsciiVal(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
 void setParamsBin(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
+void setParamsBlobAppend(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
 void setParamsCharToUuid(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
 void setParamsDateAdd(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
 void setParamsDateDiff(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
@@ -259,6 +260,7 @@ void makeAbs(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* r
 void makeAsciiChar(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
 void makeBin(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
 void makeBinShift(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
+void makeBlobAppend(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
 void makeCeilFloor(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
 void makeDateAdd(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
 void makeDateDiff(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result, int argsCount, const dsc** args);
@@ -298,6 +300,7 @@ dsc* evlAsciiVal(thread_db* tdbb, const SysFunction* function, const NestValueAr
 dsc* evlAtan2(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
 dsc* evlBin(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
 dsc* evlBinShift(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
+dsc* evlBlobAppend(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
 dsc* evlCeil(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
 dsc* evlCharToUuid(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
 dsc* evlDateAdd(thread_db* tdbb, const SysFunction* function, const NestValueArray& args, impure_value* impure);
@@ -390,6 +393,7 @@ const char
 	STATEMENT_TIMEOUT[] = "STATEMENT_TIMEOUT",
 	EFFECTIVE_USER_NAME[] = "EFFECTIVE_USER",
 	SESSION_TIMEZONE[] = "SESSION_TIMEZONE",
+	PARALLEL_WORKERS[] = "PARALLEL_WORKERS",
 	// SYSTEM namespace: transaction wise items
 	TRANSACTION_ID_NAME[] = "TRANSACTION_ID",
 	ISOLATION_LEVEL_NAME[] = "ISOLATION_LEVEL",
@@ -607,6 +611,19 @@ void setParamsAsciiVal(DataTypeUtilBase*, const SysFunction*, int argsCount, dsc
 {
 	if (argsCount >= 1 && args[0]->isUnknown())
 		args[0]->makeText(1, CS_ASCII);
+}
+
+
+void setParamsBlobAppend(DataTypeUtilBase*, const SysFunction*, int argsCount, dsc** args)
+{
+	if (argsCount >= 1 && args[0]->isUnknown())
+		args[0]->makeBlob(isc_blob_text, CS_dynamic);
+
+	for (int i = 1; i < argsCount; ++i)
+	{
+		if (args[i]->isUnknown())
+			args[i]->makeVarying(80, args[0]->getTextType());
+	}
 }
 
 
@@ -1228,6 +1245,69 @@ void makeBinShift(DataTypeUtilBase*, const SysFunction* function, dsc* result,
 	}
 
 	result->setNullable(isNullable);
+}
+
+
+bool makeBlobAppendBlob(dsc* result, const dsc* arg, bid* blob_id = nullptr)
+{
+	if (!arg)
+		return false;
+
+	ISC_QUAD* ptr = reinterpret_cast<ISC_QUAD*>(blob_id);
+
+	if (arg->isBlob())
+	{
+		result->makeBlob(arg->getBlobSubType(), arg->getTextType(), ptr);
+		return true;
+	}
+
+	if (arg->isNull())
+		return false;
+
+	if (arg->isText())
+	{
+		USHORT ttype = arg->getTextType();
+		if (ttype == ttype_binary)
+			result->makeBlob(isc_blob_untyped, ttype_binary, ptr);
+		else
+			result->makeBlob(isc_blob_text, ttype, ptr);
+	}
+	else
+	{
+		result->makeBlob(isc_blob_text, ttype_ascii, ptr);
+	}
+
+	return true;
+}
+
+
+void makeBlobAppend(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, dsc* result,
+	int argsCount, const dsc** args)
+{
+	fb_assert(argsCount >= function->minArgCount);
+
+	result->makeBlob(isc_blob_untyped, ttype_binary);
+	result->setNullable(true);
+
+	if (argsCount > 0)
+	{
+		for (int i = 0; i < argsCount; ++i)
+		{
+			if (makeBlobAppendBlob(result, args[i]))
+				break;
+		}
+
+		result->setNullable(true);
+
+		for (int i = 0; i < argsCount; ++i)
+		{
+			if (!args[i]->isNullable())
+			{
+				result->setNullable(false);
+				break;
+			}
+		}
+	}
 }
 
 
@@ -2256,6 +2336,149 @@ HUGEINT getScale(impure_value* impure)
 		scale *= 10;
 
 	return scale;
+}
+
+
+static void appendFromBlob(thread_db* tdbb, jrd_tra* transaction, blb* blob,
+	const dsc* blobDsc, const dsc* srcDsc)
+{
+	if (!srcDsc->dsc_address)
+		return;
+
+	bid* srcBlobID = (bid*)srcDsc->dsc_address;
+	if (srcBlobID->isEmpty())
+		return;
+
+	if (memcmp(blobDsc->dsc_address, srcDsc->dsc_address, sizeof(bid)) == 0)
+		status_exception::raise(Arg::Gds(isc_random) << Arg::Str("Can not append blob to itself"));
+
+	UCharBuffer bpb;
+	BLB_gen_bpb_from_descs(srcDsc, blobDsc, bpb);
+
+	AutoBlb srcBlob(tdbb, blb::open2(tdbb, transaction, srcBlobID, bpb.getCount(), bpb.begin()));
+
+	Database* dbb = tdbb->getDatabase();
+
+	HalfStaticArray<UCHAR, BUFFER_LARGE> buffer;
+	const SLONG buffSize = (srcBlob->getLevel() == 0) ?
+		MAX(BUFFER_LARGE, srcBlob->blb_length) : dbb->dbb_page_size - BLP_SIZE;
+
+	UCHAR* buff = buffer.getBuffer(buffSize);
+	while (!(srcBlob->blb_flags & BLB_eof))
+	{
+		const SLONG len = srcBlob->BLB_get_data(tdbb, buff, buffSize, false);
+		if (len)
+			blob->BLB_put_data(tdbb, buff, len);
+	}
+}
+
+
+dsc* evlBlobAppend(thread_db* tdbb, const SysFunction* function, const NestValueArray& args,
+	impure_value* impure)
+{
+	Request* request = tdbb->getRequest();
+	jrd_tra* transaction = request ? request->req_transaction : tdbb->getTransaction();
+	transaction = transaction->getOuter();
+
+	blb* blob = NULL;
+	bid blob_id;
+	dsc blobDsc;
+
+	blob_id.clear();
+	blobDsc.clear();
+
+	const dsc* argDsc = EVL_expr(tdbb, request, args[0]);
+	const bool arg0_null = (request->req_flags & req_null) || (argDsc == NULL);
+
+	if (!arg0_null && argDsc->isBlob())
+	{
+		blob_id = *reinterpret_cast<bid*>(argDsc->dsc_address);
+		makeBlobAppendBlob(&blobDsc, argDsc, &blob_id);
+	}
+
+	// Try to get blob type from declared var\param
+	if (!argDsc && (nodeIs<VariableNode>(args[0]) ||
+					nodeIs<ParameterNode>(args[0]) ))
+	{
+		argDsc = EVL_assign_to(tdbb, args[0]);
+		if (argDsc && argDsc->isBlob())
+			makeBlobAppendBlob(&blobDsc, argDsc, &blob_id);
+	}
+
+	bool copyBlob = !blob_id.isEmpty();
+	if (copyBlob)
+	{
+		if (!blob_id.bid_internal.bid_relation_id)
+		{
+			if (!transaction->tra_blobs->locate(blob_id.bid_temp_id()))
+				status_exception::raise(Arg::Gds(isc_bad_segstr_id));
+
+			BlobIndex blobIdx = transaction->tra_blobs->current();
+			if (!blobIdx.bli_materialized && (blobIdx.bli_blob_object->blb_flags & BLB_close_on_read))
+			{
+				blob = blobIdx.bli_blob_object;
+				copyBlob = false;
+			}
+		}
+	}
+
+	for (FB_SIZE_T i = 0; i < args.getCount(); i++)
+	{
+		if (i == 0)
+		{
+			if (arg0_null || argDsc->isBlob() && !copyBlob)
+				continue;
+		}
+		else
+		{
+			argDsc = EVL_expr(tdbb, request, args[i]);
+			if ((request->req_flags & req_null) || !argDsc)
+				continue;
+		}
+
+		fb_assert(argDsc != nullptr);
+
+		if (!blobDsc.isBlob())
+		{
+			if (!makeBlobAppendBlob(&blobDsc, argDsc, &blob_id))
+				continue;
+		}
+
+		fb_assert(blobDsc.isBlob());
+
+		if (!blob)
+		{
+			UCharBuffer bpb;
+			BLB_gen_bpb_from_descs(&blobDsc, &blobDsc, bpb);
+			bpb.push(isc_bpb_storage);
+			bpb.push(1);
+			bpb.push(isc_bpb_storage_temp);
+
+			blob = blb::create2(tdbb, transaction, &blob_id, bpb.getCount(), bpb.begin());
+			blob->blb_flags |= BLB_stream | BLB_close_on_read;
+			blob->blb_charset = blobDsc.getCharSet();
+		}
+
+		if (!argDsc->isBlob())
+		{
+			MoveBuffer temp;
+			UCHAR* addr = NULL;
+			SLONG len = MOV_make_string2(tdbb, argDsc, blob->blb_charset, &addr, temp);
+
+			if (addr)
+				blob->BLB_put_data(tdbb, addr, len);
+		}
+		else
+		{
+			appendFromBlob(tdbb, transaction, blob, &blobDsc, argDsc);
+		}
+	}
+
+	if (!blob)
+		return nullptr;
+
+	EVL_make_value(tdbb, &blobDsc, impure);
+	return &impure->vlu_desc;
 }
 
 
@@ -4480,6 +4703,8 @@ dsc* evlGetContext(thread_db* tdbb, const SysFunction*, const NestValueArray& ar
 			TimeZoneUtil::format(timeZoneBuffer, sizeof(timeZoneBuffer), attachment->att_current_timezone);
 			resultStr = timeZoneBuffer;
 		}
+		else if (nameStr == PARALLEL_WORKERS)
+			resultStr.printf("%d", attachment->att_parallel_workers);
 		else
 		{
 			// "Context variable %s is not found in namespace %s"
@@ -4624,7 +4849,7 @@ dsc* evlSetContext(thread_db* tdbb, const SysFunction*, const NestValueArray& ar
 	{
 		// "Invalid namespace name %s passed to %s"
 		ERR_post(Arg::Gds(isc_ctx_namespace_invalid) <<
-			Arg::Str(nameStr) << Arg::Str(RDB_SET_CONTEXT));
+			Arg::Str(nameSpaceStr) << Arg::Str(RDB_SET_CONTEXT));
 	}
 
 	string valueStr;
@@ -6594,6 +6819,7 @@ const SysFunction SysFunction::functions[] =
 		{"BIN_SHL_ROT", 2, 2, setParamsInteger, makeBinShift, evlBinShift, (void*) funBinShlRot},
 		{"BIN_SHR_ROT", 2, 2, setParamsInteger, makeBinShift, evlBinShift, (void*) funBinShrRot},
 		{"BIN_XOR", 2, -1, setParamsBin, makeBin, evlBin, (void*) funBinXor},
+		{"BLOB_APPEND", 2, -1, setParamsBlobAppend, makeBlobAppend, evlBlobAppend, NULL},
 		{"CEIL", 1, 1, setParamsDblDec, makeCeilFloor, evlCeil, NULL},
 		{"CEILING", 1, 1, setParamsDblDec, makeCeilFloor, evlCeil, NULL},
 		{"CHAR_TO_UUID", 1, 1, setParamsCharToUuid, makeUuid, evlCharToUuid, NULL},

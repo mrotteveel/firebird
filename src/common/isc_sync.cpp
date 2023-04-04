@@ -44,6 +44,7 @@
 
 #ifdef SOLARIS
 #include "../common/gdsassert.h"
+#define PER_THREAD_RWLOCK
 #endif
 
 #ifdef HPUX
@@ -64,7 +65,13 @@
 #include "../common/StatusArg.h"
 #include "../common/ThreadData.h"
 #include "../common/ThreadStart.h"
+
+#ifdef PER_THREAD_RWLOCK
+#include "../common/classes/SyncObject.h"
+#else
 #include "../common/classes/rwlock.h"
+#endif // PER_THREAD_RWLOCK
+
 #include "../common/classes/GenericMap.h"
 #include "../common/classes/RefMutex.h"
 #include "../common/classes/array.h"
@@ -96,13 +103,6 @@ static int process_id;
 #endif
 
 #include <sys/mman.h>
-
-#define FTOK_KEY	15
-#define PRIV		S_IRUSR | S_IWUSR
-
-//#ifndef SHMEM_DELTA
-//#define SHMEM_DELTA	(1 << 22)
-//#endif
 
 #endif // UNIX
 
@@ -189,10 +189,127 @@ namespace Firebird {
 class CountedRWLock
 {
 public:
-	CountedRWLock()
-		: sharedAccessCounter(0)
+	CountedRWLock() :
+#ifdef PER_THREAD_RWLOCK
+		sync(&syncObject, FB_FUNCTION),
+#endif
+		sharedAccessCounter(0)
 	{ }
+
+	~CountedRWLock()
+	{
+		fb_assert(cnt == 0);
+	}
+
+	int release()
+	{
+		return --cnt;
+	}
+
+	void addRef()
+	{
+		++cnt;
+	}
+
+#ifdef PER_THREAD_RWLOCK
+	bool setlock(const FileLock::LockMode mode)
+	{
+		bool rc = true;
+
+		switch (mode)
+		{
+		case FileLock::FLM_TRY_EXCLUSIVE:
+			rc = sync.lockConditional(SYNC_EXCLUSIVE);
+			break;
+		case FileLock::FLM_EXCLUSIVE:
+			sync.lock(SYNC_EXCLUSIVE);
+			break;
+		case FileLock::FLM_SHARED:
+			fb_assert(sharedAccessMutex.locked());
+			if (sharedAccessCounter == 0)
+				sync.lock(SYNC_SHARED);
+			break;
+		}
+
+		return rc;
+	}
+
+	void unlock(bool shared)
+	{
+		if (shared)
+		{
+			fb_assert(sharedAccessMutex.locked());
+			if (sharedAccessCounter > 0)
+				return;
+		}
+		sync.unlock();
+	}
+#else
+	bool setlock(const FileLock::LockMode mode)
+	{
+		bool rc = true;
+
+		switch (mode)
+		{
+		case FileLock::FLM_TRY_EXCLUSIVE:
+			rc = rwlock.tryBeginWrite(FB_FUNCTION);
+			break;
+		case FileLock::FLM_EXCLUSIVE:
+			rwlock.beginWrite(FB_FUNCTION);
+			break;
+		case FileLock::FLM_SHARED:
+			rwlock.beginRead(FB_FUNCTION);
+			break;
+		}
+
+		return rc;
+	}
+
+	void unlock(bool shared)
+	{
+		if (shared)
+			rwlock.endRead();
+		else
+			rwlock.endWrite();
+	}
+#endif // PER_THREAD_RWLOCK
+	class EnsureUnlock : private MutexEnsureUnlock
+	{
+	public:
+		EnsureUnlock(CountedRWLock* rw, bool shared)
+			: MutexEnsureUnlock(rw->sharedAccessMutex, FB_FUNCTION)
+		{
+			if (shared)
+				enter();
+		}
+	};
+
+	bool sharedAdd()
+	{
+		fb_assert(sharedAccessMutex.locked());
+		fb_assert(sharedAccessCounter >= 0);
+
+		return sharedAccessCounter++ > 0;
+	}
+
+	bool sharedSub()
+	{
+		fb_assert(sharedAccessMutex.locked());
+		fb_assert(sharedAccessCounter > 0);
+
+		return --sharedAccessCounter > 0;
+	}
+
+private:
+	CountedRWLock(const CountedRWLock&);
+	const CountedRWLock& operator=(const CountedRWLock&);
+
+#ifdef PER_THREAD_RWLOCK
+	SyncObject syncObject;
+	Sync sync;
+#else
 	RWLock rwlock;
+#endif
 	AtomicCounter cnt;
 	Mutex sharedAccessMutex;
 	int sharedAccessCounter;
@@ -334,7 +451,7 @@ FileLock::~FileLock()
 	{ // guard scope
 		MutexLockGuard g(rwlocksMutex, FB_FUNCTION);
 
-		if (--(rwcl->cnt) == 0)
+		if (rwcl->release() == 0)
 		{
 			rwlocks->remove(getLockId());
 			delete rwcl;
@@ -368,9 +485,6 @@ int FileLock::setlock(const LockMode mode)
 		case FLM_EXCLUSIVE:
 			shared = false;
 			break;
-		case FLM_TRY_SHARED:
-			wait = false;
-			// fall through
 		case FLM_SHARED:
 			break;
 	}
@@ -385,55 +499,27 @@ int FileLock::setlock(const LockMode mode)
 		return wait ? EBUSY : -1;
 	}
 
+	// Lock shared mutex if needed
+	CountedRWLock::EnsureUnlock guard(rwcl, shared);
+
 	// first take appropriate rwlock to avoid conflicts with other threads in our process
 	bool rc = true;
 	try
 	{
-		switch (mode)
-		{
-		case FLM_TRY_EXCLUSIVE:
-			rc = rwcl->rwlock.tryBeginWrite(FB_FUNCTION);
-			break;
-		case FLM_EXCLUSIVE:
-			rwcl->rwlock.beginWrite(FB_FUNCTION);
-			break;
-		case FLM_TRY_SHARED:
-			rc = rwcl->rwlock.tryBeginRead(FB_FUNCTION);
-			break;
-		case FLM_SHARED:
-			rwcl->rwlock.beginRead(FB_FUNCTION);
-			break;
-		}
+		if (!rwcl->setlock(mode))
+			return -1;
 	}
 	catch (const system_call_failed& fail)
 	{
 		return fail.getErrorCode();
 	}
-	if (!rc)
-	{
-		return -1;
-	}
 
 	// For shared lock we must take into an account reenterability
-	MutexEnsureUnlock guard(rwcl->sharedAccessMutex, FB_FUNCTION);
-	if (shared)
+	if (shared && rwcl->sharedAdd())
 	{
-		if (wait)
-		{
-			guard.enter();
-		}
-		else if (!guard.tryEnter())
-		{
-			return -1;
-		}
-
-		fb_assert(rwcl->sharedAccessCounter >= 0);
-		if (rwcl->sharedAccessCounter++ > 0)
-		{
-			// counter is non-zero - we already have file lock
-			level = LCK_SHARED;
-			return 0;
-		}
+		// we already have file lock
+		level = LCK_SHARED;
+		return 0;
 	}
 
 #ifdef USE_FCNTL
@@ -464,11 +550,9 @@ int FileLock::setlock(const LockMode mode)
 		{
 			if (shared)
 			{
-				rwcl->sharedAccessCounter--;
-				rwcl->rwlock.endRead();
+				rwcl->sharedSub();
 			}
-			else
-				rwcl->rwlock.endWrite();
+			rwcl->unlock(shared);
 		}
 		catch (const Exception&)
 		{ }
@@ -500,10 +584,7 @@ void FileLock::rwUnlock()
 
 	try
 	{
-		if (level == LCK_SHARED)
-			rwcl->rwlock.endRead();
-		else
-			rwcl->rwlock.endWrite();
+		rwcl->unlock(level == LCK_SHARED);
 	}
 	catch (const Exception& ex)
 	{
@@ -521,18 +602,12 @@ void FileLock::unlock()
 	}
 
 	// For shared lock we must take into an account reenterability
-	MutexEnsureUnlock guard(rwcl->sharedAccessMutex, FB_FUNCTION);
-	if (level == LCK_SHARED)
+	CountedRWLock::EnsureUnlock guard(rwcl, level == LCK_SHARED);
+	if (level == LCK_SHARED && rwcl->sharedSub())
 	{
-		guard.enter();
-
-		fb_assert(rwcl->sharedAccessCounter > 0);
-		if (--(rwcl->sharedAccessCounter) > 0)
-		{
-			// counter is non-zero - we must keep file lock
-			rwUnlock();
-			return;
-		}
+		// counter is non-zero - we must keep file lock
+		rwUnlock();
+		return;
 	}
 
 #ifdef USE_FCNTL
@@ -608,7 +683,7 @@ CountedRWLock* FileLock::getRw()
 		*put = rc;
 	}
 
-	++(rc->cnt);
+	rc->addRef();
 
 	return rc;
 }
@@ -640,6 +715,23 @@ namespace {
 #define PTHREAD_ERR_RAISE(x) { int tmpState = (x); if (tmpState) { system_call_failed::raise(#x, tmpState); } }
 
 
+bool MemoryHeader::check(const char* name, USHORT type, USHORT version, bool raiseError) const
+{
+	if (mhb_type == type && mhb_header_version == HEADER_VERSION && mhb_version == version)
+		return true;
+
+	if (!raiseError)
+		return false;
+
+	string found, expected;
+
+	found.printf("%d/%d:%d", mhb_type, mhb_header_version, mhb_version);
+	expected.printf("%d/%d:%d", type, HEADER_VERSION, version);
+
+	// @1: inconsistent shared memory type/version; found @2, expected @3
+	(Arg::Gds(isc_wrong_shmem_ver) <<
+		Arg::Str(name) << Arg::Str(found) << Arg::Str(expected)).raise();
+}
 
 int SharedMemoryBase::eventInit(event_t* event)
 {
@@ -1186,6 +1278,19 @@ void SharedMemoryBase::unlinkFile()
 	TEXT expanded_filename[MAXPATHLEN];
 	iscPrefixLock(expanded_filename, sh_mem_name, false);
 
+	unlinkFile(expanded_filename);
+}
+
+PathName SharedMemoryBase::getMapFileName()
+{
+	TEXT expanded_filename[MAXPATHLEN];
+	iscPrefixLock(expanded_filename, sh_mem_name, false);
+
+	return PathName(expanded_filename);
+}
+
+void SharedMemoryBase::unlinkFile(const TEXT* expanded_filename) noexcept
+{
 	// We can't do much (specially in dtors) when it fails
 	// therefore do not check for errors - at least it's just /tmp.
 
@@ -1497,13 +1602,13 @@ static bool getMappedFileName(void* addr, PathName& mappedName)
 
 			ntLen = strlen(ntDevice);
 
-			if (ntLen <= mapLen && 
-				_memicmp(ntDevice, mapName, ntLen) == 0 &&				
+			if (ntLen <= mapLen &&
+				_memicmp(ntDevice, mapName, ntLen) == 0 &&
 				mapName[ntLen] == '\\')
 			{
 				mappedName.replace(0, ntLen, dosDevice);
 				return true;
-			}				
+			}
 		}
 
 	return false;
@@ -1661,7 +1766,6 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 					 !SetEndOfFile(file_handle) || !FlushFileBuffers(file_handle))
 			{
 				err = GetLastError();
-				CloseHandle(event_handle);
 				CloseHandle(file_handle);
 
 				if (err == ERROR_USER_MAPPED_FILE)
@@ -1669,10 +1773,14 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 					if (retry_count < 50)	// 0.5 sec
 						goto retry;
 
+					CloseHandle(event_handle);
 					Arg::Gds(isc_instance_conflict).raise();
 				}
 				else
+				{
+					CloseHandle(event_handle);
 					system_call_failed::raise("SetFilePointer", err);
+				}
 			}
 		}
 
@@ -1825,8 +1933,8 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 
 		gds__log("Wrong file for memory mapping:\n"
 				 "\t      expected %s\n"
-				 "\talready mapped %s\n" 
-				 "\tCheck for presence of another Firebird instance with different lock directory", 
+				 "\talready mapped %s\n"
+				 "\tCheck for presence of another Firebird instance with different lock directory",
 				 expanded_filename, mappedName.c_str());
 
 		(Arg::Gds(isc_random) << Arg::Str("Wrong file for memory mapping, see details in firebird.log")).raise();
@@ -2679,7 +2787,7 @@ static bool make_object_name(TEXT* buffer, size_t bufsize,
 
 	// CVC: I'm not convinced that if this call has no space to put the prefix,
 	// we can ignore that fact, hence I changed that signature, too.
-	if (!fb_utils::prefix_kernel_object_name(buffer, bufsize))
+	if (!fb_utils::private_kernel_object_name(buffer, bufsize))
 	{
 		SetLastError(ERROR_FILENAME_EXCED_RANGE);
 		return false;

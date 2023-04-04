@@ -261,7 +261,7 @@ bool ExprNode::dsqlMatch(DsqlCompilerScratch* dsqlScratch, const ExprNode* other
 
 bool ExprNode::sameAs(const ExprNode* other, bool ignoreStreams) const
 {
-	if (other->getType() != getType())
+	if (!other || other->getType() != getType())
 		return false;
 
 	NodeRefsHolder thisHolder;
@@ -298,6 +298,20 @@ bool ExprNode::possiblyUnknown() const
 	for (auto i : holder.refs)
 	{
 		if (*i && (*i)->possiblyUnknown())
+			return true;
+	}
+
+	return false;
+}
+
+bool ExprNode::ignoreNulls(const StreamList& streams) const
+{
+	NodeRefsHolder holder;
+	getChildren(holder, false);
+
+	for (auto i : holder.refs)
+	{
+		if (*i && (*i)->ignoreNulls(streams))
 			return true;
 	}
 
@@ -3379,11 +3393,11 @@ DmlNode* CastNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb
 	if (itemInfo.isSpecial())
 		node->itemInfo = FB_NEW_POOL(*tdbb->getDefaultPool()) ItemInfo(*tdbb->getDefaultPool(), itemInfo);
 
-	if ((csb->csb_g_flags & csb_get_dependencies) && itemInfo.explicitCollation)
+	if (csb->collectingDependencies() && itemInfo.explicitCollation)
 	{
 		CompilerScratch::Dependency dependency(obj_collation);
 		dependency.number = INTL_TEXT_TYPE(node->castDesc);
-		csb->csb_dependencies.push(dependency);
+		csb->addDependency(dependency);
 	}
 
 	return node;
@@ -4835,13 +4849,13 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	csb->csb_blr_reader.getMetaName(relationName);
 	csb->csb_blr_reader.getMetaName(fieldName);
 
-	if (csb->csb_g_flags & csb_get_dependencies)
+	if (csb->collectingDependencies())
 	{
 		CompilerScratch::Dependency dependency(obj_relation);
 		auto rel = MetadataCache::lookup_relation(tdbb, relationName);
 		dependency.relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->rel_id);
 		dependency.subName = FB_NEW_POOL(pool) MetaName(fieldName);
-		csb->csb_dependencies.push(dependency);
+		csb->addDependency(dependency);
 	}
 
 	jrd_fld* fld = NULL;
@@ -4892,10 +4906,10 @@ ValueExprNode* DefaultNode::createFromField(thread_db* tdbb, CompilerScratch* cs
 
 		bool sysGen = false;
 		if (!MET_load_generator(tdbb, genNode->generator, &sysGen, &genNode->step))
-			PAR_error(csb, Arg::Gds(isc_gennotdef) << Arg::Str(fld->fld_generator_name));
+			status_exception::raise(Arg::Gds(isc_gennotdef) << Arg::Str(fld->fld_generator_name));
 
 		if (sysGen)
-			PAR_error(csb, Arg::Gds(isc_cant_modify_sysobj) << "generator" << fld->fld_generator_name);
+			status_exception::raise(Arg::Gds(isc_cant_modify_sysobj) << "generator" << fld->fld_generator_name);
 
 		return genNode;
 	}
@@ -5865,7 +5879,7 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 	// use it because when restoring the database the field
 	// id's may not be valid yet
 
-	if (csb->csb_g_flags & csb_get_dependencies)
+	if (csb->collectingDependencies())
 	{
 		if (blrOp == blr_fid)
 			PAR_dependency(tdbb, csb, stream, id, "");
@@ -6554,8 +6568,6 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 {
 	StreamType stream = fieldStream;
 
-	markVariant(csb, stream);
-
 	CompilerScratch::csb_repeat* tail = &csb->csb_rpt[stream];
 	jrd_rel* relation = tail->csb_relation;
 	jrd_fld* field;
@@ -6566,6 +6578,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		if (relation && (relation->rel_flags & REL_being_scanned))
 			csb->csb_g_flags |= csb_reload;
 
+		markVariant(csb, stream);
 		return ValueExprNode::pass1(tdbb, csb);
 	}
 
@@ -6644,9 +6657,11 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 	if (!(sub = field->fld_computation) && !(sub = field->fld_source))
 	{
-
 		if (!relation->rel_view_rse)
+		{
+			markVariant(csb, stream);
 			return ValueExprNode::pass1(tdbb, csb);
+		}
 
 		// Msg 364 "cannot access column %s in view %s"
 		ERR_post(Arg::Gds(isc_no_field_access) << Arg::Str(field->fld_name) <<
@@ -6667,7 +6682,10 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		// dimitr:	added an extra check for views, because we don't
 		//			want their old/new contexts to be substituted
 		if (relation->rel_view_rse || !field->fld_computation)
+		{
+			markVariant(csb, stream);
 			return ValueExprNode::pass1(tdbb, csb);
+		}
 	}
 
 	StreamMap localMap;
@@ -6774,11 +6792,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 	if (computingField)
 	{
-		FB_SIZE_T pos;
-
-		if (csb->csb_computing_fields.find(field, pos))
-			csb->csb_computing_fields.remove(pos);
-		else
+		if (!csb->csb_computing_fields.findAndRemove(field))
 			fb_assert(false);
 	}
 
@@ -6817,7 +6831,7 @@ dsc* FieldNode::execute(thread_db* tdbb, Request* request) const
 	{
 		// Computed fields shouldn't be present at this point
 		jrd_fld* field = MET_get_field(relation, fieldId);
-		fb_assert(field && !field->fld_computation);
+		fb_assert(!field || !field->fld_computation);
 	}
 #endif
 
@@ -6913,11 +6927,11 @@ DmlNode* GenIdNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 	else if (!MET_load_generator(tdbb, node->generator, &node->sysGen, &node->step))
 		PAR_error(csb, Arg::Gds(isc_gennotdef) << Arg::Str(name));
 
-	if (csb->csb_g_flags & csb_get_dependencies)
+	if (csb->collectingDependencies())
 	{
 		CompilerScratch::Dependency dependency(obj_generator);
 		dependency.number = node->generator.id;
-		csb->csb_dependencies.push(dependency);
+		csb->addDependency(dependency);
 	}
 
 	return node;
@@ -9424,41 +9438,17 @@ ParameterNode::ParameterNode(MemoryPool& pool)
 
 DmlNode* ParameterNode::parse(thread_db* /*tdbb*/, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp)
 {
-	MessageNode* message = nullptr;
-	const USHORT messageNum = csb->csb_blr_reader.getByte();
-
-	if (messageNum >= csb->csb_rpt.getCount() || !(message = csb->csb_rpt[messageNum].csb_message))
-		PAR_error(csb, Arg::Gds(isc_badmsgnum));
-
 	const auto node = FB_NEW_POOL(pool) ParameterNode(pool);
-	node->message = message;
+
+	node->messageNumber = csb->csb_blr_reader.getByte();
 	node->argNumber = csb->csb_blr_reader.getWord();
-	node->outerDecl = csb->outerMessagesMap.exist(messageNum);
-
-	const auto format = message->format;
-
-	if (node->argNumber >= format->fmt_count)
-		PAR_error(csb, Arg::Gds(isc_badparnum));
 
 	if (blrOp != blr_parameter)
 	{
 		const auto flagNode = FB_NEW_POOL(pool) ParameterNode(pool);
-		flagNode->message = message;
+		flagNode->messageNumber = node->messageNumber;
 		flagNode->argNumber = csb->csb_blr_reader.getWord();
-		flagNode->outerDecl = node->outerDecl;
-
-		if (flagNode->argNumber >= format->fmt_count)
-			PAR_error(csb, Arg::Gds(isc_badparnum));
-
 		node->argFlag = flagNode;
-	}
-
-	if (node->outerDecl)
-	{
-		fb_assert(csb->mainCsb);
-
-		if (csb->mainCsb)
-			message->itemsUsedInSubroutines.add(node->argNumber);
 	}
 
 	return node;
@@ -9671,7 +9661,7 @@ void ParameterNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, dsc* 
 	desc->dsc_address = NULL;
 }
 
-ValueExprNode* ParameterNode::copy(thread_db* tdbb, NodeCopier& copier) const
+ParameterNode* ParameterNode::copy(thread_db* tdbb, NodeCopier& copier) const
 {
 	ParameterNode* node = FB_NEW_POOL(*tdbb->getDefaultPool()) ParameterNode(*tdbb->getDefaultPool());
 	node->argNumber = argNumber;
@@ -9689,18 +9679,55 @@ ValueExprNode* ParameterNode::copy(thread_db* tdbb, NodeCopier& copier) const
 	// in nod_argument. If it doesn't, it may be an input parameter cloned
 	// in RseBoolNode::convertNeqAllToNotAny - see CORE-3094.
 
-	if (copier.message && copier.message->messageNumber == message->messageNumber)
+	if (copier.message && copier.message->messageNumber == messageNumber)
 		node->message = copier.message;
 	else
 		node->message = message;
 
+	node->messageNumber = messageNumber;
 	node->argFlag = copier.copy(tdbb, argFlag);
 	node->outerDecl = outerDecl;
 
 	return node;
 }
 
-ValueExprNode* ParameterNode::pass2(thread_db* tdbb, CompilerScratch* csb)
+ParameterNode* ParameterNode::pass1(thread_db* tdbb, CompilerScratch* csb)
+{
+	// If message is already defined (for example from ParameterNode::copy), we should not do anything here.
+	if (!message)
+	{
+		if (messageNumber >= csb->csb_rpt.getCount() || !(message = csb->csb_rpt[messageNumber].csb_message))
+			status_exception::raise(Arg::Gds(isc_badmsgnum));
+
+		outerDecl = csb->outerMessagesMap.exist(messageNumber);
+	}
+
+	const auto format = message->format;
+
+	if (argNumber >= format->fmt_count)
+		status_exception::raise(Arg::Gds(isc_badparnum));
+
+	if (argFlag)
+	{
+		argFlag->message = message;
+		argFlag->outerDecl = outerDecl;
+
+		if (argFlag->argNumber >= format->fmt_count)
+			status_exception::raise(Arg::Gds(isc_badparnum));
+	}
+
+	if (outerDecl)
+	{
+		fb_assert(csb->mainCsb);
+
+		if (csb->mainCsb)
+			message->itemsUsedInSubroutines.add(argNumber);
+	}
+
+	return this;
+}
+
+ParameterNode* ParameterNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 {
 	const auto paramCsb = outerDecl ? csb->mainCsb : csb;
 
@@ -11029,6 +11056,8 @@ DmlNode* SubQueryNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch*
 
 	node->rse = PAR_rse(tdbb, csb);
 
+	node->rse->flags |= RseNode::FLAG_SUB_QUERY;
+
 	if (blrOp != blr_count)
 		node->value1 = PAR_parse_value(tdbb, csb);
 
@@ -11084,7 +11113,7 @@ ValueExprNode* SubQueryNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 
 	const DsqlContextStack::iterator base(*dsqlScratch->context);
 
-	RseNode* rse = PASS1_rse(dsqlScratch, nodeAs<SelectExprNode>(dsqlRse), false);
+	RseNode* rse = PASS1_rse(dsqlScratch, nodeAs<SelectExprNode>(dsqlRse), false, false);
 
 	SubQueryNode* node = FB_NEW_POOL(dsqlScratch->getPool()) SubQueryNode(dsqlScratch->getPool(), blrOp, rse,
 		rse->dsqlSelectList->items[0], NullNode::instance());
@@ -11312,7 +11341,7 @@ ValueExprNode* SubQueryNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 	if (!rse)
 		ERR_post(Arg::Gds(isc_wish_list));
 
-	if (!(rse->flags & RseNode::FLAG_VARIANT))
+	if (rse->isInvariant())
 	{
 		nodFlags |= FLAG_INVARIANT;
 		csb->csb_invariants.push(&impureOffset);
@@ -11349,9 +11378,8 @@ ValueExprNode* SubQueryNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 	// Finish up processing of record selection expressions.
 
 	RecordSource* const rsb = CMP_post_rse(tdbb, csb, rse);
-	csb->csb_fors.add(rsb);
-
-	subQuery = FB_NEW_POOL(*tdbb->getDefaultPool()) SubQuery(rsb, rse->rse_invariants);
+	subQuery = FB_NEW_POOL(*tdbb->getDefaultPool()) SubQuery(rsb, rse);
+	csb->csb_fors.add(subQuery);
 
 	return this;
 }
@@ -12808,11 +12836,11 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	}
 
 	// CVC: I will track ufds only if a function is not being dropped.
-	if (!function->isSubRoutine() && (csb->csb_g_flags & csb_get_dependencies))
+	if (!function->isSubRoutine() && csb->collectingDependencies())
 	{
 		CompilerScratch::Dependency dependency(obj_udf);
 		dependency.function = function;
-		csb->csb_dependencies.push(dependency);
+		csb->addDependency(dependency);
 	}
 
 	return node;
@@ -13525,20 +13553,8 @@ VariableNode::VariableNode(MemoryPool& pool)
 
 DmlNode* VariableNode::parse(thread_db* /*tdbb*/, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp)
 {
-	const USHORT n = csb->csb_blr_reader.getWord();
-
 	VariableNode* node = FB_NEW_POOL(pool) VariableNode(pool);
-	node->varId = n;
-	node->outerDecl = csb->outerVarsMap.exist(n);
-
-	if (node->outerDecl)
-	{
-		fb_assert(csb->mainCsb);
-
-		if (csb->mainCsb)
-			csb->mainCsb->csb_variables_used_in_subroutines.add(node->varId);
-	}
-
+	node->varId = csb->csb_blr_reader.getWord();
 	return node;
 }
 
@@ -13701,10 +13717,12 @@ ValueExprNode* VariableNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 {
 	ValueExprNode::pass1(tdbb, csb);
 
+	outerDecl = csb->outerVarsMap.exist(varId);
+
 	vec<DeclareVariableNode*>* vector = csb->csb_variables;
 
 	if (!vector || varId >= vector->count() || !(varDecl = (*vector)[varId]))
-		PAR_error(csb, Arg::Gds(isc_badvarnum));
+		status_exception::raise(Arg::Gds(isc_badvarnum));
 
 	return this;
 }

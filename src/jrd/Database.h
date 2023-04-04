@@ -197,6 +197,8 @@ class Database : public pool_alloc<type_dbb>
 										const Firebird::PathName& filename,
 										Firebird::RefPtr<const Firebird::Config> config);
 
+		int release() const override;
+
 		~GlobalObjectHolder();
 
 		LockManager* getLockManager();
@@ -495,6 +497,9 @@ public:
 	void assignLatestAttachmentId(AttNumber number);
 	AttNumber getLatestAttachmentId() const;
 	StmtNumber getLatestStatementId() const;
+
+	ULONG getMonitorGeneration() const;
+	ULONG newMonitorGeneration() const;
 
 	USHORT getMaxIndexKeyLength() const
 	{

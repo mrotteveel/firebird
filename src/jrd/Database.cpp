@@ -102,6 +102,19 @@ namespace Jrd
 		return dbb_tip_cache->getLatestStatementId();
 	}
 
+	ULONG Database::getMonitorGeneration() const
+	{
+		if (!dbb_tip_cache)
+			return 0;
+		return dbb_tip_cache->getMonitorGeneration();
+	}
+
+	ULONG Database::newMonitorGeneration() const
+	{
+		fb_assert(dbb_tip_cache);
+		return dbb_tip_cache->newMonitorGeneration();
+	}
+
 	const Firebird::string& Database::getUniqueFileId()
 	{
 		if (dbb_file_id.isEmpty())
@@ -452,8 +465,8 @@ namespace Jrd
 
 	void Database::initGlobalObjects()
 	{
-		dbb_gblobj_holder =
-			GlobalObjectHolder::init(getUniqueFileId(), dbb_filename, dbb_config);
+		dbb_gblobj_holder.assignRefNoIncr(GlobalObjectHolder::init(getUniqueFileId(),
+			dbb_filename, dbb_config));
 	}
 
 	// Database::Linger class implementation
@@ -493,6 +506,15 @@ namespace Jrd
 
 	// Database::GlobalObjectHolder class implementation
 
+	int Database::GlobalObjectHolder::release() const
+	{
+		// Release should be executed under g_mutex protection
+		// in order to modify reference counter & hash table atomically
+		MutexLockGuard guard(g_mutex, FB_FUNCTION);
+
+		return RefCounted::release();
+	}
+
 	Database::GlobalObjectHolder* Database::GlobalObjectHolder::init(const string& id,
 																	 const PathName& filename,
 																	 RefPtr<const Config> config)
@@ -507,22 +529,24 @@ namespace Jrd
 			g_hashTable->add(entry);
 		}
 
+		entry->holder->addRef();
 		return entry->holder;
 	}
 
 	Database::GlobalObjectHolder::~GlobalObjectHolder()
 	{
-		// here we cleanup what should not be globally protected
-		if (m_replMgr)
-			m_replMgr->shutdown();
-
-		MutexLockGuard guard(g_mutex, FB_FUNCTION);
-
+		// dtor is executed under g_mutex protection
 		Database::GlobalObjectHolder::DbId* entry = g_hashTable->lookup(m_id);
 		if (!g_hashTable->remove(m_id))
 			fb_assert(false);
 
-		// these objects should be deleted under g_mutex protection
+		{ // scope
+			// here we cleanup what should not be globally protected
+			MutexUnlockGuard guard(g_mutex, FB_FUNCTION);
+			if (m_replMgr)
+				m_replMgr->shutdown();
+		}
+
 		m_lockMgr = nullptr;
 		m_eventMgr = nullptr;
 		m_replMgr = nullptr;

@@ -1117,7 +1117,7 @@ BoolExprNode* ComparativeBoolNode::createRseNode(DsqlCompilerScratch* dsqlScratc
 	const DsqlContextStack::iterator baseDT(dsqlScratch->derivedContext);
 	const DsqlContextStack::iterator baseUnion(dsqlScratch->unionContext);
 
-	RseNode* rse = PASS1_rse(dsqlScratch, select_expr, false);
+	RseNode* rse = PASS1_rse(dsqlScratch, select_expr, false, false);
 	rse->flags |= RseNode::FLAG_DSQL_COMPARATIVE;
 
 	// Create a conjunct to be injected.
@@ -1444,6 +1444,8 @@ DmlNode* RseBoolNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	RseBoolNode* node = FB_NEW_POOL(pool) RseBoolNode(pool, blrOp);
 	node->rse = PAR_rse(tdbb, csb);
 
+	node->rse->flags |= RseNode::FLAG_SUB_QUERY;
+
 	if (blrOp == blr_any || blrOp == blr_exists) // maybe for blr_unique as well?
 		node->rse->flags |= RseNode::FLAG_OPT_FIRST_ROWS;
 
@@ -1480,7 +1482,7 @@ BoolExprNode* RseBoolNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 	const DsqlContextStack::iterator base(*dsqlScratch->context);
 
 	RseBoolNode* node = FB_NEW_POOL(dsqlScratch->getPool()) RseBoolNode(dsqlScratch->getPool(), blrOp,
-		PASS1_rse(dsqlScratch, nodeAs<SelectExprNode>(dsqlRse), false));
+		PASS1_rse(dsqlScratch, nodeAs<SelectExprNode>(dsqlRse), false, false));
 
 	// Finish off by cleaning up contexts
 	dsqlScratch->context->clear(base);
@@ -1580,7 +1582,7 @@ BoolExprNode* RseBoolNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 void RseBoolNode::pass2Boolean1(thread_db* tdbb, CompilerScratch* csb)
 {
-	if (!(rse->flags & RseNode::FLAG_VARIANT))
+	if (rse->isInvariant())
 	{
 		nodFlags |= FLAG_INVARIANT;
 		csb->csb_invariants.push(&impureOffset);
@@ -1607,9 +1609,8 @@ void RseBoolNode::pass2Boolean2(thread_db* tdbb, CompilerScratch* csb)
 		rsb->setAnyBoolean(rse->rse_boolean, ansiAny, ansiNot);
 	}
 
-	csb->csb_fors.add(rsb);
-
-	subQuery = FB_NEW_POOL(*tdbb->getDefaultPool()) SubQuery(rsb, rse->rse_invariants);
+	subQuery = FB_NEW_POOL(*tdbb->getDefaultPool()) SubQuery(rsb, rse);
+	csb->csb_fors.add(subQuery);
 }
 
 bool RseBoolNode::execute(thread_db* tdbb, Request* request) const

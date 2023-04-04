@@ -23,6 +23,7 @@
 #include "firebird.h"
 #include "../jrd/jrd.h"
 #include "../jrd/req.h"
+#include "../jrd/ProfilerManager.h"
 #include "../jrd/cmp_proto.h"
 
 #include "RecordSource.h"
@@ -45,34 +46,82 @@ namespace
 
 		return true;
 	}
+}
 
-	// Initialize dependent invariants
-	void initializeInvariants(Request* request, const VarInvariantArray* invariants)
+// ---------------------
+// Select implementation
+// ---------------------
+
+void Select::initializeInvariants(Request* request) const
+{
+	// Initialize dependent invariants, if any
+
+	if (m_rse->rse_invariants)
 	{
-		if (invariants)
+		for (const auto offset : *m_rse->rse_invariants)
 		{
-			for (const ULONG* iter = invariants->begin(); iter < invariants->end(); ++iter)
-			{
-				impure_value* const invariantImpure = request->getImpure<impure_value>(*iter);
-				invariantImpure->vlu_flags = 0;
-			}
+			const auto invariantImpure = request->getImpure<impure_value>(offset);
+			invariantImpure->vlu_flags = 0;
 		}
 	}
+}
+
+void Select::printPlan(thread_db* tdbb, string& plan, bool detailed) const
+{
+	if (detailed)
+	{
+		if (m_rse->isSubQuery())
+		{
+			plan += "\nSub-query";
+
+			if (m_rse->isInvariant())
+				plan += " (invariant)";
+		}
+		else if (m_cursorName.hasData())
+		{
+			plan += "\nCursor \"" + string(m_cursorName) + "\"";
+
+			if (m_rse->isScrollable())
+				plan += " (scrollable)";
+		}
+		else
+			plan += "\nSelect Expression";
+
+		if (m_line || m_column)
+		{
+			string pos;
+			pos.printf(" (line %u, column %u)", m_line, m_column);
+			plan += pos;
+		}
+	}
+	else
+	{
+		if (m_line || m_column)
+		{
+			string pos;
+			pos.printf("\n-- line %u, column %u", m_line, m_column);
+			plan += pos;
+		}
+
+		plan += "\nPLAN ";
+	}
+
+	m_top->print(tdbb, plan, detailed, 0, true);
 }
 
 // ---------------------
 // SubQuery implementation
 // ---------------------
 
-SubQuery::SubQuery(const RecordSource* rsb, const VarInvariantArray* invariants)
-	: m_top(rsb), m_invariants(invariants)
+SubQuery::SubQuery(const RecordSource* rsb, const RseNode* rse)
+	: Select(rsb, rse)
 {
 	fb_assert(m_top);
 }
 
 void SubQuery::open(thread_db* tdbb) const
 {
-	initializeInvariants(tdbb->getRequest(), m_invariants);
+	initializeInvariants(tdbb->getRequest());
 	m_top->open(tdbb);
 }
 
@@ -94,9 +143,11 @@ bool SubQuery::fetch(thread_db* tdbb) const
 // Cursor implementation
 // ---------------------
 
-Cursor::Cursor(CompilerScratch* csb, const RecordSource* rsb,
-			   const VarInvariantArray* invariants, bool scrollable, bool updateCounters)
-	: m_top(rsb), m_invariants(invariants), m_scrollable(scrollable), m_updateCounters(updateCounters)
+Cursor::Cursor(CompilerScratch* csb, const RecordSource* rsb, const RseNode* rse,
+			   bool updateCounters, ULONG line, ULONG column, const MetaName& name)
+	: Select(rsb, rse, line, column, name),
+	  m_cursorProfileId(rsb->getCursorProfileId()),
+	  m_updateCounters(updateCounters)
 {
 	fb_assert(m_top);
 
@@ -105,13 +156,16 @@ Cursor::Cursor(CompilerScratch* csb, const RecordSource* rsb,
 
 void Cursor::open(thread_db* tdbb) const
 {
-	Request* const request = tdbb->getRequest();
+	const auto request = tdbb->getRequest();
+
+	prepareProfiler(tdbb, request);
+
 	Impure* impure = request->getImpure<Impure>(m_impure);
 
 	impure->irsb_active = true;
 	impure->irsb_state = BOS;
 
-	initializeInvariants(request, m_invariants);
+	initializeInvariants(request);
 	m_top->open(tdbb);
 }
 
@@ -129,13 +183,13 @@ void Cursor::close(thread_db* tdbb) const
 
 bool Cursor::fetchNext(thread_db* tdbb) const
 {
-	if (m_scrollable)
+	if (m_rse->isScrollable())
 		return fetchRelative(tdbb, 1);
 
 	if (!validate(tdbb))
 		return false;
 
-	Request* const request = tdbb->getRequest();
+	const auto request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
 
 	if (!impure->irsb_active)
@@ -146,6 +200,8 @@ bool Cursor::fetchNext(thread_db* tdbb) const
 
 	if (impure->irsb_state == EOS)
 		return false;
+
+	prepareProfiler(tdbb, request);
 
 	if (!m_top->getRecord(tdbb))
 	{
@@ -165,7 +221,7 @@ bool Cursor::fetchNext(thread_db* tdbb) const
 
 bool Cursor::fetchPrior(thread_db* tdbb) const
 {
-	if (!m_scrollable)
+	if (!m_rse->isScrollable())
 	{
 		// error: invalid fetch direction
 		status_exception::raise(Arg::Gds(isc_invalid_fetch_option) << Arg::Str("PRIOR"));
@@ -176,7 +232,7 @@ bool Cursor::fetchPrior(thread_db* tdbb) const
 
 bool Cursor::fetchFirst(thread_db* tdbb) const
 {
-	if (!m_scrollable)
+	if (!m_rse->isScrollable())
 	{
 		// error: invalid fetch direction
 		status_exception::raise(Arg::Gds(isc_invalid_fetch_option) << Arg::Str("FIRST"));
@@ -187,7 +243,7 @@ bool Cursor::fetchFirst(thread_db* tdbb) const
 
 bool Cursor::fetchLast(thread_db* tdbb) const
 {
-	if (!m_scrollable)
+	if (!m_rse->isScrollable())
 	{
 		// error: invalid fetch direction
 		status_exception::raise(Arg::Gds(isc_invalid_fetch_option) << Arg::Str("LAST"));
@@ -198,7 +254,7 @@ bool Cursor::fetchLast(thread_db* tdbb) const
 
 bool Cursor::fetchAbsolute(thread_db* tdbb, SINT64 offset) const
 {
-	if (!m_scrollable)
+	if (!m_rse->isScrollable())
 	{
 		// error: invalid fetch direction
 		status_exception::raise(Arg::Gds(isc_invalid_fetch_option) << Arg::Str("ABSOLUTE"));
@@ -207,7 +263,7 @@ bool Cursor::fetchAbsolute(thread_db* tdbb, SINT64 offset) const
 	if (!validate(tdbb))
 		return false;
 
-	Request* const request = tdbb->getRequest();
+	const auto request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
 
 	if (!impure->irsb_active)
@@ -237,6 +293,8 @@ bool Cursor::fetchAbsolute(thread_db* tdbb, SINT64 offset) const
 		return false;
 	}
 
+	prepareProfiler(tdbb, request);
+
 	impure->irsb_position = position;
 	buffer->locate(tdbb, impure->irsb_position);
 
@@ -259,7 +317,7 @@ bool Cursor::fetchAbsolute(thread_db* tdbb, SINT64 offset) const
 
 bool Cursor::fetchRelative(thread_db* tdbb, SINT64 offset) const
 {
-	if (!m_scrollable)
+	if (!m_rse->isScrollable())
 	{
 		// error: invalid fetch direction
 		status_exception::raise(Arg::Gds(isc_invalid_fetch_option) << Arg::Str("RELATIVE"));
@@ -268,7 +326,7 @@ bool Cursor::fetchRelative(thread_db* tdbb, SINT64 offset) const
 	if (!validate(tdbb))
 		return false;
 
-	Request* const request = tdbb->getRequest();
+	const auto request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
 
 	if (!impure->irsb_active)
@@ -314,6 +372,8 @@ bool Cursor::fetchRelative(thread_db* tdbb, SINT64 offset) const
 		return false;
 	}
 
+	prepareProfiler(tdbb, request);
+
 	impure->irsb_position = position;
 	buffer->locate(tdbb, impure->irsb_position);
 
@@ -349,6 +409,18 @@ void Cursor::checkState(Request* request) const
 	{
 		status_exception::raise(
 			Arg::Gds(isc_cursor_not_positioned) <<
-			Arg::Str(name));
+			Arg::Str(m_cursorName));
 	}
+}
+
+void Cursor::prepareProfiler(thread_db* tdbb, Request* request) const
+{
+	const auto attachment = tdbb->getAttachment();
+
+	const auto profilerManager = attachment->isProfilerActive() && !request->hasInternalStatement() ?
+		attachment->getProfilerManager(tdbb) :
+		nullptr;
+
+	if (profilerManager)
+		profilerManager->prepareCursor(tdbb, request, this);
 }

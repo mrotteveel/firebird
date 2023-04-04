@@ -32,6 +32,7 @@
 #define CLASSES_AUTO_PTR_H
 
 #include <stdio.h>
+#include <functional>
 
 namespace Firebird {
 
@@ -135,22 +136,12 @@ public:
 		return *this;
 	}
 
-	operator Where*()
+	Where* get() const
 	{
 		return ptr;
 	}
 
-	Where* get()
-	{
-		return ptr;
-	}
-
-	operator const Where*() const
-	{
-		return ptr;
-	}
-
-	const Where* get() const
+	operator Where*() const
 	{
 		return ptr;
 	}
@@ -165,12 +156,7 @@ public:
 		return ptr != NULL;
 	}
 
-	Where* operator->()
-	{
-		return ptr;
-	}
-
-	const Where* operator->() const
+	Where* operator->() const
 	{
 		return ptr;
 	}
@@ -316,6 +302,22 @@ private:
 	T oldValue;
 };
 
+
+class Cleanup
+{
+public:
+	Cleanup(std::function<void()> clFunc)
+		: clean(clFunc)
+	{ }
+
+	~Cleanup()
+	{
+		clean();
+	}
+
+private:
+	std::function<void()> clean;
+};
 
 } //namespace Firebird
 

@@ -51,6 +51,13 @@ public:
 	virtual BoolExprNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
 	virtual void genBlr(DsqlCompilerScratch* dsqlScratch);
 
+	virtual bool ignoreNulls(const StreamList& streams) const
+	{
+		return (blrOp == blr_or) ?
+			arg1->ignoreNulls(streams) && arg2->ignoreNulls(streams) :
+			BoolExprNode::ignoreNulls(streams);
+	}
+
 	virtual BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const;
 	virtual bool dsqlMatch(DsqlCompilerScratch* dsqlScratch, const ExprNode* other, bool ignoreMapCast) const;
 	virtual bool sameAs(const ExprNode* other, bool ignoreStreams) const;
@@ -89,6 +96,7 @@ public:
 		holder.add(arg1);
 		holder.add(arg2);
 		holder.add(arg3);
+		holder.add(dsqlSpecialArg);
 	}
 
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
@@ -97,7 +105,12 @@ public:
 
 	virtual bool possiblyUnknown() const
 	{
-		return blrOp == blr_equiv ? true : BoolExprNode::possiblyUnknown();
+		return (blrOp == blr_equiv) ? true : BoolExprNode::possiblyUnknown();
+	}
+
+	virtual bool ignoreNulls(const StreamList& streams) const
+	{
+		return (blrOp == blr_equiv) ? false : BoolExprNode::ignoreNulls(streams);
 	}
 
 	virtual BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const;
@@ -148,6 +161,11 @@ public:
 		return true;
 	}
 
+	virtual bool ignoreNulls(const StreamList& /*streams*/) const
+	{
+		return false;
+	}
+
 	virtual BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const;
 	virtual BoolExprNode* pass1(thread_db* tdbb, CompilerScratch* csb);
 	virtual void pass2Boolean2(thread_db* tdbb, CompilerScratch* csb);
@@ -175,11 +193,6 @@ public:
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual BoolExprNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
 	virtual void genBlr(DsqlCompilerScratch* dsqlScratch);
-
-	virtual bool possiblyUnknown() const
-	{
-		return true;
-	}
 
 	virtual BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const;
 	virtual BoolExprNode* pass1(thread_db* tdbb, CompilerScratch* csb);
@@ -227,6 +240,11 @@ public:
 	virtual bool possiblyUnknown() const
 	{
 		return true;
+	}
+
+	virtual bool ignoreNulls(const StreamList& /*streams*/) const
+	{
+		return false;
 	}
 
 	virtual BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const;

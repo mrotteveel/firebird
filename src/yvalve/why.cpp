@@ -62,6 +62,8 @@
 #include "../common/classes/fb_tls.h"
 #include "../common/status.h"
 #include "../common/classes/InternalMessageBuffer.h"
+#include "../yvalve/array_proto.h"
+#include "../yvalve/blob_proto.h"
 #include "../yvalve/utl_proto.h"
 #include "../yvalve/why_proto.h"
 #include "../yvalve/MasterImplementation.h"
@@ -85,7 +87,6 @@ using namespace Why;
 static void badHandle(ISC_STATUS code);
 static bool isNetworkError(const IStatus* status);
 static void nullCheck(const FB_API_HANDLE* ptr, ISC_STATUS code);
-//static void saveErrorString(ISC_STATUS* status);
 static void badSqldaVersion(const short version);
 static int sqldaTruncateString(char* buffer, FB_SIZE_T size, const char* s);
 static void sqldaDescribeParameters(XSQLDA* sqlda, IMessageMetadata* parameters);
@@ -1584,6 +1585,50 @@ Firebird::ITransaction* handleToITransaction(CheckStatusWrapper* status, isc_tr_
 //-------------------------------------
 
 
+ISC_STATUS API_ROUTINE isc_array_lookup_bounds(ISC_STATUS* userStatus, FB_API_HANDLE* dbHandle, FB_API_HANDLE* traHandle,
+	const SCHAR* relationName, const SCHAR* fieldName, ISC_ARRAY_DESC* desc)
+{
+	StatusVector status(userStatus);
+	CheckStatusWrapper statusWrapper(&status);
+
+	try
+	{
+		RefPtr<YAttachment> attachment(translateHandle(attachments, dbHandle));
+		RefPtr<YTransaction> transaction(translateHandle(transactions, traHandle));
+
+		iscArrayLookupBoundsImpl(attachment, transaction, relationName, fieldName, desc);
+	}
+	catch (const Exception& e)
+	{
+		e.stuffException(&statusWrapper);
+	}
+
+	return status[1];
+}
+
+
+ISC_STATUS API_ROUTINE isc_array_lookup_desc(ISC_STATUS* userStatus, FB_API_HANDLE* dbHandle, FB_API_HANDLE* traHandle,
+	const SCHAR* relationName, const SCHAR* fieldName, ISC_ARRAY_DESC* desc)
+{
+	StatusVector status(userStatus);
+	CheckStatusWrapper statusWrapper(&status);
+
+	try
+	{
+		RefPtr<YAttachment> attachment(translateHandle(attachments, dbHandle));
+		RefPtr<YTransaction> transaction(translateHandle(transactions, traHandle));
+
+		iscArrayLookupDescImpl(attachment, transaction, relationName, fieldName, desc);
+	}
+	catch (const Exception& e)
+	{
+		e.stuffException(&statusWrapper);
+	}
+
+	return status[1];
+}
+
+
 // Attach a database through the first subsystem that recognizes it.
 ISC_STATUS API_ROUTINE isc_attach_database(ISC_STATUS* userStatus, SSHORT fileLength,
 	const TEXT* filename, isc_db_handle* publicHandle, SSHORT dpbLength, const SCHAR* dpb)
@@ -1635,6 +1680,31 @@ ISC_STATUS API_ROUTINE isc_blob_info(ISC_STATUS* userStatus, isc_blob_handle* bl
 
 		blob->getInfo(&statusWrapper, itemLength, reinterpret_cast<const UCHAR*>(items),
 			bufferLength, reinterpret_cast<UCHAR*>(buffer));
+	}
+	catch (const Exception& e)
+	{
+		e.stuffException(&statusWrapper);
+	}
+
+	return status[1];
+}
+
+
+// Lookup the blob subtype, character set and segment size information from the metadata,
+// given a relation/procedure name and column/parameter name.
+// It will fill in the information in the BLOB_DESC.
+ISC_STATUS API_ROUTINE isc_blob_lookup_desc(ISC_STATUS* userStatus, isc_db_handle* dbHandle, isc_tr_handle* traHandle,
+	const UCHAR* relationName, const UCHAR* fieldName, ISC_BLOB_DESC* desc, UCHAR* global)
+{
+	StatusVector status(userStatus);
+	CheckStatusWrapper statusWrapper(&status);
+
+	try
+	{
+		RefPtr<YAttachment> attachment(translateHandle(attachments, dbHandle));
+		RefPtr<YTransaction> transaction(translateHandle(transactions, traHandle));
+
+		iscBlobLookupDescImpl(attachment, transaction, relationName, fieldName, desc, global);
 	}
 	catch (const Exception& e)
 	{
@@ -4884,6 +4954,21 @@ IMessageMetadata* YResultSet::getMetadata(CheckStatusWrapper* status)
 	return NULL;
 }
 
+void YResultSet::getInfo(CheckStatusWrapper* status,
+						 unsigned int itemsLength, const unsigned char* items,
+						 unsigned int bufferLength, unsigned char* buffer)
+{
+	try
+	{
+		YEntry<YResultSet> entry(status, this);
+
+		entry.next()->getInfo(status, itemsLength, items, bufferLength, buffer);
+	}
+	catch (const Exception& e)
+	{
+		e.stuffException(status);
+	}
+}
 
 void YResultSet::close(CheckStatusWrapper* status)
 {
@@ -5417,8 +5502,6 @@ YTransaction* YTransaction::enterDtc(CheckStatusWrapper* status)
 		YEntry<YTransaction> entry(status, this);
 
 		YTransaction* copy = FB_NEW YTransaction(this);
-		// copy is created with zero handle
-		copy->addRef();
 		copy->addRef();
 		next->addRef();		// We use NoIncr in YTransaction ctor
 
@@ -6212,6 +6295,19 @@ void YService::query(CheckStatusWrapper* status, unsigned int sendLength, const 
 	}
 }
 
+void YService::cancel(CheckStatusWrapper* status)
+{
+	try
+	{
+		YEntry<YService> entry(status, this);
+		entry.next()->cancel(status);
+	}
+	catch (const Exception& e)
+	{
+		e.stuffException(status);
+	}
+}
+
 void YService::start(CheckStatusWrapper* status, unsigned int spbLength, const unsigned char* spbItems)
 {
 	try
@@ -6364,6 +6460,7 @@ YAttachment* Dispatcher::attachOrCreateDatabase(CheckStatusWrapper* status, bool
 			case isc_lock_dir_access:
 			case isc_no_priv:
 			case isc_wrong_ods:
+			case isc_wrong_shmem_ver:
 				currentStatus = &tempCheckStatusWrapper;
 				// fall down...
 			case isc_unavailable:
@@ -6495,6 +6592,10 @@ YService* Dispatcher::attachServiceManager(CheckStatusWrapper* status, const cha
 	return NULL;
 }
 
+static std::atomic<SLONG> shutdownWaiters = 0;
+static const SLONG SHUTDOWN_COMPLETE = 1;
+static const SLONG SHUTDOWN_STEP = 2;
+
 void Dispatcher::shutdown(CheckStatusWrapper* userStatus, unsigned int timeout, const int reason)
 {
 	// set "process exiting" state
@@ -6503,6 +6604,19 @@ void Dispatcher::shutdown(CheckStatusWrapper* userStatus, unsigned int timeout, 
 
 	// can't syncronize with already killed threads, just exit
 	if (MasterInterfacePtr()->getProcessExiting())
+		return;
+
+	// wait for other threads that were waiting for shutdown
+	// that should not take too long due to shutdown started bit
+	Cleanup cleanShutCnt([&] {
+		shutdownWaiters -= SHUTDOWN_STEP;
+		while (shutdownWaiters > SHUTDOWN_STEP - 1)
+			Thread::yield();
+	});
+
+	// atomically increase shutdownWaiters & check for SHUTDOWN_STARTED
+	SLONG state = (shutdownWaiters += SHUTDOWN_STEP);
+	if (state & SHUTDOWN_COMPLETE)
 		return;
 
 	try
@@ -6658,6 +6772,9 @@ void Dispatcher::shutdown(CheckStatusWrapper* userStatus, unsigned int timeout, 
 		e.stuffException(userStatus);
 		iscLogStatus(NULL, userStatus);
 	}
+
+	// no more attempts to run shutdown code even in case of error
+	shutdownWaiters |= SHUTDOWN_COMPLETE;
 }
 
 void Dispatcher::setDbCryptCallback(CheckStatusWrapper* status, ICryptKeyCallback* callback)

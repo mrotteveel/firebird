@@ -42,9 +42,10 @@ ExternalTableScan::ExternalTableScan(CompilerScratch* csb, const string& alias,
 	: RecordStream(csb, stream), m_relation(relation), m_alias(csb->csb_pool, alias)
 {
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = csb->csb_rpt[stream].csb_cardinality;
 }
 
-void ExternalTableScan::open(thread_db* tdbb) const
+void ExternalTableScan::internalOpen(thread_db* tdbb) const
 {
 	Database* const dbb = tdbb->getDatabase();
 	Request* const request = tdbb->getRequest();
@@ -75,7 +76,7 @@ void ExternalTableScan::close(thread_db* tdbb) const
 		impure->irsb_flags &= ~irsb_open;
 }
 
-bool ExternalTableScan::getRecord(thread_db* tdbb) const
+bool ExternalTableScan::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -107,21 +108,25 @@ bool ExternalTableScan::refetchRecord(thread_db* /*tdbb*/) const
 	return true;
 }
 
-bool ExternalTableScan::lockRecord(thread_db* tdbb) const
+WriteLockResult ExternalTableScan::lockRecord(thread_db* tdbb, bool skipLocked) const
 {
 	SET_TDBB(tdbb);
 
 	status_exception::raise(Arg::Gds(isc_record_lock_not_supp));
-	return false; // compiler silencer
+}
+
+void ExternalTableScan::getChildren(Array<const RecordSource*>& children) const
+{
 }
 
 void ExternalTableScan::print(thread_db* tdbb, string& plan,
-							  bool detailed, unsigned level) const
+							  bool detailed, unsigned level, bool recurse) const
 {
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
 			printName(tdbb, m_relation->rel_name.c_str(), m_alias) + " Full Scan";
+		printOptInfo(plan);
 	}
 	else
 	{

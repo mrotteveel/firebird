@@ -37,16 +37,17 @@ using namespace Jrd;
 
 BitmapTableScan::BitmapTableScan(CompilerScratch* csb, const string& alias,
 								 StreamType stream, jrd_rel* relation,
-								 InversionNode* inversion)
+								 InversionNode* inversion, double selectivity)
 	: RecordStream(csb, stream),
 	  m_alias(csb->csb_pool, alias), m_relation(relation), m_inversion(inversion)
 {
 	fb_assert(m_inversion);
 
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = csb->csb_rpt[stream].csb_cardinality * selectivity;
 }
 
-void BitmapTableScan::open(thread_db* tdbb) const
+void BitmapTableScan::internalOpen(thread_db* tdbb) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -80,7 +81,7 @@ void BitmapTableScan::close(thread_db* tdbb) const
 	}
 }
 
-bool BitmapTableScan::getRecord(thread_db* tdbb) const
+bool BitmapTableScan::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -121,14 +122,19 @@ bool BitmapTableScan::getRecord(thread_db* tdbb) const
 	return false;
 }
 
+void BitmapTableScan::getChildren(Array<const RecordSource*>& children) const
+{
+}
+
 void BitmapTableScan::print(thread_db* tdbb, string& plan,
-							bool detailed, unsigned level) const
+							bool detailed, unsigned level, bool recurse) const
 {
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
 			printName(tdbb, m_relation->rel_name.c_str(), m_alias) + " Access By ID";
 
+		printOptInfo(plan);
 		printInversion(tdbb, m_inversion, plan, true, level);
 	}
 	else

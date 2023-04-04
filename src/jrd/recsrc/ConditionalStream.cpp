@@ -41,14 +41,18 @@ using namespace Jrd;
 ConditionalStream::ConditionalStream(CompilerScratch* csb,
 									 RecordSource* first, RecordSource* second,
 									 BoolExprNode* boolean)
-	: m_first(first), m_second(second), m_boolean(boolean)
+	: RecordSource(csb),
+	  m_first(first),
+	  m_second(second),
+	  m_boolean(boolean)
 {
 	fb_assert(m_first && m_second && m_boolean);
 
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = (first->getCardinality() + second->getCardinality()) / 2;
 }
 
-void ConditionalStream::open(thread_db* tdbb) const
+void ConditionalStream::internalOpen(thread_db* tdbb) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -75,7 +79,7 @@ void ConditionalStream::close(thread_db* tdbb) const
 	}
 }
 
-bool ConditionalStream::getRecord(thread_db* tdbb) const
+bool ConditionalStream::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -99,35 +103,46 @@ bool ConditionalStream::refetchRecord(thread_db* tdbb) const
 	return impure->irsb_next->refetchRecord(tdbb);
 }
 
-bool ConditionalStream::lockRecord(thread_db* tdbb) const
+WriteLockResult ConditionalStream::lockRecord(thread_db* tdbb, bool skipLocked) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
 
 	if (!(impure->irsb_flags & irsb_open))
-		return false;
+		return WriteLockResult::CONFLICTED;
 
-	return impure->irsb_next->lockRecord(tdbb);
+	return impure->irsb_next->lockRecord(tdbb, skipLocked);
 }
 
-void ConditionalStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+void ConditionalStream::getChildren(Array<const RecordSource*>& children) const
+{
+	children.add(m_first);
+	children.add(m_second);
+}
+
+void ConditionalStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
 {
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Condition";
-		m_first->print(tdbb, plan, true, level);
-		m_second->print(tdbb, plan, true, level);
+		printOptInfo(plan);
+
+		if (recurse)
+		{
+			m_first->print(tdbb, plan, true, level, recurse);
+			m_second->print(tdbb, plan, true, level, recurse);
+		}
 	}
 	else
 	{
 		if (!level)
 			plan += "(";
 
-		m_first->print(tdbb, plan, false, level + 1);
+		m_first->print(tdbb, plan, false, level + 1, recurse);
 
 		plan += ", ";
 
-		m_second->print(tdbb, plan, false, level + 1);
+		m_second->print(tdbb, plan, false, level + 1, recurse);
 
 		if (!level)
 			plan += ")";

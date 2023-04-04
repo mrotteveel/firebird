@@ -26,9 +26,10 @@
 #include "../jrd/evl_proto.h"
 #include "../jrd/exe_proto.h"
 #include "../jrd/par_proto.h"
+#include "../jrd/vio_proto.h"
 #include "../jrd/optimizer/Optimizer.h"
-
 #include "RecordSource.h"
+#include <exception>
 
 using namespace Firebird;
 using namespace Jrd;
@@ -51,34 +52,36 @@ namespace
 	public:
 		BufferedStreamWindow(CompilerScratch* csb, BufferedStream* next);
 
-		void open(thread_db* tdbb) const;
-		void close(thread_db* tdbb) const;
+		void internalOpen(thread_db* tdbb) const override;
+		void close(thread_db* tdbb) const override;
 
-		bool getRecord(thread_db* tdbb) const;
-		bool refetchRecord(thread_db* tdbb) const;
-		bool lockRecord(thread_db* tdbb) const;
+		bool internalGetRecord(thread_db* tdbb) const override;
+		bool refetchRecord(thread_db* tdbb) const override;
+		WriteLockResult lockRecord(thread_db* tdbb, bool skipLocked) const override;
 
-		void print(thread_db* tdbb, Firebird::string& plan, bool detailed, unsigned level) const;
+		void getChildren(Firebird::Array<const RecordSource*>& children) const override;
 
-		void markRecursive();
-		void invalidateRecords(Request* request) const;
+		void print(thread_db* tdbb, Firebird::string& plan, bool detailed, unsigned level, bool recurse) const override;
 
-		void findUsedStreams(StreamList& streams, bool expandAll) const;
-		void nullRecords(thread_db* tdbb) const;
+		void markRecursive() override;
+		void invalidateRecords(Request* request) const override;
 
-		void locate(thread_db* tdbb, FB_UINT64 position) const
+		void findUsedStreams(StreamList& streams, bool expandAll) const override;
+		void nullRecords(thread_db* tdbb) const override;
+
+		void locate(thread_db* tdbb, FB_UINT64 position) const override
 		{
 			Request* const request = tdbb->getRequest();
 			Impure* const impure = request->getImpure<Impure>(m_impure);
 			impure->irsb_position = position;
 		}
 
-		FB_UINT64 getCount(thread_db* tdbb) const
+		FB_UINT64 getCount(thread_db* tdbb) const override
 		{
 			return m_next->getCount(tdbb);
 		}
 
-		FB_UINT64 getPosition(Request* request) const
+		FB_UINT64 getPosition(Request* request) const override
 		{
 			Impure* const impure = request->getImpure<Impure>(m_impure);
 			return impure->irsb_position;
@@ -91,12 +94,13 @@ namespace
 	// BufferedStreamWindow implementation
 
 	BufferedStreamWindow::BufferedStreamWindow(CompilerScratch* csb, BufferedStream* next)
-		: m_next(next)
+		: BaseBufferedStream(csb),
+		  m_next(next)
 	{
 		m_impure = csb->allocImpure<Impure>();
 	}
 
-	void BufferedStreamWindow::open(thread_db* tdbb) const
+	void BufferedStreamWindow::internalOpen(thread_db* tdbb) const
 	{
 		Request* const request = tdbb->getRequest();
 		Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -117,7 +121,7 @@ namespace
 			impure->irsb_flags &= ~irsb_open;
 	}
 
-	bool BufferedStreamWindow::getRecord(thread_db* tdbb) const
+	bool BufferedStreamWindow::internalGetRecord(thread_db* tdbb) const
 	{
 		Request* const request = tdbb->getRequest();
 		Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -138,14 +142,20 @@ namespace
 		return m_next->refetchRecord(tdbb);
 	}
 
-	bool BufferedStreamWindow::lockRecord(thread_db* tdbb) const
+	WriteLockResult BufferedStreamWindow::lockRecord(thread_db* tdbb, bool skipLocked) const
 	{
-		return m_next->lockRecord(tdbb);
+		return m_next->lockRecord(tdbb, skipLocked);
 	}
 
-	void BufferedStreamWindow::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+	void BufferedStreamWindow::getChildren(Array<const RecordSource*>& children) const
 	{
-		m_next->print(tdbb, plan, detailed, level);
+		children.add(m_next);
+	}
+
+	void BufferedStreamWindow::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
+	{
+		if (recurse)
+			m_next->print(tdbb, plan, detailed, level, recurse);
 	}
 
 	void BufferedStreamWindow::markRecursive()
@@ -185,12 +195,14 @@ namespace
 
 WindowedStream::WindowedStream(thread_db* tdbb, Optimizer* opt,
 			ObjectsArray<WindowSourceNode::Window>& windows, RecordSource* next)
-	: m_joinedStream(nullptr)
+	: RecordSource(opt->getCompilerScratch()),
+	  m_joinedStream(nullptr)
 {
 	const auto csb = opt->getCompilerScratch();
 
 	m_next = FB_NEW_POOL(csb->csb_pool) BufferedStream(csb, next);
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = next->getCardinality();
 
 	// Process the unpartioned and unordered map, if existent.
 
@@ -333,7 +345,7 @@ WindowedStream::WindowedStream(thread_db* tdbb, Optimizer* opt,
 	}
 }
 
-void WindowedStream::open(thread_db* tdbb) const
+void WindowedStream::internalOpen(thread_db* tdbb) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -360,7 +372,7 @@ void WindowedStream::close(thread_db* tdbb) const
 	}
 }
 
-bool WindowedStream::getRecord(thread_db* tdbb) const
+bool WindowedStream::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -381,15 +393,20 @@ bool WindowedStream::refetchRecord(thread_db* tdbb) const
 	return m_joinedStream->refetchRecord(tdbb);
 }
 
-bool WindowedStream::lockRecord(thread_db* /*tdbb*/) const
+WriteLockResult WindowedStream::lockRecord(thread_db* /*tdbb*/, bool /*skipLocked*/) const
 {
 	status_exception::raise(Arg::Gds(isc_record_lock_not_supp));
-	return false; // compiler silencer
 }
 
-void WindowedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+void WindowedStream::getChildren(Array<const RecordSource*>& children) const
 {
-	m_joinedStream->print(tdbb, plan, detailed, level);
+	children.add(m_joinedStream);
+}
+
+void WindowedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
+{
+	if (recurse)
+		m_joinedStream->print(tdbb, plan, detailed, level, recurse);
 }
 
 void WindowedStream::markRecursive()
@@ -505,9 +522,9 @@ WindowedStream::WindowStream::WindowStream(thread_db* tdbb, CompilerScratch* csb
 	(void) m_exclusion;	// avoid warning
 }
 
-void WindowedStream::WindowStream::open(thread_db* tdbb) const
+void WindowedStream::WindowStream::internalOpen(thread_db* tdbb) const
 {
-	BaseAggWinStream::open(tdbb);
+	BaseAggWinStream::internalOpen(tdbb);
 
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = getImpure(request);
@@ -542,7 +559,7 @@ void WindowedStream::WindowStream::close(thread_db* tdbb) const
 	BaseAggWinStream::close(tdbb);
 }
 
-bool WindowedStream::WindowStream::getRecord(thread_db* tdbb) const
+bool WindowedStream::WindowStream::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -845,7 +862,7 @@ bool WindowedStream::WindowStream::getRecord(thread_db* tdbb) const
 				record->clearNull(id);
 			}
 
-			window.moveWithinPartition(0);
+			window.restore();
 		}
 	}
 
@@ -870,13 +887,22 @@ bool WindowedStream::WindowStream::getRecord(thread_db* tdbb) const
 	return true;
 }
 
+void WindowedStream::WindowStream::getChildren(Array<const RecordSource*>& children) const
+{
+	children.add(m_next);
+}
+
 void WindowedStream::WindowStream::print(thread_db* tdbb, string& plan, bool detailed,
-	unsigned level) const
+	unsigned level, bool recurse) const
 {
 	if (detailed)
+	{
 		plan += printIndent(++level) + "Window";
+		printOptInfo(plan);
+	}
 
-	m_next->print(tdbb, plan, detailed, level);
+	if (recurse)
+		m_next->print(tdbb, plan, detailed, level, recurse);
 }
 
 void WindowedStream::WindowStream::findUsedStreams(StreamList& streams, bool expandAll) const
@@ -1052,19 +1078,20 @@ SlidingWindow::SlidingWindow(thread_db* aTdbb, const BaseBufferedStream* aStream
 	  partitionStart(aPartitionStart),
 	  partitionEnd(aPartitionEnd),
 	  frameStart(aFrameStart),
-	  frameEnd(aFrameEnd),
-	  moved(false)
+	  frameEnd(aFrameEnd)
 {
 	savedPosition = stream->getPosition(request) - 1;
 }
 
 SlidingWindow::~SlidingWindow()
 {
-	if (!moved)
-		return;
-
-	// Position the stream where we received it.
-	moveWithinPartition(0);
+#ifdef DEV_BUILD
+#if __cpp_lib_uncaught_exceptions >= 201411L
+	fb_assert(!moved || std::uncaught_exceptions());
+#else
+	fb_assert(!moved || std::uncaught_exception());
+#endif
+#endif
 }
 
 // Move in the window without pass partition boundaries.
@@ -1075,7 +1102,7 @@ bool SlidingWindow::moveWithinPartition(SINT64 delta)
 	if (newPosition < partitionStart || newPosition > partitionEnd)
 		return false;
 
-	moved = true;
+	moved = delta != 0;
 
 	stream->locate(tdbb, newPosition);
 

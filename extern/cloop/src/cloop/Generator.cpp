@@ -21,12 +21,14 @@
 
 #include "Generator.h"
 #include "Expr.h"
+#include <algorithm>
 #include <deque>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+using std::transform;
 using std::deque;
 using std::runtime_error;
 using std::set;
@@ -50,6 +52,26 @@ void identify(FILE* out, unsigned ident)
 	fprintf(out, "%.*s", ident, tabs);
 }
 
+string snakeUpperCase(const string& name)
+{
+	string result;
+	const size_t len = name.length();
+	bool wasUpper = true;
+
+	for (size_t i = 0; i < len; ++i)
+	{
+		const char c = name[i];
+		const bool isUpper = isupper(c);
+
+		if (isUpper && !wasUpper)
+			result += '_';
+
+		result += toupper(c);
+		wasUpper = isUpper;
+	}
+
+	return result;
+}
 
 //--------------------------------------
 
@@ -147,6 +169,9 @@ CppGenerator::CppGenerator(const string& filename, const string& prefix, Parser*
 
 void CppGenerator::generate()
 {
+	string nameSpaceUpper = nameSpace;
+	transform(nameSpaceUpper.begin(), nameSpaceUpper.end(), nameSpaceUpper.begin(), toupper);
+
 	fprintf(out, "// %s\n\n", AUTOGEN_MSG);
 
 	fprintf(out, "#ifndef %s\n", headerGuard.c_str());
@@ -155,6 +180,22 @@ void CppGenerator::generate()
 
 	fprintf(out, "#ifndef CLOOP_CARG\n");
 	fprintf(out, "#define CLOOP_CARG\n");
+	fprintf(out, "#endif\n\n");
+
+	fprintf(out, "#ifndef CLOOP_NOEXCEPT\n");
+	fprintf(out, "#if __cplusplus >= 201103L\n");
+	fprintf(out, "#define CLOOP_NOEXCEPT noexcept\n");
+	fprintf(out, "#else\n");
+	fprintf(out, "#define CLOOP_NOEXCEPT throw()\n");
+	fprintf(out, "#endif\n");
+	fprintf(out, "#endif\n\n\n");
+
+	fprintf(out, "#ifndef CLOOP_CONSTEXPR\n");
+	fprintf(out, "#if __cplusplus >= 201103L\n");
+	fprintf(out, "#define CLOOP_CONSTEXPR constexpr\n");
+	fprintf(out, "#else\n");
+	fprintf(out, "#define CLOOP_CONSTEXPR const\n");
+	fprintf(out, "#endif\n");
 	fprintf(out, "#endif\n\n\n");
 
 	fprintf(out, "namespace %s\n", nameSpace.c_str());
@@ -193,6 +234,14 @@ void CppGenerator::generate()
 		 ++i)
 	{
 		Interface* interface = *i;
+
+		const string snakeInterfaceName = snakeUpperCase(interface->name);
+
+		fprintf(out, "#define %s_%s%s_VERSION %uu\n\n",
+			nameSpaceUpper.c_str(),
+			prefix.c_str(),
+			snakeInterfaceName.c_str(),
+			interface->version);
 
 		deque<Method*> methods;
 
@@ -248,7 +297,7 @@ void CppGenerator::generate()
 					convertType(parameter->typeRef).c_str(), parameter->name.c_str());
 			}
 
-			fprintf(out, ") throw();\n");
+			fprintf(out, ") CLOOP_NOEXCEPT;\n");
 		}
 
 		fprintf(out, "\t\t};\n");
@@ -279,7 +328,11 @@ void CppGenerator::generate()
 		fprintf(out, "\n");
 
 		fprintf(out, "\tpublic:\n");
-		fprintf(out, "\t\tstatic const unsigned VERSION = %u;\n", interface->version);
+
+		fprintf(out, "\t\tstatic CLOOP_CONSTEXPR unsigned VERSION = %s_%s%s_VERSION;\n",
+			nameSpaceUpper.c_str(),
+			prefix.c_str(),
+			snakeInterfaceName.c_str());
 
 		if (!interface->constants.empty())
 			fprintf(out, "\n");
@@ -290,7 +343,7 @@ void CppGenerator::generate()
 		{
 			Constant* constant = *j;
 
-			fprintf(out, "\t\tstatic const %s %s = %s;\n",
+			fprintf(out, "\t\tstatic CLOOP_CONSTEXPR %s %s = %s;\n",
 				convertType(constant->typeRef).c_str(),
 				constant->name.c_str(),
 				constant->expr->generate(LANGUAGE_CPP, prefix).c_str());
@@ -496,7 +549,7 @@ void CppGenerator::generate()
 					 method->parameters.front()->typeRef.token.text == parser->exceptionInterface->name
 					) ? method->parameters.front() : NULL;
 
-				fprintf(out, ") throw()\n");
+				fprintf(out, ") CLOOP_NOEXCEPT\n");
 				fprintf(out, "\t\t{\n");
 
 				if (exceptionParameter)

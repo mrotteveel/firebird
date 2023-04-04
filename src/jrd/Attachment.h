@@ -94,6 +94,7 @@ namespace Jrd
 	class TrigVector;
 	class Function;
 	class Statement;
+	class ProfilerManager;
 	class Validation;
 	class Applier;
 	enum InternalRequest : USHORT;
@@ -158,7 +159,7 @@ const ULONG ATT_async_manual_lock	= 0x01000L;	// Async mutex was locked manually
 const ULONG ATT_overwrite_check		= 0x02000L;	// Attachment checks is it possible to overwrite DB
 const ULONG ATT_system				= 0x04000L; // Special system attachment
 const ULONG ATT_creator				= 0x08000L; // This attachment created the DB
-const ULONG ATT_monitor_done		= 0x10000L; // Monitoring data is refreshed
+const ULONG ATT_monitor_disabled	= 0x10000L; // Monitoring lock is downgraded
 const ULONG ATT_security_db			= 0x20000L; // Attachment used for security purposes
 const ULONG ATT_mapping				= 0x40000L; // Attachment used for mapping auth block
 const ULONG ATT_from_thread			= 0x80000L; // Attachment from internal special thread (sweep, crypt)
@@ -166,6 +167,7 @@ const ULONG ATT_monitor_init		= 0x100000L; // Attachment is registered in monito
 const ULONG ATT_repl_reset			= 0x200000L; // Replication set has been reset
 const ULONG ATT_replicating			= 0x400000L; // Replication is active
 const ULONG ATT_resetting			= 0x800000L; // Session reset is in progress
+const ULONG ATT_worker				= 0x1000000L; // Worker attachment, managed by the engine
 
 const ULONG ATT_NO_CLEANUP			= (ATT_no_cleanup | ATT_notify_gc);
 
@@ -373,7 +375,13 @@ public:
 		return shutError;
 	}
 
-	void onIdleTimer(Firebird::TimerImpl*);
+	void onIdleTimer(Firebird::TimerImpl* timer)
+	{
+		doOnIdleTimer(timer);
+	}
+
+protected:
+	virtual void doOnIdleTimer(Firebird::TimerImpl* timer);
 
 private:
 	Attachment* att;
@@ -473,6 +481,26 @@ public:
 		bool dsqlKeepBlr = false;
 	};
 
+	class UseCountHolder
+	{
+	public:
+		explicit UseCountHolder(Attachment* a)
+			: att(a)
+		{
+			if (att)
+				att->att_use_count++;
+		}
+
+		~UseCountHolder()
+		{
+			if (att)
+				att->att_use_count--;
+		}
+
+	private:
+		Attachment* att;
+	};
+
 public:
 	static Attachment* create(Database* dbb, JProvider* provider);
 	static void destroy(Attachment* const attachment);
@@ -505,6 +533,8 @@ public:
 	AttNumber	att_attachment_id;			// Attachment ID
 	Lock*		att_cancel_lock;			// Lock to cancel the active request
 	Lock*		att_monitor_lock;			// Lock for monitoring purposes
+	ULONG		att_monitor_generation;		// Monitoring state generation
+	Lock*		att_profiler_listener_lock;	// Lock for remote profiler listener
 	const ULONG	att_lock_owner_id;			// ID for the lock manager
 	SLONG		att_lock_owner_handle;		// Handle for the lock manager
 	ULONG		att_backup_state_counter;	// Counter of backup state locks for attachment
@@ -516,6 +546,7 @@ public:
 	ULONG		att_flags;					// Flags describing the state of the attachment
 	SSHORT		att_client_charset;			// user's charset specified in dpb
 	SSHORT		att_charset;				// current (client or external) attachment charset
+	bool 		att_in_system_routine = false;	// running a system routine
 	Lock*		att_long_locks;				// outstanding two phased locks
 #ifdef DEBUG_LCK_LIST
 	UCHAR		att_long_locks_type;		// Lock type of the first lock in list
@@ -556,6 +587,7 @@ public:
 	CoercionArray* att_dest_bind;
 	USHORT att_original_timezone;
 	USHORT att_current_timezone;
+	int att_parallel_workers;
 
 	Firebird::RefPtr<Firebird::IReplicatedSession> att_replicator;
 	Firebird::AutoPtr<Replication::TableMatcher> att_repl_matcher;
@@ -587,6 +619,11 @@ public:
 	bool isSystem() const
 	{
 		return (att_flags & ATT_system);
+	}
+
+	bool isWorker() const
+	{
+		return (att_flags & ATT_worker);
 	}
 
 	bool isGbak() const;
@@ -722,6 +759,10 @@ public:
 	void checkReplSetLock(thread_db* tdbb);
 	void invalidateReplSet(thread_db* tdbb, bool broadcast);
 
+	ProfilerManager* getProfilerManager(thread_db* tdbb);
+	bool isProfilerActive();
+	void releaseProfilerManager();
+
 	JProvider* getProvider()
 	{
 		fb_assert(att_provider);
@@ -734,13 +775,12 @@ private:
 
 	unsigned int att_idle_timeout;		// seconds
 	unsigned int att_stmt_timeout;		// milliseconds
-
-	typedef Firebird::TimerWithRef<StableAttachmentPart> IdleTimer;
-	Firebird::RefPtr<IdleTimer> att_idle_timer;
+	Firebird::RefPtr<Firebird::TimerImpl> att_idle_timer;
 
 	Firebird::Array<JBatch*> att_batches;
 	InitialOptions att_initial_options;	// Initial session options
 	DebugOptions att_debug_options;
+	Firebird::AutoPtr<ProfilerManager> att_profiler_manager;	// ProfilerManager
 
 	Lock* att_repl_lock;				// Replication set lock
 	JProvider* att_provider;	// Provider which created this attachment
@@ -867,6 +907,11 @@ public:
 		iter.remove();
 	}
 
+	bool hasData() const
+	{
+		return m_attachments.hasData();
+	}
+
 private:
 	AttachmentsRefHolder(const AttachmentsRefHolder&);
 
@@ -891,7 +936,7 @@ public:
 		}
 	}
 
-private:
+protected:
 	void destroy(Attachment* attachment);
 
 	// "public" interface for internal (system) attachment

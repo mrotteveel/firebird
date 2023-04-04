@@ -146,6 +146,7 @@ namespace Jrd {
 
 class CharSetContainer;
 
+/*
 // Procedure block
 
 class jrd_prc : public Routine
@@ -226,6 +227,94 @@ public:
 	{
 	}
 };
+*/
+
+// Procedure block
+
+class jrd_prc : public Routine
+{
+public:
+	const Format*	prc_record_format;
+	prc_t			prc_type;					// procedure type
+
+	const ExtEngineManager::Procedure* getExternal() const { return prc_external; }
+	void setExternal(ExtEngineManager::Procedure* value) { prc_external = value; }
+
+private:
+	const ExtEngineManager::Procedure* prc_external;
+
+public:
+	explicit jrd_prc(MemoryPool& p)
+		: Routine(p),
+		  prc_record_format(NULL),
+		  prc_type(prc_legacy),
+		  prc_external(NULL)
+	{
+	}
+
+public:
+	virtual int getObjectType() const
+	{
+		return obj_procedure;
+	}
+
+	virtual SLONG getSclType() const
+	{
+		return obj_procedures;
+	}
+
+	virtual void releaseFormat()
+	{
+		delete prc_record_format;
+		prc_record_format = NULL;
+	}
+
+	virtual ~jrd_prc()
+	{
+		delete prc_external;
+	}
+
+	virtual bool checkCache(thread_db* tdbb) const;
+	virtual void clearCache(thread_db* tdbb);
+
+	virtual void releaseExternal()
+	{
+		delete prc_external;
+		prc_external = NULL;
+	}
+
+protected:
+	virtual bool reload(thread_db* tdbb);	// impl is in met.epp
+};
+
+
+// Parameter block
+
+class Parameter : public pool_alloc<type_prm>
+{
+public:
+	USHORT		prm_number;
+	dsc			prm_desc;
+	NestConst<ValueExprNode>	prm_default_value;
+	bool		prm_nullable;
+	prm_mech_t	prm_mechanism;
+	MetaName prm_name;
+	MetaName prm_field_source;
+	MetaName prm_type_of_column;
+	MetaName prm_type_of_table;
+	Nullable<USHORT> prm_text_type;
+	FUN_T		prm_fun_mechanism;
+
+public:
+	explicit Parameter(MemoryPool& p)
+		: prm_name(p),
+		  prm_field_source(p),
+		  prm_type_of_column(p),
+		  prm_type_of_table(p)
+	{
+	}
+};
+
 
 struct index_desc;
 struct DSqlCacheItem;

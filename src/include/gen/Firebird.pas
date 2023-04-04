@@ -111,6 +111,9 @@ type
 	IReplicatedRecord = class;
 	IReplicatedTransaction = class;
 	IReplicatedSession = class;
+	IProfilerPlugin = class;
+	IProfilerSession = class;
+	IProfilerStats = class;
 
 	FbException = class(Exception)
 	public
@@ -339,6 +342,7 @@ type
 	IResultSet_deprecatedClosePtr = procedure(this: IResultSet; status: IStatus); cdecl;
 	IResultSet_setDelayedOutputFormatPtr = procedure(this: IResultSet; status: IStatus; format: IMessageMetadata); cdecl;
 	IResultSet_closePtr = procedure(this: IResultSet; status: IStatus); cdecl;
+	IResultSet_getInfoPtr = procedure(this: IResultSet; status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr); cdecl;
 	IStatement_getInfoPtr = procedure(this: IStatement; status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr); cdecl;
 	IStatement_getTypePtr = function(this: IStatement; status: IStatus): Cardinal; cdecl;
 	IStatement_getPlanPtr = function(this: IStatement; status: IStatus; detailed: Boolean): PAnsiChar; cdecl;
@@ -414,6 +418,7 @@ type
 	IService_queryPtr = procedure(this: IService; status: IStatus; sendLength: Cardinal; sendItems: BytePtr; receiveLength: Cardinal; receiveItems: BytePtr; bufferLength: Cardinal; buffer: BytePtr); cdecl;
 	IService_startPtr = procedure(this: IService; status: IStatus; spbLength: Cardinal; spb: BytePtr); cdecl;
 	IService_detachPtr = procedure(this: IService; status: IStatus); cdecl;
+	IService_cancelPtr = procedure(this: IService; status: IStatus); cdecl;
 	IProvider_attachDatabasePtr = function(this: IProvider; status: IStatus; fileName: PAnsiChar; dpbLength: Cardinal; dpb: BytePtr): IAttachment; cdecl;
 	IProvider_createDatabasePtr = function(this: IProvider; status: IStatus; fileName: PAnsiChar; dpbLength: Cardinal; dpb: BytePtr): IAttachment; cdecl;
 	IProvider_attachServiceManagerPtr = function(this: IProvider; status: IStatus; service: PAnsiChar; spbLength: Cardinal; spb: BytePtr): IService; cdecl;
@@ -664,6 +669,7 @@ type
 	ITracePlugin_trace_event_errorPtr = function(this: ITracePlugin; connection: ITraceConnection; status: ITraceStatusVector; function_: PAnsiChar): Boolean; cdecl;
 	ITracePlugin_trace_event_sweepPtr = function(this: ITracePlugin; connection: ITraceDatabaseConnection; sweep: ITraceSweepInfo; sweep_state: Cardinal): Boolean; cdecl;
 	ITracePlugin_trace_func_executePtr = function(this: ITracePlugin; connection: ITraceDatabaseConnection; transaction: ITraceTransaction; function_: ITraceFunction; started: Boolean; func_result: Cardinal): Boolean; cdecl;
+	ITracePlugin_trace_dsql_restartPtr = function(this: ITracePlugin; connection: ITraceDatabaseConnection; transaction: ITraceTransaction; statement: ITraceSQLStatement; number: Cardinal): Boolean; cdecl;
 	ITraceFactory_trace_needsPtr = function(this: ITraceFactory): QWord; cdecl;
 	ITraceFactory_trace_createPtr = function(this: ITraceFactory; status: IStatus; init_info: ITraceInitInfo): ITracePlugin; cdecl;
 	IUdrFunctionFactory_setupPtr = procedure(this: IUdrFunctionFactory; status: IStatus; context: IExternalContext; metadata: IRoutineMetadata; inBuilder: IMetadataBuilder; outBuilder: IMetadataBuilder); cdecl;
@@ -712,6 +718,25 @@ type
 	IReplicatedSession_startTransactionPtr = function(this: IReplicatedSession; status: IStatus; transaction: ITransaction; number: Int64): IReplicatedTransaction; cdecl;
 	IReplicatedSession_cleanupTransactionPtr = procedure(this: IReplicatedSession; status: IStatus; number: Int64); cdecl;
 	IReplicatedSession_setSequencePtr = procedure(this: IReplicatedSession; status: IStatus; name: PAnsiChar; value: Int64); cdecl;
+	IProfilerPlugin_initPtr = procedure(this: IProfilerPlugin; status: IStatus; attachment: IAttachment); cdecl;
+	IProfilerPlugin_startSessionPtr = function(this: IProfilerPlugin; status: IStatus; description: PAnsiChar; options: PAnsiChar; timestamp: ISC_TIMESTAMP_TZ): IProfilerSession; cdecl;
+	IProfilerPlugin_flushPtr = procedure(this: IProfilerPlugin; status: IStatus); cdecl;
+	IProfilerSession_getIdPtr = function(this: IProfilerSession): Int64; cdecl;
+	IProfilerSession_getFlagsPtr = function(this: IProfilerSession): Cardinal; cdecl;
+	IProfilerSession_cancelPtr = procedure(this: IProfilerSession; status: IStatus); cdecl;
+	IProfilerSession_finishPtr = procedure(this: IProfilerSession; status: IStatus; timestamp: ISC_TIMESTAMP_TZ); cdecl;
+	IProfilerSession_defineStatementPtr = procedure(this: IProfilerSession; status: IStatus; statementId: Int64; parentStatementId: Int64; type_: PAnsiChar; packageName: PAnsiChar; routineName: PAnsiChar; sqlText: PAnsiChar); cdecl;
+	IProfilerSession_defineCursorPtr = procedure(this: IProfilerSession; statementId: Int64; cursorId: Cardinal; name: PAnsiChar; line: Cardinal; column: Cardinal); cdecl;
+	IProfilerSession_defineRecordSourcePtr = procedure(this: IProfilerSession; statementId: Int64; cursorId: Cardinal; recSourceId: Cardinal; accessPath: PAnsiChar; parentRecSourceId: Cardinal); cdecl;
+	IProfilerSession_onRequestStartPtr = procedure(this: IProfilerSession; status: IStatus; requestId: Int64; statementId: Int64; callerRequestId: Int64; timestamp: ISC_TIMESTAMP_TZ); cdecl;
+	IProfilerSession_onRequestFinishPtr = procedure(this: IProfilerSession; status: IStatus; requestId: Int64; timestamp: ISC_TIMESTAMP_TZ; stats: IProfilerStats); cdecl;
+	IProfilerSession_beforePsqlLineColumnPtr = procedure(this: IProfilerSession; requestId: Int64; line: Cardinal; column: Cardinal); cdecl;
+	IProfilerSession_afterPsqlLineColumnPtr = procedure(this: IProfilerSession; requestId: Int64; line: Cardinal; column: Cardinal; stats: IProfilerStats); cdecl;
+	IProfilerSession_beforeRecordSourceOpenPtr = procedure(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal); cdecl;
+	IProfilerSession_afterRecordSourceOpenPtr = procedure(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats); cdecl;
+	IProfilerSession_beforeRecordSourceGetRecordPtr = procedure(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal); cdecl;
+	IProfilerSession_afterRecordSourceGetRecordPtr = procedure(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats); cdecl;
+	IProfilerStats_getElapsedTimePtr = function(this: IProfilerStats): QWord; cdecl;
 
 	VersionedVTable = class
 		version: NativeInt;
@@ -1079,7 +1104,8 @@ type
 		const TYPE_DB_CRYPT = Cardinal(9);
 		const TYPE_KEY_HOLDER = Cardinal(10);
 		const TYPE_REPLICATOR = Cardinal(11);
-		const TYPE_COUNT = Cardinal(12);
+		const TYPE_PROFILER = Cardinal(12);
+		const TYPE_COUNT = Cardinal(13);
 
 		procedure registerPluginFactory(pluginType: Cardinal; defaultName: PAnsiChar; factory: IPluginFactory);
 		procedure registerModule(cleanup: IPluginModule);
@@ -1425,10 +1451,12 @@ type
 		deprecatedClose: IResultSet_deprecatedClosePtr;
 		setDelayedOutputFormat: IResultSet_setDelayedOutputFormatPtr;
 		close: IResultSet_closePtr;
+		getInfo: IResultSet_getInfoPtr;
 	end;
 
 	IResultSet = class(IReferenceCounted)
-		const VERSION = 4;
+		const VERSION = 5;
+		const INF_RECORD_COUNT = Byte(10);
 
 		function fetchNext(status: IStatus; message: Pointer): Integer;
 		function fetchPrior(status: IStatus; message: Pointer): Integer;
@@ -1442,6 +1470,7 @@ type
 		procedure deprecatedClose(status: IStatus);
 		procedure setDelayedOutputFormat(status: IStatus; format: IMessageMetadata);
 		procedure close(status: IStatus);
+		procedure getInfo(status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr);
 	end;
 
 	IResultSetImpl = class(IResultSet)
@@ -1461,6 +1490,7 @@ type
 		procedure deprecatedClose(status: IStatus); virtual; abstract;
 		procedure setDelayedOutputFormat(status: IStatus; format: IMessageMetadata); virtual; abstract;
 		procedure close(status: IStatus); virtual; abstract;
+		procedure getInfo(status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr); virtual; abstract;
 	end;
 
 	StatementVTable = class(ReferenceCountedVTable)
@@ -1818,15 +1848,17 @@ type
 		query: IService_queryPtr;
 		start: IService_startPtr;
 		detach: IService_detachPtr;
+		cancel: IService_cancelPtr;
 	end;
 
 	IService = class(IReferenceCounted)
-		const VERSION = 4;
+		const VERSION = 5;
 
 		procedure deprecatedDetach(status: IStatus);
 		procedure query(status: IStatus; sendLength: Cardinal; sendItems: BytePtr; receiveLength: Cardinal; receiveItems: BytePtr; bufferLength: Cardinal; buffer: BytePtr);
 		procedure start(status: IStatus; spbLength: Cardinal; spb: BytePtr);
 		procedure detach(status: IStatus);
+		procedure cancel(status: IStatus);
 	end;
 
 	IServiceImpl = class(IService)
@@ -1838,6 +1870,7 @@ type
 		procedure query(status: IStatus; sendLength: Cardinal; sendItems: BytePtr; receiveLength: Cardinal; receiveItems: BytePtr; bufferLength: Cardinal; buffer: BytePtr); virtual; abstract;
 		procedure start(status: IStatus; spbLength: Cardinal; spb: BytePtr); virtual; abstract;
 		procedure detach(status: IStatus); virtual; abstract;
+		procedure cancel(status: IStatus); virtual; abstract;
 	end;
 
 	ProviderVTable = class(PluginBaseVTable)
@@ -3346,10 +3379,11 @@ type
 		trace_event_error: ITracePlugin_trace_event_errorPtr;
 		trace_event_sweep: ITracePlugin_trace_event_sweepPtr;
 		trace_func_execute: ITracePlugin_trace_func_executePtr;
+		trace_dsql_restart: ITracePlugin_trace_dsql_restartPtr;
 	end;
 
 	ITracePlugin = class(IReferenceCounted)
-		const VERSION = 3;
+		const VERSION = 4;
 		const RESULT_SUCCESS = Cardinal(0);
 		const RESULT_FAILED = Cardinal(1);
 		const RESULT_UNAUTHORIZED = Cardinal(2);
@@ -3379,6 +3413,7 @@ type
 		function trace_event_error(connection: ITraceConnection; status: ITraceStatusVector; function_: PAnsiChar): Boolean;
 		function trace_event_sweep(connection: ITraceDatabaseConnection; sweep: ITraceSweepInfo; sweep_state: Cardinal): Boolean;
 		function trace_func_execute(connection: ITraceDatabaseConnection; transaction: ITraceTransaction; function_: ITraceFunction; started: Boolean; func_result: Cardinal): Boolean;
+		function trace_dsql_restart(connection: ITraceDatabaseConnection; transaction: ITraceTransaction; statement: ITraceSQLStatement; number: Cardinal): Boolean;
 	end;
 
 	ITracePluginImpl = class(ITracePlugin)
@@ -3407,6 +3442,7 @@ type
 		function trace_event_error(connection: ITraceConnection; status: ITraceStatusVector; function_: PAnsiChar): Boolean; virtual; abstract;
 		function trace_event_sweep(connection: ITraceDatabaseConnection; sweep: ITraceSweepInfo; sweep_state: Cardinal): Boolean; virtual; abstract;
 		function trace_func_execute(connection: ITraceDatabaseConnection; transaction: ITraceTransaction; function_: ITraceFunction; started: Boolean; func_result: Cardinal): Boolean; virtual; abstract;
+		function trace_dsql_restart(connection: ITraceDatabaseConnection; transaction: ITraceTransaction; statement: ITraceSQLStatement; number: Cardinal): Boolean; virtual; abstract;
 	end;
 
 	TraceFactoryVTable = class(PluginBaseVTable)
@@ -3747,7 +3783,112 @@ type
 		procedure setSequence(status: IStatus; name: PAnsiChar; value: Int64); virtual; abstract;
 	end;
 
+	ProfilerPluginVTable = class(PluginBaseVTable)
+		init: IProfilerPlugin_initPtr;
+		startSession: IProfilerPlugin_startSessionPtr;
+		flush: IProfilerPlugin_flushPtr;
+	end;
+
+	IProfilerPlugin = class(IPluginBase)
+		const VERSION = 4;
+
+		procedure init(status: IStatus; attachment: IAttachment);
+		function startSession(status: IStatus; description: PAnsiChar; options: PAnsiChar; timestamp: ISC_TIMESTAMP_TZ): IProfilerSession;
+		procedure flush(status: IStatus);
+	end;
+
+	IProfilerPluginImpl = class(IProfilerPlugin)
+		constructor create;
+
+		procedure addRef(); virtual; abstract;
+		function release(): Integer; virtual; abstract;
+		procedure setOwner(r: IReferenceCounted); virtual; abstract;
+		function getOwner(): IReferenceCounted; virtual; abstract;
+		procedure init(status: IStatus; attachment: IAttachment); virtual; abstract;
+		function startSession(status: IStatus; description: PAnsiChar; options: PAnsiChar; timestamp: ISC_TIMESTAMP_TZ): IProfilerSession; virtual; abstract;
+		procedure flush(status: IStatus); virtual; abstract;
+	end;
+
+	ProfilerSessionVTable = class(DisposableVTable)
+		getId: IProfilerSession_getIdPtr;
+		getFlags: IProfilerSession_getFlagsPtr;
+		cancel: IProfilerSession_cancelPtr;
+		finish: IProfilerSession_finishPtr;
+		defineStatement: IProfilerSession_defineStatementPtr;
+		defineCursor: IProfilerSession_defineCursorPtr;
+		defineRecordSource: IProfilerSession_defineRecordSourcePtr;
+		onRequestStart: IProfilerSession_onRequestStartPtr;
+		onRequestFinish: IProfilerSession_onRequestFinishPtr;
+		beforePsqlLineColumn: IProfilerSession_beforePsqlLineColumnPtr;
+		afterPsqlLineColumn: IProfilerSession_afterPsqlLineColumnPtr;
+		beforeRecordSourceOpen: IProfilerSession_beforeRecordSourceOpenPtr;
+		afterRecordSourceOpen: IProfilerSession_afterRecordSourceOpenPtr;
+		beforeRecordSourceGetRecord: IProfilerSession_beforeRecordSourceGetRecordPtr;
+		afterRecordSourceGetRecord: IProfilerSession_afterRecordSourceGetRecordPtr;
+	end;
+
+	IProfilerSession = class(IDisposable)
+		const VERSION = 3;
+		const FLAG_BEFORE_EVENTS = Cardinal($1);
+		const FLAG_AFTER_EVENTS = Cardinal($2);
+
+		function getId(): Int64;
+		function getFlags(): Cardinal;
+		procedure cancel(status: IStatus);
+		procedure finish(status: IStatus; timestamp: ISC_TIMESTAMP_TZ);
+		procedure defineStatement(status: IStatus; statementId: Int64; parentStatementId: Int64; type_: PAnsiChar; packageName: PAnsiChar; routineName: PAnsiChar; sqlText: PAnsiChar);
+		procedure defineCursor(statementId: Int64; cursorId: Cardinal; name: PAnsiChar; line: Cardinal; column: Cardinal);
+		procedure defineRecordSource(statementId: Int64; cursorId: Cardinal; recSourceId: Cardinal; accessPath: PAnsiChar; parentRecSourceId: Cardinal);
+		procedure onRequestStart(status: IStatus; requestId: Int64; statementId: Int64; callerRequestId: Int64; timestamp: ISC_TIMESTAMP_TZ);
+		procedure onRequestFinish(status: IStatus; requestId: Int64; timestamp: ISC_TIMESTAMP_TZ; stats: IProfilerStats);
+		procedure beforePsqlLineColumn(requestId: Int64; line: Cardinal; column: Cardinal);
+		procedure afterPsqlLineColumn(requestId: Int64; line: Cardinal; column: Cardinal; stats: IProfilerStats);
+		procedure beforeRecordSourceOpen(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal);
+		procedure afterRecordSourceOpen(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats);
+		procedure beforeRecordSourceGetRecord(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal);
+		procedure afterRecordSourceGetRecord(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats);
+	end;
+
+	IProfilerSessionImpl = class(IProfilerSession)
+		constructor create;
+
+		procedure dispose(); virtual; abstract;
+		function getId(): Int64; virtual; abstract;
+		function getFlags(): Cardinal; virtual; abstract;
+		procedure cancel(status: IStatus); virtual; abstract;
+		procedure finish(status: IStatus; timestamp: ISC_TIMESTAMP_TZ); virtual; abstract;
+		procedure defineStatement(status: IStatus; statementId: Int64; parentStatementId: Int64; type_: PAnsiChar; packageName: PAnsiChar; routineName: PAnsiChar; sqlText: PAnsiChar); virtual; abstract;
+		procedure defineCursor(statementId: Int64; cursorId: Cardinal; name: PAnsiChar; line: Cardinal; column: Cardinal); virtual; abstract;
+		procedure defineRecordSource(statementId: Int64; cursorId: Cardinal; recSourceId: Cardinal; accessPath: PAnsiChar; parentRecSourceId: Cardinal); virtual; abstract;
+		procedure onRequestStart(status: IStatus; requestId: Int64; statementId: Int64; callerRequestId: Int64; timestamp: ISC_TIMESTAMP_TZ); virtual; abstract;
+		procedure onRequestFinish(status: IStatus; requestId: Int64; timestamp: ISC_TIMESTAMP_TZ; stats: IProfilerStats); virtual; abstract;
+		procedure beforePsqlLineColumn(requestId: Int64; line: Cardinal; column: Cardinal); virtual; abstract;
+		procedure afterPsqlLineColumn(requestId: Int64; line: Cardinal; column: Cardinal; stats: IProfilerStats); virtual; abstract;
+		procedure beforeRecordSourceOpen(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal); virtual; abstract;
+		procedure afterRecordSourceOpen(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats); virtual; abstract;
+		procedure beforeRecordSourceGetRecord(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal); virtual; abstract;
+		procedure afterRecordSourceGetRecord(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats); virtual; abstract;
+	end;
+
+	ProfilerStatsVTable = class(VersionedVTable)
+		getElapsedTime: IProfilerStats_getElapsedTimePtr;
+	end;
+
+	IProfilerStats = class(IVersioned)
+		const VERSION = 2;
+
+		function getElapsedTime(): QWord;
+	end;
+
+	IProfilerStatsImpl = class(IProfilerStats)
+		constructor create;
+
+		function getElapsedTime(): QWord; virtual; abstract;
+	end;
+
+{$IFNDEF NO_FBCLIENT}
 	function fb_get_master_interface : IMaster; cdecl; external 'fbclient';
+{$ENDIF}
 
 const
 	FB_UsedInYValve = FALSE;
@@ -3849,6 +3990,9 @@ const
 	isc_dpb_decfloat_round = byte(94);
 	isc_dpb_decfloat_traps = byte(95);
 	isc_dpb_clear_map = byte(96);
+	isc_dpb_upgrade_db = byte(97);
+	isc_dpb_parallel_workers = byte(100);
+	isc_dpb_worker_attach = byte(101);
 	isc_dpb_address = byte(1);
 	isc_dpb_addr_protocol = byte(1);
 	isc_dpb_addr_endpoint = byte(2);
@@ -4006,6 +4150,7 @@ const
 	isc_spb_bkp_keyname = byte(17);
 	isc_spb_bkp_crypt = byte(18);
 	isc_spb_bkp_include_data = byte(19);
+	isc_spb_bkp_parallel_workers = byte(21);
 	isc_spb_bkp_ignore_checksums = $01;
 	isc_spb_bkp_ignore_limbo = $02;
 	isc_spb_bkp_metadata_only = $04;
@@ -4016,6 +4161,7 @@ const
 	isc_spb_bkp_expand = $80;
 	isc_spb_bkp_no_triggers = $8000;
 	isc_spb_bkp_zip = $010000;
+	isc_spb_bkp_direct_io = $020000;
 	isc_spb_prp_page_buffers = byte(5);
 	isc_spb_prp_sweep_interval = byte(6);
 	isc_spb_prp_shutdown_db = byte(7);
@@ -4071,6 +4217,7 @@ const
 	isc_spb_rpr_commit_trans_64 = byte(49);
 	isc_spb_rpr_rollback_trans_64 = byte(50);
 	isc_spb_rpr_recover_two_phase_64 = byte(51);
+	isc_spb_rpr_par_workers = byte(52);
 	isc_spb_rpr_validate_db = $01;
 	isc_spb_rpr_sweep_db = $02;
 	isc_spb_rpr_mend_db = $04;
@@ -4080,6 +4227,7 @@ const
 	isc_spb_rpr_kill_shadows = $40;
 	isc_spb_rpr_full = $80;
 	isc_spb_rpr_icu = $0800;
+	isc_spb_rpr_upgrade_db = $1000;
 	isc_spb_res_buffers = byte(9);
 	isc_spb_res_page_size = byte(10);
 	isc_spb_res_length = byte(11);
@@ -4114,6 +4262,9 @@ const
 	isc_spb_nbk_file = byte(6);
 	isc_spb_nbk_direct = byte(7);
 	isc_spb_nbk_guid = byte(8);
+	isc_spb_nbk_clean_history = byte(9);
+	isc_spb_nbk_keep_days = byte(10);
+	isc_spb_nbk_keep_rows = byte(11);
 	isc_spb_nbk_no_triggers = $01;
 	isc_spb_nbk_inplace = $02;
 	isc_spb_nbk_sequence = $04;
@@ -4180,6 +4331,7 @@ const
 	fb_dbg_subproc = byte(5);
 	fb_dbg_subfunc = byte(6);
 	fb_dbg_map_curname = byte(7);
+	fb_dbg_map_for_curname = byte(8);
 	fb_dbg_arg_input = byte(0);
 	fb_dbg_arg_output = byte(1);
 	isc_facility		= 20;
@@ -5154,6 +5306,12 @@ const
 	 isc_bad_loctab_num = 335545277;
 	 isc_quoted_str_bad = 335545278;
 	 isc_quoted_str_miss = 335545279;
+	 isc_wrong_shmem_ver = 335545280;
+	 isc_wrong_shmem_bitness = 335545281;
+	 isc_wrong_proc_plan = 335545282;
+	 isc_invalid_blob_util_handle = 335545283;
+	 isc_bad_temp_blob_id = 335545284;
+	 isc_ods_upgrade_err = 335545285;
 	 isc_gfix_db_name = 335740929;
 	 isc_gfix_invalid_sw = 335740930;
 	 isc_gfix_incmp_sw = 335740932;
@@ -5635,6 +5793,11 @@ const
 	 isc_nbackup_deco_parse = 337117259;
 	 isc_nbackup_lostrec_guid_db = 337117261;
 	 isc_nbackup_seq_misuse = 337117265;
+	 isc_nbackup_wrong_param = 337117268;
+	 isc_nbackup_clean_hist_misuse = 337117269;
+	 isc_nbackup_clean_hist_missed = 337117270;
+	 isc_nbackup_keep_hist_missed = 337117271;
+	 isc_nbackup_second_keep_switch = 337117272;
 	 isc_trace_conflict_acts = 337182750;
 	 isc_trace_act_notfound = 337182751;
 	 isc_trace_switch_once = 337182752;
@@ -6501,6 +6664,17 @@ begin
 	FbException.checkException(status);
 end;
 
+procedure IResultSet.getInfo(status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr);
+begin
+	if (vTable.version < 5) then begin
+		FbException.setVersionError(status, 'IResultSet', vTable.version, 5);
+	end
+	else begin
+		ResultSetVTable(vTable).getInfo(Self, status, itemsLength, items, bufferLength, buffer);
+	end;
+	FbException.checkException(status);
+end;
+
 procedure IStatement.getInfo(status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr);
 begin
 	StatementVTable(vTable).getInfo(Self, status, itemsLength, items, bufferLength, buffer);
@@ -7083,6 +7257,17 @@ begin
 	end
 	else begin
 		ServiceVTable(vTable).detach(Self, status);
+	end;
+	FbException.checkException(status);
+end;
+
+procedure IService.cancel(status: IStatus);
+begin
+	if (vTable.version < 5) then begin
+		FbException.setVersionError(status, 'IService', vTable.version, 5);
+	end
+	else begin
+		ServiceVTable(vTable).cancel(Self, status);
 	end;
 	FbException.checkException(status);
 end;
@@ -8574,6 +8759,16 @@ begin
 	Result := TracePluginVTable(vTable).trace_func_execute(Self, connection, transaction, function_, started, func_result);
 end;
 
+function ITracePlugin.trace_dsql_restart(connection: ITraceDatabaseConnection; transaction: ITraceTransaction; statement: ITraceSQLStatement; number: Cardinal): Boolean;
+begin
+	if (vTable.version < 4) then begin
+		Result := false;
+	end
+	else begin
+		Result := TracePluginVTable(vTable).trace_dsql_restart(Self, connection, transaction, statement, number);
+	end;
+end;
+
 function ITraceFactory.trace_needs(): QWord;
 begin
 	Result := TraceFactoryVTable(vTable).trace_needs(Self);
@@ -8843,6 +9038,109 @@ procedure IReplicatedSession.setSequence(status: IStatus; name: PAnsiChar; value
 begin
 	ReplicatedSessionVTable(vTable).setSequence(Self, status, name, value);
 	FbException.checkException(status);
+end;
+
+procedure IProfilerPlugin.init(status: IStatus; attachment: IAttachment);
+begin
+	ProfilerPluginVTable(vTable).init(Self, status, attachment);
+	FbException.checkException(status);
+end;
+
+function IProfilerPlugin.startSession(status: IStatus; description: PAnsiChar; options: PAnsiChar; timestamp: ISC_TIMESTAMP_TZ): IProfilerSession;
+begin
+	Result := ProfilerPluginVTable(vTable).startSession(Self, status, description, options, timestamp);
+	FbException.checkException(status);
+end;
+
+procedure IProfilerPlugin.flush(status: IStatus);
+begin
+	ProfilerPluginVTable(vTable).flush(Self, status);
+	FbException.checkException(status);
+end;
+
+function IProfilerSession.getId(): Int64;
+begin
+	Result := ProfilerSessionVTable(vTable).getId(Self);
+end;
+
+function IProfilerSession.getFlags(): Cardinal;
+begin
+	Result := ProfilerSessionVTable(vTable).getFlags(Self);
+end;
+
+procedure IProfilerSession.cancel(status: IStatus);
+begin
+	ProfilerSessionVTable(vTable).cancel(Self, status);
+	FbException.checkException(status);
+end;
+
+procedure IProfilerSession.finish(status: IStatus; timestamp: ISC_TIMESTAMP_TZ);
+begin
+	ProfilerSessionVTable(vTable).finish(Self, status, timestamp);
+	FbException.checkException(status);
+end;
+
+procedure IProfilerSession.defineStatement(status: IStatus; statementId: Int64; parentStatementId: Int64; type_: PAnsiChar; packageName: PAnsiChar; routineName: PAnsiChar; sqlText: PAnsiChar);
+begin
+	ProfilerSessionVTable(vTable).defineStatement(Self, status, statementId, parentStatementId, type_, packageName, routineName, sqlText);
+	FbException.checkException(status);
+end;
+
+procedure IProfilerSession.defineCursor(statementId: Int64; cursorId: Cardinal; name: PAnsiChar; line: Cardinal; column: Cardinal);
+begin
+	ProfilerSessionVTable(vTable).defineCursor(Self, statementId, cursorId, name, line, column);
+end;
+
+procedure IProfilerSession.defineRecordSource(statementId: Int64; cursorId: Cardinal; recSourceId: Cardinal; accessPath: PAnsiChar; parentRecSourceId: Cardinal);
+begin
+	ProfilerSessionVTable(vTable).defineRecordSource(Self, statementId, cursorId, recSourceId, accessPath, parentRecSourceId);
+end;
+
+procedure IProfilerSession.onRequestStart(status: IStatus; requestId: Int64; statementId: Int64; callerRequestId: Int64; timestamp: ISC_TIMESTAMP_TZ);
+begin
+	ProfilerSessionVTable(vTable).onRequestStart(Self, status, requestId, statementId, callerRequestId, timestamp);
+	FbException.checkException(status);
+end;
+
+procedure IProfilerSession.onRequestFinish(status: IStatus; requestId: Int64; timestamp: ISC_TIMESTAMP_TZ; stats: IProfilerStats);
+begin
+	ProfilerSessionVTable(vTable).onRequestFinish(Self, status, requestId, timestamp, stats);
+	FbException.checkException(status);
+end;
+
+procedure IProfilerSession.beforePsqlLineColumn(requestId: Int64; line: Cardinal; column: Cardinal);
+begin
+	ProfilerSessionVTable(vTable).beforePsqlLineColumn(Self, requestId, line, column);
+end;
+
+procedure IProfilerSession.afterPsqlLineColumn(requestId: Int64; line: Cardinal; column: Cardinal; stats: IProfilerStats);
+begin
+	ProfilerSessionVTable(vTable).afterPsqlLineColumn(Self, requestId, line, column, stats);
+end;
+
+procedure IProfilerSession.beforeRecordSourceOpen(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal);
+begin
+	ProfilerSessionVTable(vTable).beforeRecordSourceOpen(Self, requestId, cursorId, recSourceId);
+end;
+
+procedure IProfilerSession.afterRecordSourceOpen(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats);
+begin
+	ProfilerSessionVTable(vTable).afterRecordSourceOpen(Self, requestId, cursorId, recSourceId, stats);
+end;
+
+procedure IProfilerSession.beforeRecordSourceGetRecord(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal);
+begin
+	ProfilerSessionVTable(vTable).beforeRecordSourceGetRecord(Self, requestId, cursorId, recSourceId);
+end;
+
+procedure IProfilerSession.afterRecordSourceGetRecord(requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats);
+begin
+	ProfilerSessionVTable(vTable).afterRecordSourceGetRecord(Self, requestId, cursorId, recSourceId, stats);
+end;
+
+function IProfilerStats.getElapsedTime(): QWord;
+begin
+	Result := ProfilerStatsVTable(vTable).getElapsedTime(Self);
 end;
 
 var
@@ -10435,6 +10733,15 @@ begin
 	end
 end;
 
+procedure IResultSetImpl_getInfoDispatcher(this: IResultSet; status: IStatus; itemsLength: Cardinal; items: BytePtr; bufferLength: Cardinal; buffer: BytePtr); cdecl;
+begin
+	try
+		IResultSetImpl(this).getInfo(status, itemsLength, items, bufferLength, buffer);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
 var
 	IResultSetImpl_vTable: ResultSetVTable;
 
@@ -11304,6 +11611,15 @@ procedure IServiceImpl_detachDispatcher(this: IService; status: IStatus); cdecl;
 begin
 	try
 		IServiceImpl(this).detach(status);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IServiceImpl_cancelDispatcher(this: IService; status: IStatus); cdecl;
+begin
+	try
+		IServiceImpl(this).cancel(status);
 	except
 		on e: Exception do FbException.catchException(status, e);
 	end
@@ -14703,6 +15019,15 @@ begin
 	end
 end;
 
+function ITracePluginImpl_trace_dsql_restartDispatcher(this: ITracePlugin; connection: ITraceDatabaseConnection; transaction: ITraceTransaction; statement: ITraceSQLStatement; number: Cardinal): Boolean; cdecl;
+begin
+	try
+		Result := ITracePluginImpl(this).trace_dsql_restart(connection, transaction, statement, number);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
 var
 	ITracePluginImpl_vTable: TracePluginVTable;
 
@@ -15347,6 +15672,246 @@ begin
 	vTable := IReplicatedSessionImpl_vTable;
 end;
 
+procedure IProfilerPluginImpl_addRefDispatcher(this: IProfilerPlugin); cdecl;
+begin
+	try
+		IProfilerPluginImpl(this).addRef();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+function IProfilerPluginImpl_releaseDispatcher(this: IProfilerPlugin): Integer; cdecl;
+begin
+	try
+		Result := IProfilerPluginImpl(this).release();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerPluginImpl_setOwnerDispatcher(this: IProfilerPlugin; r: IReferenceCounted); cdecl;
+begin
+	try
+		IProfilerPluginImpl(this).setOwner(r);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+function IProfilerPluginImpl_getOwnerDispatcher(this: IProfilerPlugin): IReferenceCounted; cdecl;
+begin
+	try
+		Result := IProfilerPluginImpl(this).getOwner();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerPluginImpl_initDispatcher(this: IProfilerPlugin; status: IStatus; attachment: IAttachment); cdecl;
+begin
+	try
+		IProfilerPluginImpl(this).init(status, attachment);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+function IProfilerPluginImpl_startSessionDispatcher(this: IProfilerPlugin; status: IStatus; description: PAnsiChar; options: PAnsiChar; timestamp: ISC_TIMESTAMP_TZ): IProfilerSession; cdecl;
+begin
+	try
+		Result := IProfilerPluginImpl(this).startSession(status, description, options, timestamp);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IProfilerPluginImpl_flushDispatcher(this: IProfilerPlugin; status: IStatus); cdecl;
+begin
+	try
+		IProfilerPluginImpl(this).flush(status);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+var
+	IProfilerPluginImpl_vTable: ProfilerPluginVTable;
+
+constructor IProfilerPluginImpl.create;
+begin
+	vTable := IProfilerPluginImpl_vTable;
+end;
+
+procedure IProfilerSessionImpl_disposeDispatcher(this: IProfilerSession); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).dispose();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+function IProfilerSessionImpl_getIdDispatcher(this: IProfilerSession): Int64; cdecl;
+begin
+	try
+		Result := IProfilerSessionImpl(this).getId();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+function IProfilerSessionImpl_getFlagsDispatcher(this: IProfilerSession): Cardinal; cdecl;
+begin
+	try
+		Result := IProfilerSessionImpl(this).getFlags();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_cancelDispatcher(this: IProfilerSession; status: IStatus); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).cancel(status);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_finishDispatcher(this: IProfilerSession; status: IStatus; timestamp: ISC_TIMESTAMP_TZ); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).finish(status, timestamp);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_defineStatementDispatcher(this: IProfilerSession; status: IStatus; statementId: Int64; parentStatementId: Int64; type_: PAnsiChar; packageName: PAnsiChar; routineName: PAnsiChar; sqlText: PAnsiChar); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).defineStatement(status, statementId, parentStatementId, type_, packageName, routineName, sqlText);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_defineCursorDispatcher(this: IProfilerSession; statementId: Int64; cursorId: Cardinal; name: PAnsiChar; line: Cardinal; column: Cardinal); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).defineCursor(statementId, cursorId, name, line, column);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_defineRecordSourceDispatcher(this: IProfilerSession; statementId: Int64; cursorId: Cardinal; recSourceId: Cardinal; accessPath: PAnsiChar; parentRecSourceId: Cardinal); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).defineRecordSource(statementId, cursorId, recSourceId, accessPath, parentRecSourceId);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_onRequestStartDispatcher(this: IProfilerSession; status: IStatus; requestId: Int64; statementId: Int64; callerRequestId: Int64; timestamp: ISC_TIMESTAMP_TZ); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).onRequestStart(status, requestId, statementId, callerRequestId, timestamp);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_onRequestFinishDispatcher(this: IProfilerSession; status: IStatus; requestId: Int64; timestamp: ISC_TIMESTAMP_TZ; stats: IProfilerStats); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).onRequestFinish(status, requestId, timestamp, stats);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_beforePsqlLineColumnDispatcher(this: IProfilerSession; requestId: Int64; line: Cardinal; column: Cardinal); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).beforePsqlLineColumn(requestId, line, column);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_afterPsqlLineColumnDispatcher(this: IProfilerSession; requestId: Int64; line: Cardinal; column: Cardinal; stats: IProfilerStats); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).afterPsqlLineColumn(requestId, line, column, stats);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_beforeRecordSourceOpenDispatcher(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).beforeRecordSourceOpen(requestId, cursorId, recSourceId);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_afterRecordSourceOpenDispatcher(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).afterRecordSourceOpen(requestId, cursorId, recSourceId, stats);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_beforeRecordSourceGetRecordDispatcher(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).beforeRecordSourceGetRecord(requestId, cursorId, recSourceId);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure IProfilerSessionImpl_afterRecordSourceGetRecordDispatcher(this: IProfilerSession; requestId: Int64; cursorId: Cardinal; recSourceId: Cardinal; stats: IProfilerStats); cdecl;
+begin
+	try
+		IProfilerSessionImpl(this).afterRecordSourceGetRecord(requestId, cursorId, recSourceId, stats);
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+var
+	IProfilerSessionImpl_vTable: ProfilerSessionVTable;
+
+constructor IProfilerSessionImpl.create;
+begin
+	vTable := IProfilerSessionImpl_vTable;
+end;
+
+function IProfilerStatsImpl_getElapsedTimeDispatcher(this: IProfilerStats): QWord; cdecl;
+begin
+	try
+		Result := IProfilerStatsImpl(this).getElapsedTime();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+var
+	IProfilerStatsImpl_vTable: ProfilerStatsVTable;
+
+constructor IProfilerStatsImpl.create;
+begin
+	vTable := IProfilerStatsImpl_vTable;
+end;
+
 constructor FbException.create(status: IStatus);
 begin
 	inherited Create('FbException');
@@ -15620,7 +16185,7 @@ initialization
 	IMetadataBuilderImpl_vTable.setAlias := @IMetadataBuilderImpl_setAliasDispatcher;
 
 	IResultSetImpl_vTable := ResultSetVTable.create;
-	IResultSetImpl_vTable.version := 4;
+	IResultSetImpl_vTable.version := 5;
 	IResultSetImpl_vTable.addRef := @IResultSetImpl_addRefDispatcher;
 	IResultSetImpl_vTable.release := @IResultSetImpl_releaseDispatcher;
 	IResultSetImpl_vTable.fetchNext := @IResultSetImpl_fetchNextDispatcher;
@@ -15635,6 +16200,7 @@ initialization
 	IResultSetImpl_vTable.deprecatedClose := @IResultSetImpl_deprecatedCloseDispatcher;
 	IResultSetImpl_vTable.setDelayedOutputFormat := @IResultSetImpl_setDelayedOutputFormatDispatcher;
 	IResultSetImpl_vTable.close := @IResultSetImpl_closeDispatcher;
+	IResultSetImpl_vTable.getInfo := @IResultSetImpl_getInfoDispatcher;
 
 	IStatementImpl_vTable := StatementVTable.create;
 	IStatementImpl_vTable.version := 5;
@@ -15742,13 +16308,14 @@ initialization
 	IAttachmentImpl_vTable.dropDatabase := @IAttachmentImpl_dropDatabaseDispatcher;
 
 	IServiceImpl_vTable := ServiceVTable.create;
-	IServiceImpl_vTable.version := 4;
+	IServiceImpl_vTable.version := 5;
 	IServiceImpl_vTable.addRef := @IServiceImpl_addRefDispatcher;
 	IServiceImpl_vTable.release := @IServiceImpl_releaseDispatcher;
 	IServiceImpl_vTable.deprecatedDetach := @IServiceImpl_deprecatedDetachDispatcher;
 	IServiceImpl_vTable.query := @IServiceImpl_queryDispatcher;
 	IServiceImpl_vTable.start := @IServiceImpl_startDispatcher;
 	IServiceImpl_vTable.detach := @IServiceImpl_detachDispatcher;
+	IServiceImpl_vTable.cancel := @IServiceImpl_cancelDispatcher;
 
 	IProviderImpl_vTable := ProviderVTable.create;
 	IProviderImpl_vTable.version := 4;
@@ -16214,7 +16781,7 @@ initialization
 	ITraceInitInfoImpl_vTable.getLogWriter := @ITraceInitInfoImpl_getLogWriterDispatcher;
 
 	ITracePluginImpl_vTable := TracePluginVTable.create;
-	ITracePluginImpl_vTable.version := 3;
+	ITracePluginImpl_vTable.version := 4;
 	ITracePluginImpl_vTable.addRef := @ITracePluginImpl_addRefDispatcher;
 	ITracePluginImpl_vTable.release := @ITracePluginImpl_releaseDispatcher;
 	ITracePluginImpl_vTable.trace_get_error := @ITracePluginImpl_trace_get_errorDispatcher;
@@ -16238,6 +16805,7 @@ initialization
 	ITracePluginImpl_vTable.trace_event_error := @ITracePluginImpl_trace_event_errorDispatcher;
 	ITracePluginImpl_vTable.trace_event_sweep := @ITracePluginImpl_trace_event_sweepDispatcher;
 	ITracePluginImpl_vTable.trace_func_execute := @ITracePluginImpl_trace_func_executeDispatcher;
+	ITracePluginImpl_vTable.trace_dsql_restart := @ITracePluginImpl_trace_dsql_restartDispatcher;
 
 	ITraceFactoryImpl_vTable := TraceFactoryVTable.create;
 	ITraceFactoryImpl_vTable.version := 4;
@@ -16335,6 +16903,39 @@ initialization
 	IReplicatedSessionImpl_vTable.cleanupTransaction := @IReplicatedSessionImpl_cleanupTransactionDispatcher;
 	IReplicatedSessionImpl_vTable.setSequence := @IReplicatedSessionImpl_setSequenceDispatcher;
 
+	IProfilerPluginImpl_vTable := ProfilerPluginVTable.create;
+	IProfilerPluginImpl_vTable.version := 4;
+	IProfilerPluginImpl_vTable.addRef := @IProfilerPluginImpl_addRefDispatcher;
+	IProfilerPluginImpl_vTable.release := @IProfilerPluginImpl_releaseDispatcher;
+	IProfilerPluginImpl_vTable.setOwner := @IProfilerPluginImpl_setOwnerDispatcher;
+	IProfilerPluginImpl_vTable.getOwner := @IProfilerPluginImpl_getOwnerDispatcher;
+	IProfilerPluginImpl_vTable.init := @IProfilerPluginImpl_initDispatcher;
+	IProfilerPluginImpl_vTable.startSession := @IProfilerPluginImpl_startSessionDispatcher;
+	IProfilerPluginImpl_vTable.flush := @IProfilerPluginImpl_flushDispatcher;
+
+	IProfilerSessionImpl_vTable := ProfilerSessionVTable.create;
+	IProfilerSessionImpl_vTable.version := 3;
+	IProfilerSessionImpl_vTable.dispose := @IProfilerSessionImpl_disposeDispatcher;
+	IProfilerSessionImpl_vTable.getId := @IProfilerSessionImpl_getIdDispatcher;
+	IProfilerSessionImpl_vTable.getFlags := @IProfilerSessionImpl_getFlagsDispatcher;
+	IProfilerSessionImpl_vTable.cancel := @IProfilerSessionImpl_cancelDispatcher;
+	IProfilerSessionImpl_vTable.finish := @IProfilerSessionImpl_finishDispatcher;
+	IProfilerSessionImpl_vTable.defineStatement := @IProfilerSessionImpl_defineStatementDispatcher;
+	IProfilerSessionImpl_vTable.defineCursor := @IProfilerSessionImpl_defineCursorDispatcher;
+	IProfilerSessionImpl_vTable.defineRecordSource := @IProfilerSessionImpl_defineRecordSourceDispatcher;
+	IProfilerSessionImpl_vTable.onRequestStart := @IProfilerSessionImpl_onRequestStartDispatcher;
+	IProfilerSessionImpl_vTable.onRequestFinish := @IProfilerSessionImpl_onRequestFinishDispatcher;
+	IProfilerSessionImpl_vTable.beforePsqlLineColumn := @IProfilerSessionImpl_beforePsqlLineColumnDispatcher;
+	IProfilerSessionImpl_vTable.afterPsqlLineColumn := @IProfilerSessionImpl_afterPsqlLineColumnDispatcher;
+	IProfilerSessionImpl_vTable.beforeRecordSourceOpen := @IProfilerSessionImpl_beforeRecordSourceOpenDispatcher;
+	IProfilerSessionImpl_vTable.afterRecordSourceOpen := @IProfilerSessionImpl_afterRecordSourceOpenDispatcher;
+	IProfilerSessionImpl_vTable.beforeRecordSourceGetRecord := @IProfilerSessionImpl_beforeRecordSourceGetRecordDispatcher;
+	IProfilerSessionImpl_vTable.afterRecordSourceGetRecord := @IProfilerSessionImpl_afterRecordSourceGetRecordDispatcher;
+
+	IProfilerStatsImpl_vTable := ProfilerStatsVTable.create;
+	IProfilerStatsImpl_vTable.version := 2;
+	IProfilerStatsImpl_vTable.getElapsedTime := @IProfilerStatsImpl_getElapsedTimeDispatcher;
+
 finalization
 	IVersionedImpl_vTable.destroy;
 	IReferenceCountedImpl_vTable.destroy;
@@ -16431,5 +17032,8 @@ finalization
 	IReplicatedRecordImpl_vTable.destroy;
 	IReplicatedTransactionImpl_vTable.destroy;
 	IReplicatedSessionImpl_vTable.destroy;
+	IProfilerPluginImpl_vTable.destroy;
+	IProfilerSessionImpl_vTable.destroy;
+	IProfilerStatsImpl_vTable.destroy;
 
 end.

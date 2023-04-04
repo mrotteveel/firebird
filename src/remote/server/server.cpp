@@ -2026,9 +2026,9 @@ static bool accept_connection(rem_port* port, P_CNCT* connect, PACKET* send)
 			HANDSHAKE_DEBUG(fprintf(stderr, "Srv: accept_connection: calls createPluginsItr\n"));
 			port->port_srv_auth_block->createPluginsItr();
 
-			if (port->port_srv_auth_block->plugins)		// We have all required data and iterator was created
+			AuthServerPlugins* const plugins = port->port_srv_auth_block->plugins;
+			if (plugins && plugins->hasData())		// We have all required data and iterator was created
 			{
-				AuthServerPlugins* const plugins = port->port_srv_auth_block->plugins;
 				NoCaseString clientPluginName(port->port_srv_auth_block->getPluginName());
 				// If there is plugin matching client's one it will be
 				HANDSHAKE_DEBUG(fprintf(stderr, "Srv: accept_connection: client plugin='%s' server='%s'\n",
@@ -2456,6 +2456,7 @@ void DatabaseAuth::accept(PACKET* send, Auth::WriterImplementation* authBlock)
 		// remove tags for specific internal attaches
 		case isc_dpb_map_attach:
 		case isc_dpb_sec_attach:
+		case isc_dpb_worker_attach:
 
 		// remove client's config information
 		case isc_dpb_config:
@@ -2681,23 +2682,28 @@ static void cancel_operation(rem_port* port, USHORT kind)
 	if ((port->port_flags & (PORT_async | PORT_disconnect)) || !(port->port_context))
 		return;
 
-	ServAttachment iface;
+	ServAttachment dbIface;
+	ServService svcIface;
 	{
 		RefMutexGuard portGuard(*port->port_cancel_sync, FB_FUNCTION);
 
-		Rdb* rdb;
-		if ((port->port_flags & PORT_disconnect) || !(rdb = port->port_context))
+		Rdb* rdb = port->port_context;
+		if ((port->port_flags & PORT_disconnect) || !rdb)
 			return;
 
-		iface = rdb->rdb_iface;
+		if (rdb->rdb_svc)
+			svcIface = rdb->rdb_svc->svc_iface;
+		else
+			dbIface = rdb->rdb_iface;
 	}
 
-	if (iface)
-	{
-		LocalStatus ls;
-		CheckStatusWrapper status_vector(&ls);
-		iface->cancelOperation(&status_vector, kind);
-	}
+	LocalStatus ls;
+	CheckStatusWrapper status_vector(&ls);
+
+	if (dbIface)
+		dbIface->cancelOperation(&status_vector, kind);
+	else if (svcIface && kind == fb_cancel_raise)
+		svcIface->cancel(&status_vector);
 }
 
 
@@ -2748,11 +2754,11 @@ static USHORT check_statement_type( Rsr* statement)
 
 	if (!(local_status.getState() & Firebird::IStatus::STATE_ERRORS))
 	{
-		for (const UCHAR* info = buffer; (*info != isc_info_end) && !done;)
+		for (ClumpletReader p(ClumpletReader::InfoResponse, buffer, sizeof(buffer)); !p.isEof(); p.moveNext())
 		{
-			const USHORT l = (USHORT) gds__vax_integer(info + 1, 2);
-			const USHORT type = (USHORT) gds__vax_integer(info + 3, l);
-			switch (*info)
+			const USHORT type = (USHORT) p.getInt();
+
+			switch (p.getClumpTag())
 			{
 			case isc_info_sql_stmt_type:
 				switch (type)
@@ -2767,17 +2773,12 @@ static USHORT check_statement_type( Rsr* statement)
 					break;
 				}
 				break;
+
 			case isc_info_sql_batch_fetch:
 				if (type == 0)
 					ret |= STMT_NO_BATCH;
 				break;
-			case isc_info_error:
-			case isc_info_truncated:
-				done = true;
-				break;
-
 			}
-			info += 3 + l;
 		}
 	}
 
@@ -3003,6 +3004,8 @@ void rem_port::disconnect(PACKET* sendL, PACKET* receiveL)
 
 	if (rdb->rdb_svc.hasData() && rdb->rdb_svc->svc_iface)
 	{
+		RefMutexGuard portGuard(*port_cancel_sync, FB_FUNCTION);
+
 		rdb->rdb_svc->svc_iface->detach(&status_vector);
 		rdb->rdb_svc->svc_iface = NULL;
 	}
@@ -3485,6 +3488,10 @@ void rem_port::batch_create(P_BATCH_CREATE* batch, PACKET* sendL)
 	Rsr* statement;
 	getHandle(statement, batch->p_batch_statement);
 	statement->checkIface();
+
+	// Check for previously opened batch for the statement
+	if (statement->rsr_batch)
+		Arg::Gds(isc_batch_open).raise();
 
 	const ULONG blr_length = batch->p_batch_blr.cstr_length;
 	const UCHAR* blr = batch->p_batch_blr.cstr_address;
@@ -4594,7 +4601,7 @@ void rem_port::info(P_OP op, P_INFO* stuff, PACKET* sendL)
 
 	case op_info_sql:
 		getHandle(statement, stuff->p_info_object);
-		statement->checkIface(isc_info_unprepared_stmt);
+		statement->checkIface();
 
 		statement->rsr_iface->getInfo(&status_vector, info_len, info_buffer,
 			buffer_length, buffer);
@@ -4608,6 +4615,18 @@ void rem_port::info(P_OP op, P_INFO* stuff, PACKET* sendL)
 		statement->rsr_batch->getInfo(&status_vector, info_len, info_buffer,
 			buffer_length, buffer);
 		break;
+
+	case op_info_cursor:
+		getHandle(statement, stuff->p_info_object);
+		statement->checkIface();
+		statement->checkCursor();
+
+		statement->rsr_cursor->getInfo(&status_vector, info_len, info_buffer,
+			buffer_length, buffer);
+		break;
+
+	default:
+		fb_assert(false);
 	}
 
 	// Send a response that includes the segment.
@@ -5089,6 +5108,7 @@ static bool process_packet(rem_port* port, PACKET* sendL, PACKET* receive, rem_p
 		case op_service_info:
 		case op_info_sql:
 		case op_info_batch:
+		case op_info_cursor:
 			port->info(op, &receive->p_info, sendL);
 			break;
 
@@ -5215,8 +5235,11 @@ static bool process_packet(rem_port* port, PACKET* sendL, PACKET* receive, rem_p
 		{
 			if (!port->port_parent)
 			{
-				if (!Worker::isShuttingDown() && !(port->port_flags & (PORT_rdb_shutdown | PORT_detached)))
+				if (!Worker::isShuttingDown() && !(port->port_flags & (PORT_rdb_shutdown | PORT_detached)) &&
+					((port->port_server_flags & (SRVR_server | SRVR_multi_client)) != SRVR_server))
+				{
 					gds__log("SERVER/process_packet: broken port, server exiting");
+				}
 				port->disconnect(sendL, receive);
 				return false;
 			}
@@ -6233,12 +6256,15 @@ ISC_STATUS rem_port::service_end(P_RLSE* /*release*/, PACKET* sendL)
 	if (bad_service(&status_vector, rdb))
 		return this->send_response(sendL, 0, 0, &status_vector, false);
 
-	rdb->rdb_svc->svc_iface->detach(&status_vector);
+	{ // scope
+		RefMutexGuard portGuard(*port_cancel_sync, FB_FUNCTION);
+		rdb->rdb_svc->svc_iface->detach(&status_vector);
 
-	if (!(status_vector.getState() & Firebird::IStatus::STATE_ERRORS))
-	{
-		port_flags |= PORT_detached;
-		rdb->rdb_svc->svc_iface = NULL;
+		if (!(status_vector.getState() & Firebird::IStatus::STATE_ERRORS))
+		{
+			port_flags |= PORT_detached;
+			rdb->rdb_svc->svc_iface = NULL;
+		}
 	}
 
 	return this->send_response(sendL, 0, 0, &status_vector, false);

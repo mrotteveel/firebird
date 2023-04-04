@@ -24,6 +24,7 @@
 #include "../jrd/jrd.h"
 #include "../jrd/req.h"
 #include "../jrd/cmp_proto.h"
+#include "../jrd/vio_proto.h"
 
 #include "RecordSource.h"
 
@@ -34,15 +35,18 @@ using namespace Jrd;
 // Data access: stream locked for write
 // ------------------------------------
 
-LockedStream::LockedStream(CompilerScratch* csb, RecordSource* next)
-	: m_next(next)
+LockedStream::LockedStream(CompilerScratch* csb, RecordSource* next, bool skipLocked)
+	: RecordSource(csb),
+	  m_next(next),
+	  m_skipLocked(skipLocked)
 {
 	fb_assert(m_next);
 
 	m_impure = csb->allocImpure<Impure>();
+	m_cardinality = next->getCardinality();
 }
 
-void LockedStream::open(thread_db* tdbb) const
+void LockedStream::internalOpen(thread_db* tdbb) const
 {
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -68,7 +72,7 @@ void LockedStream::close(thread_db* tdbb) const
 	}
 }
 
-bool LockedStream::getRecord(thread_db* tdbb) const
+bool LockedStream::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
@@ -82,8 +86,13 @@ bool LockedStream::getRecord(thread_db* tdbb) const
 	{
 		do {
 			// Attempt to lock the record
-			if (m_next->lockRecord(tdbb))
+			const auto lockResult = m_next->lockRecord(tdbb, m_skipLocked);
+
+			if (lockResult == WriteLockResult::LOCKED)
 				return true;	// locked
+
+			if (lockResult == WriteLockResult::SKIPPED)
+				break;	// skip locked record
 
 			// Refetch the record and ensure it still fulfils the search condition
 		} while (m_next->refetchRecord(tdbb));
@@ -97,17 +106,26 @@ bool LockedStream::refetchRecord(thread_db* tdbb) const
 	return m_next->refetchRecord(tdbb);
 }
 
-bool LockedStream::lockRecord(thread_db* tdbb) const
+WriteLockResult LockedStream::lockRecord(thread_db* tdbb, bool skipLocked) const
 {
-	return m_next->lockRecord(tdbb);
+	return m_next->lockRecord(tdbb, skipLocked);
 }
 
-void LockedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level) const
+void LockedStream::getChildren(Array<const RecordSource*>& children) const
+{
+	children.add(m_next);
+}
+
+void LockedStream::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
 {
 	if (detailed)
+	{
 		plan += printIndent(++level) + "Write Lock";
+		printOptInfo(plan);
+	}
 
-	m_next->print(tdbb, plan, detailed, level);
+	if (recurse)
+		m_next->print(tdbb, plan, detailed, level, recurse);
 }
 
 void LockedStream::markRecursive()

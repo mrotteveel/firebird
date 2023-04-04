@@ -25,6 +25,8 @@
 #include "../jrd/btr.h"
 #include "../jrd/intl.h"
 #include "../jrd/req.h"
+#include "../jrd/ProfilerManager.h"
+#include "../jrd/tra.h"
 #include "../jrd/cmp_proto.h"
 #include "../jrd/dpm_proto.h"
 #include "../jrd/err_proto.h"
@@ -39,9 +41,78 @@
 using namespace Firebird;
 using namespace Jrd;
 
+// Disabled so far, should be uncommented for debugging/testing
+//#define PRINT_OPT_INFO	// print optimizer info (cardinality, cost) in plans
+
 
 // Record source class
 // -------------------
+
+RecordSource::RecordSource(CompilerScratch* csb)
+	: m_cursorProfileId(csb->csb_currentCursorProfileId),
+	  m_recSourceProfileId(csb->csb_nextRecSourceProfileId++)
+{
+}
+
+void RecordSource::open(thread_db* tdbb) const
+{
+	const auto attachment = tdbb->getAttachment();
+	const auto request = tdbb->getRequest();
+
+	const auto profilerManager = attachment->isProfilerActive() && !request->hasInternalStatement() ?
+		attachment->getProfilerManager(tdbb) :
+		nullptr;
+
+	const SINT64 lastPerfCounter = profilerManager ?
+		fb_utils::query_performance_counter() :
+		0;
+
+	if (profilerManager)
+	{
+		profilerManager->prepareRecSource(tdbb, request, this);
+		profilerManager->beforeRecordSourceOpen(request, this);
+	}
+
+	internalOpen(tdbb);
+
+	if (profilerManager)
+	{
+		const SINT64 currentPerfCounter = fb_utils::query_performance_counter();
+		ProfilerManager::Stats stats(currentPerfCounter - lastPerfCounter);
+		profilerManager->afterRecordSourceOpen(request, this, stats);
+	}
+}
+
+bool RecordSource::getRecord(thread_db* tdbb) const
+{
+	const auto attachment = tdbb->getAttachment();
+	const auto request = tdbb->getRequest();
+
+	const auto profilerManager = attachment->isProfilerActive() && !request->hasInternalStatement() ?
+		attachment->getProfilerManager(tdbb) :
+		nullptr;
+
+	const SINT64 lastPerfCounter = profilerManager ?
+		fb_utils::query_performance_counter() :
+		0;
+
+	if (profilerManager)
+	{
+		profilerManager->prepareRecSource(tdbb, request, this);
+		profilerManager->beforeRecordSourceGetRecord(request, this);
+	}
+
+	const auto ret = internalGetRecord(tdbb);
+
+	if (profilerManager)
+	{
+		const SINT64 currentPerfCounter = fb_utils::query_performance_counter();
+		ProfilerManager::Stats stats(currentPerfCounter - lastPerfCounter);
+		profilerManager->afterRecordSourceGetRecord(request, this, stats);
+	}
+
+	return ret;
+}
 
 string RecordSource::printName(thread_db* tdbb, const string& name, bool quote)
 {
@@ -172,6 +243,16 @@ void RecordSource::printInversion(thread_db* tdbb, const InversionNode* inversio
 	}
 }
 
+void RecordSource::printOptInfo(string& plan) const
+{
+#ifdef PRINT_OPT_INFO
+	string info;
+	// Add 0.5 to convert double->int truncation into rounding
+	info.printf(" [rows: %" UQUADFORMAT "]", (FB_UINT64) (m_cardinality + 0.5));
+	plan += info;
+#endif
+}
+
 RecordSource::~RecordSource()
 {
 }
@@ -181,7 +262,9 @@ RecordSource::~RecordSource()
 // ------------------
 
 RecordStream::RecordStream(CompilerScratch* csb, StreamType stream, const Format* format)
-	: m_stream(stream), m_format(format ? format : csb->csb_rpt[stream].csb_format)
+	: RecordSource(csb),
+	  m_stream(stream),
+	  m_format(format ? format : csb->csb_rpt[stream].csb_format)
 {
 	fb_assert(m_format);
 }
@@ -205,7 +288,7 @@ bool RecordStream::refetchRecord(thread_db* tdbb) const
 	return false;
 }
 
-bool RecordStream::lockRecord(thread_db* tdbb) const
+WriteLockResult RecordStream::lockRecord(thread_db* tdbb, bool skipLocked) const
 {
 	Request* const request = tdbb->getRequest();
 	jrd_tra* const transaction = request->req_transaction;
@@ -217,7 +300,7 @@ bool RecordStream::lockRecord(thread_db* tdbb) const
 
 	RLCK_reserve_relation(tdbb, transaction, relation, true);
 
-	return VIO_writelock(tdbb, rpb, transaction);
+	return VIO_writelock(tdbb, rpb, transaction, skipLocked);
 }
 
 void RecordStream::markRecursive()

@@ -195,6 +195,11 @@ public:
 public:
 	static DmlNode* parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp);
 
+	virtual bool isProfileAware() const
+	{
+		return false;
+	}
+
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual CompoundStmtNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
 	virtual void genBlr(DsqlCompilerScratch* dsqlScratch);
@@ -390,12 +395,25 @@ public:
 public:
 	static DmlNode* parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp);
 
+	virtual bool isProfileAware() const
+	{
+		return false;
+	}
+
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual DeclareSubFuncNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
 	virtual void genBlr(DsqlCompilerScratch* dsqlScratch);
 
-	virtual DeclareSubFuncNode* pass1(thread_db* tdbb, CompilerScratch* csb);
-	virtual DeclareSubFuncNode* pass2(thread_db* tdbb, CompilerScratch* csb);
+	virtual DeclareSubFuncNode* pass1(thread_db* tdbb, CompilerScratch* csb)
+	{
+		return this;
+	}
+
+	virtual DeclareSubFuncNode* pass2(thread_db* tdbb, CompilerScratch* csb)
+	{
+		return this;
+	}
+
 	virtual const StmtNode* execute(thread_db* tdbb, Request* request, ExeState* exeState) const;
 
 private:
@@ -443,12 +461,25 @@ public:
 public:
 	static DmlNode* parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp);
 
+	virtual bool isProfileAware() const
+	{
+		return false;
+	}
+
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual DeclareSubProcNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
 	virtual void genBlr(DsqlCompilerScratch* dsqlScratch);
 
-	virtual DeclareSubProcNode* pass1(thread_db* tdbb, CompilerScratch* csb);
-	virtual DeclareSubProcNode* pass2(thread_db* tdbb, CompilerScratch* csb);
+	virtual DeclareSubProcNode* pass1(thread_db* tdbb, CompilerScratch* csb)
+	{
+		return this;
+	}
+
+	virtual DeclareSubProcNode* pass2(thread_db* tdbb, CompilerScratch* csb)
+	{
+		return this;
+	}
+
 	virtual const StmtNode* execute(thread_db* tdbb, Request* request, ExeState* exeState) const;
 
 private:
@@ -506,19 +537,7 @@ class EraseNode final : public TypedNode<StmtNode, StmtNode::TYPE_ERASE>
 public:
 	explicit EraseNode(MemoryPool& pool)
 		: TypedNode<StmtNode, StmtNode::TYPE_ERASE>(pool),
-		  dsqlRelation(NULL),
-		  dsqlBoolean(NULL),
-		  dsqlPlan(NULL),
-		  dsqlOrder(NULL),
-		  dsqlRows(NULL),
-		  dsqlCursorName(pool),
-		  dsqlReturning(NULL),
-		  dsqlRse(NULL),
-		  dsqlContext(NULL),
-		  statement(NULL),
-		  subStatement(NULL),
-		  stream(0),
-		  marks(0)
+		  dsqlCursorName(pool)
 	{
 	}
 
@@ -545,12 +564,13 @@ public:
 	MetaName dsqlCursorName;
 	NestConst<ReturningClause> dsqlReturning;
 	NestConst<RseNode> dsqlRse;
-	dsql_ctx* dsqlContext;
+	bool dsqlSkipLocked = false;
+	dsql_ctx* dsqlContext = nullptr;
 	NestConst<StmtNode> statement;
 	NestConst<StmtNode> subStatement;
 	NestConst<ForNode> forNode;			// parent implicit cursor, if present
-	StreamType stream;
-	unsigned marks;						// see StmtNode::IUD_MARK_xxx
+	StreamType stream = 0;
+	unsigned marks = 0;					// see StmtNode::IUD_MARK_xxx
 };
 
 
@@ -1155,6 +1175,7 @@ public:
 	NestConst<ReturningClause> dsqlReturning;
 	NestConst<RecordSourceNode> dsqlRse;
 	dsql_ctx* dsqlContext = nullptr;
+	bool dsqlSkipLocked = false;
 	NestConst<StmtNode> statement;
 	NestConst<StmtNode> statement2;
 	NestConst<StmtNode> subMod;
@@ -1189,10 +1210,7 @@ public:
 	{
 	}
 
-	OuterMapNode* pass1(thread_db* /*tdbb*/, CompilerScratch* /*csb*/) override
-	{
-		return this;
-	}
+	OuterMapNode* pass1(thread_db* /*tdbb*/, CompilerScratch* /*csb*/) override;
 
 	OuterMapNode* pass2(thread_db* /*tdbb*/, CompilerScratch* /*csb*/) override
 	{
@@ -1305,11 +1323,7 @@ class SelectNode final : public TypedNode<StmtNode, StmtNode::TYPE_SELECT>
 public:
 	explicit SelectNode(MemoryPool& pool)
 		: TypedNode<StmtNode, StmtNode::TYPE_SELECT>(pool),
-		  dsqlExpr(NULL),
-		  dsqlRse(NULL),
-		  statements(pool),
-		  dsqlForUpdate(false),
-		  dsqlWithLock(false)
+		  statements(pool)
 	{
 	}
 
@@ -1326,9 +1340,10 @@ public:
 public:
 	NestConst<SelectExprNode> dsqlExpr;
 	NestConst<RseNode> dsqlRse;
-	Firebird::Array<NestConst<StmtNode> > statements;
-	bool dsqlForUpdate;
-	bool dsqlWithLock;
+	Firebird::Array<NestConst<StmtNode>> statements;
+	bool dsqlForUpdate = false;
+	bool dsqlWithLock = false;
+	bool dsqlSkipLocked = false;
 };
 
 

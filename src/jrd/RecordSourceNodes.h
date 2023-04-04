@@ -174,9 +174,8 @@ public:
 		: PermanentStorage(pool),
 		  type(aType),
 		  accessType(NULL),
-		  relationNode(NULL),
+		  recordSourceNode(NULL),
 		  subNodes(pool),
-		  dsqlRecordSourceNode(NULL),
 		  dsqlNames(NULL)
 	{
 	}
@@ -198,9 +197,8 @@ private:
 public:
 	Type const type;
 	AccessType* accessType;
-	RelationSourceNode* relationNode;
+	RecordSourceNode* recordSourceNode;
 	Firebird::Array<NestConst<PlanNode> > subNodes;
-	RecordSourceNode* dsqlRecordSourceNode;
 	Firebird::ObjectsArray<MetaName>* dsqlNames;
 };
 
@@ -437,10 +435,10 @@ public:
 		: TypedNode<RecordSourceNode, RecordSourceNode::TYPE_PROCEDURE>(pool),
 		  dsqlName(pool, aDsqlName),
 		  alias(pool),
+		  procedure(NULL),
 		  sourceList(NULL),
 		  targetList(NULL),
 		  in_msg(NULL),
-		  procedure(NULL),
 		  view(NULL),
 		  procedureId(0),
 		  context(0),
@@ -448,7 +446,8 @@ public:
 	{
 	}
 
-	static ProcedureSourceNode* parse(thread_db* tdbb, CompilerScratch* csb, const SSHORT blrOp);
+	static ProcedureSourceNode* parse(thread_db* tdbb, CompilerScratch* csb, const SSHORT blrOp,
+		bool parseContext);
 
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual RecordSourceNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
@@ -489,17 +488,9 @@ public:
 
 	virtual RecordSource* compile(thread_db* tdbb, Optimizer* opt, bool innerSubStream);
 
-private:
-	ProcedureScan* generate(thread_db* tdbb, Optimizer* opt);
-
 public:
 	QualifiedName dsqlName;
 	Firebird::string alias;
-	NestConst<ValueListNode> sourceList;
-	NestConst<ValueListNode> targetList;
-
-private:
-	NestConst<MessageNode> in_msg;
 
 	/***
 	dimitr: Referencing procedures via a pointer is not currently reliable, because
@@ -518,7 +509,14 @@ private:
 			explicit unload from the metadata cache. But we don't have clearly established
 			cache management policies yet, so I leave it for the other day.
 	***/
+
 	jrd_prc* procedure;
+	NestConst<ValueListNode> sourceList;
+	NestConst<ValueListNode> targetList;
+
+private:
+	NestConst<MessageNode> in_msg;
+
 	jrd_rel* view;
 	USHORT procedureId;
 	SSHORT context;
@@ -573,9 +571,6 @@ public:
 
 private:
 	void genMap(DsqlCompilerScratch* dsqlScratch, UCHAR blrVerb, dsql_map* map);
-
-	RecordSource* generate(thread_db* tdbb, Optimizer* opt, BoolExprNodeStack* parentStack,
-		StreamType shellStream);
 
 public:
 	NestConst<ValueListNode> dsqlGroup;
@@ -636,10 +631,6 @@ public:
 		StreamType currentStream, SortedStreamList* streamList);
 
 	virtual RecordSource* compile(thread_db* tdbb, Optimizer* opt, bool innerSubStream);
-
-private:
-	RecordSource* generate(thread_db* tdbb, Optimizer* opt, const StreamType* streams,
-		FB_SIZE_T nstreams, BoolExprNodeStack* parentStack, StreamType shellStream);
 
 public:
 	RecSourceListNode* dsqlClauses;
@@ -726,13 +717,53 @@ private:
 class RseNode final : public TypedNode<RecordSourceNode, RecordSourceNode::TYPE_RSE>
 {
 public:
-	static const USHORT FLAG_VARIANT			= 0x01;	// variant (not invariant?)
-	static const USHORT FLAG_SINGULAR			= 0x02;	// singleton select
-	static const USHORT FLAG_WRITELOCK			= 0x04;	// locked for write
-	static const USHORT FLAG_SCROLLABLE			= 0x08;	// scrollable cursor
-	static const USHORT FLAG_DSQL_COMPARATIVE	= 0x10;	// transformed from DSQL ComparativeBoolNode
-	static const USHORT FLAG_OPT_FIRST_ROWS		= 0x20;	// optimize retrieval for first rows
-	static const USHORT FLAG_LATERAL			= 0x40;	// lateral derived table
+	enum : USHORT
+	{
+		FLAG_VARIANT			= 0x01,	// variant (not invariant?)
+		FLAG_SINGULAR			= 0x02,	// singleton select
+		FLAG_WRITELOCK			= 0x04,	// locked for write
+		FLAG_SCROLLABLE			= 0x08,	// scrollable cursor
+		FLAG_DSQL_COMPARATIVE	= 0x10,	// transformed from DSQL ComparativeBoolNode
+		FLAG_OPT_FIRST_ROWS		= 0x20,	// optimize retrieval for first rows
+		FLAG_LATERAL			= 0x40,	// lateral derived table
+		FLAG_SKIP_LOCKED		= 0x80,	// skip locked
+		FLAG_SUB_QUERY			= 0x100	// sub-query
+	};
+
+	bool isInvariant() const
+	{
+		return (flags & FLAG_VARIANT) == 0;
+	}
+
+	bool isSingular() const
+	{
+		return (flags & FLAG_SINGULAR) != 0;
+	}
+
+	bool isScrollable() const
+	{
+		return (flags & FLAG_SCROLLABLE) != 0;
+	}
+
+	bool isLateral() const
+	{
+		return (flags & FLAG_LATERAL) != 0;
+	}
+
+	bool isSubQuery() const
+	{
+		return (flags & FLAG_SUB_QUERY) != 0;
+	}
+
+	bool hasWriteLock() const
+	{
+		return (flags & FLAG_WRITELOCK) != 0;
+	}
+
+	bool hasSkipLocked() const
+	{
+		return (flags & FLAG_SKIP_LOCKED) != 0;
+	}
 
 	explicit RseNode(MemoryPool& pool)
 		: TypedNode<RecordSourceNode, RecordSourceNode::TYPE_RSE>(pool),
@@ -751,7 +782,7 @@ public:
 		  rse_invariants(NULL),
 		  rse_relations(pool),
 		  flags(0),
-		  rse_jointype(0),
+		  rse_jointype(blr_inner),
 		  dsqlExplicitJoin(false)
 	{
 	}
@@ -888,6 +919,11 @@ public:
 
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual RseNode* dsqlPass(DsqlCompilerScratch* dsqlScratch);
+
+	virtual bool dsqlSubSelectFinder(SubSelectFinder& visitor)
+	{
+		return true;
+	}
 
 	virtual RseNode* copy(thread_db* /*tdbb*/, NodeCopier& /*copier*/) const
 	{

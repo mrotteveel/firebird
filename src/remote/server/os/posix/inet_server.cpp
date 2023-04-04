@@ -119,8 +119,6 @@ static void signal_handler(int);
 static TEXT protocol[128];
 static int INET_SERVER_start = 0;
 
-static bool serverClosing = false;
-
 #if defined(HAVE_SETRLIMIT) && defined(HAVE_GETRLIMIT)
 #define FB_RAISE_LIMITS 1
 static void raiseLimit(int resource);
@@ -133,12 +131,15 @@ static void logSecurityDatabaseError(const char* path, ISC_STATUS* status)
 	if (fb_utils::containsErrorCode(status, isc_io_error))
 		return;
 
-	const int SHUTDOWN_TIMEOUT = 5000;  // 5 sec
-
-	gds__log_status(path, status);
-	gds__put_error(path);
-	gds__print_status(status);
 	Firebird::Syslog::Record(Firebird::Syslog::Error, "Security database error");
+	gds__log_status(path, status);
+	if (isatty(2))
+	{
+		gds__put_error(path);
+		gds__print_status(status);
+	}
+
+	const int SHUTDOWN_TIMEOUT = 5000;  // 5 sec
 	fb_shutdown(SHUTDOWN_TIMEOUT, fb_shutrsn_exit_called);
 	exit(STARTUP_ERROR);
 }
@@ -331,6 +332,16 @@ int CLIB_ROUTINE main( int argc, char** argv)
 		{
 			// try to force core files creation
 			raiseLimit(RLIMIT_CORE);
+
+#ifdef LINUX
+			// instruct kernel to include shared memory regions into core dump
+			FILE* coreproc = fopen("/proc/self/coredump_filter", "r+");
+			if (coreproc)
+			{
+				fprintf(coreproc, "0x3f\n");
+				fclose(coreproc);
+			}
+#endif
 		}
 
 #if (defined SOLARIS || defined HPUX || defined LINUX)
@@ -470,7 +481,7 @@ int CLIB_ROUTINE main( int argc, char** argv)
 		fb_shutdown_callback(NULL, closePort, fb_shut_exit, port);
 
 		Firebird::FbLocalStatus localStatus;
-		if (!REPL_server(&localStatus, false, &serverClosing))
+		if (!REPL_server(&localStatus, false))
 		{
 			const char* errorMsg = "Replication server initialization error";
 			iscLogStatus(errorMsg, localStatus->getErrors());

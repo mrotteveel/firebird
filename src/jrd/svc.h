@@ -172,6 +172,8 @@ public:		// external interface with service
 			   const UCHAR* recv_items, USHORT buffer_length, UCHAR* info);
 	ISC_STATUS query2(thread_db* tdbb, USHORT send_item_length, const UCHAR* send_items,
 			   USHORT recv_item_length, const UCHAR* recv_items, USHORT buffer_length, UCHAR* info);
+	// Cancel wait in query service
+	void cancel(thread_db* tdbb);
 	// Detach from service
 	void detach();
 	// get service version
@@ -305,7 +307,8 @@ private:
 	USHORT	svc_flags;
 	USHORT	svc_user_flag;
 	USHORT	svc_spb_version;
-	bool	svc_do_shutdown;
+	bool	svc_shutdown_server;
+	bool	svc_shutdown_request;
 	bool	svc_shutdown_in_progress;
 	bool	svc_timeout;
 	char	svc_arg_conv[MsgFormat::SAFEARG_MAX_ARG * 2];
@@ -351,6 +354,7 @@ private:
 
 	void unblockQueryGet(bool over = false);
 
+public:
 	class Validate
 	{
 	public:
@@ -358,6 +362,7 @@ private:
 		Firebird::MutexEnsureUnlock sharedGuard;
 	};
 
+private:
 	class SafeMutexLock : private Validate
 	{
 	public:

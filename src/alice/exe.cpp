@@ -325,11 +325,18 @@ static void buildDpb(Firebird::ClumpletWriter& dpb, const SINT64 switches)
 		dpb.insertByte(isc_dpb_set_db_replica, tdgbl->ALICE_data.ua_replica_mode);
 	}
 
+	if (switches & sw_parallel_workers) {
+		dpb.insertInt(isc_dpb_parallel_workers, tdgbl->ALICE_data.ua_parallel_workers);
+	}
+
 	if (switches & sw_nolinger)
 		dpb.insertTag(isc_dpb_nolinger);
 
 	if (switches & sw_icu)
 		dpb.insertTag(isc_dpb_reset_icu);
+
+	if (switches & sw_upgrade)
+		dpb.insertTag(isc_dpb_upgrade_db);
 
 	const unsigned char* authBlock;
 	unsigned int authBlockSize = tdgbl->uSvc->getAuthBlock(&authBlock);

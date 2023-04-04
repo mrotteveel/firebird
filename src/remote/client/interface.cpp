@@ -65,6 +65,7 @@
 #include "../common/StatementMetadata.h"
 #include "../common/IntlParametersBlock.h"
 #include "../common/status.h"
+#include "../common/db_alias.h"
 
 #include "../auth/SecurityDatabase/LegacyClient.h"
 #include "../auth/SecureRemotePassword/client/SrpClient.h"
@@ -85,10 +86,6 @@
 #include "../common/isc_proto.h"
 #include "../remote/os/win32/xnet_proto.h"
 #endif
-
-#ifdef WIN_NT
-#define sleep(seconds)		Sleep ((seconds) * 1000)
-#endif // WIN_NT
 
 
 const char* const PROTOCOL_INET = "inet";
@@ -146,6 +143,27 @@ namespace {
 		cstring* ptr;
 		cstring oldValue;
 	};
+
+	class ClientPortsCleanup : public PortsCleanup
+	{
+	public:
+		ClientPortsCleanup() :
+		  PortsCleanup()
+		{}
+
+		explicit ClientPortsCleanup(MemoryPool& p) :
+		  PortsCleanup(p)
+		{}
+
+		void closePort(rem_port* port) override;
+
+		void delay() override
+		{
+			Thread::sleep(50);
+		}
+	};
+
+	GlobalPtr<ClientPortsCleanup> outPorts;
 }
 
 namespace Remote {
@@ -292,6 +310,9 @@ public:
 	void close(CheckStatusWrapper* status) override;
 	void deprecatedClose(CheckStatusWrapper* status) override;
 	void setDelayedOutputFormat(CheckStatusWrapper* status, IMessageMetadata* format) override;
+	void getInfo(CheckStatusWrapper* status,
+				 unsigned int itemsLength, const unsigned char* items,
+				 unsigned int bufferLength, unsigned char* buffer) override;
 
 	ResultSet(Statement* s, IMessageMetadata* outFmt, unsigned f)
 		: stmt(s), flags(f), tmpStatement(false), delayedFormat(outFmt == DELAYED_OUT_FORMAT)
@@ -933,6 +954,7 @@ public:
 					   unsigned int receiveLength, const unsigned char* receiveItems,
 					   unsigned int bufferLength, unsigned char* buffer) override;
 	void start(CheckStatusWrapper* status, unsigned int spbLength, const unsigned char* spb) override;
+	void cancel(CheckStatusWrapper* status) override;
 
 public:
 	Service(Rdb* handle) : rdb(handle) { }
@@ -995,6 +1017,15 @@ private:
 void RProvider::shutdown(CheckStatusWrapper* status, unsigned int /*timeout*/, const int /*reason*/)
 {
 	status->init();
+
+	try
+	{
+		outPorts->closePorts();
+	}
+	catch (const Exception& ex)
+	{
+		ex.stuffException(status);
+	}
 }
 
 void RProvider::setDbCryptCallback(CheckStatusWrapper* status, ICryptKeyCallback* callback)
@@ -1060,7 +1091,8 @@ static void batch_gds_receive(rem_port*, struct rmtque *, USHORT);
 static void batch_dsql_fetch(rem_port*, struct rmtque *, USHORT);
 static void clear_queue(rem_port*);
 static void clear_stmt_que(rem_port*, Rsr*);
-static void disconnect(rem_port*);
+static void finalize(rem_port* port);
+static void disconnect(rem_port*, bool rmRef = true);
 static void enqueue_receive(rem_port*, t_rmtque_fn, Rdb*, void*, Rrq::rrq_repeat*);
 static void dequeue_receive(rem_port*);
 static THREAD_ENTRY_DECLARE event_thread(THREAD_ENTRY_PARAM);
@@ -1068,7 +1100,7 @@ static Rvnt* find_event(rem_port*, SLONG);
 static bool get_new_dpb(ClumpletWriter&, const ParametersSet&);
 static void info(CheckStatusWrapper*, Rdb*, P_OP, USHORT, USHORT, USHORT,
 	const UCHAR*, USHORT, const UCHAR*, ULONG, UCHAR*);
-static void init(CheckStatusWrapper*, ClntAuthBlock&, rem_port*, P_OP, PathName&,
+static bool init(CheckStatusWrapper*, ClntAuthBlock&, rem_port*, P_OP, PathName&,
 	ClumpletWriter&, IntlParametersBlock&, ICryptKeyCallback* cryptCallback);
 static Rtr* make_transaction(Rdb*, USHORT);
 static void mov_dsql_message(const UCHAR*, const rem_fmt*, UCHAR*, const rem_fmt*);
@@ -1115,6 +1147,9 @@ inline static void reset(IStatus* status) throw()
 
 inline static void defer_packet(rem_port* port, PACKET* packet, bool sent = false)
 {
+	fb_assert(port->port_flags & PORT_lazy);
+	fb_assert(port->port_deferred_packets);
+
 	// hvlad: passed packet often is rdb->rdb_packet and therefore can be
 	// changed inside clear_queue. To not confuse caller we must preserve
 	// packet content
@@ -1158,9 +1193,10 @@ IAttachment* RProvider::attach(CheckStatusWrapper* status, const char* filename,
 			flags |= ANALYZE_LOOPBACK;
 
 		PathName expanded_name(filename);
-		PathName node_name;
+		resolveAlias(filename, expanded_name, nullptr);
 
 		ClntAuthBlock cBlock(&expanded_name, &newDpb, &dpbParam);
+		PathName node_name;
 		rem_port* port = analyze(cBlock, expanded_name, flags, newDpb, dpbParam, node_name, NULL, cryptCallback);
 
 		if (!port)
@@ -1179,7 +1215,8 @@ IAttachment* RProvider::attach(CheckStatusWrapper* status, const char* filename,
 
 		IntlDpb intl;
 		HANDSHAKE_DEBUG(fprintf(stderr, "Cli: call init for DB='%s'\n", expanded_name.c_str()));
-		init(status, cBlock, port, op_attach, expanded_name, newDpb, intl, cryptCallback);
+		if (!init(status, cBlock, port, op_attach, expanded_name, newDpb, intl, cryptCallback))
+			return NULL;
 
 		Attachment* a = FB_NEW Attachment(port->port_context, filename);
 		a->addRef();
@@ -1836,9 +1873,10 @@ Firebird::IAttachment* RProvider::create(CheckStatusWrapper* status, const char*
 			flags |= ANALYZE_LOOPBACK;
 
 		PathName expanded_name(filename);
-		PathName node_name;
+		resolveAlias(filename, expanded_name, nullptr);
 
 		ClntAuthBlock cBlock(&expanded_name, &newDpb, &dpbParam);
+		PathName node_name;
 		rem_port* port = analyze(cBlock, expanded_name, flags, newDpb, dpbParam, node_name, NULL, cryptCallback);
 
 		if (!port)
@@ -1858,7 +1896,8 @@ Firebird::IAttachment* RProvider::create(CheckStatusWrapper* status, const char*
 		add_working_directory(newDpb, node_name);
 
 		IntlDpb intl;
-		init(status, cBlock, port, op_create, expanded_name, newDpb, intl, cryptCallback);
+		if (!init(status, cBlock, port, op_create, expanded_name, newDpb, intl, cryptCallback))
+			return NULL;
 
 		Firebird::IAttachment* a = FB_NEW Attachment(rdb, filename);
 		a->addRef();
@@ -2023,7 +2062,7 @@ void Attachment::freeClientData(CheckStatusWrapper* status, bool force)
 
 		try
 		{
-			if (!(port->port_flags & PORT_rdb_shutdown))
+			if (!(port->port_flags & (PORT_rdb_shutdown | PORT_detached)))
 			{
 				release_object(status, rdb, op_detach, rdb->rdb_id);
 			}
@@ -5062,6 +5101,38 @@ IMessageMetadata* ResultSet::getMetadata(CheckStatusWrapper* status)
 	return outputFormat;
 }
 
+void ResultSet::getInfo(CheckStatusWrapper* status,
+						unsigned int itemsLength, const unsigned char* items,
+						unsigned int bufferLength, unsigned char* buffer)
+{
+	try
+	{
+		reset(status);
+
+		// Check and validate handles, etc.
+
+		if (!stmt)
+			Arg::Gds(isc_dsql_cursor_err).raise();
+
+		const auto statement = stmt->getStatement();
+		CHECK_HANDLE(statement, isc_bad_req_handle);
+
+		const auto rdb = statement->rsr_rdb;
+		const auto port = rdb->rdb_port;
+		RefMutexGuard portGuard(*port->port_sync, FB_FUNCTION);
+
+		if (port->port_protocol < PROTOCOL_FETCH_SCROLL)
+			unsupported();
+
+		info(status, rdb, op_info_cursor, statement->rsr_id, 0,
+			 itemsLength, items, 0, 0, bufferLength, buffer);
+	}
+	catch (const Exception& ex)
+	{
+		ex.stuffException(status);
+	}
+}
+
 void ResultSet::freeClientData(CheckStatusWrapper* status, bool force)
 {
 /**************************************
@@ -6478,7 +6549,8 @@ Firebird::IService* RProvider::attachSvc(CheckStatusWrapper* status, const char*
 		add_other_params(port, newSpb, spbParam);
 
 		IntlSpb intl;
-		init(status, cBlock, port, op_service_attach, expanded_name, newSpb, intl, cryptCallback);
+		if (!init(status, cBlock, port, op_service_attach, expanded_name, newSpb, intl, cryptCallback))
+			return NULL;
 
 		Firebird::IService* s = FB_NEW Service(rdb);
 		s->addRef();
@@ -6550,14 +6622,17 @@ void Service::freeClientData(CheckStatusWrapper* status, bool force)
 		rem_port* port = rdb->rdb_port;
 		RemotePortGuard portGuard(port, FB_FUNCTION);
 
-		try
+		if (!(port->port_flags & PORT_detached))
 		{
-			release_object(status, rdb, op_service_detach, rdb->rdb_id);
-		}
-		catch (const Exception&)
-		{
-			if (!force)
-				throw;
+			try
+			{
+				release_object(status, rdb, op_service_detach, rdb->rdb_id);
+			}
+			catch (const Exception&)
+			{
+				if (!force)
+					throw;
+			}
 		}
 		disconnect(port);
 		rdb = NULL;
@@ -6628,6 +6703,28 @@ void Service::query(CheckStatusWrapper* status,
 		info(status, rdb, op_service_info, rdb->rdb_id, 0,
 			 sendLength, sendItems, receiveLength, receiveItems,
 			 bufferLength, buffer);
+	}
+	catch (const Exception& ex)
+	{
+		ex.stuffException(status);
+	}
+}
+
+
+void Service::cancel(CheckStatusWrapper* status)
+{
+	try
+	{
+		reset(status);
+
+		// Check and validate handles, etc.
+		CHECK_HANDLE(rdb, isc_bad_svc_handle);
+/*
+		rem_port* port = rdb->rdb_port;
+		RefMutexGuard portGuard(*port->port_sync, FB_FUNCTION);
+*/
+
+		Arg::Gds(isc_wish_list).raise();
 	}
 	catch (const Exception& ex)
 	{
@@ -7376,10 +7473,11 @@ static rem_port* analyze(ClntAuthBlock& cBlock, PathName& attach_name, unsigned 
 	}
 	catch (const Exception&)
 	{
-		disconnect(port);
+		disconnect(port, false);
 		throw;
 	}
 
+	outPorts->registerPort(port);
 	return port;
 }
 
@@ -7745,18 +7843,29 @@ static void clear_queue(rem_port* port)
 }
 
 
-static void disconnect( rem_port* port)
+static void finalize(rem_port* port)
 {
 /**************************************
  *
- *	d i s c o n n e c t
+ *	f i n a l i z e
  *
  **************************************
  *
  * Functional description
- *	Disconnect a port and free its memory.
+ *	Disconnect remote port.
  *
  **************************************/
+
+	// no need to do something if port already detached
+	if (port->port_flags & PORT_detached)
+		return;
+
+	// Avoid async send during finalize
+	RefMutexGuard guard(*port->port_write_sync, FB_FUNCTION);
+
+	// recheck with mutex taken
+	if (port->port_flags & PORT_detached)
+		return;
 
 	// Send a disconnect to the server so that it
 	// gracefully terminates.
@@ -7787,6 +7896,29 @@ static void disconnect( rem_port* port)
 	// Cleanup the queue
 
 	delete port->port_deferred_packets;
+	port->port_deferred_packets = nullptr;
+	port->port_flags &= ~PORT_lazy;
+
+	port->port_flags |= PORT_detached;
+}
+
+static void disconnect(rem_port* port, bool rmRef)
+{
+/**************************************
+ *
+ *	d i s c o n n e c t
+ *
+ **************************************
+ *
+ * Functional description
+ *	Disconnect a port and free its memory.
+ *
+ **************************************/
+
+	finalize(port);
+
+	Rdb* rdb = port->port_context;
+	port->port_context = nullptr;
 
 	// Clear context reference for the associated event handler
 	// to avoid SEGV during shutdown
@@ -7803,6 +7935,11 @@ static void disconnect( rem_port* port)
 	port->port_flags |= PORT_disconnect;
 	port->disconnect();
 	delete rdb;
+
+	// Remove from active ports
+
+	if (rmRef)
+		outPorts->unRegisterPort(port);
 }
 
 
@@ -8203,7 +8340,7 @@ static void authReceiveResponse(bool havePacket, ClntAuthBlock& cBlock, rem_port
 	(Arg::Gds(isc_login) << Arg::StatusVector(&s)).raise();
 }
 
-static void init(CheckStatusWrapper* status, ClntAuthBlock& cBlock, rem_port* port, P_OP op, PathName& file_name,
+static bool init(CheckStatusWrapper* status, ClntAuthBlock& cBlock, rem_port* port, P_OP op, PathName& file_name,
 	ClumpletWriter& dpb, IntlParametersBlock& intlParametersBlock, ICryptKeyCallback* cryptCallback)
 {
 /**************************************
@@ -8253,12 +8390,23 @@ static void init(CheckStatusWrapper* status, ClntAuthBlock& cBlock, rem_port* po
 		send_packet(port, packet);
 
 		authReceiveResponse(false, cBlock, port, rdb, status, packet, true);
+		return true;
+	}
+	catch (const Exception& ex)
+	{
+		// report primary init error
+		ex.stuffException(status);
+	}
+
+	try
+	{
+		disconnect(port);
 	}
 	catch (const Exception&)
 	{
-		disconnect(port);
-		throw;
+		// ignore secondary error
 	}
+	return false;
 }
 
 
@@ -8487,6 +8635,10 @@ static void receive_packet_with_callback(rem_port* port, PACKET* packet)
 		case op_crypt_key_callback:
 			{
 				P_CRYPT_CALLBACK* cc = &packet->p_cc;
+				Cleanup ccData([&cc]() {
+					cc->p_cc_data.cstr_length = 0;
+					cc->p_cc_data.cstr_address = nullptr;
+				});
 
 				if (port->port_client_crypt_callback)
 				{
@@ -9023,6 +9175,15 @@ static void send_packet(rem_port* port, PACKET* packet)
 
 	RefMutexGuard guard(*port->port_write_sync, FB_FUNCTION);
 
+	if (port->port_flags & PORT_detached || port->port_state == rem_port::BROKEN)
+	{
+		(Arg::Gds(isc_net_write_err)
+#ifdef DEV_BUILD
+			<< Arg::Gds(isc_random) << "port detached"
+#endif
+		).raise();
+	}
+
 	// Send packets that were deferred
 
 	if (port->port_deferred_packets)
@@ -9073,19 +9234,31 @@ static void send_partial_packet(rem_port* port, PACKET* packet)
 
 	RefMutexGuard guard(*port->port_write_sync, FB_FUNCTION);
 
+	if (port->port_flags & PORT_detached || port->port_state == rem_port::BROKEN)
+	{
+		(Arg::Gds(isc_net_write_err)
+#ifdef DEV_BUILD
+			<< Arg::Gds(isc_random) << "port detached"
+#endif
+		).raise();
+	}
+
 	// Send packets that were deferred
 
-	for (rem_que_packet* p = port->port_deferred_packets->begin();
-		p < port->port_deferred_packets->end(); p++)
+	if (port->port_deferred_packets)
 	{
-		if (!p->sent)
+		for (rem_que_packet* p = port->port_deferred_packets->begin();
+			p < port->port_deferred_packets->end(); p++)
 		{
-			if (!port->send_partial(&p->packet))
+			if (!p->sent)
 			{
-				(Arg::Gds(isc_net_write_err) <<
-				 Arg::Gds(isc_random) << "send_partial_packet/send_partial").raise();
+				if (!port->send_partial(&p->packet))
+				{
+					(Arg::Gds(isc_net_write_err) <<
+					 Arg::Gds(isc_random) << "send_partial_packet/send_partial").raise();
+				}
+				p->sent = true;
 			}
-			p->sent = true;
 		}
 	}
 
@@ -9284,6 +9457,20 @@ static void cleanDpb(Firebird::ClumpletWriter& dpb, const ParametersSet* tags)
 }
 
 } //namespace Remote
+
+
+void ClientPortsCleanup::closePort(rem_port* port)
+{
+	RefMutexEnsureUnlock guard(*port->port_sync, FB_FUNCTION);
+
+	if (port->port_flags & PORT_disconnect)
+		return;
+
+	if (guard.tryEnter())
+		Remote::finalize(port);
+	else
+		PortsCleanup::closePort(port);
+}
 
 
 RmtAuthBlock::RmtAuthBlock(const Firebird::AuthReader::AuthBlock& aBlock)
