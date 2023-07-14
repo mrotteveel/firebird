@@ -256,7 +256,6 @@ public:
 #endif
 	void unlock(thread_db* tdbb);							// Release exclusive lock
 	void releaseLock(thread_db* tdbb, ReleaseMethod rm);	// Release any lock
-	void removeFromCache(thread_db* tdbb);					// Invoked when object is removed from MDC
 
 private:
 	static int ast(void* self)

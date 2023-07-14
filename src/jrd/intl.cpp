@@ -169,24 +169,22 @@ HazardPtr<CharSetContainer> CharSetContainer::lookupCharset(thread_db* tdbb, USH
 	if (id == CS_dynamic)
 		id = tdbb->getCharSet();
 
-	HazardPtr<CharSetContainer> cs = dbb->dbb_mdc->getCharSet(tdbb, id);
+	return dbb->dbb_mdc->getCharSet(tdbb, id);
+}
 
-	// allocate a new character set object if we couldn't find one.
-	if (!cs)
+
+CharSetContainer* CharSetContainer::create(thread_db* tdbb, MetaId id)
+{
+	SubtypeInfo info;
+
+	if (lookupInternalCharSet(id, &info) || MET_get_char_coll_subtype_info(tdbb, id, &info))
 	{
-		SubtypeInfo info;
-
-		if (lookupInternalCharSet(id, &info) || MET_get_char_coll_subtype_info(tdbb, id, &info))
-		{
-			CharSetContainer* csc = FB_NEW_POOL(*dbb->dbb_permanent) CharSetContainer(*dbb->dbb_permanent, id, &info);
-			dbb->dbb_mdc->setCharSet(tdbb, id, csc);
-			cs = dbb->dbb_mdc->getCharSet(tdbb, id);
-		}
-		else
-			ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(ttype));
+		CharSetContainer* csc = FB_NEW_POOL(*dbb->dbb_permanent) CharSetContainer(*dbb->dbb_permanent, id, &info);
+		dbb->dbb_mdc->setCharSet(tdbb, id, csc);
+		cs = dbb->dbb_mdc->getCharSet(tdbb, id);
 	}
-
-	return cs;
+	else
+		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(ttype));
 }
 
 
@@ -288,11 +286,11 @@ CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CHARSET_ID toCsId)
 	return CsConvert(cs->getStruct(), toCs->getStruct());
 }
 
-HazardPtr<Collation> CharSetContainer::lookupCollation(thread_db* tdbb, USHORT tt_id)
+Collation* CharSetContainer::lookupCollation(thread_db* tdbb, USHORT tt_id)
 {
 	const USHORT id = TTYPE_TO_COLLATION(tt_id);
 
-	HazardPtr<Collation> coll(FB_FUNCTION);
+	Collation* coll(FB_FUNCTION);
 	if (charset_collations.load(tdbb, id, coll))
 	{
 		if (!coll->obsolete)
@@ -301,7 +299,7 @@ HazardPtr<Collation> CharSetContainer::lookupCollation(thread_db* tdbb, USHORT t
 
 	CheckoutLockGuard guard(tdbb, createCollationMtx, FB_FUNCTION); // do we need it ?
 
-	HazardPtr<Collation> to_delete(FB_FUNCTION);
+	Collation* to_delete(FB_FUNCTION);
 	if (charset_collations.load(tdbb, id, coll))
 	{
 		if (!coll->obsolete)
@@ -404,7 +402,7 @@ void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
 	const USHORT id = TTYPE_TO_COLLATION(tt_id);
 	fb_assert(id != 0);
 
-	HazardPtr<Collation> coll(FB_FUNCTION);
+	Collation* coll(FB_FUNCTION);
 	if (charset_collations.load(tdbb, id, coll))
 	{
 		MutexLockGuard g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
@@ -457,7 +455,7 @@ void Jrd::MetadataCache::destroyIntlObjects(thread_db* tdbb)
 {
 	for (FB_SIZE_T i = 0; i < mdc_charsets.getCount(tdbb); i++)
 	{
-		HazardPtr<CharSetContainer> cs(FB_FUNCTION);
+		HazardPtr<CharSetContainer> cs;
 		if (mdc_charsets.load(tdbb, i, cs))
 		{
 			cs->destroy(tdbb);
@@ -996,7 +994,7 @@ CharSet* INTL_charset_lookup(thread_db* tdbb, USHORT parm1)
 }
 
 
-HazardPtr<Collation> INTL_texttype_lookup(thread_db* tdbb, USHORT parm1)
+Collation* INTL_texttype_lookup(thread_db* tdbb, USHORT parm1)
 {
 /**************************************
  *
@@ -1189,7 +1187,7 @@ USHORT INTL_string_to_key(thread_db* tdbb,
 		outlen = (dest - pByte->dsc_address);
 		break;
 	default:
-		HazardPtr<Collation> obj = INTL_texttype_lookup(tdbb, ttype);
+		Collation* obj = INTL_texttype_lookup(tdbb, ttype);
 		fb_assert(key_type != INTL_KEY_MULTI_STARTING || (obj->getFlags() & TEXTTYPE_MULTI_STARTING_KEY));
 		outlen = obj->string_to_key(len, src, pByte->dsc_length, dest, key_type);
 		break;

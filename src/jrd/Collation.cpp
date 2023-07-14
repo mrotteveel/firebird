@@ -1130,12 +1130,16 @@ void Collation::release(thread_db* tdbb)
 	fb_assert(useCount >= 0);
 
 	if (existenceLock)
+	{
+		if (!tdbb)
+			tdbb = JRD_get_thread_data();
 		LCK_release(tdbb, existenceLock);
+	}
 
 	useCount = 0;
 }
 
-void Collation::destroy(thread_db* tdbb)
+void Collation::destroy(thread_db* tdbb, int xxx)
 {
 	fprintf(stderr, "Collation::destroy(%p) tt=%p\n", this, tt);
 	fb_assert(useCount == 0);
@@ -1150,8 +1154,8 @@ void Collation::destroy(thread_db* tdbb)
 	delete existenceLock;
 	existenceLock = NULL;
 
-	fprintf(stderr, "delayedDelete collation %p\n", this);
-	this->delayedDelete(tdbb);
+	fprintf(stderr, "retire collation %p\n", this);
+	//this->retire();
 }
 
 void Collation::incUseCount(thread_db* /*tdbb*/)

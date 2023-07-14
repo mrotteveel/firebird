@@ -1629,13 +1629,13 @@ void Validation::walk_database()
 	}
 
 	MetadataCache* mdc = dbb->dbb_mdc;
-	for (USHORT i = 0; i < mdc->relCount(&dbb->dbb_delayed_delete); i++)
+	for (USHORT i = 0; i < mdc->relCount(); i++)
 	{
 #ifdef DEBUG_VAL_VERBOSE
 		if (i > dbb->dbb_max_sys_rel) // Why not system flag instead?
 			VAL_debug_level = 2;
 #endif
-		HazardPtr<jrd_rel> relation = mdc->getRelation(vdr_tdbb, i);
+		jrd_rel* relation = mdc->getRelation(vdr_tdbb, i);
 		ExistenceGuard g(vdr_tdbb, relation->rel_existence_lock);
 
 		if (MetadataCache::checkRelation(vdr_tdbb, relation.getPointer()))
@@ -3005,7 +3005,7 @@ void Validation::checkDPinPIP(jrd_rel* relation, ULONG page_number)
 	release_page(&pip_window);
 }
 
-Validation::RTN Validation::walk_relation(HazardPtr<jrd_rel>& rel)
+Validation::RTN Validation::walk_relation(jrd_rel* rel)
 {
 /**************************************
  *

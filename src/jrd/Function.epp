@@ -59,13 +59,13 @@ DATABASE DB = FILENAME "ODS.RDB";
 const char* const Function::EXCEPTION_MESSAGE = "The user defined function: \t%s\n\t   referencing"
 	" entrypoint: \t%s\n\t                in module: \t%s\n\tcaused the fatal exception:";
 
-HazardPtr<Function> Function::lookup(thread_db* tdbb, USHORT id, bool return_deleted, bool noscan, USHORT flags)
+Function* Function::lookup(thread_db* tdbb, USHORT id, bool return_deleted, bool noscan, USHORT flags)
 {
 	Attachment* const attachment = tdbb->getAttachment();
 	Database* const dbb = tdbb->getDatabase();
-	HazardPtr<Function> check_function(tdbb, FB_FUNCTION);
+	Function* check_function = nullptr;
 
-	HazardPtr<Function> function = dbb->dbb_mdc->getFunction(tdbb, id);
+	Function* function = dbb->dbb_mdc->getFunction(tdbb, id, noscan);
 
 	if (function && function->getId() == id &&
 		!(function->flags & Routine::FLAG_CLEARED) &&
@@ -85,7 +85,7 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, USHORT id, bool return_del
 
 	// We need to look up the function in RDB$FUNCTIONS
 
-	function.clear();
+	function = nullptr;
 
 	AutoCacheRequest request(tdbb, irq_l_fun_id, IRQ_REQUESTS);
 
@@ -109,14 +109,14 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, USHORT id, bool return_del
 	return function;
 }
 
-HazardPtr<Function> Function::lookup(thread_db* tdbb, const QualifiedName& name, bool noscan)
+Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, bool noscan)
 {
 	Attachment* const attachment = tdbb->getAttachment();
 	Database* const dbb = tdbb->getDatabase();
 
 	// See if we already know the function by name
 
-	HazardPtr<Function> function = dbb->dbb_mdc->lookupFunction(tdbb, name, noscan ? 0 : Routine::FLAG_SCANNED,
+	Function* function = dbb->dbb_mdc->lookupFunction(tdbb, name, noscan ? 0 : Routine::FLAG_SCANNED,
 		Routine::FLAG_OBSOLETE | Routine::FLAG_CLEARED | Routine::FLAG_BEING_SCANNED | Routine::FLAG_BEING_ALTERED);
 
 	if (function)
@@ -127,7 +127,7 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, const QualifiedName& name,
 
 	// We need to look up the function in RDB$FUNCTIONS
 
-	function.clear();
+	function = nullptr;
 
 	AutoCacheRequest request(tdbb, irq_l_fun_name, IRQ_REQUESTS);
 
@@ -143,12 +143,12 @@ HazardPtr<Function> Function::lookup(thread_db* tdbb, const QualifiedName& name,
 	return function;
 }
 
-HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool noscan, USHORT flags)
+Function* Function::loadMetadata(thread_db* tdbb, USHORT id, bool noscan, USHORT flags)
 {
 	Jrd::Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* sysTransaction = attachment->getSysTransaction();
 	Database* const dbb = tdbb->getDatabase();
-	HazardPtr<Function> function = dbb->dbb_mdc->getFunction(tdbb, id, true);
+	Function* function = dbb->dbb_mdc->getFunction(tdbb, id, noscan);
 
 	if (function && !(function->flags & Routine::FLAG_OBSOLETE))
 	{
@@ -163,29 +163,28 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 		}
 	}
 
-	Function* newFun = function.getPointer();
-	function.clear();
-	MemoryPool& pool = dbb->dbb_mdc->getPool();
-	if (!newFun)
-		newFun = FB_NEW_POOL(*dbb->dbb_permanent) Function(pool);
+	return nullptr;
+}
 
-	try
-	{
-	newFun->flags |= (Routine::FLAG_BEING_SCANNED | flags);
-	newFun->flags &= ~(Routine::FLAG_OBSOLETE | Routine::FLAG_CLEARED);
+Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+{
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	jrd_tra* sysTransaction = attachment->getSysTransaction();
+	Database* const dbb = tdbb->getDatabase();
 
-	newFun->setId(id);
-	function = dbb->dbb_mdc->setFunction(tdbb, id, newFun);
-	newFun = nullptr;
-
+	Function* function = FB_NEW_POOL(*dbb->dbb_permanent) Function(*dbb->dbb_permanent, id);
+/*
 	if (!function->existenceLock)
 	{
 		function->existenceLock = FB_NEW_POOL(pool)
 			ExistenceLock(pool, tdbb, LCK_fun_exist, function->getId(), function.getPointer());
 	}
+*/
 
-	if (!noscan)
+	try
 	{
+	  if (!(flags & CacheFlag::NOSCAN))
+	  {
 		AutoCacheRequest request_fun(tdbb, irq_l_functions, IRQ_REQUESTS);
 
 		FOR(REQUEST_HANDLE request_fun)
@@ -336,7 +335,7 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 					try
 					{
 						parameter->prm_default_value = static_cast<ValueExprNode*>(MET_parse_blob(
-							tdbb, nullRel, &default_value, nullptr, nullptr, false, false));
+							tdbb, nullptr, &default_value, nullptr, nullptr, false, false));
 					}
 					catch (const Exception&)
 					{
@@ -419,7 +418,7 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 						else
 							body.getBuffer(1)[0] = 0;
 
-						dbb->dbb_extManager->makeFunction(tdbb, csb, function.getPointer(), X.RDB$ENGINE_NAME,
+						dbb->dbb_extManager->makeFunction(tdbb, csb, function, X.RDB$ENGINE_NAME,
 							(X.RDB$ENTRYPOINT.NULL ? "" : X.RDB$ENTRYPOINT), (char*) body.begin());
 
 						if (!function->fun_external)
@@ -477,20 +476,12 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 			}
 		}
 		END_FOR
-	}
-
-	// Make sure that it is really being scanned
-	fb_assert(function->flags & Routine::FLAG_BEING_SCANNED);
-
-	function->flags &= ~Routine::FLAG_BEING_SCANNED;
-
+	  } // if noscan
 	}	// try
 	catch (const Exception&)
 	{
-		if (newFun)
-			newFun->delayedDelete(tdbb);
 		if (function)
-			function->flags &= ~(Routine::FLAG_BEING_SCANNED | Routine::FLAG_SCANNED);
+			Function::destroy(function);
 
 		throw;
 	}
@@ -500,12 +491,7 @@ HazardPtr<Function> Function::loadMetadata(thread_db* tdbb, USHORT id, bool nosc
 
 bool Function::checkCache(thread_db* tdbb) const
 {
-	return tdbb->getDatabase()->dbb_mdc->getFunction(tdbb, getId()) == this;
-}
-
-void Function::clearCache(thread_db* tdbb)
-{
-	tdbb->getDatabase()->dbb_mdc->setFunction(tdbb, getId(), nullptr);
+	return tdbb->getDatabase()->dbb_mdc->getFunction(tdbb, getId(), true) == this;
 }
 
 bool Function::reload(thread_db* tdbb)

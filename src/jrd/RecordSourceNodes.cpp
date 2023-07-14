@@ -528,7 +528,7 @@ LocalTableSourceNode* LocalTableSourceNode::copy(thread_db* tdbb, NodeCopier& co
 void LocalTableSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseNode* /*rse*/,
 	BoolExprNode** /*boolean*/, RecordSourceNodeStack& stack)
 {
-	fb_assert(!csb->csb_view);	// local tables cannot be inside a view
+	fb_assert(!csb->csb_view.isSet());	// local tables cannot be inside a view
 
 	stack.push(this);	// Assume that the source will be used. Push it on the final stream stack.
 
@@ -572,7 +572,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 	// Find relation either by id or by name
 	AutoPtr<string> aliasString;
 	MetaName name;
-	HazardPtr<jrd_rel> rel(FB_FUNCTION);
+	CacheElement<jrd_rel>* rel = nullptr;
 
 	switch (blrOp)
 	{
@@ -587,7 +587,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookup_relation_id(tdbb, id, false);
+			rel = MetadataCache::lookupRelation(tdbb, id);
 			if (!rel)
 				name.printf("id %d", id);
 			break;
@@ -604,7 +604,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookup_relation(tdbb, name);
+			rel = MetadataCache::lookupRelation(tdbb, name);
 			break;
 		}
 
@@ -617,7 +617,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 
 	// Store relation in CSB resources and after it - in the node
 
-	node->relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->rel_id);
+	node->relation = csb->csb_resources->relations.registerResource(rel);
 
 	// if an alias was passed, store with the relation
 
@@ -626,14 +626,11 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 
 	// Scan the relation if it hasn't already been scanned for meta data
 
-	if ((!(node->relation->rel_flags & REL_scanned) ||
-		(node->relation->rel_flags & REL_being_scanned)) &&
-		!(csb->csb_g_flags & csb_internal))
-	{
-		MET_scan_relation(tdbb, rel);
-	}
-	else if (node->relation->rel_flags & REL_sys_triggers)
-		MET_parse_sys_trigger(tdbb, rel);
+	jrd_rel* latestVersion = rel->getObject(tdbb);
+	if (!(csb->csb_g_flags & csb_internal))
+		latestVersion->scan(tdbb);
+	if (latestVersion->rel_flags & REL_sys_triggers)
+		MET_parse_sys_trigger(tdbb, latestVersion);
 
 	// generate a stream for the relation reference, assuming it is a real reference
 
@@ -658,8 +655,8 @@ string RelationSourceNode::internalPrint(NodePrinter& printer) const
 	NODE_PRINT(printer, dsqlName);
 	NODE_PRINT(printer, alias);
 	NODE_PRINT(printer, context);
-	if (relation)
-		printer.print("rel_name", relation->rel_name);
+	if (relation.isSet())
+		printer.print("rel_name", relation.get(JRD_get_thread_data(), printer.resources)->rel_name);
 
 	return "RelationSourceNode";
 }
@@ -734,12 +731,16 @@ RecordSourceNode* RelationSourceNode::pass1(thread_db* tdbb, CompilerScratch* cs
 	const auto tail = &csb->csb_rpt[stream];
 	const auto relation = tail->csb_relation;
 
-	if (relation && !csb->csb_implicit_cursor)
+	if (relation.isSet() && !csb->csb_implicit_cursor)
 	{
-		const SLONG ssRelationId = tail->csb_view ? tail->csb_view->rel_id :
-			view ? view->rel_id : csb->csb_view ? csb->csb_view->rel_id : 0;
-		CMP_post_access(tdbb, csb, relation->rel_security_name, ssRelationId,
-			SCL_select, obj_relations, relation->rel_name);
+		const SLONG ssRelationId = tail->csb_view.isSet() ?
+			tail->csb_view.get(tdbb, csb->csb_resources)->rel_id : view.isSet() ?
+			view.get(tdbb, csb->csb_resources)->rel_id : csb->csb_view.isSet() ?
+			csb->csb_view.get(tdbb, csb->csb_resources)->rel_id : 0;
+
+		const jrd_rel* r = relation.get(tdbb, csb->csb_resources);
+		CMP_post_access(tdbb, csb, r->rel_security_name, ssRelationId,
+			SCL_select, obj_relations, r->rel_name);
 	}
 
 	return this;
@@ -756,11 +757,11 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 	// prepare to check protection of relation when a field in the stream of the
 	// relation is accessed.
 
-	jrd_rel* const parentView = csb->csb_view;
+	CachedResource<jrd_rel> const parentView = csb->csb_view;
 	const StreamType viewStream = csb->csb_view_stream;
 
-	jrd_rel* relationView = relation;
-	csb->csb_resources.postResource(tdbb, Resource::rsc_relation, relationView, relationView->rel_id);
+	CachedResource<jrd_rel> relationView = relation;
+	//csb->csb_resources.postResource(tdbb, Resource::rsc_relation, relationView, relationView->rel_id);
 	view = parentView;
 
 	CompilerScratch::csb_repeat* const element = CMP_csb_element(csb, stream);
@@ -769,9 +770,9 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 
 	// in the case where there is a parent view, find the context name
 
-	if (parentView)
+	if (parentView.isSet())
 	{
-		const ViewContexts& ctx = parentView->rel_view_contexts;
+		const ViewContexts& ctx = parentView.get(tdbb, csb->csb_resources)->rel_view_contexts;
 		const USHORT key = context;
 		FB_SIZE_T pos;
 
@@ -784,7 +785,7 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 
 	// check for a view - if not, nothing more to do
 
-	RseNode* viewRse = relationView->rel_view_rse;
+	RseNode* viewRse = relationView.get(tdbb, csb->csb_resources)->rel_view_rse;
 	if (!viewRse)
 		return;
 
@@ -795,7 +796,7 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 
 	AutoSetRestore<USHORT> autoRemapVariable(&csb->csb_remap_variable,
 		(csb->csb_variables ? csb->csb_variables->count() : 0) + 1);
-	AutoSetRestore<jrd_rel*> autoView(&csb->csb_view, relationView);
+	AutoSetRestore<CachedResource<jrd_rel>> autoView(&csb->csb_view, relationView);
 	AutoSetRestore<StreamType> autoViewStream(&csb->csb_view_stream, stream);
 
 	// We don't expand the view in two cases:
@@ -908,7 +909,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 	jrd_prc* procedure = nullptr;
 	AutoPtr<string> aliasString;
 	QualifiedName name;
-	HazardPtr<jrd_prc> proc(FB_FUNCTION);
+	CacheElement<jrd_prc>* proc = nullptr;
 
 	switch (blrOp)
 	{
@@ -923,11 +924,8 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			proc = MetadataCache::lookup_procedure_id(tdbb, pid, false, false, 0);
-			if (proc)
-				procedure = csb->csb_resources.registerResource(tdbb, Resource::rsc_procedure, proc, proc->getId());
-
-			if (!procedure)
+			proc = MetadataCache::lookupProcedure(tdbb, pid);
+			if (!proc)
 				name.identifier.printf("id %d", pid);
 			break;
 		}
@@ -1008,7 +1006,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 	ProcedureSourceNode* node = FB_NEW_POOL(*tdbb->getDefaultPool()) ProcedureSourceNode(
 		*tdbb->getDefaultPool());
 
-	node->procedure = procedure;
+	node->procedure = csb->csb_resources.procedures->registerResource(tdbb, proc);
 	node->isSubRoutine = procedure->isSubRoutine();
 	node->procedureId = node->isSubRoutine ? 0 : procedure->getId();
 

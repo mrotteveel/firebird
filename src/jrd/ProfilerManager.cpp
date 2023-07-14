@@ -28,10 +28,11 @@
 #include "../jrd/ids.h"
 #include "../jrd/recsrc/Cursor.h"
 #include "../jrd/dpm_proto.h"
-#include "../jrd/lck_proto.h"
+#include "../jrd/lck.h"
 #include "../jrd/met_proto.h"
 #include "../jrd/pag_proto.h"
 #include "../jrd/tra_proto.h"
+#include "../jrd/Statement.h"
 
 using namespace Jrd;
 using namespace Firebird;

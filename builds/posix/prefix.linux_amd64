@@ -24,8 +24,8 @@ WARN_FLAGS=-Werror=delete-incomplete -Wall -Wno-switch -Wno-parentheses -Wno-unk
 PLATFORM_PLUSPLUS_FLAGS=-Wno-invalid-offsetof -Wno-class-memaccess
 
 PROD_FLAGS=$(COMMON_FLAGS) $(OPTIMIZE_FLAGS)
-#DEV_FLAGS=-DUSE_VALGRIND $(WARN_FLAGS) $(COMMON_FLAGS) -fmax-errors=8
-DEV_FLAGS=$(WARN_FLAGS) $(COMMON_FLAGS) -fmax-errors=8
+#DEV_FLAGS=-DUSE_VALGRIND $(WARN_FLAGS) $(COMMON_FLAGS) -fmax-errors=2
+DEV_FLAGS=$(WARN_FLAGS) $(COMMON_FLAGS) -fmax-errors=2
 
 # This file must be compiled with SSE4.2 support
 %/CRC32C.o: COMMON_FLAGS += -msse4

@@ -178,7 +178,7 @@ public:
 		tra_blob_util_map(*p),
 		tra_arrays(NULL),
 		tra_deferred_job(NULL),
-		tra_resources(*p, false),
+//		tra_resources(*p, false),
 		tra_context_vars(*p),
 		tra_lock_timeout(DEFAULT_LOCK_TIMEOUT),
 		tra_timestamp(Firebird::TimeZoneUtil::getCurrentSystemTimeStamp()),
@@ -282,7 +282,7 @@ public:
 	SavNumber tra_save_point_number;	// next save point number to use
 	ULONG tra_flags;
 	DeferredJob*	tra_deferred_job;	// work deferred to commit time
-	ResourceList tra_resources;			// resource existence list
+//	ResourceList tra_resources;			// resource existence list
 	Firebird::StringMap tra_context_vars;	// Context variables for the transaction
 	traRpbList* tra_rpblist;			// active record_param's of given transaction
 	UCHAR tra_use_count;				// use count for safe AST delivery

@@ -368,7 +368,7 @@ public:
 	{
 	}
 
-	ProtectRelations(thread_db* tdbb, jrd_tra* transaction, HazardPtr<jrd_rel>& relation) :
+	ProtectRelations(thread_db* tdbb, jrd_tra* transaction, jrd_rel* relation) :
 		m_tdbb(tdbb),
 		m_transaction(transaction),
 		m_locks()
@@ -382,7 +382,7 @@ public:
 		unlock();
 	}
 
-	void addRelation(HazardPtr<jrd_rel>& relation)
+	void addRelation(jrd_rel* relation)
 	{
 		FB_SIZE_T pos;
 		if (!m_locks.find(relation->rel_id, pos))
@@ -410,7 +410,7 @@ public:
 private:
 	struct relLock
 	{
-		relLock(HazardPtr<jrd_rel> relation = HazardPtr<jrd_rel>(FB_FUNCTION)) :
+		relLock(jrd_rel* relation = nullptr) :
 			m_relation(relation),
 			m_lock(NULL),
 			m_release(false)
@@ -433,7 +433,7 @@ private:
 			return &item->m_relation->rel_id;
 		}
 
-		HazardPtr<jrd_rel> m_relation;
+		jrd_rel* m_relation;
 		Lock* m_lock;
 		bool m_release;
 	};
@@ -509,12 +509,12 @@ static bool formatsAreEqual(const Format*, const Format*);
 static bool	find_depend_in_dfw(thread_db*, TEXT*, USHORT, USHORT, jrd_tra*);
 static void get_array_desc(thread_db*, const TEXT*, Ods::InternalArrayDesc*);
 static void get_trigger_dependencies(DeferredWork*, bool, jrd_tra*);
-static Format*	make_format(thread_db*, HazardPtr<jrd_rel>, USHORT *, TemporaryField*);
+static Format*	make_format(thread_db*, jrd_rel*, USHORT *, TemporaryField*);
 static void put_summary_blob(thread_db* tdbb, blb*, enum rsr_t, bid*, jrd_tra*);
 static void put_summary_record(thread_db* tdbb, blb*, enum rsr_t, const UCHAR*, ULONG);
 static void	setup_array(thread_db*, blb*, const TEXT*, USHORT, TemporaryField*);
-static blb*	setup_triggers(thread_db*, HazardPtr<jrd_rel>&, bool, TrigVectorPtr*, blb*);
-static void	setup_trigger_details(thread_db*, HazardPtr<jrd_rel>&, blb*, TrigVectorPtr*, const TEXT*, bool);
+static blb*	setup_triggers(thread_db*, jrd_rel*, bool, TrigVectorPtr*, blb*);
+static void	setup_trigger_details(thread_db*, jrd_rel*, blb*, TrigVectorPtr*, const TEXT*, bool);
 static bool validate_text_type (thread_db*, const TemporaryField*);
 
 static void check_partners(thread_db*, const USHORT);
@@ -587,7 +587,7 @@ static void raiseObjectInUseError(const string& obj_type, const string& obj_name
 			 Arg::Gds(isc_obj_in_use) << Arg::Str(name));
 }
 
-static void raiseRelationInUseError(const HazardPtr<jrd_rel>& relation)
+static void raiseRelationInUseError(const jrd_rel* relation)
 {
 	const string obj_type =
 		relation->isView() ? "VIEW" : "TABLE";
@@ -724,7 +724,7 @@ namespace
 		{
 			SET_TDBB(tdbb);
 			const QualifiedName name(work->dfw_name, work->dfw_package);
-			HazardPtr<Routine> routine(FB_FUNCTION);
+			HazardPtr<Routine> routine;
 
 			fprintf(stderr, "routine %d %s ph %d\n", work->dfw_id, name.c_str(), phase);
 
@@ -869,7 +869,7 @@ namespace
 		{
 			SET_TDBB(tdbb);
 			const QualifiedName name(work->dfw_name, work->dfw_package);
-			HazardPtr<T> routine(FB_FUNCTION);
+			HazardPtr<T> routine;
 
 			switch (phase)
 			{
@@ -996,7 +996,7 @@ namespace
 				// works in not deleted context
 				{
 					Jrd::ContextPoolHolder context(tdbb, new_pool);
-					MET_get_dependencies(tdbb, nullRel, NULL, 0, NULL, &blobId,
+					MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &blobId,
 						(compile ? &statement : NULL),
 						NULL, depName,
 						(work->dfw_package.isEmpty() ? objType : obj_package_body),
@@ -1097,7 +1097,7 @@ namespace
 	{
 		Jrd::Attachment* attachment = tdbb->getAttachment();
 		AutoCacheRequest handle(tdbb, irq_c_fun_dpd, IRQ_REQUESTS);
-		HazardPtr<Routine> routine(tdbb, FB_FUNCTION);
+		HazardPtr<Routine> routine(tdbb);
 
 		FOR(REQUEST_HANDLE handle)
 			X IN RDB$FUNCTIONS WITH
@@ -1142,7 +1142,7 @@ namespace
 	{
 		Attachment* attachment = tdbb->getAttachment();
 		AutoCacheRequest handle(tdbb, irq_c_prc_dpd, IRQ_REQUESTS);
-		HazardPtr<Routine> routine(tdbb, FB_FUNCTION);
+		HazardPtr<Routine> routine(tdbb);
 
 		FOR(REQUEST_HANDLE handle)
 			X IN RDB$PROCEDURES WITH
@@ -2365,7 +2365,7 @@ static bool check_not_null(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 
 	case 3:
 		{
-			HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation(tdbb, work->dfw_name);
+			jrd_rel* relation = MetadataCache::lookup_relation(tdbb, work->dfw_name);
 			if (!relation || relation->rel_view_rse || work->dfw_ids.isEmpty())
 				break;
 
@@ -2706,7 +2706,7 @@ static bool create_expression_index(thread_db* tdbb, SSHORT phase, DeferredWork*
 
 	case 3:
 		{
-			HazardPtr<jrd_rel> relation(FB_FUNCTION);
+			jrd_rel* relation;
 			CompilerScratch* csb = nullptr;
 
 			const auto dbb = tdbb->getDatabase();
@@ -3087,7 +3087,7 @@ static void cleanup_index_creation(thread_db* tdbb, DeferredWork* work, jrd_tra*
 			// dimitr: I have no idea why the condition below is required here
 			AND IREL.RDB$VIEW_BLR MISSING // views do not have indices
 	{
-		HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation(tdbb, IDXN.RDB$RELATION_NAME);
+		jrd_rel* relation = MetadataCache::lookup_relation(tdbb, IDXN.RDB$RELATION_NAME);
 		RelationPages* const relPages = relation->getPages(tdbb, MAX_TRA_NUMBER, false);
 
 		if (relPages && relPages->rel_index_root)
@@ -3130,7 +3130,7 @@ static void cleanup_index_creation(thread_db* tdbb, DeferredWork* work, jrd_tra*
 				idx.idx_id = idx_invalid;
 				idx.idx_flags = idx_foreign;
 
-				HazardPtr<jrd_rel> partner_relation(FB_FUNCTION);
+				jrd_rel* partner_relation = nullptr;
 				if (MET_lookup_partner(tdbb, relation.unsafePointer(), &idx, work->dfw_name.c_str()))
 				{
 					partner_relation = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation, true);
@@ -3287,7 +3287,7 @@ static bool modify_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	}
 
 	bool gtt_preserve = false;
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
 
 	if (is_create)
 	{
@@ -3353,8 +3353,8 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
  *
  **************************************/
 	AutoCacheRequest request;
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
-	HazardPtr<jrd_rel> partner_relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
+	jrd_rel* partner_relation = nullptr;
 	index_desc idx;
 	int key_count;
 
@@ -3711,7 +3711,7 @@ static bool create_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
  *
  **************************************/
 	AutoCacheRequest request;
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
 	USHORT rel_id, external_flag;
 	bid blob_id;
 	AutoRequest handle;
@@ -4206,7 +4206,7 @@ void DFW_reset_icu(thread_db* tdbb)
 				USHORT rel_id = rs->getInt(tdbb, 2);
 				if (!tables.exists(rel_id))
 				{
-					HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation_id(tdbb, rel_id, false);
+					jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id, false);
 					if (relation)
 						tables.addRelation(relation);
 				}
@@ -4450,7 +4450,7 @@ static bool create_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				MemoryPool* new_pool = dbb->createPool();
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				MET_get_dependencies(tdbb, nullRel, NULL, 0, NULL, &validation,
+				MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &validation,
 					NULL, NULL, depName, obj_validation, 0, transaction, depName);
 
 				dbb->deletePool(new_pool);
@@ -4615,7 +4615,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				MemoryPool* new_pool = dbb->createPool();
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				MET_get_dependencies(tdbb, nullRel, NULL, 0, NULL, &validation,
+				MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &validation,
 					NULL, NULL, depName, obj_validation, 0, transaction, depName);
 
 				dbb->deletePool(new_pool);
@@ -4695,7 +4695,7 @@ static void check_partners(thread_db* tdbb, const USHORT rel_id)
  *
  **************************************/
 	Database* const dbb = tdbb->getDatabase();
-	HazardPtr<jrd_rel> relation = dbb->dbb_mdc->getRelation(tdbb, rel_id);
+	jrd_rel* relation = dbb->dbb_mdc->getRelation(tdbb, rel_id);
 	fb_assert(relation);
 
 	relation->rel_flags |= REL_check_partners;
@@ -4715,7 +4715,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
  * Functional description
  *
  **************************************/
-	HazardPtr<IndexLock> index(FB_FUNCTION);
+	HazardPtr<IndexLock> index;
 
 	SET_TDBB(tdbb);
 
@@ -4731,7 +4731,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	// Look up the relation.  If we can't find the relation,
 	// don't worry about the index.
 
-	HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, false);
+	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, false);
 	if (!relation) {
 		return false;
 	}
@@ -4841,8 +4841,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				ERR_post(Arg::Gds(isc_random) << "Index block gone unexpestedly");
 			fb_assert(!arrVal);
 			index->idl_lock.releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
-			// fprintf(stderr, "delayedDelete index, replace NULL, to be reviewed\n");
-			// --- index->delayedDelete(tdbb);
+			index->retire();
 
 			// Release index refresh lock and memory.
 			for (IndexBlock** iptr = &relation->rel_index_blocks; *iptr; iptr = &(*iptr)->idb_next)
@@ -4922,7 +4921,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
  *
  **************************************/
 	AutoRequest request;
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
 	Resource* rsc;
 	USHORT view_count;
 	bool adjusted;
@@ -5004,22 +5003,6 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 			// ?????????? MutexLockGuard g(dbb->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
 
 			adjusted = false;
-			if (relation->rel_existence_lock->getUseCount() == 1)
-			{
-				for (auto rsc : transaction->tra_resources.getObjects(Resource::rsc_relation))
-				{
-					if (rsc->rsc_rel == relation)
-					{
-						relation->rel_existence_lock->dec(tdbb);
-						adjusted = true;
-						break;
-					}
-				}
-			}
-
-			if (relation->rel_existence_lock->getUseCount())
-				MetadataCache::clear_cache(tdbb);
-
 			if (!relation->rel_existence_lock->exclLock(tdbb))
 				/////// ??????? !LCK_convert(tdbb, relation->rel_existence_lock, LCK_EX, transaction->getLockWait())))
 			{
@@ -5038,7 +5021,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 		relation->rel_flags |= REL_deleting;
 		{ // scope
 			EngineCheckout cout(tdbb, FB_FUNCTION);
-			relation->rel_drop_mutex.enter(FB_FUNCTION);
+			relation->rel_drop_mutex.enter;
 		}
 
 		return true;
@@ -5165,7 +5148,7 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 	int rel_exists, field_count;
 	AutoRequest handle;
 	MetaName f;
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
 
 	SET_TDBB(tdbb);
 	Jrd::Attachment* attachment = tdbb->getAttachment();
@@ -5565,7 +5548,7 @@ static void get_trigger_dependencies(DeferredWork* work, bool compile, jrd_tra* 
 	if (compile)
 		compile = !tdbb->getAttachment()->isGbak();
 
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
 	bid blob_id;
 	blob_id.clear();
 
@@ -5611,7 +5594,7 @@ static void get_trigger_dependencies(DeferredWork* work, bool compile, jrd_tra* 
 }
 
 
-static Format* make_format(thread_db* tdbb, HazardPtr<jrd_rel> relation, USHORT* version, TemporaryField* stack)
+static Format* make_format(thread_db* tdbb, jrd_rel* relation, USHORT* version, TemporaryField* stack)
 {
 /**************************************
  *
@@ -5829,7 +5812,7 @@ static bool make_version(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
  **************************************/
 	TemporaryField* stack;
 	TemporaryField* external;
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation = nullptr;
 	//bid blob_id;
 	//blob_id.clear();
 
@@ -6351,7 +6334,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 
 				try
 				{
-					HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation(tdbb, relation_name);
+					jrd_rel* relation = MetadataCache::lookup_relation(tdbb, relation_name);
 
 					if (relation)
 					{
@@ -6375,7 +6358,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 							{
 								if (triggers[i])
 								{
-									HazardPtr<Trigger> trig(tdbb, FB_FUNCTION);
+									HazardPtr<Trigger> trig(tdbb);
 									for (FB_SIZE_T j = 0; j < triggers[i].load()->getCount(tdbb); ++j)
 									{
 										if (triggers[i].load()->load(tdbb, j, trig))
@@ -6502,7 +6485,7 @@ static bool scan_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd
  **************************************/
 
 	SET_TDBB(tdbb);
-	HazardPtr<jrd_rel> rel(FB_FUNCTION);
+	jrd_rel* rel = nullptr;
 
 	switch (phase)
 	{
@@ -6632,7 +6615,7 @@ static void setup_array(thread_db* tdbb, blb* blob, const TEXT* field_name, USHO
 }
 
 
-static blb* setup_triggers(thread_db* tdbb, HazardPtr<jrd_rel>& relation, bool null_view,
+static blb* setup_triggers(thread_db* tdbb, jrd_rel* relation, bool null_view,
 	TrigVectorPtr* triggers, blb* blob)
 {
 /**************************************
@@ -6729,7 +6712,7 @@ static blb* setup_triggers(thread_db* tdbb, HazardPtr<jrd_rel>& relation, bool n
 
 
 static void setup_trigger_details(thread_db* tdbb,
-								  HazardPtr<jrd_rel>& relation,
+								  jrd_rel* relation,
 								  blb* blob,
 								  TrigVectorPtr* triggers,
 								  const TEXT* trigger_name,

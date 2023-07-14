@@ -778,7 +778,7 @@ void EXE_release(thread_db* tdbb, Request* request)
 		request->req_attachment = NULL;
 	}
 
-	request->req_flags &= ~req_in_use;
+	request->setUsed(false);
 }
 
 
@@ -890,9 +890,9 @@ void EXE_start(thread_db* tdbb, Request* request, jrd_tra* transaction)
 	TRA_post_resources(tdbb, transaction, statement->resources);
 
 	TRA_attach_request(transaction, request);
-	request->req_flags &= req_in_use | req_restart_ready;
+	request->req_flags &= req_restart_ready;
 	request->req_flags |= req_active;
-	request->req_flags &= ~req_reserved;
+	// ????????? request->req_flags &= ~req_reserved;
 
 	// set up to count records affected by request
 
@@ -1245,7 +1245,7 @@ void EXE_execute_triggers(thread_db* tdbb,
 
 			EXE_unwind(tdbb, trigger);
 			trigger->req_attachment = NULL;
-			trigger->req_flags &= ~req_in_use;
+			trigger->setUsed(false);
 
 			if (!ok)
 				trigger_failure(tdbb, trigger);
@@ -1265,7 +1265,7 @@ void EXE_execute_triggers(thread_db* tdbb,
 		{
 			EXE_unwind(tdbb, trigger);
 			trigger->req_attachment = NULL;
-			trigger->req_flags &= ~req_in_use;
+			trigger->setUsed(false);
 
 			ex.stuffException(tdbb->tdbb_status_vector);
 
@@ -1717,10 +1717,6 @@ void ResourceList::setResetPointersHazard(thread_db* tdbb, bool set)
 	if (hazardFlag != set)
 	{
 		// (un-)register hazard pointers
-		HazardDelayedDelete* hazardDelayed = nullptr;
-		if (list.hasData())
-			hazardDelayed = HazardBase::getHazardDelayed(tdbb);
-
 		for (auto r : list)
 		{
 			void* hazardPointer = nullptr;

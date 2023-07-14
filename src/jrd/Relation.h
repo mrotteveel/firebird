@@ -46,11 +46,9 @@ class IndexBlock;
 // Relation trigger definition
 
 class Trigger : public CacheObject
-/*
 {
+/*
 public:
-	typedef MetaName Key;
-
 	Firebird::HalfStaticArray<UCHAR, 128> blr;			// BLR code
 	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
 	Statement* statement;								// Compiled statement
@@ -154,84 +152,15 @@ public:
 };
 
 // Array of triggers (suppose separate arrays for triggers of different types)
-class TrigVector : public HazardArray<Trigger>
+class TrigVector
 {
-/*
 public:
-	explicit TrigVector(Firebird::MemoryPool& pool)
-		: HazardArray<Trigger>(pool),
-		  useCount(0), addCount(0)
-	{ }
-
-	TrigVector()
-		: HazardArray<Trigger>(Firebird::AutoStorage::getAutoMemoryPool()),
-		  useCount(0), addCount(0)
-	{ }
-
-	HazardPtr<Trigger> add(thread_db* tdbb, Trigger*);
-
-	void addRef()
-	{
-		++useCount;
-	}
-
-	bool hasData(thread_db* tdbb) const
-	{
-		return getCount(tdbb) > 0;
-	}
-
-	bool isEmpty(thread_db* tdbb) const
-	{
-		return getCount(tdbb) == 0;
-	}
-
 	bool hasActive() const;
-
 	void decompile(thread_db* tdbb);
 
-	void release();
-	void release(thread_db* tdbb);
+	virtual ~TrigVector() { }
 
-	~TrigVector()
-	{
-		fb_assert(useCount.load() == 0);
-	}
-
-private:
-	std::atomic<int> useCount;
-	std::atomic<FB_SIZE_T> addCount;
-*/
-
-public:
-	explicit TrigVector(Firebird::MemoryPool& pool)
-		: Firebird::ObjectsArray<Trigger>(pool),
-		  useCount(0)
-	{ }
-
-	TrigVector()
-		: Firebird::ObjectsArray<Trigger>(),
-		  useCount(0)
-	{ }
-
-	void addRef()
-	{
-		++useCount;
-	}
-
-	bool hasActive() const;
-
-	void decompile(thread_db* tdbb);
-
-	void release();
-	void release(thread_db* tdbb);
-
-	~TrigVector()
-	{
-		fb_assert(useCount.value() == 0);
-	}
-
-private:
-	Firebird::AtomicCounter useCount;
+	virtual void addTrigger(thread_db* tdbb, Trigger* trigger) = 0;
 };
 
 typedef std::atomic<TrigVector*> TrigVectorPtr;
@@ -445,11 +374,6 @@ public:
 
 	bool hasData() { return true; }
 	const char* c_name() const override;
-
-	void removeFromCache(thread_db* tdbb) override
-	{
-		idl_lock.removeFromCache(tdbb);
-	}
 };
 
 
@@ -457,14 +381,12 @@ public:
 // in the database, though it is not really filled out until
 // the relation is scanned
 
-class jrd_rel : public CacheObject
+class jrd_rel final : public CacheObject
 {
 	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
-	typedef HazardArray<IndexLock, 2> IndexLockList;
+	typedef Firebird::ObjectsArray<IndexLock> IndexLocks;
 
 public:
-	typedef MetaName Key;
-
 	MemoryPool*		rel_pool;
 	USHORT			rel_id;
 	USHORT			rel_current_fmt;	// Current format number
@@ -492,7 +414,7 @@ public:
 	Lock*		rel_partners_lock;		// partners lock
 	Lock*		rel_rescan_lock;		// lock forcing relation to be scanned
 	Lock*		rel_gc_lock;			// garbage collection lock
-	IndexLockList	rel_index_locks;	// index existence locks
+	IndexLocks	rel_index_locks;		// index existence locks
 	//Firebird::Mutex	rel_mtx_il;			// controls addition & removal of elements
 	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
 	TrigVectorPtr	rel_pre_erase; 		// Pre-operation erase trigger
@@ -538,6 +460,16 @@ public:
 		return rel_id;
 	}
 
+	void	scan(thread_db* tdbb);
+/*
+	// Scan the relation if it hasn't already been scanned for meta data
+
+-       if (!(node->relation->rel_flags & REL_scanned) ||
+-               (node->relation->rel_flags & REL_being_scanned))
+-       {
+-               MET_scan_relation(tdbb, this);
+-       }
+ */
 	bool	delPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, RelationPages* aPages = NULL);
 	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
 
@@ -572,13 +504,8 @@ public:
 	bool checkObject(thread_db* tdbb, Firebird::Arg::StatusVector&) override;
 	void afterUnlock(thread_db* tdbb, unsigned flags) override;
 
-	void removeFromCache(thread_db* tdbb) override
-	{
-		if (rel_existence_lock)
-			rel_existence_lock->removeFromCache(tdbb);
-		else
-			delayedDelete(tdbb);
-	}
+	static void destroy(jrd_rel *rel);
+	static jrd_rel* create(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
 
 private:
 	typedef Firebird::SortedArray<
@@ -595,7 +522,7 @@ private:
 	RelationPages* getPagesInternal(thread_db* tdbb, TraNumber tran, bool allocPages);
 
 public:
-	explicit jrd_rel(MemoryPool& p);
+	jrd_rel(MemoryPool& p, MetaId id);
 
 	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
@@ -645,8 +572,6 @@ public:
 		Lock*		m_lock;
 	};
 };
-
-extern HazardPtr<jrd_rel> nullRel;
 
 // rel_flags
 

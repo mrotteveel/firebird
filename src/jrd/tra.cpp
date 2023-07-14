@@ -94,7 +94,7 @@ static TraNumber bump_transaction_id(thread_db*, WIN*);
 static header_page* bump_transaction_id(thread_db*, WIN*, bool);
 #endif
 static void retain_context(thread_db* tdbb, jrd_tra* transaction, bool commit, int state);
-static void expand_view_lock(thread_db* tdbb, jrd_tra*, HazardPtr<jrd_rel>&, UCHAR lock_type,
+static void expand_view_lock(thread_db* tdbb, jrd_tra*, jrd_rel*, UCHAR lock_type,
 	const char* option_name, RelationLockTypeMap& lockmap, const int level);
 static tx_inv_page* fetch_inventory_page(thread_db*, WIN* window, ULONG sequence, USHORT lock_level);
 static const char* get_lockname_v3(const UCHAR lock);
@@ -963,8 +963,8 @@ void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, ResourceList& res
  *	This guarantees that the relation/procedure/collation won't be dropped
  *	out from under the transaction.
  *
- **************************************/
-	SET_TDBB(tdbb);
+ **************************************
+	SET_TDBB(tdbb); !!!!!!!!!!!!!!!!!!!!!
 
 	Jrd::ContextPoolHolder context(tdbb, transaction->tra_pool);
 
@@ -978,6 +978,9 @@ void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, ResourceList& res
 
 	if (!newRsc.hasData())
 		return;
+	*/
+
+	// !!!!!!!!!!!!! solve EXT_tra_attach problem - where to place references
 
 	MutexLockGuard g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
 
@@ -1253,6 +1256,9 @@ void TRA_release_transaction(thread_db* tdbb, jrd_tra* transaction, Jrd::TraceTr
 	}
 
 	// Care about used external files
+
+	// !!!!!!!!!!!!! solve EXT_tra_attach problem - where to place references
+/*
 	for (auto rsc : transaction->tra_resources.getObjects(Resource::rsc_relation))
 	{
 		if (rsc->rsc_state == Resource::State::Extra)
@@ -1262,7 +1268,7 @@ void TRA_release_transaction(thread_db* tdbb, jrd_tra* transaction, Jrd::TraceTr
 			rsc->rsc_state = Resource::State::Locked;
 		}
 	}
-
+ */
 	// Release interest in relation/procedure existence for transaction
 	transaction->tra_resources.releaseResources(tdbb, transaction);
 
@@ -2150,7 +2156,7 @@ static header_page* bump_transaction_id(thread_db* tdbb, WIN* window, bool dontW
 #endif
 
 
-static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, HazardPtr<jrd_rel>& relation,
+static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* relation,
 	UCHAR lock_type, const char* option_name, RelationLockTypeMap& lockmap, const int level)
 {
 /**************************************
@@ -2261,7 +2267,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, HazardPtr<jr
 		if (ctx[i]->vcx_type == VCT_PROCEDURE)
 			continue;
 
-		HazardPtr<jrd_rel> base_rel = MetadataCache::lookup_relation(tdbb, ctx[i]->vcx_relation_name);
+		jrd_rel* base_rel = MetadataCache::lookup_relation(tdbb, ctx[i]->vcx_relation_name);
 		if (!base_rel)
 		{
 			// should be a BUGCHECK
@@ -2484,7 +2490,7 @@ static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction)
 
 	for (FB_SIZE_T i = 0; i < mdc->relCount(tdbb); i++)
 	{
-		HazardPtr<jrd_rel> relation = mdc->getRelation(tdbb, i);
+		jrd_rel* relation = mdc->getRelation(tdbb, i);
 
 		if (relation && (relation->rel_flags & REL_temp_tran))
 			relation->delPages(tdbb, transaction->tra_number);
@@ -2509,7 +2515,7 @@ static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber 
 
 	for (FB_SIZE_T i = 0; i < mdc->relCount(tdbb); i++)
 	{
-		HazardPtr<jrd_rel> relation = mdc->getRelation(tdbb, i);
+		jrd_rel* relation = mdc->getRelation(tdbb, i);
 
 		if (relation && (relation->rel_flags & REL_temp_tran))
 			relation->retainPages(tdbb, transaction->tra_number, new_number);
@@ -3188,7 +3194,7 @@ static void transaction_options(thread_db* tdbb,
 				const MetaName metaName = attachment->nameToMetaCharSet(tdbb, orgName);
 
 				tpb += len;
-				HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation(tdbb, metaName);
+				jrd_rel* relation = MetadataCache::lookup_relation(tdbb, metaName);
 				if (!relation)
 				{
 					ERR_post(Arg::Gds(isc_bad_tpb_content) <<
@@ -3781,7 +3787,7 @@ jrd_tra::~jrd_tra()
 
 	delete tra_sec_db_context;
 
-	tra_resources.releaseResources(nullptr, this);
+// !!!!!!!!!!!!!!!!!!!!	tra_resources.releaseResources(nullptr, this);
 }
 
 
@@ -4053,7 +4059,7 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 		!tra_fetched_blobs.locate(*blob_id))
 	{
 		MetadataCache* mdc = tra_attachment->att_database->dbb_mdc;
-		HazardPtr<jrd_rel> blobRelation = mdc->getRelation(tdbb, rel_id);
+		jrd_rel* blobRelation = mdc->getRelation(tdbb, rel_id);
 
 		if (blobRelation)
 		{
@@ -4176,7 +4182,7 @@ TraceSweepEvent::~TraceSweepEvent()
 }
 
 
-void TraceSweepEvent::beginSweepRelation(const HazardPtr<jrd_rel>& relation)
+void TraceSweepEvent::beginSweepRelation(const jrd_rel* relation)
 {
 	if (!m_need_trace)
 		return;

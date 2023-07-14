@@ -1419,7 +1419,7 @@ void ExtEngineManager::makeFunction(thread_db* tdbb, CompilerScratch* csb, Jrd::
 			csbPool, extOutMessageNode, intOutMessageNode);
 
 		Statement* statement = udf->getStatement();
-		PAR_preparsed_node(tdbb, nullRel, mainNode, NULL, &csb, &statement, false, 0);
+		PAR_preparsed_node(tdbb, nullptr, mainNode, NULL, &csb, &statement, false, 0);
 		udf->setStatement(statement);
 	}
 	catch (...)
@@ -1562,7 +1562,7 @@ void ExtEngineManager::makeProcedure(thread_db* tdbb, CompilerScratch* csb, jrd_
 		mainNode->statements.add(extProcedureNode);
 
 		Statement* statement = prc->getStatement();
-		PAR_preparsed_node(tdbb, nullRel, mainNode, NULL, &csb, &statement, false, 0);
+		PAR_preparsed_node(tdbb, nullptr, mainNode, NULL, &csb, &statement, false, 0);
 		prc->setStatement(statement);
 	}
 	catch (...)
@@ -1662,9 +1662,7 @@ void ExtEngineManager::makeTrigger(thread_db* tdbb, CompilerScratch* csb, Jrd::T
 			trg->extTrigger);
 		mainNode->statements.add(extTriggerNode);
 
-		HazardPtr<jrd_rel> rel(FB_FUNCTION);
-		rel.safePointer(trg->relation);
-		PAR_preparsed_node(tdbb, rel, mainNode, NULL, &csb, &trg->statement, true, 0);
+		PAR_preparsed_node(tdbb, trg->relation, mainNode, NULL, &csb, &trg->statement, true, 0);
 	}
 	catch (...)
 	{

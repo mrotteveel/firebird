@@ -907,7 +907,7 @@ SecurityClass::flags_t SCL_get_mask(thread_db* tdbb, const TEXT* relation_name, 
 	SecurityClass::flags_t access = ~0;
 
 	// If there's a relation, track it down
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation;
 	if (relation_name && (relation = MetadataCache::lookup_relation(tdbb, relation_name)))
 	{
 		MET_scan_relation(tdbb, relation);

@@ -358,8 +358,6 @@ public:
 		: TypedNode<RecordSourceNode, RecordSourceNode::TYPE_RELATION>(pool),
 		  dsqlName(pool, aDsqlName),
 		  alias(pool),
-		  //relation(NULL),
-		  view(NULL),
 		  context(0)
 	{
 	}
@@ -418,10 +416,10 @@ public:
 public:
 	MetaName dsqlName;
 	Firebird::string alias;	// SQL alias for the relation
-	jrd_rel* relation;
+	CachedResource<jrd_rel> relation;
 
 private:
-	jrd_rel* view;		// parent view for posting access
+	CachedResource<jrd_rel> view;		// parent view for posting access
 
 public:
 	SSHORT context;			// user-specified context number for the relation reference

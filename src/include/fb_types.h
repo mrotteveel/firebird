@@ -150,13 +150,15 @@ inline T FB_ALIGN(T n, uintptr_t b)
 	return (T) ((((uintptr_t) n) + b - 1) & ~(b - 1));
 }
 
-// Various object IDs (longer-than-32-bit)
+// Various object IDs
 
 typedef FB_UINT64 AttNumber;
 typedef FB_UINT64 TraNumber;
 typedef FB_UINT64 StmtNumber;
 typedef FB_UINT64 CommitNumber;
 typedef ULONG SnapshotHandle;
+typedef ULONG MdcVersion;
+typedef USHORT MetaId;
 typedef SINT64 SavNumber;
 
 #endif /* INCLUDE_FB_TYPES_H */

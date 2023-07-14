@@ -2002,8 +2002,8 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 	if (needDfw(tdbb, transaction))
 	{
-		HazardPtr<jrd_rel> r2(FB_FUNCTION);
-		HazardPtr<jrd_prc> procedure(FB_FUNCTION);
+		jrd_rel* r2;
+		HazardPtr<jrd_prc> procedure;
 		USHORT id;
 		DeferredWork* work;
 
@@ -2060,7 +2060,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				}
 				EVL_field(0, rpb->rpb_record, f_rel_name, &desc);
 				DFW_post_work(transaction, dfw_delete_relation, &desc, id);
-				HazardPtr<jrd_rel> rel_drop = MetadataCache::lookup_relation_id(tdbb, id, false);
+				jrd_rel* rel_drop = MetadataCache::lookup_relation_id(tdbb, id, false);
 				if (rel_drop)
 					MET_scan_relation(tdbb, rel_drop);
 			}
@@ -2149,7 +2149,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 					MetaName index_name;
 					MOV_get_metaname(tdbb, &desc3, index_name);
 
-					HazardPtr<jrd_rel> partner(FB_FUNCTION);
+					jrd_rel* partner;
 					index_desc idx;
 
 					if ((BTR_lookup(tdbb, r2.getPointer(), id - 1, &idx, r2->getBasePages())) &&
@@ -4367,7 +4367,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 	// hvlad: restore tdbb->transaction since it can be used later
 	tdbb->setTransaction(transaction);
 
-	HazardPtr<jrd_rel> relation(FB_FUNCTION);
+	jrd_rel* relation;
 
 	record_param rpb;
 	rpb.rpb_record = NULL;
@@ -5251,7 +5251,7 @@ void Database::garbage_collector(Database* dbb)
 		Jrd::Attachment::UseCountHolder use(attachment);
 		tdbb->markAsSweeper();
 
-		HazardPtr<jrd_rel> relation(FB_FUNCTION);
+		jrd_rel* relation;
 		record_param rpb;
 		rpb.getWindow(tdbb).win_flags = WIN_garbage_collector;
 		rpb.rpb_stream_flags = RPB_s_no_data | RPB_s_sweeper;

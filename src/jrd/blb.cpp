@@ -1445,7 +1445,7 @@ blb* blb::open2(thread_db* tdbb,
 		// know about the relation, the blob id has got to be invalid
 		// anyway.
 
-		HazardPtr<jrd_rel> relation = dbb->dbb_mdc->getRelation(tdbb, blobId.bid_internal.bid_relation_id);
+		jrd_rel* relation = dbb->dbb_mdc->getRelation(tdbb, blobId.bid_internal.bid_relation_id);
 		if (!relation)
 				ERR_post(Arg::Gds(isc_bad_segstr_id));
 
@@ -1743,7 +1743,7 @@ void blb::put_slice(thread_db*	tdbb,
 	if (SDL_info(tdbb->tdbb_status_vector, sdl, &info, 0))
 		ERR_punt();
 
-	HazardPtr<jrd_rel> relation = info.sdl_info_relation.length() ?
+	jrd_rel* relation = info.sdl_info_relation.length() ?
 		MetadataCache::lookup_relation(tdbb, info.sdl_info_relation) :
 		MetadataCache::findRelation(tdbb, info.sdl_info_rid);
 

@@ -96,7 +96,29 @@ namespace Jrd
 	protected:
 		explicit Routine(MemoryPool& p)
 			: PermanentStorage(p),
-			  id(0),
+			  id(~0),
+			  name(p),
+			  securityName(p),
+			  statement(NULL),
+			  subRoutine(true),
+			  implemented(true),
+			  defined(true),
+			  defaultCount(0),
+			  inputFormat(NULL),
+			  outputFormat(NULL),
+			  inputFields(p),
+			  outputFields(p),
+			  flags(0),
+			  intUseCount(0),
+			  alterCount(0),
+			  existenceLock(NULL),
+			  invoker(NULL)
+		{
+		}
+
+		explicit Routine(MemoryPool& p, MetaId metaId)
+			: PermanentStorage(p),
+			  id(metaId),
 			  name(p),
 			  securityName(p),
 			  statement(NULL),
@@ -141,6 +163,11 @@ namespace Jrd
 		static Format* createFormat(MemoryPool& pool, Firebird::IMessageMetadata* params, bool addEof);
 
 	public:
+		static void destroy(Routine* routine)
+		{
+			delete routine;
+		}
+
 		USHORT getId() const
 		{
 			fb_assert(!subRoutine);
@@ -155,8 +182,6 @@ namespace Jrd
 
 		const MetaName& getSecurityName() const { return securityName; }
 		void setSecurityName(const MetaName& value) { securityName = value; }
-
-		void removeFromCache(thread_db* tdbb) override;
 
 		/*const*/ Statement* getStatement() const { return statement; }
 		void setStatement(Statement* value);
@@ -204,7 +229,7 @@ namespace Jrd
 		}
 
 		void afterDecrement(Jrd::thread_db*);
-		void afterUnlock(thread_db* tdbb, unsigned fl);
+		void afterUnlock(thread_db* tdbb, unsigned fl) override;
 		void releaseStatement(thread_db* tdbb);
 		//void remove(thread_db* tdbb);
 		virtual void releaseExternal()
@@ -221,7 +246,6 @@ namespace Jrd
 		virtual int getObjectType() const = 0;
 		virtual SLONG getSclType() const = 0;
 		virtual bool checkCache(thread_db* tdbb) const = 0;
-		virtual void clearCache(thread_db* tdbb) = 0;
 
 	private:
 		USHORT id;							// routine ID
@@ -256,8 +280,6 @@ namespace Jrd
 
 		MetaName owner;
 		Jrd::UserId* invoker;		// Invoker ID
-
-		typedef QualifiedName Key;
 	};
 }
 

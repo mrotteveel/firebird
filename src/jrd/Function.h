@@ -38,8 +38,8 @@ namespace Jrd
 		static const char* const EXCEPTION_MESSAGE;
 
 	public:
-		static HazardPtr<Function> lookup(thread_db* tdbb, USHORT id, bool return_deleted, bool noscan, USHORT flags);
-		static HazardPtr<Function> lookup(thread_db* tdbb, const QualifiedName& name, bool noscan);
+		static Function* lookup(thread_db* tdbb, MetaId id, bool return_deleted, bool noscan, USHORT flags);
+		static Function* lookup(thread_db* tdbb, const QualifiedName& name, bool noscan);
 
 		explicit Function(MemoryPool& p)
 			: Routine(p),
@@ -53,7 +53,22 @@ namespace Jrd
 		{
 		}
 
-		static HazardPtr<Function> loadMetadata(thread_db* tdbb, USHORT id, bool noscan, USHORT flags);
+private:
+		Function(MemoryPool& p, MetaId id)
+			: Routine(p, id),
+			  fun_entrypoint(NULL),
+			  fun_inputs(0),
+			  fun_return_arg(0),
+			  fun_temp_length(0),
+			  fun_exception_message(p),
+			  fun_deterministic(false),
+			  fun_external(NULL)
+		{
+		}
+
+public:
+		static Function* loadMetadata(thread_db* tdbb, MetaId id, bool noscan, USHORT flags);
+		static Function* create(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
 
 	public:
 		virtual int getObjectType() const
@@ -67,18 +82,20 @@ namespace Jrd
 		}
 
 		virtual bool checkCache(thread_db* tdbb) const;
-		virtual void clearCache(thread_db* tdbb);
 
+	private:
 		virtual ~Function()
 		{
 			delete fun_external;
 		}
 
+	public:
 		virtual void releaseExternal()
 		{
 			delete fun_external;
 			fun_external = NULL;
 		}
+
 	public:
 		int (*fun_entrypoint)();				// function entrypoint
 		USHORT fun_inputs;						// input arguments

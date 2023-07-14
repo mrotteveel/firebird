@@ -43,8 +43,8 @@ using namespace Firebird;
 
 /// jrd_rel
 
-jrd_rel::jrd_rel(MemoryPool& p)
-	: rel_pool(&p), rel_id(0), rel_current_fmt(0),
+jrd_rel::jrd_rel(MemoryPool& p, MetaId id)
+	: rel_pool(&p), rel_id(id), rel_current_fmt(0),
 	  rel_flags(REL_gc_lockneed), rel_current_format(nullptr),
 	  rel_name(p), rel_owner_name(p), rel_security_name(p),
 	  rel_formats(nullptr), rel_fields(nullptr),
@@ -667,7 +667,7 @@ HazardPtr<IndexLock> jrd_rel::getIndexLock(thread_db* tdbb, USHORT id)
 	SET_TDBB(tdbb);
 	Database* dbb = tdbb->getDatabase();
 
-	HazardPtr<IndexLock> indexLock(FB_FUNCTION);
+	HazardPtr<IndexLock> indexLock;
 	if (rel_id < (USHORT) rel_MAX)
 		return indexLock;
 
@@ -692,5 +692,37 @@ const char* IndexLock::c_name() const
 	return "* unk *";
 }
 
-//extern
-HazardPtr<jrd_rel> Jrd::nullRel(FB_FUNCTION);
+static void jrd_rel::destroy(jrd_rel* rel)
+{
+	rel->rel_flags |= REL_deleted;
+/*
+	thread_db* tdbb = JRD_get_thread_data();
+
+	LCK_release(tdbb, rel->rel_existence_lock);
+	if (rel->rel_partners_lock)
+	{
+		rel->rel_flags |= REL_check_partners;
+		LCK_release(tdbb, rel->rel_partners_lock);
+		rel->rel_flags &= ~REL_check_partners;
+	}
+	LCK_release(tdbb, rel->rel_rescan_lock);
+ */
+	// A lot more things to do !!!!!!!!!!!!!!!!
+
+	delete rel;
+}
+
+static jrd_rel* jrd_rel::create(thread_db* tdbb, MetaId id)
+{
+	SET_TDBB(tdbb);
+	Database* dbb = tdbb->getDatabase();
+	CHECK_DBB(dbb);
+
+	MetadataCache* mdc = dbb->dbb_mdc;
+	MemoryPool& pool = mdc->getPool();
+
+	jrd_rel* relation = FB_NEW_POOL(pool) jrd_rel(pool, id);
+	relation->scan(tdbb, mdc);
+
+	return relation;
+}

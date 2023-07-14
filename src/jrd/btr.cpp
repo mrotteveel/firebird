@@ -566,8 +566,7 @@ bool BTR_check_condition(Jrd::thread_db* tdbb, Jrd::index_desc* idx, Jrd::Record
 	fb_assert(!conditionRequest->req_caller);
 	conditionRequest->req_caller = orgRequest;
 
-	conditionRequest->req_flags &= req_in_use;
-	conditionRequest->req_flags |= req_active;
+	conditionRequest->req_flags = req_active;
 	TRA_attach_request(tdbb->getTransaction(), conditionRequest);
 	tdbb->setRequest(conditionRequest);
 
@@ -598,7 +597,7 @@ bool BTR_check_condition(Jrd::thread_db* tdbb, Jrd::index_desc* idx, Jrd::Record
 	}
 
 	EXE_unwind(tdbb, conditionRequest);
-	conditionRequest->req_flags &= ~req_in_use;
+	conditionRequest->setUsed(false);
 	conditionRequest->req_attachment = nullptr;
 
 	tdbb->setRequest(orgRequest);
@@ -626,8 +625,7 @@ DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool&
 	fb_assert(!expr_request->req_caller);
 	expr_request->req_caller = org_request;
 
-	expr_request->req_flags &= req_in_use;
-	expr_request->req_flags |= req_active;
+	expr_request->req_flags = req_active;
 	TRA_attach_request(tdbb->getTransaction(), expr_request);
 	TRA_setup_request_snapshot(tdbb, expr_request);
 	tdbb->setRequest(expr_request);
@@ -661,7 +659,7 @@ DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool&
 		tdbb->setRequest(org_request);
 
 		expr_request->req_caller = NULL;
-		expr_request->req_flags &= ~req_in_use;
+		expr_request->setUsed(false);
 		expr_request->req_attachment = NULL;
 		expr_request->invalidateTimeStamp();
 
@@ -672,7 +670,7 @@ DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool&
 	tdbb->setRequest(org_request);
 
 	expr_request->req_caller = NULL;
-	expr_request->req_flags &= ~req_in_use;
+	expr_request->setUsed(false);
 	expr_request->req_attachment = NULL;
 	expr_request->invalidateTimeStamp();
 
@@ -6203,13 +6201,13 @@ string print_key(thread_db* tdbb, jrd_rel* relation, index_desc* idx, Record* re
 	string key;
 
 	fb_assert(relation && idx && record);
-	HazardPtr<jrd_rel> wrk = MET_scan_relation(tdbb, relation->rel_id);
+	jrd_rel* wrk = MET_scan_relation(tdbb, relation->rel_id);
 	if (!wrk)
 	{
 		key.printf("(target relation %s deleted)", relation->c_name());
 		return key;
 	}
-	relation = wrk.getPointer();
+	relation = wrk;
 
 	const FB_SIZE_T MAX_KEY_STRING_LEN = 250;
 	string value;

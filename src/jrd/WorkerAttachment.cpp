@@ -34,7 +34,7 @@
 #include "../common/classes/ClumpletWriter.h"
 #include "../jrd/jrd.h"
 #include "../jrd/ini_proto.h"
-#include "../jrd/lck_proto.h"
+#include "../jrd/lck.h"
 #include "../jrd/pag_proto.h"
 #include "../jrd/tra_proto.h"
 #include "../jrd/status.h"

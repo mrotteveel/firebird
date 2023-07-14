@@ -1738,7 +1738,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 	if (!MET_lookup_partner(tdbb, relation, idx, 0))
 		return result;
 
-	HazardPtr<jrd_rel> partner_relation(tdbb, FB_FUNCTION);
+	jrd_rel* partner_relation(tdbb);
 	USHORT index_id = 0;
 
 	if (idx->idx_flags & idx_foreign)

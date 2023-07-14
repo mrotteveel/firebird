@@ -622,8 +622,7 @@ namespace Jrd
 		dbb_replica_mode(REPLICA_NONE),
 		dbb_compatibility_index(~0U),
 		dbb_dic(*p),
-		dbb_mdc(FB_NEW_POOL(*p) MetadataCache(*p)),
-		dbb_delayed_delete(*p, *p)
+		dbb_mdc(FB_NEW_POOL(*p) MetadataCache(*p))
 	{
 		dbb_pools.add(p);
 	}

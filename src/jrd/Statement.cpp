@@ -340,9 +340,9 @@ const Routine* Statement::getRoutine() const
 // Determine if any request of this statement are active.
 bool Statement::isActive() const
 {
-	for (const Request* const* request = requests.begin(); request != requests.end(); ++request)
+	for (auto request : requests)
 	{
-		if (*request && ((*request)->req_flags & req_in_use))
+		if (request && request->isUsed())
 			return true;
 	}
 
@@ -372,7 +372,7 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 
 		if (next->req_attachment == attachment)
 		{
-			if (!(next->req_flags & req_in_use))
+			if (!next->isUsed())
 			{
 				clone = next;
 				break;
@@ -383,7 +383,7 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 
 			++count;
 		}
-		else if (!(next->req_flags & req_in_use) && !clone)
+		else if (!(next->isUsed()) && !clone)
 			clone = next;
 	}
 
@@ -396,7 +396,7 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 	clone->setAttachment(attachment);
 	clone->req_stats.reset();
 	clone->req_base_stats.reset();
-	clone->req_flags |= req_in_use;
+	clone->setUsed(true);
 
 	return clone;
 }
@@ -442,7 +442,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 	for (ExternalAccess* item = external.begin(); item != external.end(); ++item)
 	{
-		HazardPtr<Routine> routine(tdbb, FB_FUNCTION);
+		HazardPtr<Routine> routine(tdbb);
 		int aclType;
 
 		if (item->exa_action == ExternalAccess::exa_procedure)
@@ -471,7 +471,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 		}
 		else
 		{
-			HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
+			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
 
 			if (!relation)
 				continue;
@@ -479,7 +479,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 			MetaName userName = item->user;
 			if (item->exa_view_id)
 			{
-				HazardPtr<jrd_rel> view = MetadataCache::lookup_relation_id(tdbb, item->exa_view_id, false);
+				jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, item->exa_view_id, false);
 				if (view && (view->rel_flags & REL_sql_relation))
 					userName = view->rel_owner_name;
 			}
@@ -515,7 +515,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 			if (access.acc_ss_rel_id)
 			{
-				HazardPtr<jrd_rel> view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
+				jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
 				if (view && (view->rel_flags & REL_sql_relation))
 					userName = view->rel_owner_name;
 			}
@@ -583,7 +583,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 		if (access->acc_ss_rel_id)
 		{
-			HazardPtr<jrd_rel> view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
+			jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
 			if (view && (view->rel_flags & REL_sql_relation))
 				userName = view->rel_owner_name;
 		}
@@ -658,7 +658,7 @@ string Statement::getPlan(thread_db* tdbb, bool detailed) const
 }
 
 // Check that we have enough rights to access all resources this list of triggers touches.
-void Statement::verifyTriggerAccess(thread_db* tdbb, const HazardPtr<jrd_rel>& ownerRelation,
+void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelation,
 	TrigVector* triggers, MetaName userName)
 {
 	if (!triggers)
@@ -668,7 +668,7 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const HazardPtr<jrd_rel>& o
 
 	for (FB_SIZE_T i = 0; i < triggers->getCount(tdbb); i++)
 	{
-		HazardPtr<Trigger> t(tdbb, FB_FUNCTION);
+		HazardPtr<Trigger> t(tdbb);
 		if (!triggers->load(tdbb, i, t))
 			continue;
 
@@ -705,7 +705,7 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const HazardPtr<jrd_rel>& o
 			// a direct access to an object from this trigger
 			if (access->acc_ss_rel_id)
 			{
-				HazardPtr<jrd_rel> view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
+				jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
 				if (view && (view->rel_flags & REL_sql_relation))
 					userName = view->rel_owner_name;
 			}
@@ -733,7 +733,7 @@ inline void Statement::triggersExternalAccess(thread_db* tdbb, ExternalAccessLis
 
 	for (FB_SIZE_T i = 0; i < tvec->getCount(tdbb); i++)
 	{
-		HazardPtr<Trigger> t(tdbb, FB_FUNCTION);
+		HazardPtr<Trigger> t(tdbb);
 		if (!tvec->load(tdbb, i, t))
 			continue;
 
@@ -769,7 +769,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else if (item->exa_action == ExternalAccess::exa_function)
 		{
-			HazardPtr<Function> function = Function::lookup(tdbb, item->exa_fun_id, false, false, 0);
+			Function* function = Function::lookup(tdbb, item->exa_fun_id, false, false, 0);
 			if (function && function->getStatement())
 			{
 				item->user = function->invoker ? MetaName(function->invoker->getUserName()) : user;
@@ -781,7 +781,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else
 		{
-			HazardPtr<jrd_rel> relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
+			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
 
 			if (!relation)
 				continue;
@@ -910,6 +910,32 @@ StmtNumber Request::getRequestId() const
 	}
 
 	return req_id;
+}
+
+Request::Request(Firebird::AutoMemoryPool& pool, Attachment* attachment, /*const*/ Statement* aStatement)
+	: statement(aStatement),
+	  req_pool(pool),
+	  req_memory_stats(&aStatement->pool->getStatsGroup()),
+	  req_blobs(req_pool),
+	  req_stats(*req_pool),
+	  req_base_stats(*req_pool),
+	  req_ext_stmt(NULL),
+	  req_cursors(*req_pool),
+	  req_ext_resultset(NULL),
+	  req_timeout(0),
+	  req_domain_validation(NULL),
+	  req_auto_trans(*req_pool),
+	  req_sorts(*req_pool),
+	  req_rpb(*req_pool),
+	  impureArea(*req_pool)
+{
+	fb_assert(statement);
+	setAttachment(attachment);
+	req_rpb = statement->rpbsSetup;
+	impureArea.grow(statement->impureSize);
+
+	pool->setStatsGroup(req_memory_stats);
+	pool.release();
 }
 
 

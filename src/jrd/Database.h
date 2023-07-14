@@ -440,8 +440,6 @@ public:
 	Firebird::InitInstance<KeywordsMap, KeywordsMapAllocator, Firebird::TraditionalDelete> dbb_keywords_map;
 
 	MetadataCache* dbb_mdc;
-	HazardDelayedDelete dbb_delayed_delete;
-	Firebird::Mutex dbb_dd_mutex;
 
 	// returns true if primary file is located on raw device
 	bool onRawDevice() const;

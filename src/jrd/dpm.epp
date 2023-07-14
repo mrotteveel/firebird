@@ -2019,7 +2019,7 @@ void DPM_scan_pages( thread_db* tdbb)
 	// infinite recursion from this internal request when RDB$PAGES
 	// has been extended with another pointer page.
 
-	HazardPtr<jrd_rel> relation = MetadataCache::findRelation(tdbb, 0);
+	jrd_rel* relation = MetadataCache::findRelation(tdbb, 0);
 	RelationPages* relPages = relation->getBasePages();
 
 	vcl** address = &relPages->rel_pages;

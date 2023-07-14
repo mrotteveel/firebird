@@ -89,7 +89,7 @@ namespace
 	class BlrParseWrapper
 	{
 	public:
-		BlrParseWrapper(thread_db* tdbb, MemoryPool& pool, HazardPtr<jrd_rel>& relation, CompilerScratch* view_csb,
+		BlrParseWrapper(thread_db* tdbb, MemoryPool& pool, jrd_rel* relation, CompilerScratch* view_csb,
 						CompilerScratch** csb_ptr, const bool trigger, USHORT flags)
 			: m_csbPtr(csb_ptr)
 		{
@@ -171,7 +171,7 @@ namespace
 
 // Parse blr, returning a compiler scratch block with the results.
 // Caller must do pool handling.
-DmlNode* PAR_blr(thread_db* tdbb, HazardPtr<jrd_rel>& relation, const UCHAR* blr, ULONG blr_length,
+DmlNode* PAR_blr(thread_db* tdbb, jrd_rel* relation, const UCHAR* blr, ULONG blr_length,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, Statement** statementPtr,
 	const bool trigger, USHORT flags)
 {
@@ -204,7 +204,7 @@ DmlNode* PAR_blr(thread_db* tdbb, HazardPtr<jrd_rel>& relation, const UCHAR* blr
 // Finish parse of memory nodes, returning a compiler scratch block with the results.
 // Caller must do pool handling.
 // !!!!!!!!!!!!!!! FixMe - pool handling in ExtEngineManager.cpp
-void PAR_preparsed_node(thread_db* tdbb, HazardPtr<jrd_rel>& relation, DmlNode* node,
+void PAR_preparsed_node(thread_db* tdbb, jrd_rel* relation, DmlNode* node,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, Statement** statementPtr,
 	const bool trigger, USHORT flags)
 {
@@ -220,7 +220,7 @@ void PAR_preparsed_node(thread_db* tdbb, HazardPtr<jrd_rel>& relation, DmlNode* 
 
 // PAR_blr equivalent for validation expressions.
 // Validation expressions are boolean expressions, but may be prefixed with a blr_stmt_expr.
-BoolExprNode* PAR_validation_blr(thread_db* tdbb, HazardPtr<jrd_rel>& relation, const UCHAR* blr, ULONG blr_length,
+BoolExprNode* PAR_validation_blr(thread_db* tdbb, jrd_rel* relation, const UCHAR* blr, ULONG blr_length,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, USHORT flags)
 {
 	SET_TDBB(tdbb);
@@ -545,7 +545,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 			if (csb->collectingDependencies())
 			{
 				CompilerScratch::Dependency dependency(obj_relation);
-				HazardPtr<jrd_rel> rel = MetadataCache::lookup_relation(tdbb, *relationName);
+				jrd_rel* rel = MetadataCache::lookup_relation(tdbb, *relationName);
 				dependency.relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->rel_id);
 				dependency.subName = fieldName;
 				csb->addDependency(dependency);

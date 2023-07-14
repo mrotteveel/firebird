@@ -161,6 +161,39 @@ private:
 	int modifiedRows;
 };
 
+
+// Set of objects cached per particular MDC version
+
+class CacheObject;
+
+class VersionedObjects : public pool_alloc_rpt<CacheObject*>,
+	public Firebird::RefCounted
+{
+public:
+	VersionedObjects(FB_SIZE_T cnt, MdcVersion ver);
+
+	FB_SIZE_T push(CacheObject* obj);
+
+	template <class OBJ>
+	OBJ* get(FB_SIZE_T n)
+	{
+		fb_assert(count == capacity);
+		fb_assert(n < count);
+// ?????		fb_assert(dynamic_cast<OBJ*>(data[n]));
+		return reinterpret_cast<OBJ*>(data[n]);
+	}
+
+	MdcVersion version;		// version when created
+
+private:
+	FB_SIZE_T count;
+#ifdef DEV_BUILD
+	FB_SIZE_T capacity;
+#endif
+	CacheObject* data[1];
+};
+
+
 // request block
 
 class Request : public pool_alloc<type_req>
@@ -302,31 +335,7 @@ private:
 	};
 
 public:
-	Request(Firebird::AutoMemoryPool& pool, Attachment* attachment, /*const*/ Statement* aStatement)
-		: statement(aStatement),
-		  req_pool(pool),
-		  req_memory_stats(&aStatement->pool->getStatsGroup()),
-		  req_blobs(req_pool),
-		  req_stats(*req_pool),
-		  req_base_stats(*req_pool),
-		  req_ext_stmt(NULL),
-		  req_cursors(*req_pool),
-		  req_ext_resultset(NULL),
-		  req_timeout(0),
-		  req_domain_validation(NULL),
-		  req_auto_trans(*req_pool),
-		  req_sorts(*req_pool),
-		  req_rpb(*req_pool),
-		  impureArea(*req_pool)
-	{
-		fb_assert(statement);
-		setAttachment(attachment);
-		req_rpb = statement->rpbsSetup;
-		impureArea.grow(statement->impureSize);
-
-		pool->setStatsGroup(req_memory_stats);
-		pool.release();
-	}
+	Request(Firebird::AutoMemoryPool& pool, Attachment* attachment, /*const*/ Statement* aStatement);
 
 	Statement* getStatement()
 	{
@@ -345,7 +354,6 @@ public:
 	void setAttachment(Attachment* newAttachment)
 	{
 		req_attachment = newAttachment;
-		charSetId = hasInternalStatement() ? CS_METADATA : req_attachment->att_charset;
 	}
 
 	bool isRoot() const;
@@ -361,6 +369,9 @@ public:
 	{
 		req_id = id;
 	}
+
+	void setUsed(bool inUse);
+	bool isUsed();
 
 private:
 	Statement* const statement;
@@ -505,6 +516,9 @@ public:
 	{
 		req_timeStampCache.validate(req_attachment->att_current_timezone);
 	}
+
+private:
+	Firebird::RefPtr<VersionedObjects> currentVersion;
 };
 
 // Flags for req_flags
@@ -515,7 +529,7 @@ const ULONG req_null			= 0x8L;
 const ULONG req_abort			= 0x10L;
 const ULONG req_error_handler	= 0x20L;		// looper is called to handle error
 const ULONG req_warning			= 0x40L;
-const ULONG req_in_use			= 0x80L;
+//const ULONG req_in_use			= 0x80L;
 const ULONG req_continue_loop	= 0x100L;		// PSQL continue statement
 const ULONG req_proc_fetch		= 0x200L;		// Fetch from procedure in progress
 const ULONG req_same_tx_upd		= 0x400L;		// record was updated by same transaction

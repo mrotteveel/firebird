@@ -1732,7 +1732,7 @@ void ExistenceLock::internalObjectDelete(thread_db* tdbb, unsigned fl)
 		object->afterUnlock(tdbb, fl);
 
 		if (!(fl & inCache))
-			object->delayedDelete(tdbb);
+			object->retire();
 	}
 }
 
@@ -1790,10 +1790,3 @@ void ExistenceLock::releaseLock(thread_db* tdbb, ReleaseMethod rm)
 	}
 }
 
-void ExistenceLock::removeFromCache(thread_db* tdbb)
-{
-	fb_assert(flags & inCache);
-	unsigned fl = (flags &= ~inCache);
-	if (((fl & countMask) == 0) && (fl & locked))
-		leave245(tdbb, true);
-}

@@ -80,18 +80,13 @@ public:
 	virtual PatternMatcher* createContainsMatcher(MemoryPool& pool, const UCHAR* p, SLONG pl) = 0;
 
 	void release(thread_db* tdbb);
-	void destroy(thread_db* tdbb);
+	void destroy(thread_db* tdbb,  int);
 	void incUseCount(thread_db* tdbb);
 	void decUseCount(thread_db* tdbb);
 
 	bool hasData()
 	{
 		return true;
-	}
-
-	void removeFromCache(thread_db* tdbb) override
-	{
-		delayedDelete(tdbb);
 	}
 
 	const char* c_name() const override

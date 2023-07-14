@@ -34,6 +34,7 @@
 
 #include "../jrd/blb.h"
 #include "../jrd/Relation.h"
+#include "../jrd/CharSetContainer.h"
 #include "../common/classes/array.h"
 #include "../jrd/MetaName.h"
 #include "../common/classes/fb_pair.h"
@@ -167,213 +168,95 @@ struct impure_agg_sort
 };
 
 
-// Resources list
+template <class OBJ> class CacheElement;
 
-class ResourceList
+class Resources
 {
-	typedef Firebird::SortedArray<Resource, Firebird::EmptyStorage<Resource>,
-		Resource, Firebird::DefaultKeyValue<Resource>, Resource> InternalResourceList;
+public:
+	template <class OBJ>
+	class VersionedPtr
+	{
+	public:
+		CacheElement<OBJ>* ptr;
+		FB_SIZE_T versionedObject;
+	};
+
+	template <class OBJ>
+	class RscArray : public Firebird::Array<VersionedPtr<OBJ>>
+	{
+	public:
+		RscArray(MemoryPool& p)
+			: Firebird::Array<VersionedPtr<OBJ>>(p)
+		{ }
+
+		FB_SIZE_T registerResource(CacheElement<OBJ>* res)
+		{
+			FB_SIZE_T pos;
+			if (this->find([res](const VersionedPtr<OBJ>& elem) {
+					const void* p1 = elem.ptr;
+					const void* p2 = res;
+					return p1 < p2 ? -1 : p1 == p2 ? 0 : 1;
+				}, pos))
+			{
+				return pos;
+			}
+
+			VersionedPtr<OBJ> newPtr(res);
+			return this->append(newPtr);
+		}
+	};
 
 public:
-	ResourceList(MemoryPool& p, bool hazard)
-		: list(p), hazardFlag(hazard)
+	template <class OBJ> const RscArray<OBJ>& objects() const;
+
+	Resources(MemoryPool& p)
+		: charSets(p), relations(p), procedures(p), functions(p), triggers(p)
 	{ }
 
-	typedef Firebird::Bits<Resource::rsc_MAX> ResourceTypes;
-	typedef Firebird::HalfStaticArray<FB_SIZE_T, 128> NewResources;
+	RscArray<CharSetContainer> charSets;
+	RscArray<jrd_rel> relations;
+	RscArray<jrd_prc> procedures;
+	RscArray<Function> functions;
+	RscArray<Trigger> triggers;
+};
 
-	~ResourceList()
+// specialization
+template <> const Resources::RscArray<jrd_rel>& Resources::objects() const { return relations; }
+
+
+template <class OBJ>
+class CachedResource
+{
+public:
+	CachedResource(FB_SIZE_T offset)
+		: compileOffset(offset)
+	{ }
+
+	CachedResource();
+
+	OBJ* get(thread_db* tdbb, const Resources* compileTime) const
 	{
-		releaseResources(nullptr);
+		auto array = compileTime->objects<OBJ>();
+		return array[compileOffset]->ptr->getObject(tdbb);
 	}
 
-	template <typename T>
-	T* registerResource(thread_db* tdbb, Resource::rsc_s type, const HazardPtr<T>& object, USHORT id)
+	bool isSet() const;
+/*
+	operator OBJ*() const
 	{
-		fb_assert(type != Resource::rsc_index);
-
-		T* ptr = object.getPointer();
-		Resource r(type, id, ptr);
-		FB_SIZE_T pos;
-		if (!list.find(r, pos))
-		{
-			list.insert(pos, r);
-			HazardPtr<T>::getHazardDelayed(tdbb)->add(ptr, FB_FUNCTION);
-		}
-
-		return ptr;
+		return getPtr();
 	}
 
-	template <typename T>
-	void postResource(thread_db* tdbb, Resource::rsc_s type, T* ptr, USHORT id)
+	OBJ* operator->() const
 	{
-		fb_assert(hazardFlag);
-
-		Resource r(type, id, ptr);
-		FB_SIZE_T pos;
-
-		if (type == Resource::rsc_index)
-		{
-			Resource r1 = r;
-			r1.rsc_id = r1.rsc_rel->rel_id;
-			r1.rsc_type = Resource::rsc_relation;
-
-			if (!list.find(r1, pos))
-				raiseNotRegistered(r, type, ptr->c_name());
-
-			if (!list.find(r, pos))
-				list.insert(pos, r);
-		}
-
-		else if (!list.find(r, pos))
-			raiseNotRegistered(r, type, ptr->c_name());
-
-		list[pos].rsc_state = Resource::State::Posted;
+		return getPtr();
 	}
-
-	template <typename T>
-	void checkResource(Jrd::Resource::rsc_s type, T* object, USHORT id = 0)
-	{
-		Resource r(type, type == Resource::rsc_index ? id : object->getId(), object);
-		if (!list.exist(r))
-			raiseNotRegistered(r, type, object->c_name());
-	}
-
-	void transferResources(thread_db* tdbb, ResourceList& from, ResourceTypes rt, NewResources& nr);
-	void transferResources(thread_db* tdbb, ResourceList& from);
-
-	void postIndex(thread_db* tdbb, jrd_rel* relation, USHORT idxId);
-
-	void releaseResources(thread_db* tdbb, jrd_tra* transaction = nullptr);
-
-//	void inc_int_use_count();
-//	void zero_int_use_count();
-//	void markUndeletable();
-
-	Resource* get(FB_SIZE_T n)
-	{
-		return &list[n];
-	}
-
-	Resource* getPointer(Resource::rsc_s type)
-	{
-		FB_SIZE_T pos;
-		Resource temp(type);
-		list.find(temp, pos);
-
-		if (pos == list.getCount())
-			return list.end();
-		return &list[pos];
-	}
-
-	Resource* getPointer(bool last)
-	{
-		return last ? list.end() : list.begin();
-	}
-
-	class iterator
-	{
-	public:
-		Resource* operator*()
-		{
-			return get();
-		}
-
-		Resource* operator->()
-		{
-			return get();
-		}
-
-		iterator& operator++()
-		{
-			++index;
-			return *this;
-		}
-
-		iterator& operator--()
-		{
-			--index;
-			return *this;
-		}
-
-		bool operator==(const iterator& itr) const
-		{
-			return index == itr.index;
-		}
-
-		bool operator!=(const iterator& itr) const
-		{
-			return index != itr.index;
-		}
-
-	private:
-		void* operator new(size_t);
-		void* operator new[](size_t);
-
-	public:
-		iterator(ResourceList* a, Resource::rsc_s type)
-			: index(a->getPointer(type))
-		{ }
-
-		iterator(ResourceList* a, bool last)
-			: index(a->getPointer(last))
-		{ }
-
-		Resource* get()
-		{
-			return index;
-		}
-
-	private:
-		Resource* index;
-	};
-
-	iterator begin()
-	{
-		return iterator(this, false);
-	}
-
-	iterator end()
-	{
-		return iterator(this, true);
-	}
-
-	class Range
-	{
-	public:
-		Range(Resource::rsc_s r, ResourceList* l)
-			: list(l), start(r)
-		{ }
-
-		iterator begin() const
-		{
-			return iterator(list, start);
-		}
-
-		iterator end() const
-		{
-			return iterator(list, Resource::next(start));
-		}
-
-	private:
-		ResourceList* list;
-		Resource::rsc_s start;
-	};
-
-	Range getObjects(Resource::rsc_s type)
-	{
-		return Range(type, this);
-	}
+ */
 
 private:
-	InternalResourceList list;
-	bool hazardFlag;
-
-	void setResetPointersHazard(thread_db* tdbb, bool set);
-	void raiseNotRegistered(const Resource& r, Resource::rsc_s type, const char* name);
-	void transferList(thread_db* tdbb, const InternalResourceList& from, Resource::State resetState,
-		ResourceTypes rt, NewResources* nr, ResourceList* hazardList);
+	FB_SIZE_T compileOffset;
 };
+
 
 // Access items
 // In case we start to use MetaName with required pool parameter,
@@ -641,7 +524,7 @@ public:
 		mainCsb(aMainCsb),
 		csb_external(p),
 		csb_access(p),
-		csb_resources(p, true),
+		csb_resources(nullptr),
 		csb_dependencies(p),
 		csb_fors(p),
 		csb_localTables(p),
@@ -720,7 +603,7 @@ public:
 	ExternalAccessList csb_external;			// Access to outside procedures/triggers to be checked
 	AccessItemList	csb_access;					// Access items to be checked
 	vec<DeclareVariableNode*>*	csb_variables;	// Vector of variables, if any
-	ResourceList	csb_resources;				// Resources (relations and indexes)
+	Resources*	csb_resources;					// Resources (relations, indexes, routines, etc.)
 	Firebird::Array<Dependency>	csb_dependencies;	// objects that this statement depends upon			/// !!!!!!!!!!!!!!!!!
 	Firebird::Array<const Select*> csb_fors;	// select expressions
 	Firebird::Array<const DeclareLocalTableNode*> csb_localTables;	// local tables
@@ -747,9 +630,9 @@ public:
 	MetaName	csb_domain_validation;	// Parsing domain constraint in PSQL
 
 	// used in cmp.cpp/pass1
-	jrd_rel*	csb_view;
+	CachedResource<jrd_rel>	csb_view;
 	StreamType	csb_view_stream;
-	jrd_rel*	csb_parent_relation;
+	CachedResource<jrd_rel>	csb_parent_relation;
 	unsigned	blrVersion;
 	USHORT		csb_remap_variable;
 	bool		csb_validate_expr;
@@ -783,10 +666,10 @@ public:
 		StreamType csb_view_stream;		// stream number for view relation, below
 		USHORT csb_flags;
 
-		jrd_rel* csb_relation;
+		CachedResource<jrd_rel> csb_relation;
 		Firebird::string* csb_alias;	// SQL alias name for this instance of relation
-		jrd_prc* csb_procedure;
-		jrd_rel* csb_view;				// parent view
+		CachedResource<jrd_prc> csb_procedure;
+		CachedResource<jrd_rel> csb_view;				// parent view
 
 		IndexDescList* csb_idx;			// Packed description of indices
 		MessageNode* csb_message;		// Msg for send/receive

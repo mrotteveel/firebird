@@ -973,7 +973,7 @@ void INI_init(thread_db* tdbb)
 
 		const auto id = relfld[RFLD_R_ID];
 		//fprintf(stderr, "INI_init %d %s\n", id, names[relfld[RFLD_R_NAME]]);
-		HazardPtr<jrd_rel> relation = MetadataCache::findRelation(tdbb, id);
+		jrd_rel* relation = MetadataCache::findRelation(tdbb, id);
 
 		if (id == 7) TRAP = relation.getPointer();
 

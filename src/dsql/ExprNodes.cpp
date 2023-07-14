@@ -12787,7 +12787,7 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 		}
 	}
 
-	HazardPtr<Function> func(FB_FUNCTION);
+	Function* func = nullptr;
 	if (!node->function)
 	{
 		func = Function::lookup(tdbb, name, false);
@@ -12917,7 +12917,7 @@ ValueExprNode* UdfCallNode::copy(thread_db* tdbb, NodeCopier& copier) const
 		node->function = function;
 	else
 	{
-		HazardPtr<Function> func = Function::lookup(tdbb, name, false);
+		Function* func = Function::lookup(tdbb, name, false);
 		node->function = copier.csb->csb_resources.registerResource(tdbb, Resource::rsc_function, func, func->getId());
 	}
 	return node;

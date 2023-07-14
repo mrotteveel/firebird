@@ -784,9 +784,6 @@ private:
 
 	Lock* att_repl_lock;				// Replication set lock
 	JProvider* att_provider;	// Provider which created this attachment
-
-public:
-	HazardDelayedDelete att_delayed_delete;
 };
 
 

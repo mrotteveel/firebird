@@ -235,7 +235,7 @@ void EXT_erase(record_param*, jrd_tra*)
 
 
 // Third param is unused.
-ExternalFile* EXT_file(HazardPtr<jrd_rel>& relation, const TEXT* file_name) //, bid* description)
+ExternalFile* EXT_file(jrd_rel* relation, const TEXT* file_name) //, bid* description)
 {
 /**************************************
  *

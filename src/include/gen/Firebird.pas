@@ -5312,6 +5312,7 @@ const
 	 isc_invalid_blob_util_handle = 335545283;
 	 isc_bad_temp_blob_id = 335545284;
 	 isc_ods_upgrade_err = 335545285;
+	 isc_bad_par_workers = 335545286;
 	 isc_gfix_db_name = 335740929;
 	 isc_gfix_invalid_sw = 335740930;
 	 isc_gfix_incmp_sw = 335740932;

@@ -113,7 +113,7 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 				TraceCounts traceCounts;
 				traceCounts.trc_relation_id = rel_id;
 				traceCounts.trc_counters = base_cnts->getCounterVector();
-				HazardPtr<jrd_rel> relation = mdc->getRelation(att, rel_id);
+				jrd_rel* relation = mdc->getRelation(att, rel_id);
 				traceCounts.trc_relation_name = relation ? relation->rel_name.c_str() : NULL;
 				temp.add(traceCounts);
 			}
@@ -127,7 +127,7 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 			TraceCounts traceCounts;
 			traceCounts.trc_relation_id = rel_id;
 			traceCounts.trc_counters = new_cnts->getCounterVector();
-			HazardPtr<jrd_rel> relation = mdc->getRelation(att, rel_id);
+			jrd_rel* relation = mdc->getRelation(att, rel_id);
 			traceCounts.trc_relation_name = relation ? relation->rel_name.c_str() : NULL;
 			temp.add(traceCounts);
 		}

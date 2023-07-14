@@ -35,7 +35,7 @@ namespace Jrd {
 
 double	EXT_cardinality(Jrd::thread_db*, Jrd::jrd_rel*);
 void	EXT_erase(Jrd::record_param*, Jrd::jrd_tra*);
-Jrd::ExternalFile*	EXT_file(Jrd::HazardPtr<Jrd::jrd_rel>&, const TEXT*); //, Jrd::bid*);
+Jrd::ExternalFile*	EXT_file(Jrd::jrd_rel*, const TEXT*); //, Jrd::bid*);
 void	EXT_fini(Jrd::jrd_rel*, bool);
 bool	EXT_get(Jrd::thread_db*, Jrd::record_param*, FB_UINT64&);
 void	EXT_modify(Jrd::record_param*, Jrd::record_param*, Jrd::jrd_tra*);

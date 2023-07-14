@@ -2932,7 +2932,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 
 	const auto blrStartPos = csb->csb_blr_reader.getPos();
 	jrd_prc* procedure = NULL;
-	HazardPtr<jrd_prc> proc(FB_FUNCTION);
+	HazardPtr<jrd_prc> proc;
 	QualifiedName name;
 
 	if (blrOp == blr_exec_pid)
@@ -10741,7 +10741,7 @@ static RelationSourceNode* pass1Update(thread_db* tdbb, CompilerScratch* csb, jr
 
 		for (FB_SIZE_T i = 0; i < trigger->getCount(tdbb); i++)
 		{
-			HazardPtr<Trigger> tr(FB_FUNCTION);
+			HazardPtr<Trigger> tr;
 			if (!trigger->load(tdbb, i, tr))
 				continue;
 			if (!tr->sysTrigger)

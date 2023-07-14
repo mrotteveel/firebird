@@ -175,7 +175,7 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid*
 	flags &= ~Routine::FLAG_RELOAD;
 
 	Statement* statement = getStatement();
-	PAR_blr(tdbb, nullRel, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
+	PAR_blr(tdbb, nullptr, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
 	setStatement(statement);
 
 	if (csb->csb_g_flags & csb_reload)
@@ -286,14 +286,6 @@ void Routine::afterUnlock(thread_db* tdbb, unsigned fl)
 	}
 }
 
-void Routine::removeFromCache(thread_db* tdbb)
-{
-	if (existenceLock)
-		existenceLock->removeFromCache(tdbb);
-	else
-		delayedDelete(tdbb);
-}
-
 int Routine::getUseCount() const
 {
 	return existenceLock.hasData() ? existenceLock->getUseCount() : 1;
@@ -366,11 +358,6 @@ void Routine::remove(thread_db* tdbb)
 bool jrd_prc::checkCache(thread_db* tdbb) const
 {
 	return tdbb->getDatabase()->dbb_mdc->getProcedure(tdbb, getId()) == this;
-}
-
-void jrd_prc::clearCache(thread_db* tdbb)
-{
-	tdbb->getDatabase()->dbb_mdc->setProcedure(tdbb, getId(), nullptr);
 }
 
 void Routine::releaseLocks(thread_db* tdbb)
