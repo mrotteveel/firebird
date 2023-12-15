@@ -2179,11 +2179,11 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 				 Arg::Gds(isc_tpb_reserv_max_recursion) << Arg::Num(30));
 	}
 
-	const char* const relation_name = relation->rel_name.c_str();
+	const char* const relation_name = relation->getName().c_str();
 
 	// LCK_none < LCK_SR < LCK_PR < LCK_SW < LCK_EX
 	UCHAR oldlock;
-	const bool found = lockmap.get(relation->rel_id, oldlock);
+	const bool found = lockmap.get(relation->getId(), oldlock);
 
 	if (found && oldlock > lock_type)
 	{
@@ -2258,7 +2258,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 	lock->lck_logical = lock_type;
 
 	if (!found)
-		*lockmap.put(relation->rel_id) = lock_type;
+		*lockmap.put(relation->getId()) = lock_type;
 
 	const ViewContexts& ctx = relation->rel_view_contexts;
 
@@ -2276,9 +2276,6 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 																 Arg::Str(relation_name) <<
 																 Arg::Str(option_name));
 		}
-
-		// force a scan to read view information
-		MET_scan_relation(tdbb, base_rel);
 
 		expand_view_lock(tdbb, transaction, base_rel, lock_type, option_name, lockmap, level + 1);
 	}
@@ -3202,9 +3199,6 @@ static void transaction_options(thread_db* tdbb,
 																	 Arg::Str(option_name));
 				}
 
-				// force a scan to read view information
-				MET_scan_relation(tdbb, relation);
-
 				UCHAR lock_type = (op == isc_tpb_lock_read) ? LCK_none : LCK_SW;
 				if (tpb < end)
 				{
@@ -4065,11 +4059,7 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 		{
 			const MetaName security_name = (fld && fld->fld_security_name.hasData()) ?
 				fld->fld_security_name : blobRelation->rel_security_name;
-			if (security_name.isEmpty())
-			{
-				MET_scan_relation(tdbb, blobRelation);
-				security_name = blb_relation->rel_security_name;
-			}
+			fb_assert(security_name.hasData());
 
 			SecurityClass* s_class = SCL_get_class(tdbb, security_name.c_str());
 			if (!s_class)
@@ -4086,12 +4076,12 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 					if (fld)
 					{
 						SCL_check_access(tdbb, s_class, 0, 0, SCL_select, obj_column,
-							false, fld->fld_name, blobRelation->rel_name);
+							false, fld->fld_name, blobRelation->getName());
 					}
 					else
 					{
 						SCL_check_access(tdbb, s_class, 0, 0, SCL_select, obj_relations,
-							false, blobRelation->rel_name);
+							false, blobRelation->getName());
 					}
 
 					s_class->scl_blb_access = SecurityClass::BA_SUCCESS;
@@ -4121,7 +4111,7 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 				{
 					ERR_post(Arg::Gds(isc_no_priv) << Arg::Str("SELECT") <<
 						(fld ? Arg::Str("COLUMN") : Arg::Str("TABLE")) <<
-						(fld ? Arg::Str(fld->fld_name) : Arg::Str(blobRelation->rel_name)));
+						(fld ? Arg::Str(fld->fld_name) : Arg::Str(blobRelation->getName())));
 				}
 				else
 					tra_fetched_blobs.add(*blob_id);
@@ -4187,10 +4177,10 @@ void TraceSweepEvent::beginSweepRelation(const jrd_rel* relation)
 	if (!m_need_trace)
 		return;
 
-	if (relation && relation->rel_name.isEmpty())
+	if (relation && relation->getName().isEmpty())
 	{
 		// don't accumulate per-relation stats for metadata query below
-		MetadataCache::lookup_relation_id(m_tdbb, relation->rel_id, false);
+		MetadataCache::lookup_relation_id(m_tdbb, relation->getId(), false);
 	}
 
 	m_relation_clock = fb_utils::query_performance_counter();

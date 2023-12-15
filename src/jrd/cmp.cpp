@@ -174,9 +174,9 @@ Statement* CMP_compile(thread_db* tdbb, const UCHAR* blr, ULONG blrLength, bool 
 					"\t%2d - view_stream: %2d; alias: %s; relation: %s; procedure: %s; view: %s\n",
 					i, s.csb_view_stream,
 					(s.csb_alias ? s.csb_alias->c_str() : ""),
-					(s.csb_relation ? s.csb_relation->rel_name.c_str() : ""),
-					(s.csb_procedure ? s.csb_procedure->getName().toString().c_str() : ""),
-					(s.csb_view ? s.csb_view->rel_name.c_str() : ""));
+					(s.csb_relation ? s.csb_relation()->getName().c_str() : ""),
+					(s.csb_procedure ? s.csb_procedure()->getName().toString().c_str() : ""),
+					(s.csb_view ? s.csb_view->getName().c_str() : ""));
 			}
 
 			cmp_trace("\n%s\n", csb->csb_dump.c_str());
@@ -264,9 +264,9 @@ const Format* CMP_format(thread_db* tdbb, CompilerScratch* csb, StreamType strea
 	if (!tail->csb_format)
 	{
 		if (tail->csb_relation)
-			tail->csb_format = MET_current(tdbb, tail->csb_relation);
+			tail->csb_format = MET_current(tdbb, tail->csb_relation(tdbb));
 		else if (tail->csb_procedure)
-			tail->csb_format = tail->csb_procedure->prc_record_format;
+			tail->csb_format = tail->csb_procedure(tdbb)->prc_record_format;
 		//// TODO: LocalTableSourceNode
 		else
 			IBERROR(222);	// msg 222 bad blr - invalid stream
@@ -375,7 +375,7 @@ ItemInfo* CMP_pass2_validation(thread_db* tdbb, CompilerScratch* csb, const Item
 }
 
 
-void CMP_post_procedure_access(thread_db* tdbb, CompilerScratch* csb, jrd_prc* procedure)
+void CMP_post_procedure_access(thread_db* tdbb, CompilerScratch* csb, Rsc::Proc proc)
 {
 /**************************************
  *
@@ -399,21 +399,21 @@ void CMP_post_procedure_access(thread_db* tdbb, CompilerScratch* csb, jrd_prc* p
 		return;
 
 	// this request must have EXECUTE permission on the stored procedure
-	if (procedure->getName().package.isEmpty())
+	if (proc()->getName().package.isEmpty())
 	{
-		CMP_post_access(tdbb, csb, procedure->getSecurityName(),
-			(csb->csb_view ? csb->csb_view->rel_id : 0),
-			SCL_execute, obj_procedures, procedure->getName().identifier);
+		CMP_post_access(tdbb, csb, proc()->getSecurityName(),
+			(csb->csb_view ? csb->csb_view()->getId() : 0),
+			SCL_execute, obj_procedures, proc()->getName().identifier);
 	}
 	else
 	{
-		CMP_post_access(tdbb, csb, procedure->getSecurityName(),
-			(csb->csb_view ? csb->csb_view->rel_id : 0),
-			SCL_execute, obj_packages, procedure->getName().package);
+		CMP_post_access(tdbb, csb, proc()->getSecurityName(),
+			(csb->csb_view ? csb->csb_view()->getId() : 0),
+			SCL_execute, obj_packages, proc()->getName().package);
 	}
 
 	// Add the procedure to list of external objects accessed
-	ExternalAccess temp(ExternalAccess::exa_procedure, procedure->getId());
+	ExternalAccess temp(ExternalAccess::exa_procedure, proc()->getId());
 	FB_SIZE_T idx;
 	if (!csb->csb_external.find(temp, idx))
 		csb->csb_external.insert(idx, temp);

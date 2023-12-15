@@ -27,6 +27,7 @@
 #include "../jrd/val.h"
 #include "../dsql/Nodes.h"
 #include "../jrd/HazardPtr.h"
+#include "../jrd/lck.h"
 
 namespace Jrd
 {
@@ -38,21 +39,24 @@ namespace Jrd
 		static const char* const EXCEPTION_MESSAGE;
 
 	public:
+		static Lock* getLock(MemoryPool& p, thread_db* tdbb);
+		static int blockingAst(void* ast_object);
+
 		static Function* lookup(thread_db* tdbb, MetaId id, bool return_deleted, bool noscan, USHORT flags);
 		static Function* lookup(thread_db* tdbb, const QualifiedName& name, bool noscan);
 
-		explicit Function(MemoryPool& p)
-			: Routine(p),
+		explicit Function(RoutinePermanent* perm)
+			: Routine(perm),
 			  fun_entrypoint(NULL),
 			  fun_inputs(0),
 			  fun_return_arg(0),
 			  fun_temp_length(0),
-			  fun_exception_message(p),
+			  fun_exception_message(perm->getPool()),
 			  fun_deterministic(false),
 			  fun_external(NULL)
 		{
 		}
-
+/* ????????????????
 private:
 		Function(MemoryPool& p, MetaId id)
 			: Routine(p, id),
@@ -65,10 +69,10 @@ private:
 			  fun_external(NULL)
 		{
 		}
-
+ */
 public:
 		static Function* loadMetadata(thread_db* tdbb, MetaId id, bool noscan, USHORT flags);
-		static Function* create(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
+		static Function* create(thread_db* tdbb, MemoryPool& pool, MetaId id, CacheObject::Flag flags);
 
 	public:
 		virtual int getObjectType() const

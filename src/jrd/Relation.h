@@ -22,6 +22,8 @@
 #ifndef JRD_RELATION_H
 #define JRD_RELATION_H
 
+#include "../common/classes/RefCounted.h"
+
 #include "../jrd/vec.h"
 #include "../jrd/btr.h"
 #include "../jrd/lck.h"
@@ -30,6 +32,7 @@
 #include "../jrd/Attachment.h"
 #include "../jrd/HazardPtr.h"
 #include "../jrd/ExtEngineManager.h"
+#include "../jrd/met_proto.h"
 
 namespace Jrd
 {
@@ -42,76 +45,69 @@ class jrd_fld;
 class ExternalFile;
 class IndexLock;
 class IndexBlock;
+class RelationPermanent;
+class jrd_rel;
+
+// trigger types
+const int TRIGGER_PRE_STORE		= 1;
+const int TRIGGER_POST_STORE	= 2;
+const int TRIGGER_PRE_MODIFY	= 3;
+const int TRIGGER_POST_MODIFY	= 4;
+const int TRIGGER_PRE_ERASE		= 5;
+const int TRIGGER_POST_ERASE	= 6;
+const int TRIGGER_MAX			= 7;
+
+// trigger type prefixes
+const int TRIGGER_PRE			= 0;
+const int TRIGGER_POST			= 1;
+
+// trigger type suffixes
+const int TRIGGER_STORE			= 1;
+const int TRIGGER_MODIFY		= 2;
+const int TRIGGER_ERASE			= 3;
+
+// that's how trigger action types are encoded
+/*
+	bit 0 = TRIGGER_PRE/TRIGGER_POST flag,
+	bits 1-2 = TRIGGER_STORE/TRIGGER_MODIFY/TRIGGER_ERASE (slot #1),
+	bits 3-4 = TRIGGER_STORE/TRIGGER_MODIFY/TRIGGER_ERASE (slot #2),
+	bits 5-6 = TRIGGER_STORE/TRIGGER_MODIFY/TRIGGER_ERASE (slot #3),
+	and finally the above calculated value is decremented
+
+example #1:
+	TRIGGER_POST_ERASE =
+	= ((TRIGGER_ERASE << 1) | TRIGGER_POST) - 1 =
+	= ((3 << 1) | 1) - 1 =
+	= 0x00000110 (6)
+
+example #2:
+	TRIGGER_PRE_STORE_MODIFY =
+	= ((TRIGGER_MODIFY << 3) | (TRIGGER_STORE << 1) | TRIGGER_PRE) - 1 =
+	= ((2 << 3) | (1 << 1) | 0) - 1 =
+	= 0x00010001 (17)
+
+example #3:
+	TRIGGER_POST_MODIFY_ERASE_STORE =
+	= ((TRIGGER_STORE << 5) | (TRIGGER_ERASE << 3) | (TRIGGER_MODIFY << 1) | TRIGGER_POST) - 1 =
+	= ((1 << 5) | (3 << 3) | (2 << 1) | 1) - 1 =
+	= 0x00111100 (60)
+*/
+
+// that's how trigger types are decoded
+#define TRIGGER_ACTION(value, shift) \
+	(((((value + 1) >> shift) & 3) << 1) | ((value + 1) & 1)) - 1
+
+#define TRIGGER_ACTION_SLOT(value, slot) \
+	TRIGGER_ACTION(value, (slot * 2 - 1) )
+
+const int TRIGGER_COMBINED_MAX	= 128;
+
+
 
 // Relation trigger definition
 
-class Trigger : public CacheObject
+class Trigger : public Firebird::RefCounted
 {
-/*
-public:
-	Firebird::HalfStaticArray<UCHAR, 128> blr;			// BLR code
-	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
-	Statement* statement;								// Compiled statement
-	bool		releaseInProgress;
-	bool		sysTrigger;
-	FB_UINT64	type;						// Trigger type
-	USHORT		flags;						// Flags as they are in RDB$TRIGGERS table
-	jrd_rel*	relation;					// Trigger parent relation
-	MetaName	name;				// Trigger name
-	MetaName	engine;				// External engine name
-	Firebird::string	entryPoint;			// External trigger entrypoint
-	Firebird::string	extBody;			// External trigger body
-	ExtEngineManager::Trigger* extTrigger;	// External trigger
-	Nullable<bool> ssDefiner;
-	MetaName	owner;				// Owner for SQL SECURITY
-
-	bool hasData() const
-	{
-		return name.hasData() || sysTrigger;
-	}
-
-	Key getKey() const
-	{
-		return name;
-	}
-
-	bool isActive() const;
-
-	void compile(thread_db*);				// Ensure that trigger is compiled
-	int release(thread_db*);				// Try to free trigger request
-
-	explicit Trigger(MemoryPool& p)
-		: blr(p),
-		  debugInfo(p),
-		  statement(nullptr),
-		  releaseInProgress(false),
-		  sysTrigger(false),
-		  type(0),
-		  flags(0),
-		  relation(nullptr),
-		  name(p),
-		  engine(p),
-		  entryPoint(p),
-		  extBody(p),
-		  extTrigger(NULL)
-	{}
-
-	virtual ~Trigger()
-	{
-		delete extTrigger;
-	}
-
-	void removeFromCache(thread_db* tdbb) override
-	{
-		delayedDelete(tdbb);
-	}
-
-	const char* c_name() const override
-	{
-		return name.c_str();
-	}
-*/
-
 public:
 	Firebird::HalfStaticArray<UCHAR, 128> blr;			// BLR code
 	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
@@ -129,10 +125,12 @@ public:
 	Nullable<bool> ssDefiner;
 	MetaName	owner;				// Owner for SQL SECURITY
 
+	MemoryPool& getPool();
+
 	bool isActive() const;
 
 	void compile(thread_db*);				// Ensure that trigger is compiled
-	void release(thread_db*);				// Try to free trigger request
+	void free(thread_db*);					// Try to free trigger request
 
 	explicit Trigger(MemoryPool& p)
 		: blr(p),
@@ -151,19 +149,52 @@ public:
 	}
 };
 
-// Array of triggers (suppose separate arrays for triggers of different types)
-class TrigVector
+// Set of triggers (suppose separate arrays for triggers of different types)
+class Triggers
 {
 public:
+	Triggers()
+		// : nullify everything needed
+	{ }
+
 	bool hasActive() const;
 	void decompile(thread_db* tdbb);
 
-	virtual ~TrigVector() { }
+	void addTrigger(thread_db* tdbb, Trigger* trigger);
 
-	virtual void addTrigger(thread_db* tdbb, Trigger* trigger) = 0;
+	Trigger** begin() const;
+	Trigger** end() const;
+	bool operator!() const;
+	operator bool() const;
+	//bool hasData() const;
+
+	void release(thread_db* tdbb, bool destroy);
+
+	static void destroy(Triggers* trigs);
+
+private:
+	// implementation ...
 };
 
-typedef std::atomic<TrigVector*> TrigVectorPtr;
+typedef Triggers* TrigVectorPtr;
+
+class DbTriggers final : public Triggers, public CacheObject
+{
+public:
+	DbTriggers()
+		: Triggers(), CacheObject()
+	{ }
+
+	static DbTriggers* create(thread_db* tdbb, MemoryPool& pool, MetaId type, CacheObject::Flag);
+	/*
+		return FB_NEW_POOL(pool) DbTriggers();
+	*/
+
+	const char* c_name() const override
+	{
+		return "Trigger's set";
+	}
+};
 
 
 // view context block to cache view aliases
@@ -321,7 +352,7 @@ private:
 	Firebird::SortedArray<DPItem, Firebird::InlineStorage<DPItem, MAX_DPMAP_ITEMS>, ULONG, DPItem> dpMap;
 	ULONG dpMapMark;
 
-friend class jrd_rel;
+friend class RelationPermanent;
 };
 
 
@@ -356,73 +387,59 @@ struct frgn
 
 // Index lock block
 
-class IndexLock : public CacheObject
+class IndexLock final : public CacheObject
 {
 public:
-	typedef USHORT Key;
-
-	IndexLock(MemoryPool& p, thread_db* tdbb, jrd_rel* rel, USHORT id);
+	IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id);
 
 	~IndexLock()
-	{
-		fb_assert(idl_lock.getUseCount() == 0);
-	}
+	{ }
 
-	jrd_rel*			idl_relation;	// Parent relation
+private:
+	RelationPermanent*	idl_relation;	// Parent relation
 	USHORT				idl_id;			// Index id
-	ExistenceLock		idl_lock;		// Lock block
+	Lock*				idl_lock;		// Lock block
 
+public:
 	bool hasData() { return true; }
-	const char* c_name() const override;
+	const char* c_name() const;
+
+	static void destroy(IndexLock *idl);
+	static IndexLock* create(thread_db* tdbb, MemoryPool& p, MetaId id, CacheObject::Flag flags);
+	static Lock* getLock(MemoryPool& p, thread_db* tdbb);
+
+	void lockShared(thread_db* tdbb);
+	void lockExclusive(thread_db* tdbb);
+	void unlock(thread_db* tdbb);
+	void unlockAll(thread_db* tdbb);
 };
 
 
-// Relation block; one is created for each relation referenced
 // in the database, though it is not really filled out until
 // the relation is scanned
 
+typedef CacheElement<jrd_rel, RelationPermanent> CachedRelation;
+
 class jrd_rel final : public CacheObject
 {
-	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
-	typedef Firebird::ObjectsArray<IndexLock> IndexLocks;
-
 public:
+	jrd_rel(MemoryPool& p, RelationPermanent* r);
+
 	MemoryPool*		rel_pool;
-	USHORT			rel_id;
+	RelationPermanent*	rel_perm;
 	USHORT			rel_current_fmt;	// Current format number
 	ULONG			rel_flags;
 	Format*			rel_current_format;	// Current record format
 
-	MetaName	rel_name;		// ascii relation name
-	MetaName	rel_owner_name;	// ascii owner
-	MetaName	rel_security_name;	// security class name for relation
-
-	vec<Format*>*	rel_formats;		// Known record formats
 	vec<jrd_fld*>*	rel_fields;			// vector of field blocks
 
 	RseNode*		rel_view_rse;		// view record select expression
 	ViewContexts	rel_view_contexts;	// sorted array of view contexts
 
-	ExternalFile* 	rel_file;			// external file name
-
-	GCRecordList	rel_gc_records;		// records for garbage collection
-
-	USHORT		rel_sweep_count;		// sweep and/or garbage collector threads active
 	SSHORT		rel_scan_count;			// concurrent sequential scan count
 
-	Firebird::AutoPtr<ExistenceLock>	rel_existence_lock;		// existence lock, if any
-	Lock*		rel_partners_lock;		// partners lock
-	Lock*		rel_rescan_lock;		// lock forcing relation to be scanned
-	Lock*		rel_gc_lock;			// garbage collection lock
-	IndexLocks	rel_index_locks;		// index existence locks
 	//Firebird::Mutex	rel_mtx_il;			// controls addition & removal of elements
 	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
-	TrigVectorPtr	rel_pre_erase; 		// Pre-operation erase trigger
-	TrigVectorPtr	rel_post_erase;		// Post-operation erase trigger
-	TrigVectorPtr	rel_pre_modify;		// Pre-operation modify trigger
-	TrigVectorPtr	rel_post_modify;	// Post-operation modify trigger
-	TrigVectorPtr	rel_pre_store;		// Pre-operation store trigger
-	TrigVectorPtr	rel_post_store;		// Post-operation store trigger
 	prim			rel_primary_dpnds;	// foreign dependencies on this relation's primary key
 	frgn			rel_foreign_refs;	// foreign references to other relations' primary keys
 	Nullable<bool>	rel_ss_definer;
@@ -431,146 +448,33 @@ public:
 
 	Firebird::Mutex rel_drop_mutex, rel_trig_load_mutex;
 
-	bool isSystem() const;
-	bool isTemporary() const;
-	bool isVirtual() const;
-	bool isView() const;
-	bool hasData() const
-	{
-		return rel_name.hasData();
-	}
+	Triggers	rel_triggers[TRIGGER_MAX];
 
 	bool isReplicating(thread_db* tdbb);
-
-	// global temporary relations attributes
+	bool hasData() const;
+	const char* c_name() const override;
+	MetaId getId() const;
 	RelationPages* getPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, bool allocPages = true);
+	bool isTemporary() const;
+	bool isView() const;
+	bool isVirtual() const;
+	bool isSystem() const;
 
-	RelationPages* getBasePages()
-	{
-		return &rel_pages_base;
-	}
-
-	const char* c_name() const override
-	{
-		return rel_name.c_str();
-	}
-
-	USHORT getId()
-	{
-		return rel_id;
-	}
-
-	void	scan(thread_db* tdbb);
-/*
-	// Scan the relation if it hasn't already been scanned for meta data
-
--       if (!(node->relation->rel_flags & REL_scanned) ||
--               (node->relation->rel_flags & REL_being_scanned))
--       {
--               MET_scan_relation(tdbb, this);
--       }
- */
-	bool	delPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, RelationPages* aPages = NULL);
-	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
-
-	void	getRelLockKey(thread_db* tdbb, UCHAR* key);
-	USHORT	getRelLockKeyLength() const;
-
-	void	cleanUp();
-
-	class RelPagesSnapshot : public Firebird::Array<RelationPages*>
-	{
-	public:
-		typedef Firebird::Array<RelationPages*> inherited;
-
-		RelPagesSnapshot(thread_db* tdbb, jrd_rel* relation)
-		{
-			spt_tdbb = tdbb;
-			spt_relation = relation;
-		}
-
-		~RelPagesSnapshot() { clear(); }
-
-		void clear();
-	private:
-		thread_db*	spt_tdbb;
-		jrd_rel*	spt_relation;
-
-	friend class jrd_rel;
-	};
-
-	void fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
+	void scan(thread_db* tdbb);		// Scan the newly loaded relation for meta data
+	MetaName getName() const;
+	MemoryPool& getPool() const;
+	MetaName getSecurityName() const;
+	ExternalFile* getExtFile();
 
 	bool checkObject(thread_db* tdbb, Firebird::Arg::StatusVector&) override;
 	void afterUnlock(thread_db* tdbb, unsigned flags) override;
 
 	static void destroy(jrd_rel *rel);
-	static jrd_rel* create(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
-
-private:
-	typedef Firebird::SortedArray<
-				RelationPages*,
-				Firebird::EmptyStorage<RelationPages*>,
-				RelationPages::InstanceId,
-				RelationPages>
-			RelationPagesInstances;
-
-	RelationPagesInstances* rel_pages_inst;
-	RelationPages			rel_pages_base;
-	RelationPages*			rel_pages_free;
-
-	RelationPages* getPagesInternal(thread_db* tdbb, TraNumber tran, bool allocPages);
+	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, MetaId id, CacheObject::Flag flags);
 
 public:
-	jrd_rel(MemoryPool& p, MetaId id);
-
 	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
-	void replaceTriggers(thread_db* tdbb, TrigVectorPtr* triggers);
-
-	static Lock* createLock(thread_db* tdbb, MemoryPool* pool, jrd_rel* relation, lck_t, bool);
-	static int blocking_ast_gcLock(void*);
-
-	void downgradeGCLock(thread_db* tdbb);
-	bool acquireGCLock(thread_db* tdbb, int wait);
-
-	HazardPtr<IndexLock> getIndexLock(thread_db* tdbb, USHORT id);
-
-	// This guard is used by regular code to prevent online validation while
-	// dead- or back- versions is removed from disk.
-	class GCShared
-	{
-	public:
-		GCShared(thread_db* tdbb, jrd_rel* relation);
-		~GCShared();
-
-		bool gcEnabled() const
-		{
-			return m_gcEnabled;
-		}
-
-	private:
-		thread_db*	m_tdbb;
-		jrd_rel*	m_relation;
-		bool		m_gcEnabled;
-	};
-
-	// This guard is used by online validation to prevent any modifications of
-	// table data while it is checked.
-	class GCExclusive
-	{
-	public:
-		GCExclusive(thread_db* tdbb, jrd_rel* relation);
-		~GCExclusive();
-
-		bool acquire(int wait);
-		void release();
-
-	private:
-		thread_db*	m_tdbb;
-		jrd_rel*	m_relation;
-		Lock*		m_lock;
-	};
 };
 
 // rel_flags
@@ -591,34 +495,303 @@ const ULONG REL_temp_tran				= 0x1000;	// relation is a GTT delete rows
 const ULONG REL_temp_conn				= 0x2000;	// relation is a GTT preserve rows
 const ULONG REL_virtual					= 0x4000;	// relation is virtual
 const ULONG REL_jrd_view				= 0x8000;	// relation is VIEW
-const ULONG REL_gc_blocking				= 0x10000;	// request to downgrade\release gc lock
-const ULONG REL_gc_disabled				= 0x20000;	// gc is disabled temporarily
-const ULONG REL_gc_lockneed				= 0x40000;	// gc lock should be acquired
 
+const ULONG REL_perm_flags				= REL_check_existence | REL_blocking | REL_check_partners |
+										  REL_temp_tran | REL_temp_conn | REL_virtual | REL_jrd_view |
+										  REL_system | REL_virtual | REL_jrd_view;
+const ULONG REL_version_flags			= (~REL_perm_flags) & 0x7FFFF;
 
-/// class jrd_rel
-
-inline bool jrd_rel::isSystem() const
+class GCLock
 {
-	return rel_flags & REL_system;
+public:
+	GCLock(RelationPermanent* rl)
+		: lck(nullptr),
+		  relPerm(rl),
+		  flags(0u)
+	{ }
+
+	// This guard is used by regular code to prevent online validation while
+	// dead- or back- versions is removed from disk.
+	class Shared
+	{
+	public:
+		Shared(thread_db* tdbb, RelationPermanent* rl);
+		~Shared();
+
+		bool gcEnabled() const
+		{
+			return m_gcEnabled;
+		}
+
+	private:
+		thread_db*	m_tdbb;
+		RelationPermanent*	m_rl;
+		bool		m_gcEnabled;
+	};
+
+	// This guard is used by online validation to prevent any modifications of
+	// table data while it is checked.
+	class Exclusive
+	{
+	public:
+		Exclusive(thread_db* tdbb, RelationPermanent* rl)
+			: m_tdbb(tdbb), m_rl(rl), m_lock(nullptr)
+		{ }
+
+		~Exclusive()
+		{
+			release();
+			delete m_lock;
+		}
+
+		bool acquire(int wait);
+		void release();
+
+	private:
+		thread_db*		m_tdbb;
+		RelationPermanent*		m_rl;
+		Lock*			m_lock;
+	};
+
+public:
+	bool acquire(thread_db* tdbb, int wait);
+	void downgrade(thread_db* tdbb);
+	void enable(thread_db* tdbb, Lock* tempLock);
+	bool disable(thread_db* tdbb, int wait, Lock*& tempLock);
+
+	static int ast(void* self)
+	{
+		try
+		{
+			reinterpret_cast<GCLock*>(self)->blockingAst();
+		}
+		catch(const Firebird::Exception&) { }
+
+		return 0;
+	}
+
+private:
+	void blockingAst();
+	void ensureReleased(thread_db* tdbb);
+
+	void incrementError [[noreturn]] ();
+
+private:
+	Firebird::AutoPtr<Lock> lck;
+	RelationPermanent* relPerm;
+	std::atomic<unsigned> flags;
+
+	static const unsigned GC_counterMask =	0x0FFFFFFF;
+	static const unsigned GC_guardBit =		0x10000000;
+	static const unsigned GC_disabled =		0x20000000;
+	static const unsigned GC_locked =		0x40000000;
+	static const unsigned GC_blocking =		0x80000000;
+};
+
+
+// Non-versioned part of relation in cache
+
+class RelationPermanent : public Firebird::PermanentStorage
+{
+//	typedef Firebird::ObjectsArray<IndexLock> IndexLocks;
+	typedef CacheVector<IndexLock> IndexLocks;
+	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
+
+public:
+	RelationPermanent(MemoryPool& p, MetaId id);
+
+	~RelationPermanent();
+
+	void makeLocks(thread_db* tdbb, CachedRelation* relation);
+	static constexpr USHORT getRelLockKeyLength();
+	Lock* createLock(thread_db* tdbb, lck_t, bool);
+	void extFile(thread_db* tdbb, const TEXT* file_name);		// impl in ext.cpp
+
+	IndexLock* getIndexLock(thread_db* tdbb, USHORT id);
+
+	Lock*		rel_existence_lock;		// existence lock
+	Lock*		rel_partners_lock;		// partners lock
+	Lock*		rel_rescan_lock;		// lock forcing relation to be scanned
+	GCLock		rel_gc_lock;			// garbage collection lock
+	GCRecordList	rel_gc_records;		// records for garbage collection
+
+	class RelPagesSnapshot : public Firebird::Array<RelationPages*>
+	{
+	public:
+		typedef Firebird::Array<RelationPages*> inherited;
+
+		RelPagesSnapshot(thread_db* tdbb, RelationPermanent* relation)
+		{
+			spt_tdbb = tdbb;
+			spt_relation = relation;
+		}
+
+		~RelPagesSnapshot() { clear(); }
+
+		void clear();
+	private:
+		thread_db*	spt_tdbb;
+		RelationPermanent*	spt_relation;
+
+	friend class RelationPermanent;
+	};
+
+	RelationPages* getPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, bool allocPages = true);
+	bool	delPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, RelationPages* aPages = NULL);
+	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
+	void	cleanUp();
+	void	fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
+
+	RelationPages* getBasePages()
+	{
+		return &rel_pages_base;
+	}
+
+
+	bool hasData() const
+	{
+		return rel_name.hasData();
+	}
+
+	const char* c_name() const
+	{
+		return rel_name.c_str();
+	}
+
+	MetaName getName() const
+	{
+		return rel_name;
+	}
+
+	MetaId getId() const
+	{
+		return rel_id;
+	}
+
+	ExternalFile* getExtFile()
+	{
+		return rel_file;
+	}
+
+
+	void	getRelLockKey(thread_db* tdbb, UCHAR* key);
+
+	bool isSystem() const;
+	bool isTemporary() const;
+	bool isVirtual() const;
+	bool isView() const;
+
+	vec<Format*>*	rel_formats;		// Known record formats
+	IndexLocks		rel_index_locks;	// index existence locks
+	MetaName		rel_name;			// ascii relation name
+	MetaId			rel_id;
+
+	MetaName	rel_owner_name;			// ascii owner
+	MetaName	rel_security_name;		// security class name for relation
+	ULONG		rel_flags;				// lock-related flags
+
+private:
+	Firebird::Mutex			rel_pages_mutex;
+
+	typedef Firebird::SortedArray<
+				RelationPages*,
+				Firebird::EmptyStorage<RelationPages*>,
+				RelationPages::InstanceId,
+				RelationPages>
+			RelationPagesInstances;
+
+	RelationPagesInstances* rel_pages_inst;
+	RelationPages			rel_pages_base;
+	RelationPages*			rel_pages_free;
+
+	RelationPages* getPagesInternal(thread_db* tdbb, TraNumber tran, bool allocPages);
+
+	ExternalFile* rel_file;
+};
+
+
+inline bool jrd_rel::hasData() const
+{
+	return rel_perm->rel_name.hasData();
+}
+
+inline const char* jrd_rel::c_name() const
+{
+	return rel_perm->rel_name.c_str();
+}
+
+inline MetaName jrd_rel::getName() const
+{
+	return rel_perm->rel_name;
+}
+
+inline MemoryPool& jrd_rel::getPool() const
+{
+	return rel_perm->getPool();
+}
+
+inline ExternalFile* jrd_rel::getExtFile()
+{
+	return rel_perm->getExtFile();
+}
+
+inline MetaName jrd_rel::getSecurityName() const
+{
+	return rel_perm->rel_security_name;
+}
+
+inline MetaId jrd_rel::getId() const
+{
+	return rel_perm->rel_id;
+}
+
+RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool allocPages)
+{
+	return rel_perm->getPages(tdbb, tran, allocPages);
 }
 
 inline bool jrd_rel::isTemporary() const
 {
-	return (rel_flags & (REL_temp_tran | REL_temp_conn));
-}
-
-inline bool jrd_rel::isVirtual() const
-{
-	return (rel_flags & REL_virtual);
+	return rel_perm->isTemporary();
 }
 
 inline bool jrd_rel::isView() const
 {
+	return rel_perm->isView();
+}
+
+inline bool jrd_rel::isVirtual() const
+{
+	return rel_perm->isVirtual();
+}
+
+inline bool jrd_rel::isSystem() const
+{
+	return rel_perm->isSystem();
+}
+
+
+inline bool RelationPermanent::isSystem() const
+{
+	return rel_flags & REL_system;
+}
+
+inline bool RelationPermanent::isTemporary() const
+{
+	return (rel_flags & (REL_temp_tran | REL_temp_conn));
+}
+
+inline bool RelationPermanent::isVirtual() const
+{
+	return (rel_flags & REL_virtual);
+}
+
+inline bool RelationPermanent::isView() const
+{
 	return (rel_flags & REL_jrd_view);
 }
 
-inline RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool allocPages)
+inline RelationPages* RelationPermanent::getPages(thread_db* tdbb, TraNumber tran, bool allocPages)
 {
 	if (!isTemporary())
 		return &rel_pages_base;
@@ -626,36 +799,28 @@ inline RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool al
 	return getPagesInternal(tdbb, tran, allocPages);
 }
 
-/// class jrd_rel::GCShared
 
-inline jrd_rel::GCShared::GCShared(thread_db* tdbb, jrd_rel* relation)
+
+/// class GCLock::Shared
+
+inline GCLock::Shared::Shared(thread_db* tdbb, RelationPermanent* rl)
 	: m_tdbb(tdbb),
-	  m_relation(relation),
-	  m_gcEnabled(false)
-{
-	if (m_relation->rel_flags & (REL_gc_blocking | REL_gc_disabled))
-		return;
+	  m_rl(rl),
+	  m_gcEnabled(m_rl->rel_gc_lock.acquire(m_tdbb, LCK_NO_WAIT))
+{ }
 
-	if (m_relation->rel_flags & REL_gc_lockneed)
-		m_relation->acquireGCLock(tdbb, LCK_NO_WAIT);
-
-	if (!(m_relation->rel_flags & (REL_gc_blocking | REL_gc_disabled | REL_gc_lockneed)))
-	{
-		++m_relation->rel_sweep_count;
-		m_gcEnabled = true;
-	}
-
-	if ((m_relation->rel_flags & REL_gc_blocking) && !m_relation->rel_sweep_count)
-		m_relation->downgradeGCLock(m_tdbb);
-}
-
-inline jrd_rel::GCShared::~GCShared()
+inline GCLock::Shared::~Shared()
 {
 	if (m_gcEnabled)
-		--m_relation->rel_sweep_count;
+		m_rl->rel_gc_lock.downgrade(m_tdbb);
+}
 
-	if ((m_relation->rel_flags & REL_gc_blocking) && !m_relation->rel_sweep_count)
-		m_relation->downgradeGCLock(m_tdbb);
+
+/// class GCLock::Exclusive
+
+inline bool GCLock::Exclusive::acquire(int wait)
+{
+	return m_rl->rel_gc_lock.disable(m_tdbb, wait, m_lock);
 }
 
 
@@ -690,6 +855,6 @@ public:
 	}
 };
 
-}
+};
 
 #endif	// JRD_RELATION_H

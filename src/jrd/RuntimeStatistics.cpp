@@ -93,7 +93,6 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 
 	// Calculate relation-level statistics
 	temp.clear();
-	MetadataCache* mdc = att->att_database->dbb_mdc;
 
 	// This loop assumes that base array is smaller than new one
 	RelCounters::iterator base_cnts = rel_counts.begin();
@@ -113,8 +112,8 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 				TraceCounts traceCounts;
 				traceCounts.trc_relation_id = rel_id;
 				traceCounts.trc_counters = base_cnts->getCounterVector();
-				jrd_rel* relation = mdc->getRelation(att, rel_id);
-				traceCounts.trc_relation_name = relation ? relation->rel_name.c_str() : NULL;
+				auto relation = att->att_database->dbb_mdc->lookupRelation(rel_id);
+				traceCounts.trc_relation_name = relation ? relation->c_name() : NULL;
 				temp.add(traceCounts);
 			}
 
@@ -127,8 +126,8 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 			TraceCounts traceCounts;
 			traceCounts.trc_relation_id = rel_id;
 			traceCounts.trc_counters = new_cnts->getCounterVector();
-			jrd_rel* relation = mdc->getRelation(att, rel_id);
-			traceCounts.trc_relation_name = relation ? relation->rel_name.c_str() : NULL;
+			auto relation = att->att_database->dbb_mdc->lookupRelation(rel_id);
+			traceCounts.trc_relation_name = relation ? relation->c_name() : NULL;
 			temp.add(traceCounts);
 		}
 	};
@@ -140,7 +139,7 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 }
 
 RuntimeStatistics::Accumulator::Accumulator(thread_db* tdbb, const jrd_rel* relation, StatType type)
-	: m_tdbb(tdbb), m_type(type), m_id(relation->rel_id), m_counter(0)
+	: m_tdbb(tdbb), m_type(type), m_id(relation->getId()), m_counter(0)
 {}
 
 RuntimeStatistics::Accumulator::~Accumulator()

@@ -108,14 +108,14 @@ namespace
 				CompilerScratch::csb_repeat* t1 = CMP_csb_element(m_csb, 0);
 				t1->csb_flags |= csb_used | csb_active | csb_trigger;
 				t1->csb_relation = m_csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-					relation, relation->rel_id);
+					relation, relation->getId());
 				t1->csb_stream = stream;
 
 				stream = m_csb->nextStream();
 				t1 = CMP_csb_element(m_csb, 1);
 				t1->csb_flags |= csb_used | csb_active | csb_trigger;
 				t1->csb_relation = m_csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-					relation, relation->rel_id);
+					relation, relation->getId());
 				t1->csb_stream = stream;
 			}
 			else if (relation)
@@ -123,7 +123,7 @@ namespace
 				CompilerScratch::csb_repeat* t1 = CMP_csb_element(m_csb, 0);
 				t1->csb_stream = m_csb->nextStream();
 				t1->csb_relation = m_csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-					relation, relation->rel_id);
+					relation, relation->getId());
 				t1->csb_flags = csb_used | csb_active;
 			}
 
@@ -479,7 +479,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 			if (csb->collectingDependencies())
 			{
-				CompilerScratch::Dependency dependency(obj_field);
+				Dependency dependency(obj_field);
 				dependency.name = name;
 				csb->addDependency(dependency);
 			}
@@ -544,9 +544,9 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 			if (csb->collectingDependencies())
 			{
-				CompilerScratch::Dependency dependency(obj_relation);
+				Dependency dependency(obj_relation);
 				jrd_rel* rel = MetadataCache::lookup_relation(tdbb, *relationName);
-				dependency.relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->rel_id);
+				dependency.relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->getId());
 				dependency.subName = fieldName;
 				csb->addDependency(dependency);
 			}
@@ -562,7 +562,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 	if (csb->collectingDependencies() && desc->getTextType() != CS_NONE)
 	{
-		CompilerScratch::Dependency dependency(obj_collation);
+		Dependency dependency(obj_collation);
 		dependency.number = INTL_TEXT_TYPE(*desc);
 		csb->addDependency(dependency);
 	}
@@ -609,7 +609,7 @@ ValueExprNode* PAR_make_field(thread_db* tdbb, CompilerScratch* csb, USHORT cont
  *
  * Functional description
  *	Make up a field node in the permanent pool.  This is used
- *	by MET_scan_relation to handle view fields.
+ *	by relation scan to handle view fields.
  *
  **************************************/
 	SET_TDBB(tdbb);
@@ -892,7 +892,7 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 	if (!csb->collectingDependencies())
 		return;
 
-	CompilerScratch::Dependency dependency(0);
+	Dependency dependency(0);
 
 	if (csb->csb_rpt[stream].csb_relation)
 	{
@@ -1054,12 +1054,12 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					if (isGbak)
 					{
 						PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name) <<
-																   Arg::Str(relation->rel_name));
+																   Arg::Str(relation->getName()));
 					}
 					else
 					{
 						PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-															  	  Arg::Str(relation->rel_name));
+															  	  Arg::Str(relation->getName()));
 					}
 				}
 				else if (idx_status == MET_object_deferred_active)
@@ -1067,7 +1067,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					if (!isGbak)
 					{
 						PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-																  Arg::Str(relation->rel_name));
+																  Arg::Str(relation->getName()));
 					}
 				}
 
@@ -1082,7 +1082,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 
 				if (csb->collectingDependencies())
 				{
-					CompilerScratch::Dependency dependency(obj_index);
+					Dependency dependency(obj_index);
 					dependency.name = &item.indexName;
 					csb->addDependency(dependency);
 	            }
@@ -1123,12 +1123,12 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 						if (isGbak)
 						{
 							PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name) <<
-																	   Arg::Str(relation->rel_name));
+																	   Arg::Str(relation->getName()));
 						}
 						else
 						{
 							PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-																  	  Arg::Str(relation->rel_name));
+																  	  Arg::Str(relation->getName()));
 						}
 					}
 					else if (idx_status == MET_object_deferred_active)
@@ -1136,7 +1136,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 						if (!isGbak)
 						{
 							PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-																	  Arg::Str(relation->rel_name));
+																	  Arg::Str(relation->getName()));
 						}
 					}
 
@@ -1151,7 +1151,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 
 					if (csb->collectingDependencies())
 					{
-						CompilerScratch::Dependency dependency(obj_index);
+						Dependency dependency(obj_index);
 						dependency.name = &item.indexName;
 						csb->addDependency(dependency);
 		            }
@@ -1390,7 +1390,6 @@ RseNode* PAR_rse(thread_db* tdbb, CompilerScratch* csb, SSHORT rse_op)
 			break;
 
 		case blr_writelock:
-			// PAR_parseRecordSource() called RelationSourceNode::parse() => MET_scan_relation().
 			for (FB_SIZE_T iter = 0; iter < rse->rse_relations.getCount(); ++iter)
 			{
 				const RelationSourceNode* subNode = nodeAs<RelationSourceNode>(rse->rse_relations[iter]);
@@ -1400,11 +1399,11 @@ RseNode* PAR_rse(thread_db* tdbb, CompilerScratch* csb, SSHORT rse_op)
 				const jrd_rel* relation = relNode->relation;
 				fb_assert(relation);
 				if (relation->isVirtual())
-					PAR_error(csb, Arg::Gds(isc_forupdate_virtualtbl) << relation->rel_name, false);
+					PAR_error(csb, Arg::Gds(isc_forupdate_virtualtbl) << relation->getName(), false);
 				if (relation->isSystem())
-					PAR_error(csb, Arg::Gds(isc_forupdate_systbl) << relation->rel_name, false);
+					PAR_error(csb, Arg::Gds(isc_forupdate_systbl) << relation->getName(), false);
 				if (relation->isTemporary())
-					PAR_error(csb, Arg::Gds(isc_forupdate_temptbl) << relation->rel_name, false);
+					PAR_error(csb, Arg::Gds(isc_forupdate_temptbl) << relation->getName(), false);
 			}
 			rse->flags |= RseNode::FLAG_WRITELOCK;
 			break;

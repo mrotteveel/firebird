@@ -74,18 +74,24 @@ public:
 	bool isActive() const;
 
 	Request* findRequest(thread_db* tdbb, bool unique = false);
-	Request* getRequest(thread_db* tdbb, USHORT level);
+	Request* getRequest(thread_db* tdbb, USHORT level, bool systemRequest = false);
 	void verifyAccess(thread_db* tdbb);
 	void release(thread_db* tdbb);
 
 	Firebird::string getPlan(thread_db* tdbb, bool detailed) const;
+	const Resources* getResources()
+	{
+		return resources;
+	}
 
 private:
-	static void verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelation, TrigVector* triggers,
+	static void verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelation, const Triggers& triggers,
 		MetaName userName);
-	static void triggersExternalAccess(thread_db* tdbb, ExternalAccessList& list, TrigVector* tvec, const MetaName &user);
-
+	static void triggersExternalAccess(thread_db* tdbb, ExternalAccessList& list, const Triggers& tvec, const MetaName &user);
 	void buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, const MetaName& user);
+
+	void loadResources(thread_db* tdbb);
+	bool streamsFormatCompare(thread_db* tdbb);
 
 public:
 	MemoryPool* pool;
@@ -94,11 +100,11 @@ public:
 	ULONG impureSize;					// Size of impure area
 	mutable StmtNumber id;				// statement identifier
 	USHORT charSetId;					// client character set (CS_METADATA for internal statements)
-	Firebird::Array<record_param> rpbsSetup;
+	Firebird::Array<RecordParameter> rpbsSetup;
 	Firebird::Array<Request*> requests;	// vector of requests
+	Firebird::Mutex requestsGrow;		// vector of requests protection when added new element
 	ExternalAccessList externalList;	// Access to procedures/triggers to be checked
 	AccessItemList accessList;			// Access items to be checked
-	//ResourceList resources;				// Resources (relations and indices)
 	const jrd_prc* procedure;			// procedure, if any
 	const Function* function;			// function, if any
 	MetaName triggerName;		// name of request (trigger), if any
@@ -114,8 +120,8 @@ public:
 	MapFieldInfo mapFieldInfo;			// Map field name to field info
 
 private:
-	Resources resources;
-	Firebird::RefPtr<VersionedObjects> latestVersion;
+	Resources* resources;				// Resources (relations, routines, etc.)
+	Firebird::RefPtr<VersionedObjects> latestVersion;		// want std::atomic<std::shared_ptr> or mutex is needed
 };
 
 

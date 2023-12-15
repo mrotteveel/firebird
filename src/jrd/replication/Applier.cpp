@@ -553,9 +553,6 @@ void Applier::insertRecord(thread_db* tdbb, TraNumber traNum,
 	if (!rel)
 		raiseError("Table %s is not found", relName.c_str());
 
-	if (!(rel->rel_flags & REL_scanned))
-		MET_scan_relation(tdbb, rel);
-
 	const auto relation = rel.getPointer();
 	const auto format = findFormat(tdbb, relation, length);
 
@@ -689,9 +686,6 @@ void Applier::updateRecord(thread_db* tdbb, TraNumber traNum,
 	auto rel = MetadataCache::lookup_relation(tdbb, relName);
 	if (!rel)
 		raiseError("Table %s is not found", relName.c_str());
-
-	if (!(rel->rel_flags & REL_scanned))
-		MET_scan_relation(tdbb, rel);
 
 	const auto relation = rel.getPointer();
 	const auto orgFormat = findFormat(tdbb, relation, orgLength);
@@ -831,9 +825,6 @@ void Applier::deleteRecord(thread_db* tdbb, TraNumber traNum,
 	auto rel = MetadataCache::lookup_relation(tdbb, relName);
 	if (!rel)
 		raiseError("Table %s is not found", relName.c_str());
-
-	if (!(rel->rel_flags & REL_scanned))
-		MET_scan_relation(tdbb, rel);
 
 	const auto relation = rel.getPointer();
 	const auto format = findFormat(tdbb, relation, length);
@@ -1076,7 +1067,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 	RecordBitmap::reset(m_bitmap);
 
 	// Special case: RDB$DATABASE has no keys but it's guaranteed to have only one record
-	if (relation->rel_id == rel_database)
+	if (relation->getId() == rel_database)
 	{
 		RBM_SET(tdbb->getDefaultPool(), &m_bitmap, 0);
 		return false;
@@ -1106,7 +1097,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 	{
 		const auto tab = &NO_KEY_TABLES[i];
 
-		if (tab->rel_id == relation->rel_id)
+		if (tab->rel_id == relation->getId())
 		{
 			table = tab;
 			break;
@@ -1114,7 +1105,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 	}
 
 	if (!table)
-		raiseError("Table %s has no unique key", relation->rel_name.c_str());
+		raiseError("Table %s has no unique key", relation->getName().c_str());
 
 	const auto transaction = tdbb->getTransaction();
 
@@ -1168,7 +1159,7 @@ const Format* Applier::findFormat(thread_db* tdbb, jrd_rel* relation, ULONG leng
 	if (format->fmt_length != length)
 	{
 		raiseError("Record format with length %u is not found for table %s",
-				   length, relation->rel_name.c_str());
+				   length, relation->getName().c_str());
 	}
 
 	return format;
@@ -1210,7 +1201,7 @@ void Applier::doInsert(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 						fb_assert(blob);
 						blob->blb_sub_type = desc.getBlobSubType();
 						blob->blb_charset = desc.getCharSet();
-						blobId->set_permanent(relation->rel_id, DPM_store_blob(tdbb, blob, relation, record));
+						blobId->set_permanent(relation->getId(), DPM_store_blob(tdbb, blob, relation, record));
 						current->bli_materialized = true;
 						current->bli_blob_id = *blobId;
 						transaction->tra_blobs->fastRemove();
@@ -1223,7 +1214,7 @@ void Applier::doInsert(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 					const ULONG num1 = blobId->bid_quad.bid_quad_high;
 					const ULONG num2 = blobId->bid_quad.bid_quad_low;
 					raiseError("Blob %u.%u is not found for table %s",
-							   num1, num2, relation->rel_name.c_str());
+							   num1, num2, relation->getName().c_str());
 				}
 			}
 		}
@@ -1305,7 +1296,7 @@ void Applier::doUpdate(thread_db* tdbb, record_param* orgRpb, record_param* newR
 							fb_assert(blob);
 							blob->blb_sub_type = desc.getBlobSubType();
 							blob->blb_charset = desc.getCharSet();
-							dstBlobId->set_permanent(relation->rel_id, DPM_store_blob(tdbb, blob, relation, newRecord));
+							dstBlobId->set_permanent(relation->getId(), DPM_store_blob(tdbb, blob, relation, newRecord));
 							current->bli_materialized = true;
 							current->bli_blob_id = *dstBlobId;
 							transaction->tra_blobs->fastRemove();
@@ -1318,7 +1309,7 @@ void Applier::doUpdate(thread_db* tdbb, record_param* orgRpb, record_param* newR
 						const ULONG num1 = dstBlobId->bid_quad.bid_quad_high;
 						const ULONG num2 = dstBlobId->bid_quad.bid_quad_low;
 						raiseError("Blob %u.%u is not found for table %s",
-								   num1, num2, relation->rel_name.c_str());
+								   num1, num2, relation->getName().c_str());
 					}
 				}
 			}

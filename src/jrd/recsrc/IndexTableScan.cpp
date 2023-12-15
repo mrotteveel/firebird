@@ -312,7 +312,7 @@ void IndexTableScan::print(thread_db* tdbb, string& plan, bool detailed, unsigne
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->rel_name.c_str(), m_alias) + " Access By ID";
+			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Access By ID";
 
 		printOptInfo(plan);
 		printInversion(tdbb, m_index, plan, true, level, true);

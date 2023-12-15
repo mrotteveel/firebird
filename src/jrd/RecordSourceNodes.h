@@ -416,10 +416,10 @@ public:
 public:
 	MetaName dsqlName;
 	Firebird::string alias;	// SQL alias for the relation
-	CachedResource<jrd_rel> relation;
+	Rsc::Rel relation;
 
 private:
-	CachedResource<jrd_rel> view;		// parent view for posting access
+	Rsc::Rel view;		// parent view for posting access
 
 public:
 	SSHORT context;			// user-specified context number for the relation reference
@@ -433,14 +433,11 @@ public:
 		: TypedNode<RecordSourceNode, RecordSourceNode::TYPE_PROCEDURE>(pool),
 		  dsqlName(pool, aDsqlName),
 		  alias(pool),
-		  procedure(NULL),
 		  sourceList(NULL),
 		  targetList(NULL),
 		  in_msg(NULL),
-		  view(NULL),
 		  procedureId(0),
-		  context(0),
-		  isSubRoutine(false)
+		  context(0)
 	{
 	}
 
@@ -508,17 +505,16 @@ public:
 			cache management policies yet, so I leave it for the other day.
 	***/
 
-	jrd_prc* procedure;
+	SubRoutine<jrd_prc> procedure;
 	NestConst<ValueListNode> sourceList;
 	NestConst<ValueListNode> targetList;
 
 private:
 	NestConst<MessageNode> in_msg;
 
-	jrd_rel* view;
+	Rsc::Rel view;
 	USHORT procedureId;
 	SSHORT context;
-	bool isSubRoutine;
 };
 
 class AggregateSourceNode final : public TypedNode<RecordSourceNode, RecordSourceNode::TYPE_AGGREGATE_SOURCE>
@@ -871,8 +867,8 @@ public:
 	virtual RecordSource* compile(thread_db* tdbb, Optimizer* opt, bool innerSubStream);
 
 private:
-	void planCheck(const CompilerScratch* csb) const;
-	static void planSet(CompilerScratch* csb, PlanNode* plan);
+	void planCheck(thread_db* tdbb, const CompilerScratch* csb) const;
+	static void planSet(thread_db* tdbb, CompilerScratch* csb, PlanNode* plan);
 
 public:
 	NestConst<ValueExprNode> dsqlFirst;

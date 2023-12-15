@@ -68,7 +68,7 @@ Function* Function::lookup(thread_db* tdbb, USHORT id, bool return_deleted, bool
 	Function* function = dbb->dbb_mdc->getFunction(tdbb, id, noscan);
 
 	if (function && function->getId() == id &&
-		!(function->flags & Routine::FLAG_CLEARED) &&
+//		!(function->flags & Routine::FLAG_CLEARED) &&
 		!(function->flags & Routine::FLAG_BEING_SCANNED) &&
 		((function->flags & Routine::FLAG_SCANNED) || noscan) &&
 		!(function->flags & Routine::FLAG_BEING_ALTERED) &&
@@ -80,7 +80,6 @@ Function* Function::lookup(thread_db* tdbb, USHORT id, bool return_deleted, bool
 		}
 
 		check_function = function;
-		check_function->sharedCheckLock(tdbb);
 	}
 
 	// We need to look up the function in RDB$FUNCTIONS
@@ -117,7 +116,7 @@ Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, bool nosc
 	// See if we already know the function by name
 
 	Function* function = dbb->dbb_mdc->lookupFunction(tdbb, name, noscan ? 0 : Routine::FLAG_SCANNED,
-		Routine::FLAG_OBSOLETE | Routine::FLAG_CLEARED | Routine::FLAG_BEING_SCANNED | Routine::FLAG_BEING_ALTERED);
+		Routine::FLAG_OBSOLETE | /*Routine::FLAG_CLEARED |*/ Routine::FLAG_BEING_SCANNED | Routine::FLAG_BEING_ALTERED);
 
 	if (function)
 	{
@@ -166,20 +165,39 @@ Function* Function::loadMetadata(thread_db* tdbb, USHORT id, bool noscan, USHORT
 	return nullptr;
 }
 
-Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+Lock* Function::getLock(MemoryPool& p, thread_db* tdbb)
+{
+	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_fun_exist, nullptr, blockingAst);
+}
+
+int Function::blockingAst(void* ast_object)
+{
+	RoutinePermanent* const routine = static_cast<RoutinePermanent*>(ast_object);
+
+	try
+	{
+		Database* const dbb = function->existenceLock->lck_dbb;
+
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION, function->existenceLock);
+
+		LCK_release(tdbb, function->existenceLock);
+		function->flags |= Routine::FLAG_OBSOLETE;
+	}
+	catch (const Firebird::Exception&)
+	{} // no-op
+
+	return 0;
+}
+
+Function* Function::create(thread_db* tdbb, MemoryPool& pool, MetaId id, CacheObject::Flag flags)
 {
 	Jrd::Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* sysTransaction = attachment->getSysTransaction();
 	Database* const dbb = tdbb->getDatabase();
 
-	Function* function = FB_NEW_POOL(*dbb->dbb_permanent) Function(*dbb->dbb_permanent, id);
-/*
-	if (!function->existenceLock)
-	{
-		function->existenceLock = FB_NEW_POOL(pool)
-			ExistenceLock(pool, tdbb, LCK_fun_exist, function->getId(), function.getPointer());
-	}
-*/
+	RoutinePermanent* perm = MetadataCache::lookupFunction(tdbb, id, flags && CacheFlag::NOSCAN);
+	fb_assert(perm);
+	Function* function = FB_NEW_POOL(pool) Function(perm);
 
 	try
 	{
@@ -191,15 +209,15 @@ Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 			X IN RDB$FUNCTIONS
 			WITH X.RDB$FUNCTION_ID EQ id
 		{
-			function->setName(QualifiedName(X.RDB$FUNCTION_NAME,
+			perm->setName(QualifiedName(X.RDB$FUNCTION_NAME,
 				(X.RDB$PACKAGE_NAME.NULL ? nullptr : X.RDB$PACKAGE_NAME)));
-			function->owner = X.RDB$OWNER_NAME;
+			perm->owner = X.RDB$OWNER_NAME;
 
 			Nullable<bool> ssDefiner;
 
 			if (!X.RDB$SECURITY_CLASS.NULL)
 			{
-				function->setSecurityName(X.RDB$SECURITY_CLASS);
+				perm->setSecurityName(X.RDB$SECURITY_CLASS);
 			}
 			else if (!X.RDB$PACKAGE_NAME.NULL)
 			{
@@ -211,7 +229,7 @@ Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 
 					if (!PKG.RDB$SECURITY_CLASS.NULL)
 					{
-						function->setSecurityName(PKG.RDB$SECURITY_CLASS);
+						perm->setSecurityName(PKG.RDB$SECURITY_CLASS);
 					}
 
 					// SQL SECURITY of function must be the same if it's defined in package
@@ -230,7 +248,7 @@ Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 			}
 
 			if (ssDefiner.orElse(false))
-				function->invoker = attachment->getUserId(function->owner);
+				function->invoker = attachment->getUserId(perm->owner);
 
 			size_t count = 0;
 			ULONG length = 0;
@@ -249,7 +267,7 @@ Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 					 Y.RDB$PACKAGE_NAME EQUIV NULLIF(function->getName().package.c_str(), '')
 				SORTED BY Y.RDB$ARGUMENT_POSITION
 			{
-				Parameter* parameter = FB_NEW_POOL(function->getPool()) Parameter(function->getPool());
+				Parameter* parameter = FB_NEW_POOL(pool) Parameter(pool);
 
 				if (Y.RDB$ARGUMENT_POSITION != X.RDB$RETURN_ARGUMENT)
 				{
@@ -452,10 +470,10 @@ Function* Function::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 			else
 			{
 				RefPtr<MsgMetadata> inputMetadata(REF_NO_INCR, createMetadata(function->getInputFields(), false));
-				function->setInputFormat(createFormat(function->getPool(), inputMetadata, false));
+				function->setInputFormat(createFormat(pool, inputMetadata, false));
 
 				RefPtr<MsgMetadata> outputMetadata(REF_NO_INCR, createMetadata(function->getOutputFields(), false));
-				function->setOutputFormat(createFormat(function->getPool(), outputMetadata, true));
+				function->setOutputFormat(createFormat(pool, outputMetadata, true));
 
 				function->setImplemented(false);
 			}

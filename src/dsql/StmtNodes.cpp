@@ -2696,7 +2696,7 @@ const StmtNode* EraseNode::erase(thread_db* tdbb, Request* request, WhichTrigger
 	preModifyEraseTriggers(tdbb, &relation->rel_pre_erase, whichTrig, rpb, NULL, TRIGGER_DELETE);
 
 	if (relation->rel_file)
-		EXT_erase(rpb, transaction);
+		rel_file->erase(rpb, transaction);
 	else if (relation->isVirtual())
 		VirtualTable::erase(tdbb, rpb);
 	else if (!relation->rel_view_rse)

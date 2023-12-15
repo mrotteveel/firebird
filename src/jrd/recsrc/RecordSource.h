@@ -361,7 +361,7 @@ namespace Jrd
 
 	public:
 		ProcedureScan(CompilerScratch* csb, const Firebird::string& alias, StreamType stream,
-					  const jrd_prc* procedure, const ValueListNode* sourceList,
+					  const SubRoutine<jrd_prc>& procedure, const ValueListNode* sourceList,
 					  const ValueListNode* targetList, MessageNode* message);
 
 		void close(thread_db* tdbb) const override;

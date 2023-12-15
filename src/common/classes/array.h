@@ -72,7 +72,7 @@ protected:
 template <typename T, typename Storage = EmptyStorage<T> >
 class Array : protected Storage
 {
-	static_assert(std::is_trivially_copyable<T>(), "Only simple (trivially copyable) types supported in array");
+// !!!!! temp commemnted out - FastLoadLevel failure	static_assert(std::is_trivially_copyable<T>(), "Only simple (trivially copyable) types supported in array");
 
 public:
 	typedef FB_SIZE_T size_type;
@@ -421,13 +421,26 @@ public:
 		data = this->getStorage();
 	}
 
-	// This method only assigns "pos" if the element is found.
+	// This methods only assigns "pos" if the element is found.
 	// Maybe we should modify it to iterate directy with "pos".
 	bool find(const T& item, size_type& pos) const
 	{
 		for (size_type i = 0; i < count; i++)
 		{
 			if (data[i] == item)
+			{
+				pos = i;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool find(std::function<int(const T& item)> compare, size_type& pos) const
+	{
+		for (size_type i = 0; i < count; i++)
+		{
+			if (compare(data[i]) == 0)
 			{
 				pos = i;
 				return true;

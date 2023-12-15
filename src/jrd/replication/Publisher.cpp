@@ -498,15 +498,15 @@ void REPL_store(thread_db* tdbb, const record_param* rpb, jrd_tra* transaction)
 	const auto relation = rpb->rpb_relation;
 	fb_assert(relation);
 
-	if (relation->isTemporary())
+	if (relation->rel_perm->isTemporary())
 		return;
 
-	if (!relation->isSystem())
+	if (!relation->rel_perm->isSystem())
 	{
 		if (!relation->isReplicating(tdbb))
 			return;
 
-		if (!matchTable(tdbb, relation->rel_name))
+		if (!matchTable(tdbb, relation->getName()))
 			return;
 	}
 
@@ -525,7 +525,7 @@ void REPL_store(thread_db* tdbb, const record_param* rpb, jrd_tra* transaction)
 	ReplicatedRecordImpl replRecord(tdbb, relation, record);
 
 	replicator->insertRecord(&status,
-							 relation->rel_name.c_str(),
+							 relation->getName().c_str(),
 							 &replRecord);
 
 	checkStatus(tdbb, status, transaction);
@@ -540,15 +540,15 @@ void REPL_modify(thread_db* tdbb, const record_param* orgRpb,
 	const auto relation = newRpb->rpb_relation;
 	fb_assert(relation);
 
-	if (relation->isTemporary())
+	if (relation->rel_perm->isTemporary())
 		return;
 
-	if (!relation->isSystem())
+	if (!relation->rel_perm->isSystem())
 	{
 		if (!relation->isReplicating(tdbb))
 			return;
 
-		if (!matchTable(tdbb, relation->rel_name))
+		if (!matchTable(tdbb, relation->getName()))
 			return;
 	}
 
@@ -583,7 +583,7 @@ void REPL_modify(thread_db* tdbb, const record_param* orgRpb,
 	ReplicatedRecordImpl replNewRecord(tdbb, relation, newRecord);
 
 	replicator->updateRecord(&status,
-							 relation->rel_name.c_str(),
+							 relation->getName().c_str(),
 							 &replOrgRecord, &replNewRecord);
 
 	checkStatus(tdbb, status, transaction);
@@ -598,15 +598,15 @@ void REPL_erase(thread_db* tdbb, const record_param* rpb, jrd_tra* transaction)
 	const auto relation = rpb->rpb_relation;
 	fb_assert(relation);
 
-	if (relation->isTemporary())
+	if (relation->rel_perm->isTemporary())
 		return;
 
-	if (!relation->isSystem())
+	if (!relation->rel_perm->isSystem())
 	{
 		if (!relation->isReplicating(tdbb))
 			return;
 
-		if (!matchTable(tdbb, relation->rel_name))
+		if (!matchTable(tdbb, relation->getName()))
 			return;
 	}
 
@@ -625,7 +625,7 @@ void REPL_erase(thread_db* tdbb, const record_param* rpb, jrd_tra* transaction)
 	ReplicatedRecordImpl replRecord(tdbb, relation, record);
 
 	replicator->deleteRecord(&status,
-							 relation->rel_name.c_str(),
+							 relation->getName().c_str(),
 							 &replRecord);
 
 	checkStatus(tdbb, status, transaction);

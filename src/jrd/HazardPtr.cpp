@@ -30,6 +30,9 @@
 
 #include "../jrd/HazardPtr.h"
 #include "../jrd/jrd.h"
+#include "../jrd/Database.h"
+#include "../jrd/tra.h"
+#include "../jrd/met.h"
 
 using namespace Jrd;
 using namespace Firebird;
@@ -38,6 +41,33 @@ HazardObject::~HazardObject()
 { }
 
 CacheObject* TRAP = nullptr;
+
+
+// class TransactionNumber
+
+TraNumber TransactionNumber::current(thread_db* tdbb)
+{
+	jrd_tra* tra = tdbb->getTransaction();
+	return tra ? tra->tra_number : 0;
+}
+
+TraNumber TransactionNumber::oldestActive(thread_db* tdbb)
+{
+	return tdbb->getDatabase()->dbb_oldest_active;
+}
+
+TraNumber TransactionNumber::next(thread_db* tdbb)
+{
+	return tdbb->getDatabase()->dbb_next_transaction;
+}
+
+
+// class VersionSupport
+
+MdcVersion VersionSupport::next(thread_db* tdbb)
+{
+	return tdbb->getDatabase()->dbb_mdc->nextVersion();
+}
 
 
 bool CacheObject::checkObject(thread_db*, Arg::StatusVector&)

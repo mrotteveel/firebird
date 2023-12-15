@@ -1022,8 +1022,8 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 			fb_assert(tail->csb_relation);
 
 			CMP_post_access(tdbb, csb, tail->csb_relation->rel_security_name,
-				tail->csb_view ? tail->csb_view->rel_id : 0,
-				SCL_update, obj_relations, tail->csb_relation->rel_name);
+				tail->csb_view ? tail->csb_view->getId() : 0,
+				SCL_update, obj_relations, tail->csb_relation->getName());
 		}
 
 		rsb = FB_NEW_POOL(getPool()) LockedStream(csb, rsb, rse->hasSkipLocked());
@@ -1076,7 +1076,7 @@ void Optimizer::compileRelation(StreamType stream)
 			tail->csb_idx = FB_NEW_POOL(getPool()) IndexDescList(getPool(), idxList);
 
 		if (tail->csb_plan)
-			markIndices(tail, relation->rel_id);
+			markIndices(tail, relation->getId());
 	}
 
 	const auto format = CMP_format(tdbb, csb, stream);
@@ -1656,7 +1656,7 @@ void Optimizer::checkIndices()
 				((idx.idx_runtime_flags & idx_plan_navigate) && !(idx.idx_runtime_flags & idx_navigate)))
 			{
 				if (relation)
-					MetadataCache::lookup_index(tdbb, index_name, relation->rel_name, (USHORT) (idx.idx_id + 1));
+					MetadataCache::lookup_index(tdbb, index_name, relation->getName(), (USHORT) (idx.idx_id + 1));
 				else
 					index_name = "";
 
@@ -2707,7 +2707,7 @@ RecordSource* Optimizer::generateRetrieval(StreamType stream,
 	else if (relation->isVirtual())
 	{
 		// Virtual table: monitoring or security
-		switch (relation->rel_id)
+		switch (relation->getId())
 		{
 		case rel_global_auth_mapping:
 			rsb = FB_NEW_POOL(getPool()) GlobalMappingScan(csb, alias, stream, relation);
@@ -2948,7 +2948,7 @@ string Optimizer::getStreamName(StreamType stream)
 	string name;
 
 	if (relation)
-		name = relation->rel_name.c_str();
+		name = relation->getName().c_str();
 	else if (procedure)
 		name = procedure->getName().toString();
 
@@ -2983,7 +2983,7 @@ string Optimizer::makeAlias(StreamType stream)
 			if (csb_tail->csb_alias)
 				alias_list.push(*csb_tail->csb_alias);
 			else if (csb_tail->csb_relation)
-				alias_list.push(csb_tail->csb_relation->rel_name.c_str());
+				alias_list.push(csb_tail->csb_relation->getName().c_str());
 
 			if (!csb_tail->csb_view)
 				break;
@@ -3000,7 +3000,7 @@ string Optimizer::makeAlias(StreamType stream)
 		}
 	}
 	else if (csb_tail->csb_relation)
-		alias = csb_tail->csb_relation->rel_name.c_str();
+		alias = csb_tail->csb_relation->getName().c_str();
 	else if (csb_tail->csb_procedure)
 		alias = csb_tail->csb_procedure->getName().toString();
 	//// TODO: LocalTableSourceNode

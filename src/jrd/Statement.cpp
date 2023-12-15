@@ -67,7 +67,6 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	  requests(*p),
 	  externalList(*p),
 	  accessList(*p),
-	  resources(*p, false),
 	  triggerName(*p),
 	  triggerInvoker(NULL),
 	  parentStatement(NULL),
@@ -76,7 +75,8 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	  localTables(*p),
 	  invariants(*p),
 	  blr(*p),
-	  mapFieldInfo(*p)
+	  mapFieldInfo(*p),
+	  resources(csb->csb_resources)
 {
 	try
 	{
@@ -94,8 +94,8 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 
 		mapFieldInfo.takeOwnership(csb->csb_map_field_info);
 
-		// Take out existence locks on resources used in statement.
-		resources.transferResources(tdbb, csb->csb_resources);
+		// versioned metadata support
+		loadResources(tdbb);
 
 		impureSize = csb->csb_impure;
 
@@ -120,6 +120,8 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		auto tail = csb->csb_rpt.begin();
 		const auto* const streams_end = tail + csb->csb_n_stream;
 
+		// Add more strems info (format, relation, procedure) to rpbsSetup
+		// in order to check format match when mdc version grows !!!!!!!!!!!!!!!!!!!!!!!!
 		for (auto rpb = rpbsSetup.begin(); tail < streams_end; ++rpb, ++tail)
 		{
 			// fetch input stream for update if all booleans matched against indices
@@ -155,6 +157,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		csb->outerMessagesMap.clear();
 		csb->outerVarsMap.clear();
 		csb->csb_rpt.free();
+		csb->csb_resources = nullptr;
 	}
 	catch (Exception&)
 	{
@@ -167,6 +170,34 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 
 		throw;
 	}
+}
+
+void Statement::loadResources(thread_db* tdbb)
+{
+	const MdcVersion currentMdcVersion = tdbb->getDatabase()->dbb_mdc->getVersion();
+	if ((!latestVersion) || (latestVersion->version != currentMdcVersion))
+	{
+		// Also check for changed streams from known sources
+		if (!streamsFormatCompare(tdbb))
+			ERR_post(Arg::Gds(isc_random) << "Statement format outdated, need to be reprepared");
+
+		// OK, format of data sources remained the same, we can update version of cached objects in current request
+		const FB_SIZE_T resourceCount = latestVersion ? latestVersion->getCapacity() :
+			resources->charSets.getCount() + resources->relations.getCount() + resources->procedures.getCount() +
+			resources->functions.getCount() + resources->triggers.getCount();
+
+		latestVersion = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
+		resources->transfer(tdbb, latestVersion);
+	}
+}
+
+void Resources::transfer(thread_db* tdbb, VersionedObjects* to)
+{
+	charSets.transfer(tdbb, to);
+	relations.transfer(tdbb, to);
+	procedures.transfer(tdbb, to);
+	functions.transfer(tdbb, to);
+	triggers.transfer(tdbb, to);
 }
 
 // Turn a parsed scratch into a statement.
@@ -188,8 +219,6 @@ Statement* Statement::makeStatement(thread_db* tdbb, CompilerScratch* csb, bool 
 	fb_assert(!"wrong pool in makeStatement");
 found:
 
-	Request* const old_request = tdbb->getRequest();
-	tdbb->setRequest(NULL);
 	const auto attachment = tdbb->getAttachment();
 
 	const auto old_request = tdbb->getRequest();
@@ -401,7 +430,7 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 	return clone;
 }
 
-Request* Statement::getRequest(thread_db* tdbb, USHORT level)
+Request* Statement::getRequest(thread_db* tdbb, USHORT level, bool systemRequest)
 {
 	SET_TDBB(tdbb);
 
@@ -409,21 +438,31 @@ Request* Statement::getRequest(thread_db* tdbb, USHORT level)
 	Database* const dbb = tdbb->getDatabase();
 	fb_assert(dbb);
 
-	if (level < requests.getCount() && requests[level])
-		return requests[level];
+	if (level >= requests.getCount() || !requests[level])
+	{
+		// Create the request.
+		AutoMemoryPool reqPool(MemoryPool::createPool(pool));
+		auto request = FB_NEW_POOL(*reqPool) Request(reqPool, attachment, this);
 
-//	MemoryStats* const parentStats = (flags & FLAG_INTERNAL) ?
-//		&dbb->dbb_memory_stats : &attachment->att_memory_stats;
+		{	// guard scope
+			MutexLockGuard guard(requestsGrow, FB_FUNCTION);
 
-	// Create the request.
-	const auto request = FB_NEW_POOL(*pool) Request(attachment, this, &dbb->dbb_memory_stats);
+			if (level >= requests.getCount() || !requests[level])
+			{
+				requests.grow(level + 1);
+				requests[level] = request;
+				request = nullptr;
+			}
+		}
 
-	if (level == 0)
-		pool->setStatsGroup(request->req_memory_stats);
+		if (request)
+			delete request;
+	}
 
-	requests.grow(level + 1);
-	requests[level] = request;
-
+	const auto request = requests[level];
+	if (!(systemRequest && request->resources))
+		loadResources(tdbb);
+	request->resources = latestVersion;
 	return request;
 }
 
@@ -442,7 +481,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 	for (ExternalAccess* item = external.begin(); item != external.end(); ++item)
 	{
-		HazardPtr<Routine> routine(tdbb);
+		Routine* routine = nullptr;
 		int aclType;
 
 		if (item->exa_action == ExternalAccess::exa_procedure)
@@ -479,24 +518,24 @@ void Statement::verifyAccess(thread_db* tdbb)
 			MetaName userName = item->user;
 			if (item->exa_view_id)
 			{
-				jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, item->exa_view_id, false);
-				if (view && (view->rel_flags & REL_sql_relation))
+				auto view = MetadataCache::lookupRelation(tdbb, item->exa_view_id);
+				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
 
 			switch (item->exa_action)
 			{
 				case ExternalAccess::exa_insert:
-					verifyTriggerAccess(tdbb, relation, relation->rel_pre_store, userName);
-					verifyTriggerAccess(tdbb, relation, relation->rel_post_store, userName);
+					verifyTriggerAccess(tdbb, relation, relation->rel_triggers[TRIGGER_PRE_STORE], userName);
+					verifyTriggerAccess(tdbb, relation, relation->rel_triggers[TRIGGER_POST_STORE], userName);
 					break;
 				case ExternalAccess::exa_update:
-					verifyTriggerAccess(tdbb, relation, relation->rel_pre_modify, userName);
-					verifyTriggerAccess(tdbb, relation, relation->rel_post_modify, userName);
+					verifyTriggerAccess(tdbb, relation, relation->rel_triggers[TRIGGER_PRE_MODIFY], userName);
+					verifyTriggerAccess(tdbb, relation, relation->rel_triggers[TRIGGER_POST_MODIFY], userName);
 					break;
 				case ExternalAccess::exa_delete:
-					verifyTriggerAccess(tdbb, relation, relation->rel_pre_erase, userName);
-					verifyTriggerAccess(tdbb, relation, relation->rel_post_erase, userName);
+					verifyTriggerAccess(tdbb, relation, relation->rel_triggers[TRIGGER_PRE_ERASE], userName);
+					verifyTriggerAccess(tdbb, relation, relation->rel_triggers[TRIGGER_POST_ERASE], userName);
 					break;
 				default:
 					fb_assert(false);
@@ -515,8 +554,8 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 			if (access.acc_ss_rel_id)
 			{
-				jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
-				if (view && (view->rel_flags & REL_sql_relation))
+				auto view = MetadataCache::lookupRelation(tdbb, access.acc_ss_rel_id);
+				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
 
@@ -583,8 +622,8 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 		if (access->acc_ss_rel_id)
 		{
-			jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
-			if (view && (view->rel_flags & REL_sql_relation))
+			auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id);
+			if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 				userName = view->rel_owner_name;
 		}
 
@@ -614,7 +653,7 @@ void Statement::release(thread_db* tdbb)
 
 	// Release existence locks on references.
 
-	resources.releaseResources(tdbb);
+	// resources.releaseResources(tdbb); !!!!!!!!!!!!!!! place to release 
 
 	for (Request** instance = requests.begin(); instance != requests.end(); ++instance)
 	{
@@ -630,8 +669,6 @@ void Statement::release(thread_db* tdbb)
 
 	if (attachment)
 	{
-		// !!!!!!!!!!!!!!!!  need to walk all attachments in database
-		// or change att_statements to dbb_statements
 		if (!attachment->att_statements.findAndRemove(this))
 			fb_assert(false);
 	}
@@ -659,19 +696,15 @@ string Statement::getPlan(thread_db* tdbb, bool detailed) const
 
 // Check that we have enough rights to access all resources this list of triggers touches.
 void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelation,
-	TrigVector* triggers, MetaName userName)
+	const Triggers& triggers, MetaName userName)
 {
 	if (!triggers)
 		return;
 
 	SET_TDBB(tdbb);
 
-	for (FB_SIZE_T i = 0; i < triggers->getCount(tdbb); i++)
+	for (auto t : triggers)
 	{
-		HazardPtr<Trigger> t(tdbb);
-		if (!triggers->load(tdbb, i, t))
-			continue;
-
 		t->compile(tdbb);
 		if (!t->statement)
 			continue;
@@ -691,12 +724,12 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 			if (!(ownerRelation->rel_flags & REL_system))
 			{
 				if (access->acc_type == obj_relations &&
-					(ownerRelation->rel_name == access->acc_name))
+					(ownerRelation->getName() == access->acc_name))
 				{
 					continue;
 				}
 				if (access->acc_type == obj_column &&
-					(ownerRelation->rel_name == access->acc_r_name))
+					(ownerRelation->getName() == access->acc_r_name))
 				{
 					continue;
 				}
@@ -705,8 +738,8 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 			// a direct access to an object from this trigger
 			if (access->acc_ss_rel_id)
 			{
-				jrd_rel* view = MetadataCache::lookup_relation_id(tdbb, access->acc_ss_rel_id, false);
-				if (view && (view->rel_flags & REL_sql_relation))
+				auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id);
+				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
 			else if (t->ssDefiner.specified && t->ssDefiner.value)
@@ -726,17 +759,13 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 
 // Invoke buildExternalAccess for triggers in vector
 inline void Statement::triggersExternalAccess(thread_db* tdbb, ExternalAccessList& list,
-	TrigVector* tvec, const MetaName& user)
+	const Triggers& tvec, const MetaName& user)
 {
 	if (!tvec)
 		return;
 
-	for (FB_SIZE_T i = 0; i < tvec->getCount(tdbb); i++)
+	for (auto t : tvec)
 	{
-		HazardPtr<Trigger> t(tdbb);
-		if (!tvec->load(tdbb, i, t))
-			continue;
-
 		t->compile(tdbb);
 		if (t->statement)
 		{
@@ -757,7 +786,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		// Add externals recursively
 		if (item->exa_action == ExternalAccess::exa_procedure)
 		{
-			HazardPtr<jrd_prc> procedure = MetadataCache::lookup_procedure_id(tdbb, item->exa_prc_id, false, false, 0);
+			auto procedure = MetadataCache::lookup_procedure_id(tdbb, item->exa_prc_id, false, false, 0);
 			if (procedure && procedure->getStatement())
 			{
 				item->user = procedure->invoker ? MetaName(procedure->invoker->getUserName()) : user;
@@ -769,7 +798,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else if (item->exa_action == ExternalAccess::exa_function)
 		{
-			Function* function = Function::lookup(tdbb, item->exa_fun_id, false, false, 0);
+			auto function = Function::lookup(tdbb, item->exa_fun_id, false, false, 0);
 			if (function && function->getStatement())
 			{
 				item->user = function->invoker ? MetaName(function->invoker->getUserName()) : user;
@@ -782,36 +811,35 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		else
 		{
 			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
-
 			if (!relation)
 				continue;
 
-			RefPtr<TrigVector> vec1, vec2;
-
+			Triggers *vec1, *vec2;
 			switch (item->exa_action)
 			{
 				case ExternalAccess::exa_insert:
-					vec1 = relation->rel_pre_store;
-					vec2 = relation->rel_post_store;
+					vec1 = &relation->rel_triggers[TRIGGER_PRE_STORE];
+					vec2 = &relation->rel_triggers[TRIGGER_POST_STORE];
 					break;
 				case ExternalAccess::exa_update:
-					vec1 = relation->rel_pre_modify;
-					vec2 = relation->rel_post_modify;
+					vec1 = &relation->rel_triggers[TRIGGER_PRE_MODIFY];
+					vec2 = &relation->rel_triggers[TRIGGER_POST_MODIFY];
 					break;
 				case ExternalAccess::exa_delete:
-					vec1 = relation->rel_pre_erase;
-					vec2 = relation->rel_post_erase;
+					vec1 = &relation->rel_triggers[TRIGGER_PRE_ERASE];
+					vec2 = &relation->rel_triggers[TRIGGER_POST_ERASE];
 					break;
 				default:
+					fb_assert(false);
 					continue; // should never happen, silence the compiler
 			}
 
-			item->user = relation->rel_ss_definer.orElse(false) ? relation->rel_owner_name : user;
+			item->user = relation->rel_ss_definer.orElse(false) ? relation->rel_perm->rel_owner_name : user;
 			if (list.find(*item, i))
 				continue;
 			list.insert(i, *item);
-			triggersExternalAccess(tdbb, list, vec1, item->user);
-			triggersExternalAccess(tdbb, list, vec2, item->user);
+			triggersExternalAccess(tdbb, list, *vec1, item->user);
+			triggersExternalAccess(tdbb, list, *vec2, item->user);
 		}
 	}
 }
@@ -859,32 +887,6 @@ template <typename T> static void makeSubRoutines(thread_db* tdbb, Statement* st
 	}
 }
 
-
-Request::Request(Attachment* attachment, /*const*/ Statement* aStatement,
-		Firebird::MemoryStats* parent_stats)
-	: statement(aStatement),
-	  req_pool(statement->pool),
-	  req_memory_stats(parent_stats),
-	  req_blobs(req_pool),
-	  req_stats(*req_pool),
-	  req_base_stats(*req_pool),
-	  req_ext_stmt(NULL),
-	  req_cursors(*req_pool),
-	  req_ext_resultset(NULL),
-	  req_timeout(0),
-	  req_domain_validation(NULL),
-	  req_sorts(*req_pool),
-	  req_rpb(*req_pool),
-	  impureArea(*req_pool),
-	  req_auto_trans(*req_pool)
-{
-	fb_assert(statement);
-	setAttachment(attachment);
-	req_rpb = statement->rpbsSetup;
-	impureArea.grow(statement->impureSize);
-}
-
-
 bool Request::hasInternalStatement() const
 {
 	return statement->flags & Statement::FLAG_INTERNAL;
@@ -911,33 +913,6 @@ StmtNumber Request::getRequestId() const
 
 	return req_id;
 }
-
-Request::Request(Firebird::AutoMemoryPool& pool, Attachment* attachment, /*const*/ Statement* aStatement)
-	: statement(aStatement),
-	  req_pool(pool),
-	  req_memory_stats(&aStatement->pool->getStatsGroup()),
-	  req_blobs(req_pool),
-	  req_stats(*req_pool),
-	  req_base_stats(*req_pool),
-	  req_ext_stmt(NULL),
-	  req_cursors(*req_pool),
-	  req_ext_resultset(NULL),
-	  req_timeout(0),
-	  req_domain_validation(NULL),
-	  req_auto_trans(*req_pool),
-	  req_sorts(*req_pool),
-	  req_rpb(*req_pool),
-	  impureArea(*req_pool)
-{
-	fb_assert(statement);
-	setAttachment(attachment);
-	req_rpb = statement->rpbsSetup;
-	impureArea.grow(statement->impureSize);
-
-	pool->setStatsGroup(req_memory_stats);
-	pool.release();
-}
-
 
 #ifdef DEV_BUILD
 

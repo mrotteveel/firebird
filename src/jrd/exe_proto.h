@@ -52,7 +52,7 @@ bool EXE_get_stack_trace(const Jrd::Request* request, Firebird::string& sTrace);
 const Jrd::StmtNode* EXE_looper(Jrd::thread_db* tdbb, Jrd::Request* request,
 	const Jrd::StmtNode* in_node);
 
-void EXE_execute_triggers(Jrd::thread_db*, Jrd::TrigVectorPtr*, Jrd::record_param*, Jrd::record_param*,
+void EXE_execute_triggers(Jrd::thread_db*, const Jrd::Triggers&, Jrd::record_param*, Jrd::record_param*,
 	enum TriggerAction, Jrd::StmtNode::WhichTrigger);
 
 void EXE_receive(Jrd::thread_db*, Jrd::Request*, USHORT, ULONG, void*, bool = false);

@@ -32,13 +32,13 @@ using namespace Firebird;
 RecordBuffer* KeywordsTable::getRecords(thread_db* tdbb, jrd_rel* relation)
 {
 	fb_assert(relation);
-	fb_assert(relation->rel_id == rel_keywords);
+	fb_assert(relation->getId() == rel_keywords);
 
 	auto recordBuffer = getData(relation);
 	if (recordBuffer)
 		return recordBuffer;
 
-	recordBuffer = allocBuffer(tdbb, *tdbb->getDefaultPool(), relation->rel_id);
+	recordBuffer = allocBuffer(tdbb, *tdbb->getDefaultPool(), relation->getId());
 
 	const auto record = recordBuffer->getTempRecord();
 

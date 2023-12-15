@@ -25,6 +25,8 @@
 #ifndef JRD_ATTACHMENT_H
 #define JRD_ATTACHMENT_H
 
+#define DEBUG_LCK_LIST
+
 #include "firebird.h"
 // Definition of block types for data allocation in JRD
 #include "../include/fb_blk.h"
@@ -51,7 +53,6 @@
 
 #include <atomic>
 
-#define DEBUG_LCK_LIST
 
 namespace EDS {
 	class Connection;
@@ -91,7 +92,7 @@ namespace Jrd
 	class jrd_rel;
 	class jrd_prc;
 	class Trigger;
-	class TrigVector;
+	class Triggers;
 	class Function;
 	class Statement;
 	class ProfilerManager;

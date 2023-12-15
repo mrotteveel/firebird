@@ -1663,7 +1663,7 @@ RecordBuffer* MappingList::makeBuffer(thread_db* tdbb)
 RecordBuffer* MappingList::getList(thread_db* tdbb, jrd_rel* relation)
 {
 	fb_assert(relation);
-	fb_assert(relation->rel_id == rel_global_auth_mapping);
+	fb_assert(relation->getId() == rel_global_auth_mapping);
 
 	RecordBuffer* buffer = getData(relation);
 	if (buffer)

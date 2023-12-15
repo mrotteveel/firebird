@@ -81,7 +81,7 @@ Lock* RLCK_reserve_relation(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rela
 				!(tdbb->tdbb_flags & TDBB_repl_in_progress))
 			{
 				// This condition is a workaround for nbackup
-				if (relation->rel_id != rel_backup_history)
+				if (relation->getId() != rel_backup_history)
 					ERR_post(Arg::Gds(isc_read_only_trans));
 			}
 		}
@@ -123,7 +123,7 @@ Lock* RLCK_reserve_relation(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rela
 	if (!result)
 	{
 		string err;
-		err.printf("Acquire lock for relation (%s) failed", relation->rel_name.c_str());
+		err.printf("Acquire lock for relation (%s) failed", relation->getName().c_str());
 
 		ERR_append_status(tdbb->tdbb_status_vector, Arg::Gds(isc_random) << Arg::Str(err));
 		ERR_punt();
@@ -148,7 +148,7 @@ Lock* RLCK_transaction_relation_lock(thread_db* tdbb, jrd_tra* transaction, jrd_
  **************************************/
 	SET_TDBB(tdbb);
 
-	const ULONG relId = relation->rel_id;
+	const ULONG relId = relation->getId();
 
 	Lock* lock;
 	vec<Lock*>* vector = transaction->tra_relation_locks;

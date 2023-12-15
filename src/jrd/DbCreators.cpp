@@ -278,7 +278,7 @@ RecordBuffer* DbCreatorsList::makeBuffer(thread_db* tdbb)
 RecordBuffer* DbCreatorsList::getList(thread_db* tdbb, jrd_rel* relation)
 {
 	fb_assert(relation);
-	fb_assert(relation->rel_id == rel_sec_db_creators);
+	fb_assert(relation->getId() == rel_sec_db_creators);
 
 	RecordBuffer* buffer = getData(relation);
 	if (buffer)

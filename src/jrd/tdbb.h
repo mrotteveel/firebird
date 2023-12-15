@@ -1,0 +1,511 @@
+/*
+ *      PROGRAM:        JRD access method
+ *      MODULE:         tdbb.h
+ *      DESCRIPTION:    Thread specific database block
+ *
+ * The contents of this file are subject to the Interbase Public
+ * License Version 1.0 (the "License"); you may not use this file
+ * except in compliance with the License. You may obtain a copy
+ * of the License at http://www.Inprise.com/IPL.html
+ *
+ * Software distributed under the License is distributed on an
+ * "AS IS" basis, WITHOUT WARRANTY OF ANY KIND, either express
+ * or implied. See the License for the specific language governing
+ * rights and limitations under the License.
+ *
+ * The Original Code was created by Inprise Corporation
+ * and its predecessors. Portions created by Inprise Corporation are
+ * Copyright (C) Inprise Corporation.
+ *
+ * All Rights Reserved.
+ * Contributor(s): ______________________________________.
+ *
+ * 2002.10.28 Sean Leyne - Code cleanup, removed obsolete "DecOSF" port
+ *
+ * 2002.10.29 Sean Leyne - Removed obsolete "Netware" port
+ * Claudio Valderrama C.
+ * Adriano dos Santos Fernandes
+ *
+ */
+
+#ifndef JRD_TDBB_H
+#define JRD_TDBB_H
+
+#include <cds/threading/model.h>	// cds::threading::Manager
+
+#include "../common/gdsassert.h"
+
+#include "../common/classes/Synchronize.h"
+
+#include "../jrd/RuntimeStatistics.h"
+#include "../jrd/status.h"
+#include "../jrd/err_proto.h"
+
+#define BUGCHECK(number) ERR_bugcheck(number, __FILE__, __LINE__)
+
+
+namespace Firebird {
+
+class MemoryPool;
+
+}
+
+
+namespace Jrd
+{
+
+class Database;
+class Attachment;
+class jrd_tra;
+class Request;
+class BufferDesc;
+class Lock;
+
+class NullClass
+{
+public:
+	NullClass(MemoryPool&, MetaId, Lock*) { }
+	NullClass() { }
+};
+template <class OBJ, class EXT> class CacheElement;
+
+#ifdef USE_ITIMER
+class TimeoutTimer final :
+	public Firebird::RefCntIface<Firebird::ITimerImpl<TimeoutTimer, Firebird::CheckStatusWrapper> >
+{
+public:
+	explicit TimeoutTimer()
+		: m_started(0),
+		  m_expired(false),
+		  m_value(0),
+		  m_error(0)
+	{ }
+
+	// ITimer implementation
+	void handler();
+
+	bool expired() const
+	{
+		return m_expired;
+	}
+
+	unsigned int getValue() const
+	{
+		return m_value;
+	}
+
+	unsigned int getErrCode() const
+	{
+		return m_error;
+	}
+
+	// milliseconds left before timer expiration
+	unsigned int timeToExpire() const;
+
+	// evaluate expire timestamp using start timestamp
+	bool getExpireTimestamp(const ISC_TIMESTAMP_TZ start, ISC_TIMESTAMP_TZ& exp) const;
+
+	// set timeout value in milliseconds and secondary error code
+	void setup(unsigned int value, ISC_STATUS error)
+	{
+		m_value = value;
+		m_error = error;
+	}
+
+	void start();
+	void stop();
+
+private:
+	SINT64 m_started;
+	bool m_expired;
+	unsigned int m_value;	// milliseconds
+	ISC_STATUS m_error;
+};
+#else
+class TimeoutTimer : public Firebird::RefCounted
+{
+public:
+	explicit TimeoutTimer()
+		: m_start(0),
+		  m_value(0),
+		  m_error(0)
+	{ }
+
+	bool expired() const;
+
+	unsigned int getValue() const
+	{
+		return m_value;
+	}
+
+	unsigned int getErrCode() const
+	{
+		return m_error;
+	}
+
+	// milliseconds left before timer expiration
+	unsigned int timeToExpire() const;
+
+	// clock value when timer will expire
+	bool getExpireClock(SINT64& clock) const;
+
+	// set timeout value in milliseconds and secondary error code
+	void setup(unsigned int value, ISC_STATUS error)
+	{
+		m_start = 0;
+		m_value = value;
+		m_error = error;
+	}
+
+	void start();
+	void stop();
+
+private:
+	SINT64 currTime() const
+	{
+		return fb_utils::query_performance_counter() * 1000 / fb_utils::query_performance_frequency();
+	}
+
+	SINT64 m_start;
+	unsigned int m_value;	// milliseconds
+	ISC_STATUS m_error;
+};
+#endif // USE_ITIMER
+
+
+// tdbb_flags
+
+const ULONG TDBB_sweeper				= 1;		// Thread sweeper or garbage collector
+const ULONG TDBB_no_cache_unwind		= 2;		// Don't unwind page buffer cache
+const ULONG TDBB_backup_write_locked	= 4;    	// BackupManager has write lock on LCK_backup_database
+const ULONG TDBB_stack_trace_done		= 8;		// PSQL stack trace is added into status-vector
+const ULONG TDBB_dont_post_dfw			= 16;		// dont post DFW tasks as deferred work is performed now
+const ULONG TDBB_sys_error				= 32;		// error shouldn't be handled by the looper
+const ULONG TDBB_verb_cleanup			= 64;		// verb cleanup is in progress
+const ULONG TDBB_use_db_page_space		= 128;		// use database (not temporary) page space in GTT operations
+const ULONG TDBB_detaching				= 256;		// detach is in progress
+const ULONG TDBB_wait_cancel_disable	= 512;		// don't cancel current waiting operation
+const ULONG TDBB_cache_unwound			= 1024;		// page cache was unwound
+const ULONG TDBB_reset_stack			= 2048;		// stack should be reset after stack overflow exception
+const ULONG TDBB_dfw_cleanup			= 4096;		// DFW cleanup phase is active
+const ULONG TDBB_repl_in_progress		= 8192;		// Prevent recursion in replication
+const ULONG TDBB_replicator				= 16384;	// Replicator
+
+class thread_db : public Firebird::ThreadData
+{
+	const static int QUANTUM		= 100;	// Default quantum
+	const static int SWEEP_QUANTUM	= 10;	// Make sweeps less disruptive
+
+private:
+	MemoryPool*	defaultPool;
+	void setDefaultPool(MemoryPool* p)
+	{
+		defaultPool = p;
+	}
+	friend class Firebird::SubsystemContextPoolHolder <Jrd::thread_db, MemoryPool>;
+	Database*	database;
+	Attachment*	attachment;
+	jrd_tra*	transaction;
+	Request*	request;
+	RuntimeStatistics *reqStat, *traStat, *attStat, *dbbStat;
+
+public:
+	explicit thread_db(FbStatusVector* status)
+		: ThreadData(ThreadData::tddDBB),
+		  defaultPool(NULL),
+		  database(NULL),
+		  attachment(NULL),
+		  transaction(NULL),
+		  request(NULL),
+		  tdbb_status_vector(status),
+		  tdbb_quantum(QUANTUM),
+		  tdbb_flags(0),
+		  tdbb_temp_traid(0),
+		  tdbb_bdbs(*getDefaultMemoryPool()),
+		  tdbb_thread(Firebird::ThreadSync::getThread("thread_db"))
+	{
+		reqStat = traStat = attStat = dbbStat = RuntimeStatistics::getDummy();
+		fb_utils::init_status(tdbb_status_vector);
+	}
+
+	~thread_db()
+	{
+		resetStack();
+
+#ifdef DEV_BUILD
+		for (FB_SIZE_T n = 0; n < tdbb_bdbs.getCount(); ++n)
+		{
+			fb_assert(tdbb_bdbs[n] == NULL);
+		}
+#endif
+	}
+
+	FbStatusVector*	tdbb_status_vector;
+	SLONG		tdbb_quantum;		// Cycles remaining until voluntary schedule
+	ULONG		tdbb_flags;
+
+	TraNumber	tdbb_temp_traid;	// current temporary table scope
+
+	// BDB's held by thread
+	Firebird::HalfStaticArray<BufferDesc*, 16> tdbb_bdbs;
+	Firebird::ThreadSync* tdbb_thread;
+
+	MemoryPool* getDefaultPool()
+	{
+		return defaultPool;
+	}
+
+	Database* getDatabase()
+	{
+		return database;
+	}
+
+	const Database* getDatabase() const
+	{
+		return database;
+	}
+
+	void setDatabase(Database* val);
+
+	Attachment* getAttachment()
+	{
+		return attachment;
+	}
+
+	const Attachment* getAttachment() const
+	{
+		return attachment;
+	}
+
+	void setAttachment(Attachment* val);
+
+	jrd_tra* getTransaction()
+	{
+		return transaction;
+	}
+
+	const jrd_tra* getTransaction() const
+	{
+		return transaction;
+	}
+
+	void setTransaction(jrd_tra* val);
+
+	Request* getRequest()
+	{
+		return request;
+	}
+
+	const Request* getRequest() const
+	{
+		return request;
+	}
+
+	void setRequest(Request* val);
+
+	SSHORT getCharSet() const;
+
+	void markAsSweeper()
+	{
+		tdbb_quantum = SWEEP_QUANTUM;
+		tdbb_flags |= TDBB_sweeper;
+	}
+
+	void bumpStats(const RuntimeStatistics::StatType index, SINT64 delta = 1)
+	{
+		reqStat->bumpValue(index, delta);
+		traStat->bumpValue(index, delta);
+		attStat->bumpValue(index, delta);
+		dbbStat->bumpValue(index, delta);
+	}
+
+	void bumpRelStats(const RuntimeStatistics::StatType index, SLONG relation_id, SINT64 delta = 1)
+	{
+		// We don't bump counters for dbbStat here, they're merged from attStats on demand
+
+		reqStat->bumpValue(index, delta);
+		traStat->bumpValue(index, delta);
+		attStat->bumpValue(index, delta);
+
+		const RuntimeStatistics* const dummyStat = RuntimeStatistics::getDummy();
+
+		// We expect that at least attStat is present (not a dummy object)
+
+		fb_assert(attStat != dummyStat);
+
+		// Relation statistics is a quite complex beast, so a conditional check
+		// does not hurt. It also allows to avoid races while accessing the static
+		// dummy object concurrently.
+
+		if (reqStat != dummyStat)
+			reqStat->bumpRelValue(index, relation_id, delta);
+
+		if (traStat != dummyStat)
+			traStat->bumpRelValue(index, relation_id, delta);
+
+		if (attStat != dummyStat)
+			attStat->bumpRelValue(index, relation_id, delta);
+	}
+
+	ISC_STATUS getCancelState(ISC_STATUS* secondary = NULL);
+	void checkCancelState();
+	void reschedule();
+	const TimeoutTimer* getTimeoutTimer() const
+	{
+		return tdbb_reqTimer;
+	}
+
+	// Returns minimum of passed wait timeout and time to expiration of reqTimer.
+	// Timer value is rounded to the upper whole second.
+	ULONG adjustWait(ULONG wait) const;
+
+	void registerBdb(BufferDesc* bdb)
+	{
+		if (tdbb_bdbs.isEmpty()) {
+			tdbb_flags &= ~TDBB_cache_unwound;
+		}
+		fb_assert(!(tdbb_flags & TDBB_cache_unwound));
+
+		FB_SIZE_T pos;
+		if (tdbb_bdbs.find(NULL, pos))
+			tdbb_bdbs[pos] = bdb;
+		else
+			tdbb_bdbs.add(bdb);
+	}
+
+	bool clearBdb(BufferDesc* bdb)
+	{
+		if (tdbb_bdbs.isEmpty())
+		{
+			// hvlad: the only legal case when thread holds no latches but someone
+			// tried to release latch is when CCH_unwind was called (and released
+			// all latches) but caller is unaware about it. See CORE-3034, for example.
+			// Else it is bug and should be BUGCHECK'ed.
+
+			if (tdbb_flags & TDBB_cache_unwound)
+				return false;
+		}
+		fb_assert(!(tdbb_flags & TDBB_cache_unwound));
+
+		FB_SIZE_T pos;
+		if (!tdbb_bdbs.find(bdb, pos))
+			BUGCHECK(300);	// can't find shared latch
+
+		tdbb_bdbs[pos] = NULL;
+
+		if (pos == tdbb_bdbs.getCount() - 1)
+		{
+			while (true)
+			{
+				if (tdbb_bdbs[pos] != NULL)
+				{
+					tdbb_bdbs.shrink(pos + 1);
+					break;
+				}
+
+				if (pos == 0)
+				{
+					tdbb_bdbs.shrink(0);
+					break;
+				}
+
+				--pos;
+			}
+		}
+
+		return true;
+	}
+
+	void resetStack()
+	{
+		if (tdbb_flags & TDBB_reset_stack)
+		{
+			tdbb_flags &= ~TDBB_reset_stack;
+#ifdef WIN_NT
+			_resetstkoflw();
+#endif
+		}
+	}
+
+	class TimerGuard
+	{
+	public:
+		TimerGuard(thread_db* tdbb, TimeoutTimer* timer, bool autoStop)
+			: m_tdbb(tdbb),
+			  m_autoStop(autoStop && timer),
+			  m_saveTimer(tdbb->tdbb_reqTimer)
+		{
+			m_tdbb->tdbb_reqTimer = timer;
+			if (timer && timer->expired())
+				m_tdbb->tdbb_quantum = 0;
+		}
+
+		~TimerGuard()
+		{
+			if (m_autoStop)
+				m_tdbb->tdbb_reqTimer->stop();
+
+			m_tdbb->tdbb_reqTimer = m_saveTimer;
+		}
+
+	private:
+		thread_db* m_tdbb;
+		bool m_autoStop;
+		Firebird::RefPtr<TimeoutTimer> m_saveTimer;
+	};
+
+private:
+	Firebird::RefPtr<TimeoutTimer> tdbb_reqTimer;
+
+};
+
+class ThreadContextHolder
+{
+public:
+	explicit ThreadContextHolder(Firebird::CheckStatusWrapper* status = NULL)
+		: context(status ? status : &localStatus)
+	{
+		context.putSpecific();
+
+		if (!cds::threading::Manager::isThreadAttached())
+			cds::threading::Manager::attachThread();
+	}
+
+	ThreadContextHolder(Database* dbb, Jrd::Attachment* att, FbStatusVector* status = NULL)
+		: context(status ? status : &localStatus)
+	{
+		context.putSpecific();
+		context.setDatabase(dbb);
+		context.setAttachment(att);
+
+		if (!cds::threading::Manager::isThreadAttached())
+			cds::threading::Manager::attachThread();
+	}
+
+	~ThreadContextHolder()
+	{
+		Firebird::ThreadData::restoreSpecific();
+	}
+
+	thread_db* operator->()
+	{
+		return &context;
+	}
+
+	operator thread_db*()
+	{
+		return &context;
+	}
+
+private:
+	// copying is prohibited
+	ThreadContextHolder(const ThreadContextHolder&);
+	ThreadContextHolder& operator= (const ThreadContextHolder&);
+
+	Firebird::FbLocalStatus localStatus;
+	thread_db context;
+};
+
+} // namespace Jrd
+
+#endif // JRD_TDBB_H

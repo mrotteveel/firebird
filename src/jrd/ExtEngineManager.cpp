@@ -910,7 +910,7 @@ void ExtEngineManager::Trigger::execute(thread_db* tdbb, Request* request, unsig
 	EngineAttachmentInfo* attInfo = extManager->getEngineAttachment(tdbb, engine);
 	const Nullable<bool>& ssDefiner = trg->ssDefiner.specified ? trg->ssDefiner :
 		(trg->relation && trg->relation->rel_ss_definer.specified ? trg->relation->rel_ss_definer : Nullable<bool>() );
-	const MetaString& userName = ssDefiner.specified && ssDefiner.value ? trg->relation->rel_owner_name.c_str() : "";
+	const MetaString& userName = ssDefiner.specified && ssDefiner.value ? trg->relation->rel_perm->rel_owner_name.c_str() : "";
 	ContextManager<IExternalTrigger> ctxManager(tdbb, attInfo, trigger,
 		CallerName(obj_trigger, trg->name, userName));
 
@@ -1598,7 +1598,7 @@ void ExtEngineManager::makeTrigger(thread_db* tdbb, CompilerScratch* csb, Jrd::T
 
 	if (relation)
 	{
-		metadata->triggerTable = relation->rel_name;
+		metadata->triggerTable = relation->getName();
 
 		MsgMetadata* fieldsMsg = FB_NEW MsgMetadata;
 		metadata->triggerFields = fieldsMsg;

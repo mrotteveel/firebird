@@ -35,6 +35,20 @@ using namespace Firebird;
 
 namespace Jrd {
 
+RoutinePermanent::RoutinePermanent(MemoryPool& p, MetaId metaId, Lock* existence)
+	: PermanentStorage(p),
+	  id(metaId),
+	  name(p),
+	  securityName(p),
+	  subRoutine(false),
+	  flags(0),
+	  alterCount(0),
+	  existenceLock(existence)
+{
+	existenceLock->setKey(metaId);
+	existenceLock->lck_object = this;
+}
+
 
 // Create a MsgMetadata from a parameters array.
 MsgMetadata* Routine::createMetadata(const Array<NestConst<Parameter> >& parameters, bool isExtern)
@@ -258,51 +272,6 @@ void Routine::parseMessages(thread_db* tdbb, CompilerScratch* csb, BlrReader blr
 	}
 }
 
-// Decrement the routine's use count.
-void Routine::afterDecrement(thread_db* tdbb)
-{
-	// intUseCount != 0 if and only if we are cleaning cache
-
-	if (intUseCount > 0)
-		intUseCount--;
-}
-
-
-void Routine::afterUnlock(thread_db* tdbb, unsigned fl)
-{
-	flags |= Routine::FLAG_OBSOLETE;
-
-	// Call recursively if and only if the use count is zero AND the routine
-	// in the cache is different than this routine.
-	// The routine will be different than in the cache only if it is a
-	// floating copy, i.e. an old copy or a deleted routine.
-	if (!(fl & ExistenceLock::inCache))
-	{
-		if (getStatement())
-			releaseStatement(tdbb);
-
-		flags &= ~Routine::FLAG_BEING_ALTERED;
-		//remove(tdbb);
-	}
-}
-
-int Routine::getUseCount() const
-{
-	return existenceLock.hasData() ? existenceLock->getUseCount() : 1;
-}
-
-void Routine::sharedCheckLock(thread_db* tdbb)
-{
-	if (existenceLock->inc(tdbb) != Resource::State::Locked)
-		existenceLock->enter245(tdbb);
-}
-
-void Routine::sharedCheckUnlock(thread_db* tdbb)
-{
-	existenceLock->dec(tdbb);
-	existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
-}
-
 void Routine::releaseStatement(thread_db* tdbb)
 {
 	if (getStatement())
@@ -362,51 +331,8 @@ bool jrd_prc::checkCache(thread_db* tdbb) const
 
 void Routine::releaseLocks(thread_db* tdbb)
 {
-	if (existenceLock)
-	{
-		existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
-		flags |= Routine::FLAG_CHECK_EXISTENCE;
-	}
+	if (permanent->existenceLock)
+		LCK_release(tdbb, permanent->existenceLock);
 }
-
-
-
-void Routine::adjust_dependencies()
-{
-	if (intUseCount == -1)
-	{
-		// Already processed
-		return;
-	}
-
-	intUseCount = -1; // Mark as undeletable
-
-	if (getStatement())
-	{
-		// Loop over procedures from resource list of request
-		for (auto resource : getStatement()->resources.getObjects(Resource::rsc_procedure))
-		{
-			auto routine = resource->rsc_routine;
-
-			if (routine->intUseCount == routine->getUseCount())
-			{
-				// Mark it and all dependent procedures as undeletable
-				routine->adjust_dependencies();
-			}
-		}
-
-		for (auto resource : getStatement()->resources.getObjects(Resource::rsc_function))
-		{
-			auto routine = resource->rsc_routine;
-
-			if (routine->intUseCount == routine->getUseCount())
-			{
-				// Mark it and all dependent functions as undeletable
-				routine->adjust_dependencies();
-			}
-		}
-	}
-}
-
 
 }	// namespace Jrd

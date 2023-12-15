@@ -724,7 +724,7 @@ int CVT2_blob_compare(const dsc* arg1, const dsc* arg2, DecimalStatus decSt)
 	else
 		ttype1 = ttype_binary;
 
-	HazardPtr<TextType> obj1 = INTL_texttype_lookup(tdbb, ttype1);
+	TextType* obj1 = INTL_texttype_lookup(tdbb, ttype1);
 	ttype1 = obj1->getType();
 
 	// Is arg2 a blob?
@@ -747,7 +747,7 @@ int CVT2_blob_compare(const dsc* arg1, const dsc* arg2, DecimalStatus decSt)
 		else
 			ttype2 = ttype_binary;
 
-		HazardPtr<TextType> obj2 = INTL_texttype_lookup(tdbb, ttype2);
+		TextType* obj2 = INTL_texttype_lookup(tdbb, ttype2);
 		ttype2 = obj2->getType();
 
 		if (ttype1 == ttype_binary || ttype2 == ttype_binary)

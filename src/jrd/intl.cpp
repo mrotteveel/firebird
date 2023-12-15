@@ -93,6 +93,7 @@
 #include "firebird.h"
 #include <string.h>
 #include <stdio.h>
+#include "../jrd/CharSetContainer.h"
 #include "../jrd/jrd.h"
 #include "../jrd/req.h"
 #include "../jrd/val.h"
@@ -139,7 +140,7 @@ static void lookup_texttype(texttype* tt, const SubtypeInfo* info);
 static GlobalPtr<Mutex> createCollationMtx;
 
 // Classes and structures used internally to this file and intl implementation
-HazardPtr<CharSetContainer> CharSetContainer::lookupCharset(thread_db* tdbb, USHORT ttype)
+CharSetContainer* CharSetContainer::lookupCharset(thread_db* tdbb, USHORT ttype)
 {
 /**************************************
  *
@@ -173,18 +174,19 @@ HazardPtr<CharSetContainer> CharSetContainer::lookupCharset(thread_db* tdbb, USH
 }
 
 
-CharSetContainer* CharSetContainer::create(thread_db* tdbb, MetaId id)
+CharSetContainer* CharSetContainer::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 {
 	SubtypeInfo info;
 
 	if (lookupInternalCharSet(id, &info) || MET_get_char_coll_subtype_info(tdbb, id, &info))
 	{
+		Database* dbb = tdbb->getDatabase();
 		CharSetContainer* csc = FB_NEW_POOL(*dbb->dbb_permanent) CharSetContainer(*dbb->dbb_permanent, id, &info);
-		dbb->dbb_mdc->setCharSet(tdbb, id, csc);
-		cs = dbb->dbb_mdc->getCharSet(tdbb, id);
+		dbb->dbb_mdc->makeCharSet(tdbb, id, csc);
+		return dbb->dbb_mdc->getCharSet(tdbb, id);
 	}
 	else
-		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(ttype));
+		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(id));
 }
 
 
@@ -256,7 +258,7 @@ Lock* CharSetContainer::createCollationLock(thread_db* tdbb, USHORT ttype, void*
 }
 
 CharSetContainer::CharSetContainer(MemoryPool& p, USHORT cs_id, const SubtypeInfo* info)
-	: charset_collations(p),
+	: PermanentStorage(p),
 	  cs(NULL)
 {
 	charset* csL = FB_NEW_POOL(p) charset;
@@ -286,34 +288,19 @@ CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CHARSET_ID toCsId)
 	return CsConvert(cs->getStruct(), toCs->getStruct());
 }
 
-Collation* CharSetContainer::lookupCollation(thread_db* tdbb, USHORT tt_id)
+Collation* CharSetVers::lookupCollation(thread_db* tdbb, USHORT tt_id)
 {
 	const USHORT id = TTYPE_TO_COLLATION(tt_id);
 
-	Collation* coll(FB_FUNCTION);
-	if (charset_collations.load(tdbb, id, coll))
-	{
-		if (!coll->obsolete)
-			return coll;
-	}
+	if (Collation* coll = charset_collations[id])
+		return coll;
 
 	CheckoutLockGuard guard(tdbb, createCollationMtx, FB_FUNCTION); // do we need it ?
-
-	Collation* to_delete(FB_FUNCTION);
-	if (charset_collations.load(tdbb, id, coll))
-	{
-		if (!coll->obsolete)
-			return coll;
-
-		to_delete = coll;
-		bool rc = charset_collations.replace(tdbb, id, coll, nullptr);
-		fb_assert(rc);
-	}
 
 	SubtypeInfo info;
 	if (MET_get_char_coll_subtype_info(tdbb, tt_id, &info))
 	{
-		CharSet* charset = INTL_charset_lookup(tdbb, TTYPE_TO_CHARSET(tt_id));
+		CharSet* charset = perm->getCharSet();
 
 		if (TTYPE_TO_CHARSET(tt_id) != CS_METADATA)
 		{
@@ -334,8 +321,8 @@ Collation* CharSetContainer::lookupCollation(thread_db* tdbb, USHORT tt_id)
 
 		lookup_texttype(tt, &info);
 
-		if (charset_collations.getCount(tdbb) <= id)
-			charset_collations.grow(tdbb, id + 1);
+		if (charset_collations.getCount() <= id)
+			charset_collations.grow(id + 1);
 
 		fb_assert((tt->texttype_canonical_width == 0 && tt->texttype_fn_canonical == NULL) ||
 				  (tt->texttype_canonical_width != 0 && tt->texttype_fn_canonical != NULL));
@@ -358,45 +345,15 @@ Collation* CharSetContainer::lookupCollation(thread_db* tdbb, USHORT tt_id)
 
 		tt.release();
 
-		// we don't need a lock in the charset
-		if (id != 0)
-		{
-			collation->existenceLock = CharSetContainer::createCollationLock(tdbb, tt_id, collation);
-
-			fb_assert(collation->useCount == 0);
-			fb_assert(!collation->obsolete);
-		}
-
-		if (id != 0)
-		{
-			LCK_lock(tdbb, collation->existenceLock, LCK_SR, LCK_WAIT);
-
-			// as we just obtained SR lock for new collation instance
-			// we could safely delete obsolete instance
-			if (to_delete)
-				to_delete->destroy(tdbb);
-		}
-		//
-		// We did not delete "to_delete" when id == 0. Why??????????????????
-		//
-
-		coll = charset_collations.store(tdbb, id, collation);
+		charset_collations[id] = collation;
 	}
 	else
-	{
-		if (to_delete)
-		{
-			LCK_lock(tdbb, to_delete->existenceLock, LCK_SR, LCK_WAIT);
-			to_delete->destroy(tdbb);
-		}
-
 		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(tt_id));
-	}
 
-	return coll;
+	return charset_collations[id];
 }
 
-
+/*
 void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
 {
 	const USHORT id = TTYPE_TO_COLLATION(tt_id);
@@ -431,7 +388,7 @@ void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
 		LCK_release(tdbb, lock);
 	}
 }
-
+ */
 
 static void lookup_texttype(texttype* tt, const SubtypeInfo* info)
 {
@@ -443,16 +400,14 @@ static void lookup_texttype(texttype* tt, const SubtypeInfo* info)
 
 void Jrd::MetadataCache::releaseIntlObjects(thread_db* tdbb)
 {
-	for (auto cs : mdc_charsets.snapshot())
-	{
-		if (cs)
-			cs->release(tdbb);
-	}
+	mdc_charsets.cleanup();
 }
 
 
 void Jrd::MetadataCache::destroyIntlObjects(thread_db* tdbb)
 {
+	mdc_charsets.cleanup();
+/*
 	for (FB_SIZE_T i = 0; i < mdc_charsets.getCount(tdbb); i++)
 	{
 		HazardPtr<CharSetContainer> cs;
@@ -461,7 +416,7 @@ void Jrd::MetadataCache::destroyIntlObjects(thread_db* tdbb)
 			cs->destroy(tdbb);
 			mdc_charsets.store(tdbb, i, nullptr);
 		}
-	}
+	} */
 }
 
 
@@ -603,7 +558,7 @@ int INTL_compare(thread_db* tdbb, const dsc* pText1, const dsc* pText2, ErrorFun
 		}
 	}
 
-	HazardPtr<TextType> obj = INTL_texttype_lookup(tdbb, compare_type);
+	TextType* obj = INTL_texttype_lookup(tdbb, compare_type);
 
 	return obj->compare(length1, p1, length2, p2);
 }
@@ -719,7 +674,7 @@ CsConvert INTL_convert_lookup(thread_db* tdbb, CHARSET_ID to_cs, CHARSET_ID from
 	fb_assert(from_cs != CS_dynamic);
 	fb_assert(to_cs != CS_dynamic);
 
-	HazardPtr<CharSetContainer> charset = CharSetContainer::lookupCharset(tdbb, from_cs);
+	CharSetContainer* charset = CharSetContainer::lookupCharset(tdbb, from_cs);
 
 	return charset->lookupConverter(tdbb, to_cs);
 }
@@ -951,7 +906,7 @@ USHORT INTL_key_length(thread_db* tdbb, USHORT idxType, USHORT iLength)
 		key_length = iLength;
 	else
 	{
-		HazardPtr<TextType> obj = INTL_texttype_lookup(tdbb, ttype);
+		TextType* obj = INTL_texttype_lookup(tdbb, ttype);
 		key_length = obj->key_length(iLength);
 	}
 
@@ -989,7 +944,7 @@ CharSet* INTL_charset_lookup(thread_db* tdbb, USHORT parm1)
  *      <never>         - if error
  *
  **************************************/
-	HazardPtr<CharSetContainer> csc = CharSetContainer::lookupCharset(tdbb, parm1);
+	CharSetContainer* csc = CharSetContainer::lookupCharset(tdbb, parm1);
 	return csc->getCharSet();
 }
 
@@ -1021,15 +976,19 @@ Collation* INTL_texttype_lookup(thread_db* tdbb, USHORT parm1)
 	if (parm1 == ttype_dynamic)
 		parm1 = MAP_CHARSET_TO_TTYPE(tdbb->getCharSet());
 
-	HazardPtr<CharSetContainer> csc = CharSetContainer::lookupCharset(tdbb, parm1);
+	auto* perm = MetadataCache::lookupCharset(tdbb, TTYPE_TO_CHARSET(parm1));
+	if (!perm)
+		return nullptr;
 
-	return csc->lookupCollation(tdbb, parm1);
+	auto* vers = perm->getObject(tdbb);
+
+	return vers ? vers->lookupCollation(tdbb, TTYPE_TO_COLLATION(parm1)) : nullptr;
 }
 
 
-void INTL_texttype_unload(thread_db* tdbb, USHORT ttype)
+/*void INTL_texttype_unload(thread_db* tdbb, USHORT ttype)
 {
-/**************************************
+ **************************************
  *
  *      I N T L _ t e x t t y p e _ u n l o a d
  *
@@ -1038,14 +997,14 @@ void INTL_texttype_unload(thread_db* tdbb, USHORT ttype)
  * Functional description
  *  Unload a collation from memory.
  *
- **************************************/
+ **************************************
 	SET_TDBB(tdbb);
 
-	HazardPtr<CharSetContainer> csc = CharSetContainer::lookupCharset(tdbb, ttype);
+	CharSetContainer* csc = CharSetContainer::lookupCharset(tdbb, ttype);
 	if (csc)
 		csc->unloadCollation(tdbb, ttype);
 }
-
+*/
 
 bool INTL_texttype_validate(Jrd::thread_db* tdbb, const SubtypeInfo* info)
 {

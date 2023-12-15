@@ -51,12 +51,13 @@ class Savepoint;
 class Cursor;
 class thread_db;
 
+
 // record parameter block
 
-struct record_param
+struct RecordParameterBase
 {
-	record_param()
-		: rpb_transaction_nr(0), rpb_relation(0), rpb_record(NULL), rpb_prior(NULL),
+	RecordParameterBase()
+		: rpb_transaction_nr(0), rpb_record(NULL), rpb_prior(NULL),
 		  rpb_undo(NULL), rpb_format_number(0),
 		  rpb_page(0), rpb_line(0),
 		  rpb_f_page(0), rpb_f_line(0),
@@ -69,11 +70,10 @@ struct record_param
 
 	RecordNumber rpb_number;		// record number in relation
 	TraNumber	rpb_transaction_nr;	// transaction number
-	jrd_rel*	rpb_relation;		// relation of record
 	Record*		rpb_record;			// final record block
 	Record*		rpb_prior;			// prior record block if this is a delta record
 	Record*		rpb_undo;			// our first version of data if this is a second modification
-	USHORT rpb_format_number;		// format number in relation
+	USHORT		rpb_format_number;	// format number in relation
 
 	ULONG rpb_page;					// page number
 	USHORT rpb_line;				// line number on page
@@ -91,17 +91,37 @@ struct record_param
 	USHORT rpb_runtime_flags;		// runtime flags
 	SSHORT rpb_org_scans;			// relation scan count at stream open
 
+protected:
+	struct win rpb_window;
+};
+
+struct record_param : public RecordParameterBase
+{
+	record_param()
+		: RecordParameterBase(), rpb_relation(nullptr)
+	{ }
+
 	inline WIN& getWindow(thread_db* tdbb)
 	{
 		if (rpb_relation) {
-			rpb_window.win_page.setPageSpaceID(rpb_relation->getPages(tdbb)->rel_pg_space_id);
+			rpb_window.win_page.setPageSpaceID(rpb_relation->rel_perm->getPages(tdbb)->rel_pg_space_id);
 		}
 
 		return rpb_window;
 	}
 
-private:
-	struct win rpb_window;
+	jrd_rel*	rpb_relation;		// relation of record
+};
+
+struct RecordParameter : public RecordParameterBase
+{
+	RecordParameter()
+		: RecordParameterBase(), rpb_relation()
+	{ }
+
+	WIN& getWindow(thread_db* tdbb);	// in Statement.cpp
+
+	Rsc::Rel	rpb_relation;		// relation of record
 };
 
 // Record flags must be an exact replica of ODS record header flags
@@ -159,38 +179,6 @@ private:
 	bool writeFlag;
 	int fetchedRows;
 	int modifiedRows;
-};
-
-
-// Set of objects cached per particular MDC version
-
-class CacheObject;
-
-class VersionedObjects : public pool_alloc_rpt<CacheObject*>,
-	public Firebird::RefCounted
-{
-public:
-	VersionedObjects(FB_SIZE_T cnt, MdcVersion ver);
-
-	FB_SIZE_T push(CacheObject* obj);
-
-	template <class OBJ>
-	OBJ* get(FB_SIZE_T n)
-	{
-		fb_assert(count == capacity);
-		fb_assert(n < count);
-// ?????		fb_assert(dynamic_cast<OBJ*>(data[n]));
-		return reinterpret_cast<OBJ*>(data[n]);
-	}
-
-	MdcVersion version;		// version when created
-
-private:
-	FB_SIZE_T count;
-#ifdef DEV_BUILD
-	FB_SIZE_T capacity;
-#endif
-	CacheObject* data[1];
 };
 
 
@@ -434,6 +422,7 @@ public:
 	SnapshotData req_snapshot;
 	StatusXcp req_last_xcp;			// last known exception
 	bool req_batch_mode;
+	Firebird::RefPtr<VersionedObjects> resources;
 
 	enum req_s {
 		req_evaluate,
@@ -444,6 +433,7 @@ public:
 		req_sync,
 		req_unwind
 	} req_operation;				// operation for next node
+
 
 	template <typename T> T* getImpure(unsigned offset)
 	{
@@ -516,9 +506,6 @@ public:
 	{
 		req_timeStampCache.validate(req_attachment->att_current_timezone);
 	}
-
-private:
-	Firebird::RefPtr<VersionedObjects> currentVersion;
 };
 
 // Flags for req_flags

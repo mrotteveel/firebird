@@ -44,8 +44,6 @@ namespace Jrd
 	class Format;
 	class Parameter;
 	class UserId;
-	class ExistenceLock;
-
 	class StartupBarrier
 	{
 	public:
@@ -91,82 +89,21 @@ namespace Jrd
 		bool flg;
 	};
 
-	class Routine : public Firebird::PermanentStorage, public CacheObject
+	class RoutinePermanent : public Firebird::PermanentStorage
 	{
-	protected:
-		explicit Routine(MemoryPool& p)
+	public:
+		explicit RoutinePermanent(MemoryPool& p, MetaId metaId, Lock* existence);
+
+		explicit RoutinePermanent(MemoryPool& p)
 			: PermanentStorage(p),
 			  id(~0),
 			  name(p),
 			  securityName(p),
-			  statement(NULL),
 			  subRoutine(true),
-			  implemented(true),
-			  defined(true),
-			  defaultCount(0),
-			  inputFormat(NULL),
-			  outputFormat(NULL),
-			  inputFields(p),
-			  outputFields(p),
 			  flags(0),
-			  intUseCount(0),
 			  alterCount(0),
-			  existenceLock(NULL),
-			  invoker(NULL)
-		{
-		}
-
-		explicit Routine(MemoryPool& p, MetaId metaId)
-			: PermanentStorage(p),
-			  id(metaId),
-			  name(p),
-			  securityName(p),
-			  statement(NULL),
-			  subRoutine(false),
-			  implemented(true),
-			  defined(true),
-			  defaultCount(0),
-			  inputFormat(NULL),
-			  outputFormat(NULL),
-			  inputFields(p),
-			  outputFields(p),
-			  flags(0),
-			  intUseCount(0),
-			  alterCount(0),
-			  existenceLock(NULL),
-			  invoker(NULL)
-		{
-		}
-
-	public:
-		virtual ~Routine()
-		{
-		}
-
-	public:
-		static const USHORT FLAG_SCANNED			= 1;	// Field expressions scanned
-		static const USHORT FLAG_OBSOLETE			= 2;	// Procedure known gonzo
-		static const USHORT FLAG_BEING_SCANNED		= 4;	// New procedure needs dependencies during scan
-		static const USHORT FLAG_BEING_ALTERED		= 8;	// Procedure is getting altered
-															// This flag is used to make sure that MET_remove_routine
-															// does not delete and remove procedure block from cache
-															// so dfw.epp:modify_procedure() can flip procedure body without
-															// invalidating procedure pointers from other parts of metadata cache
-		static const USHORT FLAG_CHECK_EXISTENCE	= 16;	// Existence lock released
-		static const USHORT FLAG_RELOAD		 		= 32;	// Recompile before execution
-		static const USHORT FLAG_CLEARED			= 64;	// Routine cleared but not removed from cache
-
-		static const USHORT MAX_ALTER_COUNT = 64;	// Number of times an in-cache routine can be altered
-
-		static Firebird::MsgMetadata* createMetadata(
-			const Firebird::Array<NestConst<Parameter> >& parameters, bool isExtern);
-		static Format* createFormat(MemoryPool& pool, Firebird::IMessageMetadata* params, bool addEof);
-
-	public:
-		static void destroy(Routine* routine)
-		{
-			delete routine;
-		}
+			  existenceLock(NULL)
+		{ }
 
 		USHORT getId() const
 		{
@@ -178,16 +115,73 @@ namespace Jrd
 
 		const QualifiedName& getName() const { return name; }
 		void setName(const QualifiedName& value) { name = value; }
-		const char* c_name() const override { return name.c_str(); }
+		const char* c_name() const { return name.c_str(); }
 
 		const MetaName& getSecurityName() const { return securityName; }
 		void setSecurityName(const MetaName& value) { securityName = value; }
 
-		/*const*/ Statement* getStatement() const { return statement; }
-		void setStatement(Statement* value);
+		bool hasData() const { return name.hasData(); }
 
 		bool isSubRoutine() const { return subRoutine; }
 		void setSubRoutine(bool value) { subRoutine = value; }
+
+		int getObjectType() const;
+
+	private:
+		USHORT id;							// routine ID
+		QualifiedName name;					// routine name
+		MetaName securityName;				// security class name
+		bool subRoutine;                    // Is this a subroutine?
+		USHORT flags;
+		USHORT alterCount;      			// No. of times the routine was altered
+
+	public:
+		Lock* existenceLock;				// existence lock, if any
+		MetaName owner;
+	};
+
+	class Routine : public CacheObject
+	{
+	protected:
+		explicit Routine(RoutinePermanent* perm)
+			: permanent(perm),
+			  statement(NULL),
+			  implemented(true),
+			  defined(true),
+			  defaultCount(0),
+			  inputFormat(NULL),
+			  outputFormat(NULL),
+			  inputFields(permanent->getPool()),
+			  outputFields(permanent->getPool()),
+			  flags(0),
+			  invoker(NULL)
+		{
+		}
+
+	public:
+		virtual ~Routine()
+		{
+		}
+
+	public:
+		static const USHORT MAX_ALTER_COUNT = 64;	// Number of times an in-cache routine can be altered ?????????
+
+		static Firebird::MsgMetadata* createMetadata(
+			const Firebird::Array<NestConst<Parameter> >& parameters, bool isExtern);
+		static Format* createFormat(MemoryPool& pool, Firebird::IMessageMetadata* params, bool addEof);
+
+	public:
+		static void destroy(Routine* routine)
+		{
+			delete routine;
+		}
+
+		const QualifiedName& getName() const { return permanent->getName(); }
+		USHORT getId() const { return permanent->getId(); }
+		const char* c_name() const override { return permanent->c_name(); }
+
+		/*const*/ Statement* getStatement() const { return statement; }
+		void setStatement(Statement* value);
 
 		bool isImplemented() const { return implemented; }
 		void setImplemented(bool value) { implemented = value; }
@@ -212,17 +206,8 @@ namespace Jrd
 		const Firebird::Array<NestConst<Parameter> >& getOutputFields() const { return outputFields; }
 		Firebird::Array<NestConst<Parameter> >& getOutputFields() { return outputFields; }
 
-		bool hasData() const { return name.hasData(); }
-
 		void parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid* blobDbg);
 		void parseMessages(thread_db* tdbb, CompilerScratch* csb, Firebird::BlrReader blrReader);
-
-		bool isUsed() const
-		{
-			return getUseCount() != 0;
-		}
-
-		int getUseCount() const;
 
 		virtual void releaseFormat()
 		{
@@ -236,9 +221,6 @@ namespace Jrd
 		{
 		}
 
-		void adjust_dependencies();
-
-		void sharedCheckLock(thread_db* tdbb);
 		void sharedCheckUnlock(thread_db* tdbb);
 		void releaseLocks(thread_db* tdbb);
 
@@ -247,12 +229,11 @@ namespace Jrd
 		virtual SLONG getSclType() const = 0;
 		virtual bool checkCache(thread_db* tdbb) const = 0;
 
+	public:
+		RoutinePermanent* permanent;		// Permanent part of data
+
 	private:
-		USHORT id;							// routine ID
-		QualifiedName name;					// routine name
-		MetaName securityName;				// security class name
 		Statement* statement;				// compiled routine statement
-		bool subRoutine;					// Is this a subroutine?
 		bool implemented;					// Is the packaged routine missing the body/entrypoint?
 		bool defined;						// UDF has its implementation module available
 		USHORT defaultCount;				// default input arguments
@@ -262,7 +243,6 @@ namespace Jrd
 		Firebird::Array<NestConst<Parameter> > outputFields;	// array of field blocks
 
 	protected:
-
 		virtual bool reload(thread_db* tdbb) = 0;
 
 	public:
@@ -270,15 +250,6 @@ namespace Jrd
 		StartupBarrier startup;
 
 	public:
-		SSHORT intUseCount;		// number of routines compiled with routine, set and
-								// used internally in the clear_cache() routine
-								// no code should rely on value of this field
-								// (it will usually be 0)
-		USHORT alterCount;		// No. of times the routine was altered
-
-		Firebird::AutoPtr<ExistenceLock> existenceLock;	// existence lock, if any
-
-		MetaName owner;
 		Jrd::UserId* invoker;		// Invoker ID
 	};
 }

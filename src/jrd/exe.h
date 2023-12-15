@@ -46,6 +46,7 @@
 #include "../common/dsc.h"
 
 #include "../jrd/err_proto.h"
+#include "../jrd/met_proto.h"
 #include "../jrd/scl.h"
 #include "../jrd/sbm.h"
 #include "../jrd/sort.h"
@@ -165,96 +166,6 @@ struct impure_agg_sort
 {
 	Sort* iasb_sort;
 	ULONG iasb_dummy;
-};
-
-
-template <class OBJ> class CacheElement;
-
-class Resources
-{
-public:
-	template <class OBJ>
-	class VersionedPtr
-	{
-	public:
-		CacheElement<OBJ>* ptr;
-		FB_SIZE_T versionedObject;
-	};
-
-	template <class OBJ>
-	class RscArray : public Firebird::Array<VersionedPtr<OBJ>>
-	{
-	public:
-		RscArray(MemoryPool& p)
-			: Firebird::Array<VersionedPtr<OBJ>>(p)
-		{ }
-
-		FB_SIZE_T registerResource(CacheElement<OBJ>* res)
-		{
-			FB_SIZE_T pos;
-			if (this->find([res](const VersionedPtr<OBJ>& elem) {
-					const void* p1 = elem.ptr;
-					const void* p2 = res;
-					return p1 < p2 ? -1 : p1 == p2 ? 0 : 1;
-				}, pos))
-			{
-				return pos;
-			}
-
-			VersionedPtr<OBJ> newPtr(res);
-			return this->append(newPtr);
-		}
-	};
-
-public:
-	template <class OBJ> const RscArray<OBJ>& objects() const;
-
-	Resources(MemoryPool& p)
-		: charSets(p), relations(p), procedures(p), functions(p), triggers(p)
-	{ }
-
-	RscArray<CharSetContainer> charSets;
-	RscArray<jrd_rel> relations;
-	RscArray<jrd_prc> procedures;
-	RscArray<Function> functions;
-	RscArray<Trigger> triggers;
-};
-
-// specialization
-template <> const Resources::RscArray<jrd_rel>& Resources::objects() const { return relations; }
-
-
-template <class OBJ>
-class CachedResource
-{
-public:
-	CachedResource(FB_SIZE_T offset)
-		: compileOffset(offset)
-	{ }
-
-	CachedResource();
-
-	OBJ* get(thread_db* tdbb, const Resources* compileTime) const
-	{
-		auto array = compileTime->objects<OBJ>();
-		return array[compileOffset]->ptr->getObject(tdbb);
-	}
-
-	bool isSet() const;
-/*
-	operator OBJ*() const
-	{
-		return getPtr();
-	}
-
-	OBJ* operator->() const
-	{
-		return getPtr();
-	}
- */
-
-private:
-	FB_SIZE_T compileOffset;
 };
 
 
@@ -481,34 +392,90 @@ typedef Firebird::GenericMap<Firebird::Pair<Firebird::Left<MetaNamePair, FieldIn
 	MapFieldInfo;
 typedef Firebird::GenericMap<Firebird::Pair<Firebird::Right<Item, ItemInfo> > > MapItemInfo;
 
+template <class R>
+class SubRoutine
+{
+public:
+	SubRoutine()
+		: routine(), subroutine(nullptr)
+	{ }
+
+	SubRoutine(const CachedResource<R, RoutinePermanent>& r)
+		: routine(r), subroutine(nullptr)
+	{ }
+
+	SubRoutine(R* r)
+		: routine(), subroutine(r)
+	{ }
+
+	SubRoutine& operator=(const CachedResource<R, RoutinePermanent>& r)
+	{
+		routine = r;
+		subroutine = nullptr;
+		return *this;
+	}
+
+	SubRoutine& operator=(R* r)
+	{
+		routine.clear();
+		subroutine = r;
+		return *this;
+	}
+
+	R* operator()(thread_db* tdbb) const
+	{
+		return isSubRoutine() ? subroutine : routine(tdbb);
+	}
+
+	RoutinePermanent* operator()() const
+	{
+		return isSubRoutine() ? subroutine->permanent : routine();
+	}
+
+	bool isSubRoutine() const
+	{
+		return subroutine != nullptr;
+	}
+
+	operator bool() const
+	{
+		fb_assert((routine.isSet() ? 1 : 0) + (subroutine ? 1 : 0) < 2);
+		return routine.isSet() || subroutine;
+	}
+
+private:
+	CachedResource<R, RoutinePermanent> routine;
+	R* subroutine;
+};
+
 // Compile scratch block
+
+struct Dependency
+{
+	explicit Dependency(int aObjType)
+	{
+		memset(this, 0, sizeof(*this));
+		objType = aObjType;
+	}
+
+	int objType;
+
+	union
+	{
+		jrd_rel* relation;
+		const Function* function;
+		const jrd_prc* procedure;
+		const MetaName* name;
+		SLONG number;
+	};
+
+	const MetaName* subName;
+	SLONG subNumber;
+};
 
 class CompilerScratch : public pool_alloc<type_csb>
 {
 public:
-	struct Dependency
-	{
-		explicit Dependency(int aObjType)
-		{
-			memset(this, 0, sizeof(*this));
-			objType = aObjType;
-		}
-
-		int objType;
-
-		union
-		{
-			jrd_rel* relation;
-			const Function* function;
-			const jrd_prc* procedure;
-			const MetaName* name;
-			SLONG number;
-		};
-
-		const MetaName* subName;
-		SLONG subNumber;
-	};
-
 	explicit CompilerScratch(MemoryPool& p, CompilerScratch* aMainCsb = NULL)
 	:	/*csb_node(0),
 		csb_variables(0),
@@ -630,9 +597,9 @@ public:
 	MetaName	csb_domain_validation;	// Parsing domain constraint in PSQL
 
 	// used in cmp.cpp/pass1
-	CachedResource<jrd_rel>	csb_view;
+	Rsc::Rel	csb_view;
 	StreamType	csb_view_stream;
-	CachedResource<jrd_rel>	csb_parent_relation;
+	Rsc::Rel	csb_parent_relation;
 	unsigned	blrVersion;
 	USHORT		csb_remap_variable;
 	bool		csb_validate_expr;
@@ -666,10 +633,10 @@ public:
 		StreamType csb_view_stream;		// stream number for view relation, below
 		USHORT csb_flags;
 
-		CachedResource<jrd_rel> csb_relation;
+		Rsc::Rel csb_relation;
 		Firebird::string* csb_alias;	// SQL alias name for this instance of relation
-		CachedResource<jrd_prc> csb_procedure;
-		CachedResource<jrd_rel> csb_view;				// parent view
+		SubRoutine<jrd_prc> csb_procedure;
+		Rsc::Rel csb_view;				// parent view
 
 		IndexDescList* csb_idx;			// Packed description of indices
 		MessageNode* csb_message;		// Msg for send/receive
@@ -692,10 +659,9 @@ inline CompilerScratch::csb_repeat::csb_repeat()
 	: csb_stream(0),
 	  csb_view_stream(0),
 	  csb_flags(0),
-	  csb_relation(0),
+	  csb_relation(),
 	  csb_alias(0),
-	  csb_procedure(0),
-	  csb_view(0),
+	  csb_view(),
 	  csb_idx(0),
 	  csb_message(0),
 	  csb_format(0),

@@ -119,9 +119,9 @@ bool MonitoringTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 	if (!snapshot->getData(relation)->fetch(position, record))
 		return false;
 
-	if (relation->rel_id == rel_mon_attachments || relation->rel_id == rel_mon_statements)
+	if (relation->getId() == rel_mon_attachments || relation->getId() == rel_mon_statements)
 	{
-		const USHORT fieldId = (relation->rel_id == rel_mon_attachments) ?
+		const USHORT fieldId = (relation->getId() == rel_mon_attachments) ?
 			(USHORT) f_mon_att_idle_timer : (USHORT) f_mon_stmt_timer;
 
 		dsc desc;
@@ -133,7 +133,7 @@ bool MonitoringTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 			ISC_TIMESTAMP_TZ* ts = reinterpret_cast<ISC_TIMESTAMP_TZ*> (desc.dsc_address);
 			ts->utc_timestamp = TimeZoneUtil::getCurrentGmtTimeStamp().utc_timestamp;
 
-			if (relation->rel_id == rel_mon_attachments)
+			if (relation->getId() == rel_mon_attachments)
 			{
 				const SINT64 currClock = fb_utils::query_performance_counter() / fb_utils::query_performance_frequency();
 				NoThrowTimeStamp::add10msec(&ts->utc_timestamp, clock - currClock, ISC_TIME_SECONDS_PRECISION);
@@ -630,7 +630,7 @@ RecordBuffer* SnapshotData::getData(const jrd_rel* relation) const
 {
 	fb_assert(relation);
 
-	return getData(relation->rel_id);
+	return getData(relation->getId());
 }
 
 
@@ -650,14 +650,13 @@ RecordBuffer* SnapshotData::allocBuffer(thread_db* tdbb, MemoryPool& pool, int r
 {
 	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id, false);
 	fb_assert(relation);
-	MET_scan_relation(tdbb, relation);
 	fb_assert(relation->isVirtual());
 
 	const Format* const format = MET_current(tdbb, relation);
 	fb_assert(format);
 
 	RecordBuffer* const buffer = FB_NEW_POOL(pool) RecordBuffer(pool, format);
-	const RelationData data = {relation->rel_id, buffer};
+	const RelationData data = {relation->getId(), buffer};
 	m_snapshot.add(data);
 
 	return buffer;
@@ -708,11 +707,11 @@ void SnapshotData::putField(thread_db* tdbb, Record* record, const DumpField& fi
 		SLONG rel_id;
 		memcpy(&rel_id, field.data, field.length);
 
-		jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id, false);
-		if (!relation || relation->rel_name.isEmpty())
+		RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, rel_id, false);
+		if (!relation || relation->getName().isEmpty())
 			return;
 
-		const MetaName& name = relation->rel_name;
+		const MetaName& name = relation->getName();
 		dsc from_desc;
 		from_desc.makeText(name.length(), CS_METADATA, (UCHAR*) name.c_str());
 		MOV_move(tdbb, &from_desc, &to_desc);

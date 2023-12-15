@@ -1134,7 +1134,7 @@ Validation::RTN Validation::corrupt(int err_code, const jrd_rel* relation, ...)
 		if (relation)
 		{
 			fprintf(stdout, "LOG:\tDatabase: %s\n\t%s in table %s (%d)\n",
-				fn, s.c_str(), relation->rel_name.c_str(), relation->rel_id);
+				fn, s.c_str(), relation->getName().c_str(), relation->getId());
 		}
 		else
 			fprintf(stdout, "LOG:\tDatabase: %s\n\t%s\n", fn, s.c_str());
@@ -1154,7 +1154,7 @@ Validation::RTN Validation::corrupt(int err_code, const jrd_rel* relation, ...)
 	if (relation)
 	{
 		gds__log("Database: %s\n\t%s in table %s (%d)",
-			fn, s.c_str(), relation->rel_name.c_str(), relation->rel_id);
+			fn, s.c_str(), relation->getName().c_str(), relation->getId());
 	}
 	else
 		gds__log("Database: %s\n\t%s", fn, s.c_str());
@@ -1558,7 +1558,7 @@ Validation::RTN Validation::walk_chain(jrd_rel* relation, const rhd* header,
 		data_page* page = 0;
 		fetch_page(true, page_number, pag_data, &window, &page);
 
-		if (page->dpg_relation != relation->rel_id)
+		if (page->dpg_relation != relation->getId())
 		{
 			release_page(&window);
 			return corrupt(VAL_DATA_PAGE_CONFUSED, relation, page_number, page->dpg_sequence);
@@ -1647,13 +1647,13 @@ void Validation::walk_database()
 
 			if (vdr_tab_incl)
 			{
-				if (!vdr_tab_incl->matches(relation->rel_name.c_str(), relation->rel_name.length()))
+				if (!vdr_tab_incl->matches(relation->getName().c_str(), relation->getName().length()))
 					continue;
 			}
 
 			if (vdr_tab_excl)
 			{
-				if (vdr_tab_excl->matches(relation->rel_name.c_str(), relation->rel_name.length()))
+				if (vdr_tab_excl->matches(relation->getName().c_str(), relation->getName().length()))
 					continue;
 			}
 
@@ -1663,7 +1663,7 @@ void Validation::walk_database()
 				vdr_page_bitmap->clear();
 
 			string relName;
-			relName.printf("Relation %d (%s)", relation->rel_id, relation->rel_name.c_str());
+			relName.printf("Relation %d (%s)", relation->getId(), relation->getName().c_str());
 			output("%s\n", relName.c_str());
 
 			int errs = vdr_errors;
@@ -1713,7 +1713,7 @@ Validation::RTN Validation::walk_data_page(jrd_rel* relation, ULONG page_number,
 	}
 #endif
 
-	if (page->dpg_relation != relation->rel_id || page->dpg_sequence != sequence)
+	if (page->dpg_relation != relation->getId() || page->dpg_sequence != sequence)
 	{
 		release_page(&window);
 		return corrupt(VAL_DATA_PAGE_CONFUSED, relation, page_number, sequence);
@@ -2064,7 +2064,7 @@ Validation::RTN Validation::walk_index(jrd_rel* relation, index_root_page& root_
 
 		const bool leafPage = (page->btr_level == 0);
 
-		if (page->btr_relation != relation->rel_id || page->btr_id != (UCHAR) (id % 256))
+		if (page->btr_relation != relation->getId() || page->btr_id != (UCHAR) (id % 256))
 		{
 			corrupt(VAL_INDEX_PAGE_CORRUPT, relation, id + 1,
 					next, page->btr_level, 0, __FILE__, __LINE__);
@@ -2583,13 +2583,13 @@ Validation::RTN Validation::walk_pointer_page(jrd_rel* relation, ULONG sequence)
 	if (VAL_debug_level)
 	{
 		fprintf(stdout, "walk_pointer_page: page %d relation %d sequence %d\n",
-				   (*vector)[sequence], relation->rel_id, sequence);
+				   (*vector)[sequence], relation->getId(), sequence);
 	}
 #endif
 
 	// Give the page a quick once over
 
-	if (page->ppg_relation != relation->rel_id || page->ppg_sequence != sequence)
+	if (page->ppg_relation != relation->getId() || page->ppg_sequence != sequence)
 	{
 		release_page(&window);
 		return corrupt(VAL_P_PAGE_INCONSISTENT, relation, (*vector)[sequence], sequence);
@@ -2809,7 +2809,7 @@ Validation::RTN Validation::walk_record(jrd_rel* relation, const rhd* header, US
 
 		const data_page::dpg_repeat* line = &page->dpg_rpt[line_number];
 
-		if (page->dpg_relation != relation->rel_id ||
+		if (page->dpg_relation != relation->getId() ||
 			line_number >= page->dpg_count || !(length = line->dpg_length))
 		{
 			corrupt(VAL_REC_FRAGMENT_CORRUPT, relation, number.getValue());
@@ -3005,7 +3005,7 @@ void Validation::checkDPinPIP(jrd_rel* relation, ULONG page_number)
 	release_page(&pip_window);
 }
 
-Validation::RTN Validation::walk_relation(jrd_rel* rel)
+Validation::RTN Validation::walk_relation(jrd_rel* relation)
 {
 /**************************************
  *
@@ -3020,14 +3020,6 @@ Validation::RTN Validation::walk_relation(jrd_rel* rel)
 
 	try {
 
-	// If relation hasn't been scanned, do so now
-
-	if (!(rel->rel_flags & REL_scanned) || (rel->rel_flags & REL_being_scanned))
-	{
-		MET_scan_relation(vdr_tdbb, rel);
-	}
-	jrd_rel* relation = rel.getPointer();
-
 	// skip deleted relations
 	if (relation->rel_flags & (REL_deleted | REL_deleting)) {
 		return rtn_ok;
@@ -3036,8 +3028,8 @@ Validation::RTN Validation::walk_relation(jrd_rel* rel)
 #ifdef DEBUG_VAL_VERBOSE
 	if (VAL_debug_level)
 		fprintf(stdout, "walk_relation: id %d Format %d %s %s\n",
-				   relation->rel_id, relation->rel_current_fmt,
-				   relation->rel_name.c_str(), relation->rel_owner_name.c_str());
+				   relation->getId(), relation->rel_current_fmt,
+				   relation->getName().c_str(), relation->rel_owner_name.c_str());
 #endif
 
 	// If it's a view, external file or virtual table, skip this
@@ -3164,16 +3156,16 @@ Validation::RTN Validation::walk_relation(jrd_rel* rel)
 	{
 		if (!(vdr_flags & VDR_online))
 		{
-			const char* msg = rel->rel_name.length() > 0 ?
+			const char* msg = rel->getName().length() > 0 ?
 				"bugcheck during scan of table %d (%s)" :
 				"bugcheck during scan of table %d";
-			gds__log(msg, rel->rel_id, rel->rel_name.c_str());
+			gds__log(msg, rel->getId(), rel->getName().c_str());
 		}
 #ifdef DEBUG_VAL_VERBOSE
 		if (VAL_debug_level)
 		{
 			char s[256];
-			SNPRINTF(s, sizeof(s), msg, rel->rel_id, rel->rel_name.c_str());
+			SNPRINTF(s, sizeof(s), msg, rel->getId(), rel->getName().c_str());
 			fprintf(stdout, "LOG:\t%s\n", s);
 		}
 #endif
@@ -3216,7 +3208,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 		MetaName index;
 
 		release_page(&window);
-		MetadataCache::lookup_index(vdr_tdbb, index, relation->rel_name, i + 1);
+		MetadataCache::lookup_index(vdr_tdbb, index, relation->getName(), i + 1);
 		fetch_page(false, relPages->rel_index_root, pag_root, &window, &page);
 
 		if (vdr_idx_incl)

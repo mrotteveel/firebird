@@ -580,7 +580,7 @@ void UserManagement::list(IUser* u, unsigned cachePosition)
 RecordBuffer* UserManagement::getList(thread_db* tdbb, jrd_rel* relation)
 {
 	fb_assert(relation);
-	fb_assert(relation->rel_id == rel_sec_user_attributes || relation->rel_id == rel_sec_users);
+	fb_assert(relation->getId() == rel_sec_user_attributes || relation->getId() == rel_sec_users);
 
 	RecordBuffer* recordBuffer = getData(relation);
 	if (recordBuffer)

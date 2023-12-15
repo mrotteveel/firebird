@@ -282,7 +282,7 @@ void IndexErrorContext::raise(thread_db* tdbb, idx_e result, Record* record)
 	if (result == idx_e_conversion || result == idx_e_interrupt)
 		ERR_punt();
 
-	const MetaName& relationName = isLocationDefined ? m_location.relation->rel_name : m_relation->rel_name;
+	const MetaName& relationName = isLocationDefined ? m_location.relation->getName() : m_relation->getName();
 	const USHORT indexId = isLocationDefined ? m_location.indexId : m_index->idx_id;
 
 	MetaName indexName(m_indexName), constraintName;
@@ -1417,14 +1417,14 @@ idx_e BTR_key(thread_db* tdbb, jrd_rel* relation, Record* record, index_desc* id
 				  error.value()[1] == isc_expression_eval_index))
 			{
 				MetaName indexName;
-				MetadataCache::lookup_index(tdbb, indexName, relation->rel_name, idx->idx_id + 1);
+				MetadataCache::lookup_index(tdbb, indexName, relation->getName(), idx->idx_id + 1);
 
 				if (indexName.isEmpty())
 					indexName = "***unknown***";
 
 				error.prepend(Arg::Gds(isc_expression_eval_index) <<
 					Arg::Str(indexName) <<
-					Arg::Str(relation->rel_name));
+					Arg::Str(relation->getName()));
 			}
 
 			error.copyTo(tdbb->tdbb_status_vector);
@@ -3581,7 +3581,7 @@ static ULONG fast_load(thread_db* tdbb,
 		// only for debug) so the id is actually redundant.
 		btree_page* bucket = (btree_page*) DPM_allocate(tdbb, &leafLevel->window);
 		bucket->btr_header.pag_type = pag_index;
-		bucket->btr_relation = relation->rel_id;
+		bucket->btr_relation = relation->getId();
 		bucket->btr_id = (UCHAR)(idx->idx_id % 256);
 		bucket->btr_level = 0;
 		bucket->btr_length = BTR_SIZE;
@@ -3936,7 +3936,7 @@ static ULONG fast_load(thread_db* tdbb,
 
 					currLevel->bucket = bucket = (btree_page*) DPM_allocate(tdbb, window);
 					bucket->btr_header.pag_type = pag_index;
-					bucket->btr_relation = relation->rel_id;
+					bucket->btr_relation = relation->getId();
 					bucket->btr_id = (UCHAR)(idx->idx_id % 256);
 					fb_assert(level <= MAX_UCHAR);
 					bucket->btr_level = (UCHAR) level;
@@ -4265,7 +4265,7 @@ static ULONG fast_load(thread_db* tdbb,
 
 		if (window)
 		{
-			delete_tree(tdbb, relation->rel_id, idx->idx_id,
+			delete_tree(tdbb, relation->getId(), idx->idx_id,
 						window->win_page, PageNumber(window->win_page.getPageSpaceID(), 0));
 		}
 
@@ -4295,7 +4295,7 @@ static index_root_page* fetch_root(thread_db* tdbb, WIN* window, const jrd_rel* 
 
 	if ((window->win_page = relPages->rel_index_root) == 0)
 	{
-		if (relation->rel_id == 0)
+		if (relation->getId() == 0)
 			return NULL;
 
 		DPM_scan_pages(tdbb);
@@ -6201,13 +6201,6 @@ string print_key(thread_db* tdbb, jrd_rel* relation, index_desc* idx, Record* re
 	string key;
 
 	fb_assert(relation && idx && record);
-	jrd_rel* wrk = MET_scan_relation(tdbb, relation->rel_id);
-	if (!wrk)
-	{
-		key.printf("(target relation %s deleted)", relation->c_name());
-		return key;
-	}
-	relation = wrk;
 
 	const FB_SIZE_T MAX_KEY_STRING_LEN = 250;
 	string value;

@@ -125,7 +125,7 @@ void ExternalTableScan::print(thread_db* tdbb, string& plan,
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->rel_name.c_str(), m_alias) + " Full Scan";
+			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Full Scan";
 		printOptInfo(plan);
 	}
 	else

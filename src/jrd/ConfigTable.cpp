@@ -39,13 +39,13 @@ ConfigTable::ConfigTable(MemoryPool& pool, const Config* conf) :
 RecordBuffer* ConfigTable::getRecords(thread_db* tdbb, jrd_rel* relation)
 {
 	fb_assert(relation);
-	fb_assert(relation->rel_id == rel_config);
+	fb_assert(relation->getId() == rel_config);
 
 	RecordBuffer* recordBuffer = getData(relation);
 	if (recordBuffer)
 		return recordBuffer;
 
-	recordBuffer = allocBuffer(tdbb, *tdbb->getDefaultPool(), relation->rel_id);
+	recordBuffer = allocBuffer(tdbb, *tdbb->getDefaultPool(), relation->getId());
 
 	// Check privileges to see RDB$CONFIG
 	const Attachment* att = tdbb->getAttachment();

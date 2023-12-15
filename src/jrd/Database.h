@@ -93,6 +93,7 @@ class GarbageCollector;
 class CryptoManager;
 class KeywordsMap;
 class MetadataCache;
+class ExtEngineManager;
 
 // allocator for keywords table
 class KeywordsMapAllocator

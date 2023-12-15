@@ -30,13 +30,11 @@
 
 namespace Jrd {
 
-class Resources;
-
 class NodePrinter
 {
 public:
-	NodePrinter(const Resources* aResources, unsigned aIndent = 0)
-		: indent(aIndent), resources(aResources)
+	NodePrinter(unsigned aIndent = 0)
+		: indent(aIndent)
 	{
 	}
 
@@ -338,9 +336,6 @@ private:
 
 private:
 	unsigned indent;
-
-public:
-	const Resources* resources;
 
 private:
 	Firebird::ObjectsArray<Firebird::string> stack;

@@ -530,7 +530,7 @@ void EXE_execute_db_triggers(thread_db* tdbb, jrd_tra* transaction, TriggerActio
 			return;
 	}
 
-	TrigVectorPtr* triggers = attachment->att_database->dbb_mdc->getTriggers(type | TRIGGER_TYPE_DB);
+	const Triggers* triggers = attachment->att_database->dbb_mdc->getTriggers(type | TRIGGER_TYPE_DB);
 	if (triggers && *triggers)
 	{
 		jrd_tra* old_transaction = tdbb->getTransaction();
@@ -538,7 +538,7 @@ void EXE_execute_db_triggers(thread_db* tdbb, jrd_tra* transaction, TriggerActio
 
 		try
 		{
-			EXE_execute_triggers(tdbb, triggers, NULL, NULL, trigger_action, StmtNode::ALL_TRIGS);
+			EXE_execute_triggers(tdbb, *triggers, NULL, NULL, trigger_action, StmtNode::ALL_TRIGS);
 			tdbb->setTransaction(old_transaction);
 		}
 		catch (const Exception&)
@@ -556,30 +556,28 @@ void EXE_execute_ddl_triggers(thread_db* tdbb, jrd_tra* transaction, bool preTri
 	Jrd::Database* const dbb = tdbb->getDatabase();
 
 	// Our caller verifies (ATT_no_db_triggers) if DDL triggers should not run.
-	TrigVectorPtr* cachedTriggers = dbb->dbb_mdc->getTriggers(TRIGGER_TYPE_DDL);
+	const Triggers* cachedTriggers = dbb->dbb_mdc->getTriggers(TRIGGER_TYPE_DDL);
 
 	if (cachedTriggers && *cachedTriggers)
 	{
-		TrigVector triggers;
-		TrigVector* triggersPtr = &triggers;
-		unsigned n = 0;
+		Triggers triggers;
 
-		for (auto t : cachedTriggers->load()->snapshot())
+		for (auto t : *cachedTriggers)
 		{
 			const bool preTrigger = ((t->type & 0x1) == 0);
 
 			if ((t->type & (1LL << action)) && (preTriggers == preTrigger))
-				triggers.store(tdbb, n++, t);
+				triggers.addTrigger(tdbb, t);
 		}
 
-		if (triggers.hasData())
+		if (triggers)
 		{
 			jrd_tra* const oldTransaction = tdbb->getTransaction();
 			tdbb->setTransaction(transaction);
 
 			try
 			{
-				EXE_execute_triggers(tdbb, &triggersPtr, NULL, NULL, TRIGGER_DDL,
+				EXE_execute_triggers(tdbb, triggers, NULL, NULL, TRIGGER_DDL,
 					preTriggers ? StmtNode::PRE_TRIG : StmtNode::POST_TRIG);
 
 				tdbb->setTransaction(oldTransaction);
@@ -887,7 +885,7 @@ void EXE_start(thread_db* tdbb, Request* request, jrd_tra* transaction)
 	provide transaction stability by preventing a relation from being
 	dropped after it has been referenced from an active transaction. */
 
-	TRA_post_resources(tdbb, transaction, statement->resources);
+	transaction->postResources(tdbb, statement->getResources());
 
 	TRA_attach_request(transaction, request);
 	request->req_flags &= req_restart_ready;
@@ -1117,7 +1115,7 @@ static void execute_looper(thread_db* tdbb,
 
 
 void EXE_execute_triggers(thread_db* tdbb,
-								TrigVectorPtr* triggers,
+								const Triggers& triggers,
 								record_param* old_rpb,
 								record_param* new_rpb,
 								TriggerAction trigger_action, StmtNode::WhichTrigger which_trig)
@@ -1133,15 +1131,11 @@ void EXE_execute_triggers(thread_db* tdbb,
  *	if any blow up.
  *
  **************************************/
-	if (!(triggers && *triggers))
-		return;
-
 	SET_TDBB(tdbb);
 
 	Request* const request = tdbb->getRequest();
 	jrd_tra* const transaction = request ? request->req_transaction : tdbb->getTransaction();
 
-	TrigVectorPtr vector(triggers->load());
 	Record* const old_rec = old_rpb ? old_rpb->rpb_record : NULL;
 	Record* const new_rec = new_rpb ? new_rpb->rpb_record : NULL;
 
@@ -1171,10 +1165,8 @@ void EXE_execute_triggers(thread_db* tdbb,
 
 	try
 	{
-		for (auto ptr : vector.load()->snapshot())
+		for (auto* ptr : triggers)
 		{
-			ptr->compile(tdbb);
-
 			trigger = ptr->statement->findRequest(tdbb);
 
 			if (!is_db_trigger)
@@ -1252,15 +1244,9 @@ void EXE_execute_triggers(thread_db* tdbb,
 
 			trigger = NULL;
 		}
-
-		if (vector != *triggers)
-			MET_release_triggers(tdbb, &vector, true);
 	}
 	catch (const Exception& ex)
 	{
-		if (vector != *triggers)
-			MET_release_triggers(tdbb, &vector, true);
-
 		if (trigger)
 		{
 			EXE_unwind(tdbb, trigger);
@@ -1710,394 +1696,5 @@ void AutoRequest::release()
 		CMP_release(JRD_get_thread_data(), request);
 		request = NULL;
 	}
-}
-
-void ResourceList::setResetPointersHazard(thread_db* tdbb, bool set)
-{
-	if (hazardFlag != set)
-	{
-		// (un-)register hazard pointers
-		for (auto r : list)
-		{
-			void* hazardPointer = nullptr;
-
-			switch (r.rsc_type)
-			{
-			case Resource::rsc_relation:
-				hazardPointer = r.rsc_rel;
-				break;
-
-			case Resource::rsc_index:
-				break;
-
-			case Resource::rsc_procedure:
-			case Resource::rsc_function:
-				hazardPointer = r.rsc_routine;
-				break;
-
-			case Resource::rsc_collation:
-				hazardPointer = r.rsc_coll;
-				break;
-			}
-
-			if (hazardPointer)
-			{
-				if (set)
-					hazardDelayed->add(hazardPointer, FB_FUNCTION);
-				else
-					hazardDelayed->remove(hazardPointer, FB_FUNCTION);
-			}
-		}
-
-		hazardFlag = set;
-	}
-}
-
-void ResourceList::transferList(thread_db* tdbb, const InternalResourceList& from,
-	Resource::State resetState, ResourceTypes rt, NewResources* nr, ResourceList* hazardList)
-{
-	// Copy needed resources
-	FB_SIZE_T pos = 0;
-	for (auto src : from)
-	{
-		if (src.rsc_state == Resource::State::Registered)	// registered but never posted
-			continue;
-
-		if (!rt.test(src.rsc_type))	// skip some types of resources
-			continue;
-
-		while (pos < list.getCount() && src > list[pos])
-			++pos;
-		list.insert(pos, src);
-		nr->push(pos);
-
-		if (resetState != Resource::State::Locked)			// The strongest state
-			list[pos].rsc_state = resetState;
-
-		++pos;							// minor performance optimization
-	}
-
-	// Increase use counters
-	NewResources toLock;
-	{ // scope
-		//MutexEnsureUnlock g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
-		MutexLockGuard g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
-		//bool useMutexLocked = false;
-
-		for (auto n : *nr)
-		{
-			Resource& r = list[n];
-			if (r.rsc_state != Resource::State::Posted)	// use count was already increased
-				continue;
-/*
-			// First take care about locking
-			switch (r.rsc_type)
-			{
-			case Resource::rsc_procedure:
-			case Resource::rsc_function:
-				if (!useMutexLocked)
-				{
-					g.enter();
-					useMutexLocked = true;
-				}
-				break;
-
-			default:
-				if (useMutexLocked)
-				{
-					g.leave();
-					useMutexLocked = false;
-				}
-				break;
-			}
-
-			// Next increment counter
- */			switch (r.rsc_type)
-			{
-			case Resource::rsc_relation:
-				{
-					ExistenceLock* lock = r.rsc_rel->rel_existence_lock;
-					r.rsc_state = lock ? lock->inc(tdbb) : Resource::State::Locked;
-					break;
-				}
-
-			case Resource::rsc_index:
-				// Relation locks MUST be taken before index locks - skip it here.
-				break;
-
-			case Resource::rsc_procedure:
-			case Resource::rsc_function:
-				{
-					ExistenceLock* lock = r.rsc_routine->existenceLock;
-					r.rsc_state = lock ? lock->inc(tdbb) : Resource::State::Locked;
-
-#ifdef DEBUG_PROCS
-					string buffer;
-					buffer.printf(
-						"Called from Statement::makeRequest:\n\t Incrementing use count of %s\n",
-						routine->getName()->toString().c_str());
-					JRD_print_procedure_info(tdbb, buffer.c_str());
-#endif
-
-					break;
-				}
-
-			case Resource::rsc_collation:
-				{
-					Collation* coll = r.rsc_coll;
-					coll->incUseCount(tdbb);
-					break;
-				}
-
-			default:
-				BUGCHECK(219);		// msg 219 request of unknown resource
-			}
-
-			if (r.rsc_state != Resource::State::Locked)
-				toLock.push(n);
-		}
-	}
-
-	if (hazardList)
-		hazardList->setResetPointersHazard(tdbb, false);
-
-	// Now lock not yet locked objects
-	for (auto n : toLock)
-	{
-		Resource& r = list[n];
-
-		if (r.rsc_state != Resource::State::Counted)	// use count was already increased
-			continue;
-
-		ExistenceLock* lock = nullptr;
-
-		switch (r.rsc_type)
-		{
-		case Resource::rsc_relation:
-			lock = r.rsc_rel->rel_existence_lock;
-			break;
-
-		case Resource::rsc_index:
-			{
-				HazardPtr<IndexLock> index = r.rsc_rel->getIndexLock(tdbb, r.rsc_id);
-				r.rsc_state = index ? index->idl_lock.inc(tdbb) : Resource::State::Locked;
-				if (index && r.rsc_state != Resource::State::Locked)
-					lock = &index->idl_lock;
-			}
-			break;
-
-		case Resource::rsc_procedure:
-		case Resource::rsc_function:
-			lock = r.rsc_routine->existenceLock;
-			break;
-
-		case Resource::rsc_collation:
-			{
-				Collation* coll = r.rsc_coll;
-
-				break;
-			}
-		}
-
-		if (lock)
-			lock->enter245(tdbb);
-		r.rsc_state = Resource::State::Locked;
-	}
-}
-
-void ResourceList::raiseNotRegistered(const Resource& r, Resource::rsc_s type, const char* name)
-{
-	if (r.rsc_rel && r.rsc_rel->isSystem())
-		return;
-
-	// Resource type (r.type) and actual type may differ when working with index
-	const char* typeName = nullptr;
-	switch (type)
-	{
-	case Resource::rsc_relation:
-		typeName = "Relation";
-		break;
-
-	case Resource::rsc_index:
-		typeName = "Index";
-		break;
-
-	case Resource::rsc_procedure:
-		typeName = "Procedure";
-		break;
-
-	case Resource::rsc_function:
-		typeName = "Function";
-		break;
-
-	case Resource::rsc_collation:
-		typeName = "Collation";
-		break;
-	}
-
-	fb_assert(typeName);
-	string msg;
-	msg.printf("%s %s was not registered for use by request or transaction", typeName, name);
-	ERR_post(Arg::Gds(isc_random) << msg);
-}
-
-void ResourceList::transferResources(thread_db* tdbb, ResourceList& from,
-	ResourceTypes rt, NewResources& nr)
-{
-	transferList(tdbb, from.list, Resource::State::Posted, rt, &nr, nullptr);
-}
-
-void ResourceList::transferResources(thread_db* tdbb, ResourceList& from)
-{
-	NewResources work;
-	transferList(tdbb, from.list, Resource::State::Locked, ResourceTypes().setAll(), &work, &from);
-}
-
-void ResourceList::releaseResources(thread_db* tdbb, jrd_tra* transaction)
-{
-	// 0. Get ready to run drom dtor()
-	if (!list.hasData())
-		return;
-	if (!tdbb)
-		tdbb = JRD_get_thread_data();
-
-	// 1. Need to take hazard locks on all involved objects
-	setResetPointersHazard(tdbb, true);
-
-	// 2. First of all release indices - they do not need refcnt mutex locked
-	for (auto r : getObjects(Resource::rsc_index))
-	{
-		HazardPtr<IndexLock> index = r->rsc_rel->getIndexLock(tdbb, r->rsc_id);
-		if (index)
-		{
-			if (r->rsc_state == Resource::State::Locked)
-				r->rsc_state = index->idl_lock.dec(tdbb);
-			else if (r->rsc_state == Resource::State::Counted)
-			{
-				r->rsc_state = Resource::State::Posted;
-				index->idl_lock.dec(tdbb);
-			}
-
-			if (r->rsc_state == Resource::State::Unlocking)
-			{
-				index->idl_lock.leave245(tdbb);
-				r->rsc_state = Resource::State::Posted;
-			}
-		}
-		else
-			r->rsc_state = Resource::State::Posted;
-	}
-
-	// 3. Decrement lock count of all objects - refcnt mutex to be locked
-	HalfStaticArray<Resource*, 128> toUnlock;
-	{ // scope
-		MutexLockGuard g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
-
-		for (auto r : list)
-		{
-			if (r.rsc_state == Resource::State::Extra)
-			{
-				fb_assert(r.rsc_type == Resource::rsc_relation);
-
-				if (r.rsc_rel && r.rsc_rel->rel_file)
-				{
-					if (!transaction)
-						transaction = tdbb->getTransaction();
-
-					fb_assert(transaction);
-					if (transaction)
-						EXT_tra_detach(r.rsc_rel->rel_file, transaction);
-				}
-				r.rsc_state = Resource::State::Locked;
-			}
-
-			if (r.rsc_state == Resource::State::Posted ||
-				r.rsc_state == Resource::State::Registered ||
-				r.rsc_state == Resource::State::Unlocking)	// use count is not increased
-			{
-				continue;
-			}
-
-			switch (r.rsc_type)
-			{
-			case Resource::rsc_relation:
-				{
-					ExistenceLock* lock = r.rsc_rel->rel_existence_lock;
-					r.rsc_state = lock ? lock->dec(tdbb) : Resource::State::Posted;
-					break;
-				}
-
-			case Resource::rsc_index:
-				break;
-
-			case Resource::rsc_procedure:
-			case Resource::rsc_function:
-				{
-					ExistenceLock* lock = r.rsc_routine->existenceLock;
-					r.rsc_state = lock ? lock->dec(tdbb) : Resource::State::Posted;
-					break;
-				}
-
-			case Resource::rsc_collation:
-				{
-					Collation* coll = r.rsc_coll;
-					coll->decUseCount(tdbb);
-					break;
-				}
-
-			default:
-				BUGCHECK(219);		// msg 219 request of unknown resource
-			}
-
-			if (r.rsc_state == Resource::State::Unlocking)
-				toUnlock.push(&r);
-		}
-	}
-
-	// 4. Release not needed any more locks
-	for (auto r : toUnlock)
-	{
-		fb_assert(r->rsc_state == Resource::State::Unlocking);
-
-		ExistenceLock* lock = nullptr;
-
-		switch (r->rsc_type)
-		{
-		case Resource::rsc_relation:
-			lock = r->rsc_rel->rel_existence_lock;
-			break;
-
-		case Resource::rsc_index:
-			fb_assert(false);
-			break;
-
-		case Resource::rsc_procedure:
-		case Resource::rsc_function:
-			lock = r->rsc_routine->existenceLock;
-			break;
-
-		case Resource::rsc_collation:
-			{
-				Collation* coll = r->rsc_coll;
-
-				break;
-			}
-		}
-
-		if (lock)
-			lock->leave245(tdbb);
-		r->rsc_state = Resource::State::Posted;
-	}
-
-	// 5. Finally time to release hazard locks on objects and cleanup
-	setResetPointersHazard(tdbb, false);
-	list.clear();
-}
-
-void ResourceList::postIndex(thread_db* tdbb, jrd_rel* relation, USHORT idxId)
-{
-	abort();
-//		resources.checkResource(Resource::rsc_relation, relation);
-//		resources.postResource(Resource::rsc_index, relation, idx->idx_id);
 }
 

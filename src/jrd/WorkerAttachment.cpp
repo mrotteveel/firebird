@@ -122,8 +122,6 @@ void WorkerStableAttachment::fini()
 		Monitoring::cleanupAttachment(tdbb);
 		attachment->releaseLocks(tdbb);
 		LCK_fini(tdbb, LCK_OWNER_attachment);
-
-		attachment->releaseRelations(tdbb);
 	}
 
 	destroy(attachment);

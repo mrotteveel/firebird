@@ -910,7 +910,6 @@ SecurityClass::flags_t SCL_get_mask(thread_db* tdbb, const TEXT* relation_name, 
 	jrd_rel* relation;
 	if (relation_name && (relation = MetadataCache::lookup_relation(tdbb, relation_name)))
 	{
-		MET_scan_relation(tdbb, relation);
 		const SecurityClass* s_class;
 		if ( (s_class = SCL_get_class(tdbb, relation->rel_security_name.c_str())) )
 		{

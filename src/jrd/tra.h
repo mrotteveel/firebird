@@ -67,6 +67,7 @@ class UserManagement;
 class MappingList;
 class DbCreatorsList;
 class thread_db;
+class Resources;
 
 class SecDbContext
 {
@@ -404,6 +405,8 @@ public:
 
 		return tra_gen_ids;
 	}
+
+	void postResources(thread_db* tdbb, const Resources* resources);
 };
 
 // System transaction is always transaction 0.

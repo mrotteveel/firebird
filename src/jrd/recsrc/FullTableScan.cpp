@@ -189,7 +189,7 @@ void FullTableScan::print(thread_db* tdbb, string& plan, bool detailed, unsigned
 			bounds += " (upper bound)";
 
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->rel_name.c_str(), m_alias) + " Full Scan" + bounds;
+			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Full Scan" + bounds;
 		printOptInfo(plan);
 	}
 	else

@@ -143,10 +143,7 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, jrd_rel* view, jrd_
 			if (!MET_lookup_partner(tdbb, relation, &idx, 0))
 				continue;
 
-			auto referenced = MetadataCache::findRelation(tdbb, idx.idx_primary_relation);
-			auto referenced_relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-				referenced, idx.idx_primary_relation);
-			MET_scan_relation(tdbb, referenced);
+			auto referenced_relation = MetadataCache::findRelation(tdbb, idx.idx_primary_relation);
 			const USHORT index_id = idx.idx_primary_index;
 
 			// get the description of the primary key index
@@ -171,14 +168,14 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, jrd_rel* view, jrd_
 				const jrd_fld* referenced_field =
 					MET_get_field(referenced_relation, idx_desc->idx_field);
 				CMP_post_access(tdbb, csb,
-								referenced_relation->rel_security_name,
-								(view ? view->rel_id : 0),
+								referenced_relation->getSecurityName(),
+								(view ? view->getId() : 0),
 								SCL_references, obj_relations,
-								referenced_relation->rel_name);
+								referenced_relation->getName());
 				CMP_post_access(tdbb, csb,
 								referenced_field->fld_security_name, 0,
 								SCL_references, obj_column,
-								referenced_field->fld_name, referenced_relation->rel_name);
+								referenced_field->fld_name, referenced_relation->getName());
 			}
 
 			CCH_RELEASE(tdbb, &referenced_window);
@@ -486,9 +483,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 
 	Database* dbb = tdbb->getDatabase();
 	Attachment* attachment = tdbb->getAttachment();
-	jrd_rel* relation = MET_relation(tdbb, m_creation->relation->rel_id);
-	if (!(relation->rel_flags & REL_scanned))
-		MET_scan_relation(tdbb, relation);
+	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, m_creation->relation->getId(), false);
 
 	index_desc* idx = &item->m_idx;
 	jrd_tra* transaction = item->m_tra ? item->m_tra : m_creation->transaction;
@@ -549,7 +544,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 //		if (!MET_lookup_partner(tdbb, relation, idx, m_creation->index_name)) {
 //			BUGCHECK(173);		// msg 173 referenced index description not found
 //		}
-		partner_relation = MET_relation(tdbb, idx->idx_primary_relation);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation, false);
 		partner_index_id = idx->idx_primary_index;
 	}
 
@@ -558,7 +553,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		fb_assert(!m_exprBlob.isEmpty());
 
 		CompilerScratch* csb = NULL;
-		Jrd::ContextPoolHolder context(tdbb, attachment->createPool());
+		Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
 
 		idx->idx_expression = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, relation, &m_exprBlob,
 			&csb, &idx->idx_expression_statement, false, false));
@@ -850,10 +845,10 @@ void IDX_create_index(thread_db* tdbb,
 	Database* dbb = tdbb->getDatabase();
 	Jrd::Attachment* attachment = tdbb->getAttachment();
 
-	if (relation->rel_file)
+	if (relation->getExtFile())
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_extfile_uns_op) << Arg::Str(relation->rel_name));
+				 Arg::Gds(isc_extfile_uns_op) << Arg::Str(relation->getName()));
 	}
 	else if (relation->isVirtual())
 	{
@@ -974,13 +969,9 @@ void IDX_create_index(thread_db* tdbb,
 
 	if ((relation->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0))
 	{
-		IndexLock* idx_lock = CMP_get_index_lock(tdbb, relation, idx->idx_id);
+		IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, idx->idx_id);
 		if (idx_lock)
-		{
-			++idx_lock->idl_count;
-			if (idx_lock->idl_count == 1)
-				LCK_lock(tdbb, idx_lock->idl_lock, LCK_SR, LCK_WAIT);
-		}
+			idx_lock->lockShared(tdbb);
 	}
 }
 
@@ -1017,7 +1008,7 @@ IndexBlock* IDX_create_index_block(thread_db* tdbb, jrd_rel* relation, USHORT id
 	Lock* lock = FB_NEW_RPT(*relation->rel_pool, 0)
 		Lock(tdbb, sizeof(SLONG), LCK_expression, index_block, index_block_flush);
 	index_block->idb_lock = lock;
-	lock->setKey((relation->rel_id << 16) | index_block->idb_id);
+	lock->setKey((relation->getId() << 16) | index_block->idb_id);
 
 	return index_block;
 }
@@ -1047,9 +1038,9 @@ void IDX_delete_index(thread_db* tdbb, jrd_rel* relation, USHORT id)
 	if ((relation->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
 		tree_exists)
 	{
-		HazardPtr<IndexLock> idx_lock = relation->getIndexLock(tdbb, id);
+		IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, id);
 		if (idx_lock)
-			idx_lock->idl_lock.leave245(tdbb);
+			idx_lock->unlockAll(tdbb);
 	}
 }
 
@@ -1083,9 +1074,9 @@ void IDX_delete_indices(thread_db* tdbb, jrd_rel* relation, RelationPages* relPa
 
 		if (is_temp && tree_exists)
 		{
-			HazardPtr<IndexLock> idx_lock = relation->getIndexLock(tdbb, i);
+			IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, i);
 			if (idx_lock)
-				idx_lock->idl_lock.releaseLock(tdbb, ExistenceLock::ReleaseMethod::Normal);
+				idx_lock->unlockAll(tdbb);
 		}
 	}
 
@@ -1738,7 +1729,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 	if (!MET_lookup_partner(tdbb, relation, idx, 0))
 		return result;
 
-	jrd_rel* partner_relation(tdbb);
+	jrd_rel* partner_relation = nullptr;
 	USHORT index_id = 0;
 
 	if (idx->idx_flags & idx_foreign)
@@ -1746,7 +1737,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 		partner_relation = MetadataCache::findRelation(tdbb, idx->idx_primary_relation);
 		index_id = idx->idx_primary_index;
 		result = check_partner_index(tdbb, relation, record, transaction, idx,
-									 partner_relation.getPointer(), index_id);
+									 partner_relation, index_id);
 	}
 	else if (idx->idx_flags & (idx_primary | idx_unique))
 	{
@@ -1762,15 +1753,15 @@ static idx_e check_foreign_key(thread_db* tdbb,
 
 			if ((relation->rel_flags & REL_temp_conn) && (partner_relation->rel_flags & REL_temp_tran))
 			{
-				jrd_rel::RelPagesSnapshot pagesSnapshot(tdbb, partner_relation.getPointer());
-				partner_relation->fillPagesSnapshot(pagesSnapshot, true);
+				RelationPermanent::RelPagesSnapshot pagesSnapshot(tdbb, partner_relation->rel_perm);
+				partner_relation->rel_perm->fillPagesSnapshot(pagesSnapshot, true);
 
 				for (FB_SIZE_T i = 0; i < pagesSnapshot.getCount(); i++)
 				{
 					RelationPages* partnerPages = pagesSnapshot[i];
 					tdbb->tdbb_temp_traid = partnerPages->rel_instance_id;
 					if ( (result = check_partner_index(tdbb, relation, record,
-								transaction, idx, partner_relation.getPointer(), index_id)) )
+								transaction, idx, partner_relation, index_id)) )
 					{
 						break;
 					}
@@ -1783,7 +1774,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 			else
 			{
 				if ( (result = check_partner_index(tdbb, relation, record,
-							transaction, idx, partner_relation.getPointer(), index_id)) )
+							transaction, idx, partner_relation, index_id)) )
 				{
 					break;
 				}
@@ -1796,7 +1787,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 		if (idx->idx_flags & idx_foreign)
 			context.setErrorLocation(relation, idx->idx_id);
 		else
-			context.setErrorLocation(partner_relation.getPointer(), index_id);
+			context.setErrorLocation(partner_relation, index_id);
 	}
 
 	return result;
@@ -1854,7 +1845,7 @@ static idx_e check_partner_index(thread_db* tdbb,
 		{
 			if (idx_desc->idx_itype >= idx_first_intl_string)
 			{
-				HazardPtr<TextType> textType = INTL_texttype_lookup(tdbb, INTL_INDEX_TO_TEXT(idx_desc->idx_itype));
+				TextType* textType = INTL_texttype_lookup(tdbb, INTL_INDEX_TO_TEXT(idx_desc->idx_itype));
 
 				if (textType->getFlags() & TEXTTYPE_SEPARATE_UNIQUE)
 				{

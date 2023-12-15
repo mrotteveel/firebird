@@ -2126,8 +2126,8 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 					// load DDL triggers
 					mdc->load_ddl_triggers(tdbb);
 
-					TrigVectorPtr* trig_connect = dbb->dbb_mdc->getTriggers(DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
-					if (trig_connect && trig_connect->load() && !trig_connect->load()->isEmpty(tdbb))
+					auto* trig_connect = dbb->dbb_mdc->getTriggers(DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
+					if (trig_connect && *trig_connect)
 					{
 						// Start a transaction to execute ON CONNECT triggers.
 						// Ensure this transaction can't trigger auto-sweep.
@@ -8202,11 +8202,11 @@ static void purge_attachment(thread_db* tdbb, StableAttachmentPart* sAtt, unsign
 	{
 		try
 		{
-			TrigVectorPtr* trig_disconnect = dbb->dbb_mdc->getTriggers(DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
+			auto* trig_disconnect = dbb->dbb_mdc->getTriggers(DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
 
 			if (!forcedPurge &&
 				!(attachment->att_flags & ATT_no_db_triggers) &&
-				trig_disconnect && trig_disconnect->load() && !trig_disconnect->load()->isEmpty(tdbb))
+				trig_disconnect && *trig_disconnect)
 			{
 				ThreadStatusGuard temp_status(tdbb);
 
@@ -9686,7 +9686,7 @@ void JRD_cancel_operation(thread_db* /*tdbb*/, Jrd::Attachment* attachment, int 
 	}
 }
 
-
+/* ????????????
 bool TrigVector::hasActive() const
 {
 	for (auto t : snapshot())
@@ -9723,3 +9723,5 @@ void TrigVector::release(thread_db* tdbb)
 		delete this;
 	}
 }
+*/
+

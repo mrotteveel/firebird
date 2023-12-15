@@ -24,6 +24,7 @@
 #ifndef JRD_MET_PROTO_H
 #define JRD_MET_PROTO_H
 
+#include "../common/classes/array.h"
 #include "../jrd/MetaName.h"
 #include "../jrd/HazardPtr.h"
 
@@ -38,6 +39,7 @@ namespace Jrd
 	class Format;
 	class jrd_rel;
 	class CompilerScratch;
+	struct Dependency;
 	class DmlNode;
 	class Database;
 	struct bid;
@@ -47,6 +49,10 @@ namespace Jrd
 	class DeferredWork;
 	struct FieldInfo;
 	class ExceptionItem;
+	class GeneratorItem;
+	class BlobFilter;
+
+	class Triggers;
 }
 
 struct SubtypeInfo
@@ -72,7 +78,7 @@ Jrd::Format*	MET_current(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_delete_dependencies(Jrd::thread_db*, const Jrd::MetaName&, int, Jrd::jrd_tra*);
 void		MET_delete_shadow(Jrd::thread_db*, USHORT);
 void		MET_error(const TEXT*, ...);
-Jrd::Format*	MET_format(Jrd::thread_db*, Jrd::jrd_rel*, USHORT);
+Jrd::Format*	MET_format(Jrd::thread_db*, Jrd::RelationPermanent*, USHORT);
 bool		MET_get_char_coll_subtype_info(Jrd::thread_db*, USHORT, SubtypeInfo* info);
 Jrd::DmlNode*	MET_get_dependencies(Jrd::thread_db*, Jrd::jrd_rel*, const UCHAR*, const ULONG,
 								Jrd::CompilerScratch*, Jrd::bid*, Jrd::Statement**,
@@ -83,7 +89,7 @@ ULONG		MET_get_rel_flags_from_TYPE(USHORT);
 bool		MET_get_repl_state(Jrd::thread_db*, const Jrd::MetaName&);
 void		MET_get_shadow_files(Jrd::thread_db*, bool);
 bool		MET_load_exception(Jrd::thread_db*, Jrd::ExceptionItem&);
-void		MET_load_trigger(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&, Jrd::TrigVectorPtr*);
+void		MET_load_trigger(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&, Jrd::Triggers&);
 void		MET_lookup_cnstrt_for_index(Jrd::thread_db*, Jrd::MetaName& constraint, const Jrd::MetaName& index_name);
 void		MET_lookup_cnstrt_for_trigger(Jrd::thread_db*, Jrd::MetaName&, Jrd::MetaName&, const Jrd::MetaName&);
 void		MET_lookup_exception(Jrd::thread_db*, SLONG, /* OUT */ Jrd::MetaName&, /* OUT */ Firebird::string*);
@@ -93,19 +99,20 @@ bool		MET_load_generator(Jrd::thread_db*, Jrd::GeneratorItem&, bool* sysGen = 0,
 SLONG		MET_lookup_generator(Jrd::thread_db*, const Jrd::MetaName&, bool* sysGen = 0, SLONG* step = 0);
 bool		MET_lookup_generator_id(Jrd::thread_db*, SLONG, Jrd::MetaName&, bool* sysGen = 0);
 void		MET_update_generator_increment(Jrd::thread_db* tdbb, SLONG gen_id, SLONG step);
+void		MET_lookup_index_condition(Jrd::thread_db* tdbb, Jrd::jrd_rel* relation, Jrd::index_desc* idx);
 void		MET_lookup_index_expression(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::index_desc*);
+void		MET_lookup_index_expression_blr(Jrd::thread_db*, Jrd::MetaName index_name, Jrd::bid& expr_blob_id);
 bool		MET_lookup_partner(Jrd::thread_db* tdbb, Jrd::jrd_rel* relation, Jrd::index_desc* idx, const TEXT* index_name);
 Jrd::DmlNode*	MET_parse_blob(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::bid*, Jrd::CompilerScratch**,
 							   Jrd::Statement**, bool, bool);
 void		MET_parse_sys_trigger(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_prepare(Jrd::thread_db*, Jrd::jrd_tra*, USHORT, const UCHAR*);
 void		MET_release_existence(Jrd::thread_db*, Jrd::jrd_rel*);
-void		MET_release_trigger(Jrd::thread_db*, Jrd::TrigVectorPtr*, const Jrd::MetaName&);
-void		MET_release_triggers(Jrd::thread_db*, Jrd::TrigVectorPtr*, bool);
 void		MET_revoke(Jrd::thread_db*, Jrd::jrd_tra*, const Jrd::MetaName&,
 	const Jrd::MetaName&, const Firebird::string&);
 void		MET_scan_partners(Jrd::thread_db*, Jrd::jrd_rel*);
-void		MET_scan_relation(Jrd::thread_db*, Jrd::jrd_rel*&);
+void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, Jrd::jrd_rel*,
+	const Jrd::MetaName&, int, Jrd::jrd_tra*);
 void		MET_trigger_msg(Jrd::thread_db*, Firebird::string&, const Jrd::MetaName&, USHORT);
 void		MET_update_shadow(Jrd::thread_db*, Jrd::Shadow*, USHORT);
 void		MET_update_transaction(Jrd::thread_db*, Jrd::jrd_tra*, const bool);

@@ -324,7 +324,7 @@ void EVL_dbkey_bounds(thread_db* tdbb, const Array<DbKeyRangeNode*>& ranges,
 					Aligner<RecordNumber::Packed> alignedNumber(ptr, length);
 					const auto dbkey = (const RecordNumber::Packed*) alignedNumber;
 
-					if (dbkey->bid_relation_id == relation->rel_id)
+					if (dbkey->bid_relation_id == relation->getId())
 					{
 						RecordNumber recno;
 						recno.bid_decode(dbkey);
@@ -357,7 +357,7 @@ void EVL_dbkey_bounds(thread_db* tdbb, const Array<DbKeyRangeNode*>& ranges,
 					Aligner<RecordNumber::Packed> alignedNumber(ptr, length);
 					const auto dbkey = (const RecordNumber::Packed*) alignedNumber;
 
-					if (dbkey->bid_relation_id == relation->rel_id)
+					if (dbkey->bid_relation_id == relation->getId())
 					{
 						RecordNumber recno;
 						recno.bid_decode(dbkey);
@@ -429,7 +429,7 @@ bool EVL_field(jrd_rel* relation, Record* record, USHORT id, dsc* desc)
 					break;
 				}
 
-				format = MET_format(tdbb, relation, format->fmt_version + 1);
+				format = MET_format(tdbb, relation->rel_perm, format->fmt_version + 1);
 				fb_assert(format);
 			}
 

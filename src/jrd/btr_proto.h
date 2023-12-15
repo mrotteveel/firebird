@@ -29,7 +29,7 @@
 #include "../jrd/req.h"
 #include "../jrd/exe.h"
 
-void	BTR_all(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::IndexDescList&, Jrd::RelationPages*);
+void	BTR_all(Jrd::thread_db*, Jrd::RelationPermanent*, Jrd::IndexDescList&, Jrd::RelationPages*);
 void	BTR_complement_key(Jrd::temporary_key*);
 void	BTR_create(Jrd::thread_db*, Jrd::IndexCreation&, Jrd::SelectivityList&);
 bool	BTR_delete_index(Jrd::thread_db*, Jrd::win*, USHORT);

@@ -50,7 +50,7 @@ bool		INTL_defined_type(Jrd::thread_db*, USHORT);
 USHORT		INTL_key_length(Jrd::thread_db*, USHORT, USHORT);
 Jrd::CharSet*	INTL_charset_lookup(Jrd::thread_db* tdbb, USHORT parm1);
 Jrd::Collation*	INTL_texttype_lookup(Jrd::thread_db* tdbb, USHORT parm1);
-void		INTL_texttype_unload(Jrd::thread_db*, USHORT);
+//void		INTL_texttype_unload(Jrd::thread_db*, USHORT);
 bool		INTL_texttype_validate(Jrd::thread_db*, const SubtypeInfo*);
 void		INTL_pad_spaces(Jrd::thread_db*, dsc*, UCHAR*, ULONG);
 USHORT		INTL_string_to_key(Jrd::thread_db*, USHORT, const dsc*, dsc*, USHORT);
