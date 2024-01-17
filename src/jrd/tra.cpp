@@ -4180,7 +4180,7 @@ void TraceSweepEvent::beginSweepRelation(const jrd_rel* relation)
 	if (relation && relation->getName().isEmpty())
 	{
 		// don't accumulate per-relation stats for metadata query below
-		MetadataCache::lookup_relation_id(m_tdbb, relation->getId(), false);
+		MetadataCache::lookup_relation_id(m_tdbb, relation->getId());
 	}
 
 	m_relation_clock = fb_utils::query_performance_counter();

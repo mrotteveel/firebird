@@ -149,22 +149,6 @@ void Routine::setStatement(Statement* value)
 	}
 }
 
-void Routine::checkReload(thread_db* tdbb)
-{
-	if (!(flags & FLAG_RELOAD))
-		return;
-
-	if (!reload(tdbb))
-	{
-		string err;
-		err.printf("Recompile of %s \"%s\" failed",
-					getObjectType() == obj_udf ? "FUNCTION" : "PROCEDURE",
-					getName().toString().c_str());
-
-		(Arg::Gds(isc_random) << Arg::Str(err)).raise();
-	}
-}
-
 // Parse routine BLR and debug info.
 void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid* blobDbg)
 {
@@ -186,14 +170,11 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid*
 
 	parseMessages(tdbb, csb, BlrReader(tmp.begin(), (unsigned) tmp.getCount()));
 
-	flags &= ~Routine::FLAG_RELOAD;
-
 	Statement* statement = getStatement();
 	PAR_blr(tdbb, nullptr, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
 	setStatement(statement);
 
-	if (csb->csb_g_flags & csb_reload)
-		flags |= FLAG_RELOAD;
+	// reload?????????????????????
 
 	if (!blob_id)
 		setImplemented(false);
@@ -282,8 +263,6 @@ void Routine::releaseStatement(thread_db* tdbb)
 
 	setInputFormat(NULL);
 	setOutputFormat(NULL);
-
-	flags &= ~FLAG_SCANNED;
 }
 
 /*

@@ -2960,7 +2960,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 			}
 		}
 		else
-			proc = MetadataCache::lookup_procedure(tdbb, name, false);
+			proc = MetadataCache::lookup_procedure(tdbb, name);
 	}
 
 	if (proc && !procedure)

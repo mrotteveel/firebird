@@ -70,11 +70,6 @@ MdcVersion VersionSupport::next(thread_db* tdbb)
 }
 
 
-bool CacheObject::checkObject(thread_db*, Arg::StatusVector&)
-{
-	return true;
-}
-
 void CacheObject::afterUnlock(thread_db* tdbb, unsigned flags)
 {
 	// do nothing

@@ -486,7 +486,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 		if (item->exa_action == ExternalAccess::exa_procedure)
 		{
-			routine = MetadataCache::lookup_procedure_id(tdbb, item->exa_prc_id, false, false, 0);
+			routine = MetadataCache::lookup_procedure_id(tdbb, item->exa_prc_id, 0);
 			if (!routine)
 			{
 				string name;
@@ -497,7 +497,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 		}
 		else if (item->exa_action == ExternalAccess::exa_function)
 		{
-			routine = Function::lookup(tdbb, item->exa_fun_id, false, false, 0);
+			routine = Function::lookup(tdbb, item->exa_fun_id, 0);
 
 			if (!routine)
 			{
@@ -510,7 +510,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 		}
 		else
 		{
-			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
+			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id);
 
 			if (!relation)
 				continue;
@@ -786,7 +786,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		// Add externals recursively
 		if (item->exa_action == ExternalAccess::exa_procedure)
 		{
-			auto procedure = MetadataCache::lookup_procedure_id(tdbb, item->exa_prc_id, false, false, 0);
+			auto procedure = MetadataCache::lookup_procedure_id(tdbb, item->exa_prc_id, 0);
 			if (procedure && procedure->getStatement())
 			{
 				item->user = procedure->invoker ? MetaName(procedure->invoker->getUserName()) : user;
@@ -798,7 +798,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else if (item->exa_action == ExternalAccess::exa_function)
 		{
-			auto function = Function::lookup(tdbb, item->exa_fun_id, false, false, 0);
+			auto function = Function::lookup(tdbb, item->exa_fun_id, 0);
 			if (function && function->getStatement())
 			{
 				item->user = function->invoker ? MetaName(function->invoker->getUserName()) : user;
@@ -810,7 +810,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else
 		{
-			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, false);
+			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id);
 			if (!relation)
 				continue;
 

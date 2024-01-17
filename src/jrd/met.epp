@@ -113,14 +113,14 @@ static int blocking_ast_dsql_cache(void* ast_object);
 static int partners_ast_relation(void*);
 static int rescan_ast_relation(void*);
 static ULONG get_rel_flags_from_FLAGS(USHORT);
-static void get_trigger(thread_db*, jrd_rel*, bid*, bid*, TrigVectorPtr*, const TEXT*, FB_UINT64, bool,
+static void get_trigger(thread_db*, jrd_rel*, bid*, bid*, TrigVectorPtr, const TEXT*, FB_UINT64, bool,
 	USHORT, const MetaName&, const string&, const bid*, Nullable<bool> ssDefiner);
 static bool get_type(thread_db*, USHORT*, const UCHAR*, const TEXT*);
 static void lookup_view_contexts(thread_db*, jrd_rel*);
 static void make_relation_scope_name(const TEXT*, const USHORT, string& str);
 static ValueExprNode* parse_field_default_blr(thread_db* tdbb, bid* blob_id);
 static BoolExprNode* parse_field_validation_blr(thread_db* tdbb, bid* blob_id, const MetaName name);
-static void save_trigger_data(thread_db*, TrigVectorPtr*, jrd_rel*, Statement*, blb*, blb*,
+static void save_trigger_data(thread_db*, TrigVectorPtr, jrd_rel*, Statement*, blb*, blb*,
 	const TEXT*, FB_UINT64, bool, USHORT, const MetaName&, const string&,
 	const bid*, Nullable<bool> ssDefiner);
 static void scan_partners(thread_db*, jrd_rel*);
@@ -318,24 +318,6 @@ void MetadataCache::verify_cache(thread_db* tdbb)
 
 	MetadataCache* mdc = dbb->dbb_mdc;
 	MutexLockGuard guard(mdc->mdc_use_mutex, FB_FUNCTION);
-
-	for (auto routine : mdc->mdc_procedures)
-	{
-		if (routine && routine->getStatement() /*&&
-			!(routine->flags & Routine::FLAG_OBSOLETE)*/ )
-		{
-			fb_assert(routine->intUseCount == 0);
-		}
-	}
-
-	for (auto routine : mdc->mdc_functions)
-	{
-		if (routine && routine->getStatement() /*&&
-			!(routine->flags & Routine::FLAG_OBSOLETE)*/ )
-		{
-			fb_assert(routine->intUseCount == 0);
-		}
-	}
 
 	// Walk procedures and calculate internal dependencies
 	for (auto routine : mdc->mdc_procedures)
@@ -964,19 +946,6 @@ Format* MET_current(thread_db* tdbb, jrd_rel* relation)
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 
-	if (!(relation->rel_flags & REL_scanned))
-	{
-		AutoCacheRequest request(tdbb, irq_l_curr_format, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			REL IN RDB$RELATIONS
-			WITH REL.RDB$RELATION_ID EQ relation->getId()
-		{
-			relation->rel_current_fmt = REL.RDB$FORMAT;
-		}
-		END_FOR
-	}
-
 	// Usually, format numbers start with one and they are present in RDB$FORMATS.
 	// However, system tables have zero as their initial format and they don't have
 	// any related records in RDB$FORMATS, instead their rel_formats[0] is initialized
@@ -1579,11 +1548,11 @@ void MET_get_shadow_files(thread_db* tdbb, bool delete_files)
 }
 
 
-DbTriggers* DbTriggers::create(thread_db* tdbb, MemoryPool& pool, MetaId type, CacheObject::Flag flags)
+void DbTriggers::scan(thread_db* tdbb, CacheObject::Flag flags)
 {
 /********************************************
  *
- *      D b T r i g g e r s :: c r e a t e
+ *      D b T r i g g e r s :: s c a n
  *
  ********************************************
  *
@@ -1597,7 +1566,7 @@ DbTriggers* DbTriggers::create(thread_db* tdbb, MemoryPool& pool, MetaId type, C
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	auto* triggers = FB_NEW_POOL(pool) DbTriggers();
+	auto type = perm->getId();
 
 	if (!(flags & CacheFlag::NOSCAN))
 	{
@@ -1609,16 +1578,14 @@ DbTriggers* DbTriggers::create(thread_db* tdbb, MemoryPool& pool, MetaId type, C
 				 TRG.RDB$TRIGGER_INACTIVE EQ 0
 			SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 		{
-			if (TRG.RDB$TRIGGER_TYPE == type ||
-				(type == TRIGGER_TYPE_DDL && (TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL))
+			if ((TRG.RDB$TRIGGER_TYPE == type | TRIGGER_TYPE_DB) ||
+				(type == DB_TRIGGER_MAX && (TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL))
 			{
-				MET_load_trigger(tdbb, nullptr, TRG.RDB$TRIGGER_NAME, *triggers);
+				MET_load_trigger(tdbb, nullptr, TRG.RDB$TRIGGER_NAME, this);
 			}
 		}
 		END_FOR
 	}
-
-	return triggers;
 }
 
 
@@ -1640,21 +1607,28 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	if (force || !mdc_triggers[type].hasData())
+	auto* cacheElement = mdc_triggers[type].load(atomics::memory_order_acquire);
+	if (force || !cacheElement)
 	{
-		auto* triggers = DbTriggers::create(tdbb, getPool(), type | TRIGGER_TYPE_DB, CacheFlag::AUTOCREATE);
-		if (force)
+		if (!cacheElement)
 		{
-			mdc_triggers[type].storeObjectWithTimeout(tdbb, triggers,
-				[triggers]()
-				{
-					delete triggers;
-					(Arg::Gds(isc_random) << "Trigger's set busy").raise();
-				}
-			);
+			// actual type will be taken into an account in DbTriggers::scan
+			auto* newCacheElement = FB_NEW_POOL(getPool())
+				CacheElement<DbTriggers, DbTriggersHeader>(getPool(), type, DbTriggers::makeLock(tdbb, getPool()));
+			if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
+				atomics::memory_order_release, atomics::memory_order_acquire))
+			{
+				cacheElement = newCacheElement;
+			}
+			else
+			{
+				delete newCacheElement;
+			}
 		}
-		else if (!mdc_triggers[type].storeObject(tdbb, triggers, CacheFlag::INIT))
-			delete triggers;
+
+		auto* triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
+		if (!cacheElement->storeObject(tdbb, triggers, force ? 0 : CacheFlag::INIT))
+			DbTriggers::destroy(triggers);
 	}
 }
 
@@ -1662,34 +1636,15 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 // Load DDL triggers from RDB$TRIGGERS.
 void MetadataCache::load_ddl_triggers(thread_db* tdbb, bool force)
 {
-	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
-
-	if (force || !mdc_ddl_triggers.hasData())
-	{
-		auto* triggers = DbTriggers::create(tdbb, getPool(), TRIGGER_TYPE_DDL, CacheFlag::AUTOCREATE);
-		if (force)
-		{
-			mdc_ddl_triggers.storeObjectWithTimeout(tdbb, triggers,
-				[triggers]()
-				{
-					delete triggers;
-					(Arg::Gds(isc_random) << "Trigger's set busy").raise();
-				}
-			);
-		}
-		else if (!mdc_ddl_triggers.storeObject(tdbb, triggers, CacheFlag::INIT))
-			delete triggers;
-	}
+	// actual type will be taken into an account in DbTriggers::scan
+	load_db_triggers(tdbb, DB_TRIGGER_MAX, force);
 }
 
 
 void MET_load_trigger(thread_db* tdbb,
 					  jrd_rel* relation,
 					  const MetaName& trigger_name,
-					  TrigVectorPtr* triggers)
+					  TrigVectorPtr triggers)
 {
 /**************************************
  *
@@ -2014,9 +1969,6 @@ int MET_lookup_field(thread_db* tdbb, jrd_rel* relation, const MetaName& name)
 	// Not found.  Next, try system relations directly
 
 	int id = -1;
-
-	if (relation->rel_flags & REL_deleted)
-		return id;
 
 	AutoCacheRequest request(tdbb, irq_l_field, IRQ_REQUESTS);
 
@@ -2599,7 +2551,7 @@ bool MET_lookup_partner(thread_db* tdbb, jrd_rel* relation, index_desc* idx, con
 }
 
 
-jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& name, bool noscan)
+jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& name)
 {
 /**************************************
  *
@@ -2615,32 +2567,19 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	MetadataCache* mdc = attachment->att_database->dbb_mdc;
-	jrd_prc* check_procedure;
 
 	// See if we already know the procedure by name
 	for (auto procedure : mdc->mdc_procedures)
 	{
-		if (procedure && !(procedure->flags & Routine::FLAG_OBSOLETE) &&
-			((procedure->flags & Routine::FLAG_SCANNED) || noscan) &&
-			!(procedure->flags & Routine::FLAG_BEING_SCANNED) &&
-			!(procedure->flags & Routine::FLAG_BEING_ALTERED))
+		if (procedure && procedure->getName() == name)
 		{
-			if (procedure->getName() == name)
-			{
-				if (procedure->flags & Routine::FLAG_CHECK_EXISTENCE)
-				{
-					check_procedure = procedure;
-					break;
-				}
-
-				return procedure;
-			}
+			return procedure->getObject(tdbb);
 		}
 	}
 
 	// We need to look up the procedure name in RDB$PROCEDURES
 
-	HazardPtr<jrd_prc> procedure;
+	jrd_prc* procedure = nullptr;
 
 	AutoCacheRequest request(tdbb, irq_l_procedure, IRQ_REQUESTS);
 
@@ -2649,26 +2588,16 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 		WITH P.RDB$PROCEDURE_NAME EQ name.identifier.c_str() AND
 			 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
-		procedure = findProcedure(tdbb, P.RDB$PROCEDURE_ID, noscan, 0);
+		procedure = mdc->mdc_procedures.getObject(tdbb, P.RDB$PROCEDURE_ID, CacheFlag::AUTOCREATE);
 	}
 	END_FOR
 
-	if (check_procedure)
-	{
-		check_procedure->flags &= ~Routine::FLAG_CHECK_EXISTENCE;
-		if (check_procedure != procedure)
-		{
-			check_procedure->flags |= Routine::FLAG_OBSOLETE;
-			check_procedure->sharedCheckUnlock(tdbb);
-		}
-	}
 
 	return procedure;
 }
 
 
-HazardPtr<jrd_prc> MetadataCache::lookup_procedure_id(thread_db* tdbb, USHORT id, bool return_deleted,
-	bool noscan, USHORT flags)
+jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT flags)
 {
 /**************************************
  *
@@ -2683,54 +2612,45 @@ HazardPtr<jrd_prc> MetadataCache::lookup_procedure_id(thread_db* tdbb, USHORT id
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	MetadataCache* mdc = attachment->att_database->dbb_mdc;
-	HazardPtr<jrd_prc> check_procedure, procedure;
 
-	if (mdc->mdc_procedures.load(tdbb, id, procedure) &&
-		procedure->getId() == id &&
-		!(procedure->flags & Routine::FLAG_CLEARED) &&
-		!(procedure->flags & Routine::FLAG_BEING_SCANNED) &&
-		((procedure->flags & Routine::FLAG_SCANNED) || noscan) &&
-		!(procedure->flags & Routine::FLAG_BEING_ALTERED) &&
-		(!(procedure->flags & Routine::FLAG_OBSOLETE) || return_deleted))
-	{
-		if (procedure->flags & Routine::FLAG_CHECK_EXISTENCE)
-		{
-			check_procedure = procedure;
-			if (check_procedure->existenceLock->inc(tdbb) != Resource::State::Locked)
-				check_procedure->existenceLock->enter245(tdbb);
-		}
-		else {
-			return procedure;
-		}
-	}
+	return mdc->mdc_procedures.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+}
 
-	// We need to look up the procedure name in RDB$PROCEDURES
 
-	procedure.clear();
+CachedRelation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags)
+{
+	SET_TDBB(tdbb);
 
-	AutoCacheRequest request(tdbb, irq_l_proc_id, IRQ_REQUESTS);
+	Attachment* attachment = tdbb->getAttachment();
+	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+
+	// See if we already know the relation by name
+	auto* rc = mdc->mdc_relations.lookup(tdbb, [name](RelationPermanent* rel) { return rel->rel_name == name; });
+
+	if (rc || !(flags & CacheFlag::AUTOCREATE))
+		return rc;
+
+	// We need to look up the relation name in RDB$RELATIONS
+	AutoCacheRequest request(tdbb, irq_l_relation, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request)
-		P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ id
+		X IN RDB$RELATIONS WITH X.RDB$RELATION_NAME EQ name.c_str()
 	{
-		procedure = findProcedure(tdbb, P.RDB$PROCEDURE_ID, noscan, flags);
+		if (mdc->mdc_relations.getObject(tdbb, X.RDB$RELATION_ID, CacheFlag::AUTOCREATE))
+			rc = mdc->mdc_relations.getData(X.RDB$RELATION_ID);
+
+/* !!!!!!!!!!!!!!!!!!!!!
+		if (!X.RDB$RELATION_TYPE.NULL)
+		{
+			relation->rel_flags |= MET_get_rel_flags_from_TYPE(X.RDB$RELATION_TYPE);
+		}
+ */
+
 	}
 	END_FOR
 
-	if (check_procedure)
-	{
-		check_procedure->flags &= ~Routine::FLAG_CHECK_EXISTENCE;
-		if (check_procedure != procedure)
-		{
-			check_procedure->existenceLock->dec(tdbb);
-			check_procedure->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
-			check_procedure->flags |= Routine::FLAG_OBSOLETE;
-		}
-	}
-
-	return procedure;
+	return rc;
 }
-
 
 jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name)
 {
@@ -2750,88 +2670,14 @@ jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name)
 	MetadataCache* mdc = attachment->att_database->dbb_mdc;
 	jrd_rel* check_relation = nullptr;
 
-	// See if we already know the relation by name
-
-	for (auto relation : mdc->mdc_relations)
-	{
-		if (relation)
-		{
-			if (relation->rel_flags & REL_deleting)
-				CheckoutLockGuard guard(tdbb, relation->rel_drop_mutex, FB_FUNCTION);
-
-			if (!(relation->rel_flags & REL_deleted))
-			{
-				// dimitr: for non-system relations we should also check
-				//		   REL_scanned and REL_being_scanned flags. Look
-				//		   at MET_lookup_procedure for example.
-				if (!(relation->rel_flags & REL_system) &&
-					(!(relation->rel_flags & REL_scanned) || (relation->rel_flags & REL_being_scanned)))
-				{
-					continue;
-				}
-
-				if (relation->rel_name == name)
-				{
-					if (relation->rel_flags & REL_check_existence)
-					{
-						check_relation = relation;
-						check_relation->rel_existence_lock->enter245(tdbb);
-						break;
-					}
-
-					return relation;
-				}
-			}
-		}
-	}
-
-	// We need to look up the relation name in RDB$RELATIONS
-
-	jrd_rel* relation = nullptr;
-
-	AutoCacheRequest request(tdbb, irq_l_relation, IRQ_REQUESTS);
-
-	FOR(REQUEST_HANDLE request)
-		X IN RDB$RELATIONS WITH X.RDB$RELATION_NAME EQ name.c_str()
-	{
-		relation = findRelation(tdbb, X.RDB$RELATION_ID);
-		if (relation->rel_name.length() == 0) {
-			relation->rel_name = name;
-		}
-
-		relation->rel_flags |= get_rel_flags_from_FLAGS(X.RDB$FLAGS);
-
-		if (!X.RDB$RELATION_TYPE.NULL)
-		{
-			relation->rel_flags |= MET_get_rel_flags_from_TYPE(X.RDB$RELATION_TYPE);
-		}
-	}
-	END_FOR
-
-	if (check_relation)
-	{
-		check_relation->rel_flags &= ~REL_check_existence;
-		if (check_relation != relation)
-		{
-			LCK_release(tdbb, check_relation->rel_existence_lock);
-			if (!(check_relation->rel_flags & REL_check_partners))
-			{
-				check_relation->rel_flags |= REL_check_partners;
-				LCK_release(tdbb, check_relation->rel_partners_lock);
-				check_relation->rel_flags &= ~REL_check_partners;
-			}
-			LCK_release(tdbb, check_relation->rel_rescan_lock);
-			check_relation->rel_flags |= REL_deleted;
-
-			check_relation->rel_existence_lock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
-		}
-	}
-
-	return relation;
+	auto* perm = lookupRelation(tdbb, name);
+	if (!perm)
+		return nullptr;
+	return mdc->mdc_relations.getObject(tdbb, perm->getId(), 0);
 }
 
 
-jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, SLONG id, bool return_deleted)
+jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 {
 /**************************************
  *
@@ -2844,133 +2690,9 @@ jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, SLONG id, bool retur
  *
  **************************************/
 	SET_TDBB(tdbb);
-	Attachment* const attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
+	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
-	// System relations are above suspicion
-
-	if (id < (int) rel_MAX)
-	{
-		fb_assert(id < MAX_USHORT);
-		return findRelation(tdbb, (USHORT) id);
-	}
-
-	jrd_rel* relation = nullptr, check_relation = nullptr;
-	if (mdc->mdc_relations.load(tdbb, id, relation))
-	{
-		if (relation->rel_flags & REL_deleting)
-			CheckoutLockGuard guard(tdbb, relation->rel_drop_mutex, FB_FUNCTION);
-
-		if (relation->rel_flags & REL_deleted)
-		{
-			if (!return_deleted)
-				relation.clear();
-			return relation;
-		}
-
-		if (relation->rel_flags & REL_check_existence)
-		{
-			check_relation = relation;
-			check_relation->rel_existence_lock->enter245(tdbb);
-		}
-		else
-			return relation;
-	}
-
-	// We need to look up the relation id in RDB$RELATIONS
-
-	relation.clear();
-
-	AutoCacheRequest request(tdbb, irq_l_rel_id, IRQ_REQUESTS);
-
-	FOR(REQUEST_HANDLE request)
-		X IN RDB$RELATIONS WITH X.RDB$RELATION_ID EQ id
-	{
-		relation = findRelation(tdbb, X.RDB$RELATION_ID);
-		if (relation->rel_name.length() == 0) {
-			relation->rel_name = X.RDB$RELATION_NAME;
-		}
-
-		relation->rel_flags |= get_rel_flags_from_FLAGS(X.RDB$FLAGS);
-
-		if (!X.RDB$RELATION_TYPE.NULL)
-		{
-			relation->rel_flags |= MET_get_rel_flags_from_TYPE(X.RDB$RELATION_TYPE);
-		}
-	}
-	END_FOR
-
-	if (check_relation)
-	{
-		check_relation->rel_flags &= ~REL_check_existence;
-		if (check_relation != relation)
-		{
-			LCK_release(tdbb, check_relation->rel_existence_lock);
-			if (!(check_relation->rel_flags & REL_check_partners))
-			{
-				check_relation->rel_flags |= REL_check_partners;
-				LCK_release(tdbb, check_relation->rel_partners_lock);
-				check_relation->rel_flags &= ~REL_check_partners;
-			}
-			LCK_release(tdbb, check_relation->rel_rescan_lock);
-			check_relation->rel_flags |= REL_deleted;
-
-			check_relation->rel_existence_lock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
-		}
-	}
-
-	return relation;
-}
-
-
-bool MetadataCache::checkRelation(thread_db* tdbb, jrd_rel* relation)
-{
-/**************************************
- *
- *      c h e c k R e l a t i o n
- *
- **************************************
- *
- * Functional description
- *      Validate relation after gettng lock on it. Make sure it really exists.
- *
- **************************************/
-	SET_TDBB(tdbb);
-
-	// System relations are above suspicion
-	if (relation->getId() < (int) rel_MAX)
-		return true;
-
-	Attachment* const attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
-
-	jrd_rel* check_relation = nullptr;
-	if ((!mdc->mdc_relations.load(tdbb, relation->getId(), check_relation)) ||
-		(relation != check_relation))
-	{
-		LCK_release(tdbb, relation->rel_partners_lock);
-		LCK_release(tdbb, relation->rel_rescan_lock);
-		relation->rel_flags |= REL_deleted;
-
-		return false;
-	}
-
-	// dimitr: for non-system relations we should also check
-	//		   REL_scanned and REL_being_scanned flags. Look
-	//		   at MET_lookup_procedure for example.
-	if (!(relation->rel_flags & REL_system) &&
-		(!(relation->rel_flags & REL_scanned) || (relation->rel_flags & REL_being_scanned)))
-		{
-			return false;
-		}
-
-	if (relation->rel_flags & REL_deleting)
-		CheckoutLockGuard guard(tdbb, relation->rel_drop_mutex, FB_FUNCTION);
-
-	if (relation->rel_flags & REL_deleted)
-		return false;
-
-	return true;
+	return mdc->mdc_relations.getObject(tdbb, id, flags);
 }
 
 
@@ -3069,33 +2791,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 		const USHORT trig_flags = TRG.RDB$FLAGS;
 		const TEXT* name = TRG.RDB$TRIGGER_NAME;
 
-		TrigVectorPtr* ptr;
-
-		switch (type)
-		{
-		case TRIGGER_PRE_STORE:
-			ptr = &relation->rel_pre_store;
-			break;
-		case TRIGGER_POST_STORE:
-			ptr = &relation->rel_post_store;
-			break;
-		case TRIGGER_PRE_MODIFY:
-			ptr = &relation->rel_pre_modify;
-			break;
-		case TRIGGER_POST_MODIFY:
-			ptr = &relation->rel_post_modify;
-			break;
-		case TRIGGER_PRE_ERASE:
-			ptr = &relation->rel_pre_erase;
-			break;
-		case TRIGGER_POST_ERASE:
-			ptr = &relation->rel_post_erase;
-			break;
-		default:
-			ptr = NULL;
-			break;
-		}
-
+		auto ptr = type < TRIGGER_MAX ? &(relation->rel_triggers[type]) : nullptr;
 		if (ptr)
 		{
 			blb* blob = blb::open(tdbb, attachment->getSysTransaction(), &TRG.RDB$TRIGGER_BLR);
@@ -3161,7 +2857,7 @@ void MET_prepare(thread_db* tdbb, jrd_tra* transaction, USHORT length, const UCH
 }
 
 
-HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool noscan, USHORT flags)
+jrd_prc* MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool noscan, USHORT flags)
 {
 /**************************************
  *
@@ -3183,7 +2879,7 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 
 	HazardPtr<jrd_prc> procedure;
 
-	if (mdc->mdc_procedures.load(tdbb, id, procedure) && !(procedure->flags & Routine::FLAG_OBSOLETE))
+	if (mdc->mdc_procedures.load(tdbb, id, procedure))
 	{
 		/* In MT world additional protection is needed.
 		   Another thread may be scanning object right now.
@@ -3193,35 +2889,7 @@ HazardPtr<jrd_prc> MetadataCache::findProcedure(thread_db* tdbb, USHORT id, bool
 		 */
 
 		procedure->startup.wait();
-
-		// Make sure FLAG_BEING_SCANNED and FLAG_SCANNED are not set at the same time
-
-		fb_assert(!(procedure->flags & Routine::FLAG_BEING_SCANNED) ||
-			!(procedure->flags & Routine::FLAG_SCANNED));
-
-		/* To avoid scanning recursive procedure's blr recursively let's
-		   make use of Routine::FLAG_BEING_SCANNED bit. Because this bit is set
-		   later in the code, it is not set when we are here first time.
-		   If (in case of rec. procedure) we get here second time it is
-		   already set and we return half baked procedure.
-
-		   Scanning is complete In case of classic, there is always only one guy and if it
-		   sees FLAG_BEING_SCANNED bit set it is safe to assume it is here
-		   second time.
-
-		   In case of superserver additional protection is needed.
-		   To make sure that scanning complete wait before initialize barrier.
-		   In most cases (i.e. when procedure was scanned long ago)
-		   this is just trivial check for a flag inside barrier.
-
-		   If procedure has already been scanned - return.
-		 */
-
-		if ((procedure->flags & Routine::FLAG_BEING_SCANNED) ||
-			(procedure->flags & Routine::FLAG_SCANNED))
-		{
-			return procedure;
-		}
+		return procedure;
 	}
 
 	return NULL;
@@ -3234,24 +2902,31 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 	MetadataCache* mdc = dbb->dbb_mdc;
 
 	jrd_prc* newProcedure = FB_NEW_POOL(mdc->getPool()) jrd_prc(mdc->getPool(), id);
+	return newProcedure;
+}
 
-	try {
+void jrd_prc::scan(thread_db* tdbb, CacheObject::Flag)
+{
+	Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+	MetadataCache* mdc = dbb->dbb_mdc;
+
+	{
 		AutoCacheRequest request(tdbb, irq_r_procedure, IRQ_REQUESTS);
 
 		FOR(REQUEST_HANDLE request)
-			P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ newProcedure->getId()
+			P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ getId()
 		{
-			if (newProcedure->getName().toString().length() == 0)
+			if (getName().toString().length() == 0)
 			{
-				newProcedure->setName(QualifiedName(P.RDB$PROCEDURE_NAME,
+				setName(QualifiedName(P.RDB$PROCEDURE_NAME,
 					(P.RDB$PACKAGE_NAME.NULL ? "" : P.RDB$PACKAGE_NAME)));
 			}
 
-			newProcedure->setId(P.RDB$PROCEDURE_ID);
 			Nullable<bool> ssDefiner;
 
 			if (!P.RDB$SECURITY_CLASS.NULL)
-				newProcedure->setSecurityName(P.RDB$SECURITY_CLASS);
+				setSecurityName(P.RDB$SECURITY_CLASS);
 			else if (!P.RDB$PACKAGE_NAME.NULL)
 			{
 				AutoCacheRequest requestHandle(tdbb, irq_l_procedure_pkg_class, IRQ_REQUESTS);
@@ -3261,7 +2936,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 					WITH PKG.RDB$PACKAGE_NAME EQ P.RDB$PACKAGE_NAME
 				{
 					if (!PKG.RDB$SECURITY_CLASS.NULL)
-						newProcedure->setSecurityName(PKG.RDB$SECURITY_CLASS);
+						setSecurityName(PKG.RDB$SECURITY_CLASS);
 
 					if (!PKG.RDB$SQL_SECURITY.NULL)
 						ssDefiner = (bool) PKG.RDB$SQL_SECURITY;
@@ -3277,16 +2952,16 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 					ssDefiner = MET_get_ss_definer(tdbb);
 			}
 
-			newProcedure->owner = P.RDB$OWNER_NAME;
+			owner = P.RDB$OWNER_NAME;
 
 			if (ssDefiner.orElse(false))
-				newProcedure->invoker = attachment->getUserId(newProcedure->owner);
+				invoker = attachment->getUserId(owner);
 
-			newProcedure->setImplemented(true);
-			newProcedure->setDefined(true);
-			newProcedure->getInputFields().resize(P.RDB$PROCEDURE_INPUTS);
-			newProcedure->getOutputFields().resize(P.RDB$PROCEDURE_OUTPUTS);
-			newProcedure->setDefaultCount(0);
+			setImplemented(true);
+			setDefined(true);
+			getInputFields().resize(P.RDB$PROCEDURE_INPUTS);
+			getOutputFields().resize(P.RDB$PROCEDURE_OUTPUTS);
+			setDefaultCount(0);
 
 			AutoCacheRequest request2(tdbb, irq_r_params, IRQ_REQUESTS);
 
@@ -3305,7 +2980,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 				bid pa_default_value = pa_default_value_null ? F.RDB$DEFAULT_VALUE : PA.RDB$DEFAULT_VALUE;
 
 				Array<NestConst<Parameter> >& paramArray = PA.RDB$PARAMETER_TYPE ?
-					newProcedure->getOutputFields() : newProcedure->getInputFields();
+					getOutputFields() : getInputFields();
 
 				// should be error if field already exists
 				Parameter* parameter = FB_NEW_POOL(mdc->getPool()) Parameter(mdc->getPool());
@@ -3340,7 +3015,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 					(!pa_default_value_null ||
 					 (fb_utils::implicit_domain(F.RDB$FIELD_NAME) && !F.RDB$DEFAULT_VALUE.NULL)))
 				{
-					newProcedure->setDefaultCount(newProcedure->getDefaultCount() + 1);
+					setDefaultCount(getDefaultCount() + 1);
 					MemoryPool* pool = dbb->createPool();
 					Jrd::ContextPoolHolder context(tdbb, pool);
 
@@ -3363,12 +3038,12 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 
 			const bool external = !P.RDB$ENGINE_NAME.NULL;	// ODS_12_0
 
-			Array<NestConst<Parameter> >& paramArray = newProcedure->getOutputFields();
+			Array<NestConst<Parameter> >& paramArray = getOutputFields();
 
 			if (paramArray.hasData() && paramArray[0])
 			{
-				Format* format = Format::newFormat(mdc->getPool(), newProcedure->getOutputFields().getCount());
-				newProcedure->prc_record_format = format;
+				Format* format = Format::newFormat(mdc->getPool(), getOutputFields().getCount());
+				prc_record_format = format;
 				ULONG length = FLAG_BYTES(format->fmt_count);
 				Format::fmt_desc_iterator desc = format->fmt_desc.begin();
 				Array<NestConst<Parameter> >::iterator ptr, end;
@@ -3390,7 +3065,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 				format->fmt_length = length;
 			}
 
-			newProcedure->prc_type = P.RDB$PROCEDURE_TYPE.NULL ?
+			prc_type = P.RDB$PROCEDURE_TYPE.NULL ?
 				prc_legacy : (prc_t) P.RDB$PROCEDURE_TYPE;
 
 			if (external || !P.RDB$PROCEDURE_BLR.NULL)
@@ -3427,14 +3102,14 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 					{
 						try
 						{
-							newProcedure->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
+							parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 								P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
 						}
 						catch (const Exception& ex)
 						{
 							StaticStatusVector temp_status;
 							ex.stuffException(temp_status);
-							const string name = newProcedure->getName().toString();
+							const string name = getName().toString();
 							(Arg::Gds(isc_bad_proc_BLR) << Arg::Str(name)
 								<< Arg::StatusVector(temp_status.begin())).raise();
 						}
@@ -3442,32 +3117,30 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 				}
 				catch (const Exception&)
 				{
-					if (newProcedure->getStatement())
-						newProcedure->releaseStatement(tdbb);
+					if (getStatement())
+						releaseStatement(tdbb);
 					else
 						dbb->deletePool(csb_pool);
 
 					throw;
 				}
 
-				fb_assert(!newProcedure->isDefined() || newProcedure->getStatement()->procedure == newProcedure);
+				fb_assert(!isDefined() || getStatement()->procedure == newProcedure);
 			}
 			else
 			{
 				RefPtr<MsgMetadata> inputMetadata(REF_NO_INCR,
-					Routine::createMetadata(newProcedure->getInputFields(), false));
-				newProcedure->setInputFormat(
-					Routine::createFormat(newProcedure->getPool(), inputMetadata, false));
+					Routine::createMetadata(getInputFields(), false));
+				setInputFormat(
+					Routine::createFormat(getPool(), inputMetadata, false));
 
 				RefPtr<MsgMetadata> outputMetadata(REF_NO_INCR,
-					Routine::createMetadata(newProcedure->getOutputFields(), false));
-				newProcedure->setOutputFormat(
-					Routine::createFormat(newProcedure->getPool(), outputMetadata, true));
+					Routine::createMetadata(getOutputFields(), false));
+				setOutputFormat(
+					Routine::createFormat(getPool(), outputMetadata, true));
 
-				newProcedure->setImplemented(false);
+				setImplemented(false);
 			}
-
-			newProcedure->flags |= Routine::FLAG_SCANNED;
 
 			if (!dbb->readOnly() &&
 				!P.RDB$PROCEDURE_BLR.NULL &&
@@ -3483,22 +3156,11 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MetaId id)
 			}
 		}
 		END_FOR
-
-		newProcedure->startup.open();
-	}	// try
-	catch (const Exception&)
-	{
-		jrd_prc::destroy(newProcedure);
-		throw;
 	}
-
-	return newProcedure;
 }
 
 bool jrd_prc::reload(thread_db* tdbb)
 {
-	fb_assert(this->flags & Routine::FLAG_RELOAD);
-
 	Attachment* attachment = tdbb->getAttachment();
 	AutoCacheRequest request(tdbb, irq_r_proc_blr, IRQ_REQUESTS);
 
@@ -3516,9 +3178,6 @@ bool jrd_prc::reload(thread_db* tdbb)
 			{
 				this->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 					P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
-
-				// parseBlr() above could set FLAG_RELOAD again
-				return !(this->flags & Routine::FLAG_RELOAD);
 			}
 			catch (const Exception& ex)
 			{
@@ -3669,7 +3328,7 @@ void MET_scan_partners(thread_db* tdbb, jrd_rel* relation)
 }
 
 
-void jrd_rel::scan(thread_db* tdbb)
+void jrd_rel::scan(thread_db* tdbb, CacheObject::Flag flags)
 {
 /**************************************
  *
@@ -3699,11 +3358,10 @@ void jrd_rel::scan(thread_db* tdbb)
 	// make sure that the error will be caught if the operation is tried again.
 
 	try {
+		if (relation->rel_name.length() == 0) {
+			relation->rel_name = X.RDB$RELATION_NAME;
+		}
 
-	if (relation->rel_flags & (REL_scanned | REL_deleted))
-		return;
-
-	relation->rel_flags |= REL_being_scanned;			// !!!!!!!!!!!!!!!!! atomic, check old value
 	dependencies = (relation->rel_flags & REL_get_dependencies) ? true : false;
 	sys_triggers = (relation->rel_flags & REL_sys_triggers) ? true : false;
 	relation->rel_flags &= ~(REL_get_dependencies | REL_sys_triggers);
@@ -3719,6 +3377,9 @@ void jrd_rel::scan(thread_db* tdbb)
 	FOR(REQUEST_HANDLE request)
 		REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ relation->getId()
 	{
+		if (getName().length() == 0)
+			rel_perm->rel_name = X.RDB$RELATION_NAME;
+
 		// Pick up relation level stuff
 		relation->rel_current_fmt = REL.RDB$FORMAT;
 		vec<jrd_fld*>* vector = relation->rel_fields =
@@ -4309,7 +3970,7 @@ ULONG MET_get_rel_flags_from_TYPE(USHORT type)
 
 
 static void get_trigger(thread_db* tdbb, jrd_rel* relation,
-						bid* blob_id, bid* debug_blob_id, TrigVectorPtr* ptr,
+						bid* blob_id, bid* debug_blob_id, TrigVectorPtr ptr,
 						const TEXT* name, FB_UINT64 type,
 						bool sys_trigger, USHORT flags,
 						const MetaName& engine, const string& entryPoint,
@@ -4652,7 +4313,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, USHORT* id,
 }
 
 
-static void save_trigger_data(thread_db* tdbb, TrigVectorPtr* ptr, jrd_rel* relation,
+static void save_trigger_data(thread_db* tdbb, TrigVectorPtr ptr, jrd_rel* relation,
 							  Statement* statement, blb* blrBlob, blb* debugInfoBlob,
 							  const TEXT* name, FB_UINT64 type,
 							  bool sys_trigger, USHORT flags,
@@ -5398,12 +5059,11 @@ void MetadataCache::invalidateReplSet(thread_db* tdbb)
 	}
 }
 
-Function* MetadataCache::lookupFunction(thread_db* tdbb, const QualifiedName& name, USHORT setBits, USHORT clearBits)
+Function* MetadataCache::lookupFunction(thread_db* tdbb, const QualifiedName& name)
 {
 	for (auto function : mdc_functions)
 	{
-		if (function && ((function->flags & setBits) == setBits) &&
-			((function->flags & clearBits) == 0) && (function->getName() == name))
+		if (function->getName() == name)
 		{
 			return function;
 		}
@@ -5665,17 +5325,6 @@ void Trigger::release(thread_db* tdbb)
 	statement = NULL;
 }
 
-CachedRelation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName& name)
-{
-	SET_TDBB(tdbb);
-
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
-	auto rc = mdc->mdc_relations->lookup(tdbb, [name](jrd_rel* rel) { return rel->rel_name == name; });
-	if (!rc) carefully lookup & load relation
-
-	return rc;
-}
-
 CachedRelation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, bool noscan)
 {
 	SET_TDBB(tdbb);
@@ -5714,7 +5363,7 @@ CacheElement<jrd_prc, RoutinePermanent>* MetadataCache::lookupProcedure(thread_d
 	return rc;
 }
 
-Lock* jrd_prc::getLock(MemoryPool& p, thread_db* tdbb)
+Lock* jrd_prc::makeLock(thread_db* tdbb, MemoryPool& p)
 {
 	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_prc_exist, nullptr, blockingAst);
 }
@@ -5747,6 +5396,7 @@ int jrd_prc::blockingAst(void* ast_object)
 
 			LCK_release(tdbb, procedure->existenceLock);
 		}
+		/// !!!!!!!!!!!!!!!!! 
 		procedure->flags |= Routine::FLAG_OBSOLETE;
 	}
 	catch (const Exception&)

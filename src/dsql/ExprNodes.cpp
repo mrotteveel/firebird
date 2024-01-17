@@ -5808,19 +5808,6 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 		CompilerScratch::csb_repeat* tail = &csb->csb_rpt[stream];
 		const jrd_prc* procedure = tail->csb_procedure;
 
-		// make sure procedure has been scanned before using it
-
-		if (procedure && !procedure->isSubRoutine() &&
-			(!(procedure->flags & Routine::FLAG_SCANNED) ||
-				(procedure->flags & Routine::FLAG_BEING_SCANNED) ||
-				(procedure->flags & Routine::FLAG_BEING_ALTERED)))
-		{
-			HazardPtr<jrd_prc> scan_proc = MetadataCache::findProcedure(tdbb, procedure->getId(), false, 0);
-
-			if (scan_proc != procedure)
-				procedure = NULL;
-		}
-
 		if (procedure)
 		{
 			csb->csb_blr_reader.getMetaName(name);

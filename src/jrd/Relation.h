@@ -178,22 +178,48 @@ private:
 
 typedef Triggers* TrigVectorPtr;
 
+class DbTriggersHeader : public Firebird::PermanentStorage
+{
+public:
+	DbTriggersHeader(MemoryPool& p, MetaId t)
+		: Firebird::PermanentStorage(p),
+		  type(t)
+	{ }
+
+	MetaId getId()
+	{
+		return type;
+	}
+
+private:
+	MetaId type;
+};
+
 class DbTriggers final : public Triggers, public CacheObject
 {
 public:
-	DbTriggers()
-		: Triggers(), CacheObject()
+	DbTriggers(DbTriggersHeader* hdr)
+		: Triggers(),
+		  CacheObject(),
+		  perm(hdr)
 	{ }
 
-	static DbTriggers* create(thread_db* tdbb, MemoryPool& pool, MetaId type, CacheObject::Flag);
-	/*
-		return FB_NEW_POOL(pool) DbTriggers();
-	*/
+	static DbTriggers* create(thread_db*, MemoryPool& pool, DbTriggersHeader* hdr)
+	{
+		return FB_NEW_POOL(pool) DbTriggers(hdr);
+	}
+
+	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
+	static void destroy(DbTriggers* t);
+	void scan(thread_db* tdbb, CacheObject::Flag flags);
 
 	const char* c_name() const override
 	{
 		return "Trigger's set";
 	}
+
+private:
+	DbTriggersHeader* perm;
 };
 
 
@@ -405,8 +431,8 @@ public:
 	const char* c_name() const;
 
 	static void destroy(IndexLock *idl);
-	static IndexLock* create(thread_db* tdbb, MemoryPool& p, MetaId id, CacheObject::Flag flags);
-	static Lock* getLock(MemoryPool& p, thread_db* tdbb);
+	static IndexLock* create(thread_db* tdbb, MemoryPool& p, MetaId id);
+	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 
 	void lockShared(thread_db* tdbb);
 	void lockExclusive(thread_db* tdbb);
@@ -438,7 +464,6 @@ public:
 
 	SSHORT		rel_scan_count;			// concurrent sequential scan count
 
-	//Firebird::Mutex	rel_mtx_il;			// controls addition & removal of elements
 	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
 	prim			rel_primary_dpnds;	// foreign dependencies on this relation's primary key
 	frgn			rel_foreign_refs;	// foreign references to other relations' primary keys
@@ -446,7 +471,7 @@ public:
 
 	TriState	rel_repl_state;			// replication state
 
-	Firebird::Mutex rel_drop_mutex, rel_trig_load_mutex;
+	Firebird::Mutex rel_trig_load_mutex;
 
 	Triggers	rel_triggers[TRIGGER_MAX];
 
@@ -460,17 +485,16 @@ public:
 	bool isVirtual() const;
 	bool isSystem() const;
 
-	void scan(thread_db* tdbb);		// Scan the newly loaded relation for meta data
+	void scan(thread_db* tdbb, CacheObject::Flag flags);	// Scan the newly loaded relation for meta data
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
 	ExternalFile* getExtFile();
 
-	bool checkObject(thread_db* tdbb, Firebird::Arg::StatusVector&) override;
 	void afterUnlock(thread_db* tdbb, unsigned flags) override;
 
 	static void destroy(jrd_rel *rel);
-	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, MetaId id, CacheObject::Flag flags);
+	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, RelationPermanent* perm);
 
 public:
 	// bool hasTriggers() const;  unused ???????????????????
@@ -479,26 +503,25 @@ public:
 
 // rel_flags
 
-const ULONG REL_scanned					= 0x0001;	// Field expressions scanned (or being scanned)
+//const ULONG REL_scanned					= 0x0001;	// Field expressions scanned (or being scanned)
 const ULONG REL_system					= 0x0002;
-const ULONG REL_deleted					= 0x0004;	// Relation known gonzo
+//const ULONG REL_deleted					= 0x0004;	// Relation known gonzo
 const ULONG REL_get_dependencies		= 0x0008;	// New relation needs dependencies during scan
-const ULONG REL_check_existence			= 0x0010;	// Existence lock released pending drop of relation
-const ULONG REL_blocking				= 0x0020;	// Blocking someone from dropping relation
+//const ULONG REL_check_existence			= 0x0010;	// Existence lock released pending drop of relation
+//const ULONG REL_blocking				= 0x0020;	// Blocking someone from dropping relation
 const ULONG REL_sys_triggers			= 0x0040;	// The relation has system triggers to compile
 const ULONG REL_sql_relation			= 0x0080;	// Relation defined as sql table
 const ULONG REL_check_partners			= 0x0100;	// Rescan primary dependencies and foreign references
-const ULONG REL_being_scanned			= 0x0200;	// relation scan in progress
+//const ULONG REL_being_scanned			= 0x0200;	// relation scan in progress
 const ULONG REL_sys_trigs_being_loaded	= 0x0400;	// System triggers being loaded
-const ULONG REL_deleting				= 0x0800;	// relation delete in progress
+//const ULONG REL_deleting				= 0x0800;	// relation delete in progress
 const ULONG REL_temp_tran				= 0x1000;	// relation is a GTT delete rows
 const ULONG REL_temp_conn				= 0x2000;	// relation is a GTT preserve rows
 const ULONG REL_virtual					= 0x4000;	// relation is virtual
 const ULONG REL_jrd_view				= 0x8000;	// relation is VIEW
 
-const ULONG REL_perm_flags				= REL_check_existence | REL_blocking | REL_check_partners |
-										  REL_temp_tran | REL_temp_conn | REL_virtual | REL_jrd_view |
-										  REL_system | REL_virtual | REL_jrd_view;
+const ULONG REL_perm_flags				= REL_check_partners | REL_temp_tran | REL_temp_conn |
+										  REL_virtual | REL_jrd_view | REL_system | REL_sql_relation;
 const ULONG REL_version_flags			= (~REL_perm_flags) & 0x7FFFF;
 
 class GCLock
@@ -593,8 +616,7 @@ private:
 
 class RelationPermanent : public Firebird::PermanentStorage
 {
-//	typedef Firebird::ObjectsArray<IndexLock> IndexLocks;
-	typedef CacheVector<IndexLock> IndexLocks;
+	typedef SharedReadVector<IndexLock*, 4> IndexLocks;
 	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
 
 public:
@@ -683,6 +705,7 @@ public:
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	IndexLocks		rel_index_locks;	// index existence locks
+	Firebird::Mutex	index_locks_mutex;	// write access to rel_index_locks
 	MetaName		rel_name;			// ascii relation name
 	MetaId			rel_id;
 

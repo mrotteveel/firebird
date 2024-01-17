@@ -648,7 +648,7 @@ RecordBuffer* SnapshotData::getData(int id) const
 
 RecordBuffer* SnapshotData::allocBuffer(thread_db* tdbb, MemoryPool& pool, int rel_id)
 {
-	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id, false);
+	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id);
 	fb_assert(relation);
 	fb_assert(relation->isVirtual());
 

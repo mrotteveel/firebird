@@ -483,7 +483,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 
 	Database* dbb = tdbb->getDatabase();
 	Attachment* attachment = tdbb->getAttachment();
-	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, m_creation->relation->getId(), false);
+	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, m_creation->relation->getId());
 
 	index_desc* idx = &item->m_idx;
 	jrd_tra* transaction = item->m_tra ? item->m_tra : m_creation->transaction;
@@ -544,7 +544,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 //		if (!MET_lookup_partner(tdbb, relation, idx, m_creation->index_name)) {
 //			BUGCHECK(173);		// msg 173 referenced index description not found
 //		}
-		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation, false);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation);
 		partner_index_id = idx->idx_primary_index;
 	}
 

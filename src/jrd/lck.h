@@ -33,7 +33,6 @@
 #endif
 
 #include "../jrd/Attachment.h"
-#include "../jrd/Resource.h"
 #include "../common/classes/auto.h"
 
 namespace Jrd {
@@ -78,7 +77,8 @@ enum lck_t {
 	LCK_repl_state,				// Replication state lock
 	LCK_repl_tables,			// Replication set lock
 	LCK_dsql_statement_cache,	// DSQL statement cache lock
-	LCK_profiler_listener		// Remote profiler listener
+	LCK_profiler_listener,		// Remote profiler listener
+	LCK_dbwide_triggers			// Database wide triggers existence
 };
 
 // Lock owner types

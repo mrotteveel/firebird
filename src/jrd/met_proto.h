@@ -51,7 +51,7 @@ namespace Jrd
 	class ExceptionItem;
 	class GeneratorItem;
 	class BlobFilter;
-
+	class RelationPermanent;
 	class Triggers;
 }
 
@@ -89,7 +89,7 @@ ULONG		MET_get_rel_flags_from_TYPE(USHORT);
 bool		MET_get_repl_state(Jrd::thread_db*, const Jrd::MetaName&);
 void		MET_get_shadow_files(Jrd::thread_db*, bool);
 bool		MET_load_exception(Jrd::thread_db*, Jrd::ExceptionItem&);
-void		MET_load_trigger(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&, Jrd::Triggers&);
+void		MET_load_trigger(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&, Jrd::Triggers*);
 void		MET_lookup_cnstrt_for_index(Jrd::thread_db*, Jrd::MetaName& constraint, const Jrd::MetaName& index_name);
 void		MET_lookup_cnstrt_for_trigger(Jrd::thread_db*, Jrd::MetaName&, Jrd::MetaName&, const Jrd::MetaName&);
 void		MET_lookup_exception(Jrd::thread_db*, SLONG, /* OUT */ Jrd::MetaName&, /* OUT */ Firebird::string*);

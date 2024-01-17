@@ -33,8 +33,6 @@
 #include "../common/classes/Nullable.h"
 #include "../common/ThreadStart.h"
 
-#include <condition_variable>
-
 namespace Jrd
 {
 	class thread_db;
@@ -44,50 +42,6 @@ namespace Jrd
 	class Format;
 	class Parameter;
 	class UserId;
-	class StartupBarrier
-	{
-	public:
-		StartupBarrier()
-			: thd(Thread::getId()), flg(false)
-		{ }
-
-		void open()
-		{
-			// only creator thread may open barrier
-			fb_assert(thd == Thread::getId());
-
-			// no need opening barrier twice
-			if (flg)
-				return;
-
-			std::unique_lock<std::mutex> g(mtx);
-			if (flg)
-				return;
-
-			flg = true;
-			cond.notify_all();
-		}
-
-		void wait()
-		{
-			// if barrier is already opened nothing to be done
-			// also enable recursive use by creator thread
-			if (flg || (thd == Thread::getId()))
-				return;
-
-			std::unique_lock<std::mutex> g(mtx);
-			if (flg)
-				return;
-
-			cond.wait(g, [this]{return flg;});
-		}
-
-	private:
-		std::condition_variable cond;
-		std::mutex mtx;
-		const ThreadId thd;
-		bool flg;
-	};
 
 	class RoutinePermanent : public Firebird::PermanentStorage
 	{
@@ -110,8 +64,6 @@ namespace Jrd
 			fb_assert(!subRoutine);
 			return id;
 		}
-
-		void setId(USHORT value) { id = value; }
 
 		const QualifiedName& getName() const { return name; }
 		void setName(const QualifiedName& value) { name = value; }

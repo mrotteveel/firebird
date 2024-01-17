@@ -61,14 +61,6 @@ class Request;
 class BufferDesc;
 class Lock;
 
-class NullClass
-{
-public:
-	NullClass(MemoryPool&, MetaId, Lock*) { }
-	NullClass() { }
-};
-template <class OBJ, class EXT> class CacheElement;
-
 #ifdef USE_ITIMER
 class TimeoutTimer final :
 	public Firebird::RefCntIface<Firebird::ITimerImpl<TimeoutTimer, Firebird::CheckStatusWrapper> >

@@ -2060,7 +2060,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				}
 				EVL_field(0, rpb->rpb_record, f_rel_name, &desc);
 				DFW_post_work(transaction, dfw_delete_relation, &desc, id);
-				MetadataCache::lookup_relation_id(tdbb, id, false);
+				MetadataCache::lookup_relation_id(tdbb, id);
 			}
 			break;
 
@@ -2113,7 +2113,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			id = MOV_get_long(tdbb, &desc2, 0);
 
 			DFW_post_work(transaction, dfw_delete_function, &desc, id, package_name);
-			Function::lookup(tdbb, id, false, true, 0);
+			Function::lookup(tdbb, id, 0);
 			break;
 
 		case rel_indices:
@@ -2152,7 +2152,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 					if ((BTR_lookup(tdbb, r2.getPointer(), id - 1, &idx, r2->getBasePages())) &&
 						MET_lookup_partner(tdbb, r2.getPointer(), &idx, index_name.nullStr()) &&
-						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation, false)) )
+						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation)) )
 					{
 						DFW_post_work_arg(transaction, work, 0, partner->getId(),
 										  dfw_arg_partner_rel_id);
@@ -4381,7 +4381,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 		{
 			relation = mdc->getRelation(tdbb, i);
 			if (relation)
-				relation = MetadataCache::lookup_relation_id(tdbb, i, false);
+				relation = MetadataCache::lookup_relation_id(tdbb, i);
 
 			if (relation &&
 				!(relation->rel_flags & (REL_deleted | REL_deleting)) &&
@@ -5311,7 +5311,7 @@ void Database::garbage_collector(Database* dbb)
 				if ((dbb->dbb_flags & DBB_gc_pending) &&
 					(gc_bitmap = gc->getPages(dbb->dbb_oldest_snapshot, relID)))
 				{
-					relation = MetadataCache::lookup_relation_id(tdbb, relID, false);
+					relation = MetadataCache::lookup_relation_id(tdbb, relID);
 					if (!relation || (relation->rel_flags & (REL_deleted | REL_deleting)))
 					{
 						delete gc_bitmap;

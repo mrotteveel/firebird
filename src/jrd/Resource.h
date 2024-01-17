@@ -43,7 +43,8 @@ class CharSetContainer;
 class jrd_rel;
 class jrd_prc;
 class Function;
-class Trigger;
+class DbTriggersHeader;
+class DbTriggers;
 class CharSetVers;
 
 class Resources;
@@ -224,7 +225,7 @@ public:
 	RscArray<jrd_rel, RelationPermanent> relations;
 	RscArray<jrd_prc, RoutinePermanent> procedures;
 	RscArray<Function, RoutinePermanent> functions;
-	RscArray<Trigger, NullClass> triggers;
+	RscArray<DbTriggers, DbTriggersHeader> triggers;
 };
 
 // specialization
@@ -232,7 +233,7 @@ template <> const Resources::RscArray<jrd_rel, RelationPermanent>& Resources::ob
 template <> const Resources::RscArray<jrd_prc, RoutinePermanent>& Resources::objects() const { return procedures; }
 template <> const Resources::RscArray<Function, RoutinePermanent>& Resources::objects() const { return functions; }
 template <> const Resources::RscArray<CharSetVers, CharSetContainer>& Resources::objects() const { return charSets; }
-template <> const Resources::RscArray<Trigger, NullClass>& Resources::objects() const { return triggers; }
+template <> const Resources::RscArray<DbTriggers, DbTriggersHeader>& Resources::objects() const { return triggers; }
 
 namespace Rsc
 {
@@ -240,7 +241,7 @@ namespace Rsc
 	typedef CachedResource<jrd_prc, RoutinePermanent> Proc;
 	typedef CachedResource<Function, RoutinePermanent> Fun;
 	typedef CachedResource<CharSetVers, CharSetContainer> CSet;
-	typedef CachedResource<Trigger, NullClass> Trig;
+	typedef CachedResource<DbTriggers, DbTriggersHeader> Trig;
 }; //namespace Rsc
 
 

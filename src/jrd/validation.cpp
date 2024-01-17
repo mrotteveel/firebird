@@ -1638,7 +1638,7 @@ void Validation::walk_database()
 		jrd_rel* relation = mdc->getRelation(vdr_tdbb, i);
 		ExistenceGuard g(vdr_tdbb, relation->rel_existence_lock);
 
-		if (MetadataCache::checkRelation(vdr_tdbb, relation.getPointer()))
+		if (true)
 		{
 			// Can't validate system relations online as they could be modified
 			// by system transaction which not acquires relation locks

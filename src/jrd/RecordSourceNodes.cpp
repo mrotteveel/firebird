@@ -627,8 +627,8 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 	// Scan the relation if it hasn't already been scanned for meta data
 
 	jrd_rel* latestVersion = rel->getObject(tdbb);
-	if (!(csb->csb_g_flags & csb_internal))
-		latestVersion->scan(tdbb);
+//	if (!(csb->csb_g_flags & csb_internal))
+//		latestVersion->scan(tdbb); ???????????????
 	if (latestVersion->rel_flags & REL_sys_triggers)
 		MET_parse_sys_trigger(tdbb, latestVersion);
 

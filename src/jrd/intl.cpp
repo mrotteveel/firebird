@@ -174,7 +174,7 @@ CharSetContainer* CharSetContainer::lookupCharset(thread_db* tdbb, USHORT ttype)
 }
 
 
-CharSetContainer* CharSetContainer::create(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+CharSetContainer* CharSetContainer::create(thread_db* tdbb, MetaId id)
 {
 	SubtypeInfo info;
 

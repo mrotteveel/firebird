@@ -39,12 +39,13 @@ namespace Jrd
 		static const char* const EXCEPTION_MESSAGE;
 
 	public:
-		static Lock* getLock(MemoryPool& p, thread_db* tdbb);
+		static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 		static int blockingAst(void* ast_object);
 
-		static Function* lookup(thread_db* tdbb, MetaId id, bool return_deleted, bool noscan, USHORT flags);
-		static Function* lookup(thread_db* tdbb, const QualifiedName& name, bool noscan);
+		static Function* lookup(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
+		static Function* lookup(thread_db* tdbb, const QualifiedName& name);
 
+	private:
 		explicit Function(RoutinePermanent* perm)
 			: Routine(perm),
 			  fun_entrypoint(NULL),
@@ -70,9 +71,9 @@ private:
 		{
 		}
  */
-public:
-		static Function* loadMetadata(thread_db* tdbb, MetaId id, bool noscan, USHORT flags);
-		static Function* create(thread_db* tdbb, MemoryPool& pool, MetaId id, CacheObject::Flag flags);
+	public:
+		static Function* create(thread_db* tdbb, MemoryPool& pool, RoutinePermanent* perm);
+		void scan(thread_db* tdbb, CacheObject::Flag flags);
 
 	public:
 		virtual int getObjectType() const

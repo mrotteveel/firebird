@@ -655,14 +655,6 @@ void GCLock::enable(thread_db* tdbb, Lock* tempLock)
 }
 
 
-bool jrd_rel::checkObject(thread_db* tdbb, Arg::StatusVector& error)
-{
-	bool rc = MetadataCache::checkRelation(tdbb, this);
-	if (!rc)
-		error << Arg::Gds(isc_relnotdef) << Arg::Str(getName());
-	return rc;
-}
-
 /// RelationPages
 
 void RelationPages::free(RelationPages*& nextFree)
@@ -702,12 +694,29 @@ IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, MetaId id)
 	if (getId() < (MetaId) rel_MAX)
 		return nullptr;
 
-	return rel_index_locks.getObject(tdbb, id, CacheFlag::AUTOCREATE);
-/*
-	IndexLock* index = FB_NEW_POOL(getPool()) IndexLock(getPool(), tdbb, this, id);
-	if (!rel_index_locks.replace(tdbb, id, indexLock, index))
-		delete index;
-*/
+	auto ra = rel_index_locks.readAccessor();
+	if (id < ra->getCount())
+	{
+		IndexLock* indexLock = ra->value(id);
+		if (indexLock)
+			return indexLock;
+	}
+
+	MutexLockGuard g(index_locks_mutex, FB_FUNCTION);
+
+	rel_index_locks.grow(id + 1);
+	auto wa = rel_index_locks.writeAccessor();
+	while (auto* dp = wa->add())
+		*dp = nullptr;
+
+	IndexLock* indexLock = wa->value(id);
+	if (!indexLock)
+	{
+		indexLock = FB_NEW_POOL(getPool()) IndexLock(getPool(), tdbb, this, id);
+		wa->value(id) = indexLock;
+	}
+
+	return indexLock;
 }
 
 IndexLock::IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id)
@@ -725,7 +734,6 @@ const char* IndexLock::c_name() const
 
 void jrd_rel::destroy(jrd_rel* rel)
 {
-	rel->rel_flags |= REL_deleted;
 /*
 	thread_db* tdbb = JRD_get_thread_data();
 
@@ -743,18 +751,7 @@ void jrd_rel::destroy(jrd_rel* rel)
 	delete rel;
 }
 
-jrd_rel* jrd_rel::create(thread_db* tdbb, MemoryPool& pool, MetaId id, CacheObject::Flag flags)
+jrd_rel* jrd_rel::create(thread_db* tdbb, MemoryPool& pool, RelationPermanent* rlp)
 {
-	SET_TDBB(tdbb);
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
-
-	MetadataCache* mdc = dbb->dbb_mdc;
-
-	RelationPermanent* rlp = mdc->lookupRelation(tdbb, id, flags & CacheFlag::NOSCAN);
-	jrd_rel* relation = FB_NEW_POOL(pool) jrd_rel(pool, rlp);
-	if (!(flags & CacheFlag::NOSCAN))
-		relation->scan(tdbb);
-
-	return relation;
+	return FB_NEW_POOL(pool) jrd_rel(pool, rlp);
 }
