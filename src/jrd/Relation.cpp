@@ -53,11 +53,10 @@ jrd_rel::jrd_rel(MemoryPool& p, RelationPermanent* r)
 	  rel_view_rse(nullptr),
 	  rel_view_contexts(p),
 	  rel_scan_count(0),
-	  rel_index_blocks(nullptr),
 	  rel_ss_definer(false)
 { }
 
-RelationPermanent::RelationPermanent(MemoryPool& p, MetaId id)
+RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* /*lock*/)
 	: PermanentStorage(p),
 	  rel_existence_lock(nullptr),
 	  rel_partners_lock(nullptr),
@@ -69,18 +68,34 @@ RelationPermanent::RelationPermanent(MemoryPool& p, MetaId id)
 	  rel_name(p),
 	  rel_id(id),
 	  rel_flags(0u),
+	  rel_index_blocks(nullptr),
 	  rel_pages_inst(nullptr),
 	  rel_pages_base(p),
 	  rel_pages_free(nullptr),
 	  rel_file(nullptr)
-{ }
+{
+	rel_partners_lock = FB_NEW_RPT(getPool(), 0)
+		Lock(tdbb, sizeof(SLONG), LCK_rel_partners, this, partners_ast_relation);
+	rel_partners_lock->setKey(rel_id);
+
+	rel_rescan_lock = FB_NEW_RPT(getPool(), 0)
+		Lock(tdbb, sizeof(SLONG), LCK_rel_rescan, this, rescan_ast_relation);
+	rel_rescan_lock->setKey(rel_id);
+
+	if (rel_id >= rel_MAX)
+	{
+		rel_existence_lock = FB_NEW_RPT(getPool(), 0)
+			Lock(tdbb, sizeof(SLONG), LCK_rel_exist, this, blocking_ast_relation);
+		rel_existence_lock->setKey(rel_id);
+	}
+}
 
 RelationPermanent::~RelationPermanent()
 {
 	delete rel_file;
 }
 
-bool jrd_rel::isReplicating(thread_db* tdbb)
+bool RelationPermanent::isReplicating(thread_db* tdbb)
 {
 	Database* const dbb = tdbb->getDatabase();
 	if (!dbb->isReplicating(tdbb))
@@ -639,6 +654,12 @@ void GCLock::ensureReleased(thread_db* tdbb)
 	}
 }
 
+void GCLock::forcedRelease(thread_db* tdbb)
+{
+	flags.fetch_and(~GC_locked);
+	LCK_release(tdbb, lck);
+}
+
 void GCLock::enable(thread_db* tdbb, Lock* tempLock)
 {
 	if (!lck || !lck->lck_id)
@@ -706,8 +727,11 @@ IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, MetaId id)
 
 	rel_index_locks.grow(id + 1);
 	auto wa = rel_index_locks.writeAccessor();
-	while (auto* dp = wa->add())
+	while (auto* dp = wa->addStart())
+	{
 		*dp = nullptr;
+		wa->addComplete();
+	}
 
 	IndexLock* indexLock = wa->value(id);
 	if (!indexLock)

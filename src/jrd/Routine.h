@@ -46,7 +46,7 @@ namespace Jrd
 	class RoutinePermanent : public Firebird::PermanentStorage
 	{
 	public:
-		explicit RoutinePermanent(MemoryPool& p, MetaId metaId, Lock* existence);
+		explicit RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, Lock* existence);
 
 		explicit RoutinePermanent(MemoryPool& p)
 			: PermanentStorage(p),
@@ -55,7 +55,6 @@ namespace Jrd
 			  securityName(p),
 			  subRoutine(true),
 			  flags(0),
-			  alterCount(0),
 			  existenceLock(NULL)
 		{ }
 
@@ -79,15 +78,14 @@ namespace Jrd
 
 		int getObjectType() const;
 
-	private:
+		void releaseLocks(thread_db* tdbb);
+
+	public:
 		USHORT id;							// routine ID
 		QualifiedName name;					// routine name
 		MetaName securityName;				// security class name
 		bool subRoutine;                    // Is this a subroutine?
 		USHORT flags;
-		USHORT alterCount;      			// No. of times the routine was altered
-
-	public:
 		Lock* existenceLock;				// existence lock, if any
 		MetaName owner;
 	};
@@ -174,7 +172,6 @@ namespace Jrd
 		}
 
 		void sharedCheckUnlock(thread_db* tdbb);
-		void releaseLocks(thread_db* tdbb);
 
 	public:
 		virtual int getObjectType() const = 0;

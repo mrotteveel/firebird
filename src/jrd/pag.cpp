@@ -1122,13 +1122,13 @@ void PAG_header(thread_db* tdbb, bool info)
 	if (header->hdr_flags & hdr_SQL_dialect_3)
 		dbb->dbb_flags |= DBB_DB_SQL_dialect_3;
 
-	jrd_rel* relation = MetadataCache::findRelation(tdbb, 0);
+	auto* relation = MetadataCache::lookupRelation(tdbb, 0);
 	RelationPages* relPages = relation->getBasePages();
 	if (!relPages->rel_pages)
 	{
 		// NS: There's no need to reassign first page for RDB$PAGES relation since
 		// current code cannot change its location after database creation.
-		vcl* vector = vcl::newVector(*relation->rel_pool, 1);
+		vcl* vector = vcl::newVector(relation->getPool(), 1);
 		relPages->rel_pages = vector;
 		(*vector)[0] = header->hdr_PAGES;
 	}

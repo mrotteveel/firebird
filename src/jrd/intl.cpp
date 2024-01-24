@@ -133,11 +133,43 @@ using namespace Firebird;
 
 
 static bool allSpaces(CharSet*, const BYTE*, ULONG, ULONG);
-static int blocking_ast_collation(void* ast_object);
+//static int blocking_ast_collation(void* ast_object);
 static void pad_spaces(thread_db*, CHARSET_ID, BYTE *, ULONG);
 static void lookup_texttype(texttype* tt, const SubtypeInfo* info);
 
 static GlobalPtr<Mutex> createCollationMtx;
+
+static int blocking_ast_charset(void* ast_object)
+{
+/***************************************************
+ *
+ *      b l o c k i n g _ a s t _ c h a r s e t
+ *
+ ***************************************************
+ *
+ * Functional description
+ *      Someone is trying to modify collation(s) in charset.
+ *
+ **************************************/
+	auto* const ce = static_cast<CacheElement<CharSetVers, CharSetContainer>*>(ast_object);
+
+	try
+	{
+		Lock* l = ce->getLock();
+		Database* const dbb = l->lck_dbb;
+
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION, l);
+
+		ce->resetDependentObject(tdbb, ObjectBase::ResetType::Mark);
+		LCK_release(tdbb, l);
+	}
+	catch (const Firebird::Exception&)
+	{} // no-op
+
+
+	return 0;
+}
+
 
 // Classes and structures used internally to this file and intl implementation
 CharSetContainer* CharSetContainer::lookupCharset(thread_db* tdbb, USHORT ttype)
@@ -163,30 +195,12 @@ CharSetContainer* CharSetContainer::lookupCharset(thread_db* tdbb, USHORT ttype)
  *
  **************************************/
 	SET_TDBB(tdbb);
-	Jrd::Database* const dbb = tdbb->getDatabase();
-	fb_assert(dbb);
 
 	USHORT id = TTYPE_TO_CHARSET(ttype);
 	if (id == CS_dynamic)
 		id = tdbb->getCharSet();
 
-	return dbb->dbb_mdc->getCharSet(tdbb, id);
-}
-
-
-CharSetContainer* CharSetContainer::create(thread_db* tdbb, MetaId id)
-{
-	SubtypeInfo info;
-
-	if (lookupInternalCharSet(id, &info) || MET_get_char_coll_subtype_info(tdbb, id, &info))
-	{
-		Database* dbb = tdbb->getDatabase();
-		CharSetContainer* csc = FB_NEW_POOL(*dbb->dbb_permanent) CharSetContainer(*dbb->dbb_permanent, id, &info);
-		dbb->dbb_mdc->makeCharSet(tdbb, id, csc);
-		return dbb->dbb_mdc->getCharSet(tdbb, id);
-	}
-	else
-		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(id));
+	return MetadataCache::getCharSet(tdbb, id, CacheFlag::AUTOCREATE);
 }
 
 
@@ -234,10 +248,10 @@ bool CharSetContainer::lookupInternalCharSet(USHORT id, SubtypeInfo* info)
 	return false;
 }
 
-
+/*
 Lock* CharSetContainer::createCollationLock(thread_db* tdbb, USHORT ttype, void* object)
 {
-/**************************************
+ **************************************
  *
  *      c r e a t e C o l l a t i o n L o c k
  *
@@ -246,7 +260,7 @@ Lock* CharSetContainer::createCollationLock(thread_db* tdbb, USHORT ttype, void*
  * Functional description
  *      Create a collation lock.
  *
- **************************************/
+ **************************************
 	// Could we have an AST on this lock? If yes, it will fail if we don't
 	// have lck_object to it, so set ast routine to NULL for safety.
 
@@ -256,24 +270,39 @@ Lock* CharSetContainer::createCollationLock(thread_db* tdbb, USHORT ttype, void*
 
 	return lock;
 }
+*/
 
-CharSetContainer::CharSetContainer(MemoryPool& p, USHORT cs_id, const SubtypeInfo* info)
-	: PermanentStorage(p),
-	  cs(NULL)
+Lock* CharSetContainer::makeLock(thread_db* tdbb, MemoryPool& p)
 {
+	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_tt_exist, nullptr, blocking_ast_charset);
+}
+
+CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, USHORT cs_id, Lock* lock)
+	: PermanentStorage(p),
+	  cs(NULL),
+	  cs_lock(lock)
+{
+	SubtypeInfo info;
+
+	if (!(lookupInternalCharSet(cs_id, &info) || MET_get_char_coll_subtype_info(tdbb, cs_id, &info)))
+		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(cs_id));
+
 	charset* csL = FB_NEW_POOL(p) charset;
 	memset(csL, 0, sizeof(charset));
 
-	if (IntlManager::lookupCharSet(info->charsetName.c_str(), csL) &&
+	if (IntlManager::lookupCharSet(info.charsetName.c_str(), csL) &&
 		(csL->charset_flags & CHARSET_ASCII_BASED))
 	{
-		this->cs = CharSet::createInstance(p, cs_id, csL);
+		cs = CharSet::createInstance(p, cs_id, csL);
 	}
 	else
 	{
 		delete csL;
-		ERR_post(Arg::Gds(isc_charset_not_installed) << Arg::Str(info->charsetName));
+		ERR_post(Arg::Gds(isc_charset_not_installed) << Arg::Str(info.charsetName));
 	}
+
+	cs_lock->setKey(cs_id);
+	cs_lock->lck_object = this;
 }
 
 CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CHARSET_ID toCsId)
@@ -1209,10 +1238,10 @@ static bool allSpaces(CharSet* charSet, const BYTE* ptr, ULONG len, ULONG offset
 	return true;
 }
 
-
+/*
 static int blocking_ast_collation(void* ast_object)
 {
-/**************************************
+ **************************************
  *
  *      b l o c k i n g _ a s t _ c o l l a t i o n
  *
@@ -1225,7 +1254,7 @@ static int blocking_ast_collation(void* ast_object)
  *      Otherwise, mark the collation as obsolete
  *      and release the collation existence lock.
  *
- **************************************/
+ **************************************
 	Collation* const tt = static_cast<Collation*>(ast_object);
 
 	try
@@ -1243,6 +1272,7 @@ static int blocking_ast_collation(void* ast_object)
 
 	return 0;
 }
+*/
 
 
 static void pad_spaces(thread_db* tdbb, CHARSET_ID charset, BYTE* ptr, ULONG len)

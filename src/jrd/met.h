@@ -75,7 +75,7 @@ class TemporaryField : public pool_alloc<type_tfb>
 {
 public:
 	TemporaryField*	tfb_next;		// next block in chain
-	USHORT			tfb_id;			// id of field in relation
+	MetaId			tfb_id;			// id of field in relation
 	USHORT			tfb_flags;
 	dsc				tfb_desc;
 	Jrd::impure_value	tfb_default;
@@ -163,7 +163,7 @@ protected:
 class Parameter : public pool_alloc<type_prm>
 {
 public:
-	USHORT		prm_number;
+	MetaId		prm_number;
 	dsc			prm_desc;
 	NestConst<ValueExprNode>	prm_default_value;
 	bool		prm_nullable;
@@ -208,7 +208,7 @@ class MetadataCache : public Firebird::PermanentStorage
 
 public:
 	typedef CacheVector<CharSetVers, CharSetContainer> Charsets;	// intl character set descriptions
-	typedef Charsets::StoredElement Charset;						// character set stored in cache vector
+	typedef Charsets::StoredElement CharsetElement;						// character set stored in cache vector
 
 	MetadataCache(MemoryPool& pool)
 		: Firebird::PermanentStorage(pool),
@@ -243,11 +243,10 @@ public:
 	void releaseGTTs(thread_db* tdbb);
 	void runDBTriggers(thread_db* tdbb, TriggerAction action);
 	void invalidateReplSet(thread_db* tdbb);
-	Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, USHORT setBits, USHORT clearBits);
 	jrd_rel* getRelation(thread_db* tdbb, ULONG rel_id);
 	void setRelation(thread_db* tdbb, ULONG rel_id, jrd_rel* rel);
-	void releaseTrigger(thread_db* tdbb, USHORT triggerId, const MetaName& name);
-	const Triggers* getTriggers(USHORT tType);
+	void releaseTrigger(thread_db* tdbb, MetaId triggerId, const MetaName& name);
+	const Triggers* getTriggers(thread_db* tdbb, MetaId tType);
 
 	MetaId relCount()
 	{
@@ -274,8 +273,8 @@ public:
 		return mdc_procedures.storeObject(tdbb, id, p);
 	}
 */
-	CharSetContainer* getCharSet(thread_db* tdbb, MetaId id);
-	bool makeCharSet(thread_db* tdbb, MetaId id, CharSetContainer* cs);
+	static CharSetContainer* getCharSet(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
+// ??????????	bool makeCharSet(thread_db* tdbb, USHORT id, CharSetContainer* cs);
 
 	// former met_proto.h
 #ifdef DEV_BUILD
@@ -290,22 +289,19 @@ public:
 	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name);
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name);
-	static Function* lookup_function(thread_db* tdbb, MetaId id, USHORT flags);
-	static CacheElement<jrd_prc, RoutinePermanent>* lookupProcedure(thread_db* tdbb, const QualifiedName& name);
-	static CacheElement<jrd_prc, RoutinePermanent>* lookupProcedure(thread_db* tdbb, MetaId id, bool noscan = false);
-	static CacheElement<Function, RoutinePermanent>* lookupFunction(thread_db* tdbb, const QualifiedName& name);
-	static CacheElement<Function, RoutinePermanent>* lookupFunction(thread_db* tdbb, MetaId id, bool noscan = false);
+	static Function* lookup_function(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
+	static CacheElement<jrd_prc, RoutinePermanent>* lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
+	static CacheElement<jrd_prc, RoutinePermanent>* lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, CacheObject::Flag flags = CacheFlag::AUTOCREATE);
-	static CachedRelation* lookupRelation(thread_db* tdbb, const MetaName& name,
-		CacheObject::Flag flags = CacheFlag::AUTOCREATE);
-	static CachedRelation* lookupRelation(thread_db* tdbb, MetaId id, bool noscan = false);
+	static CachedRelation* lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags = 0);
+	static CachedRelation* lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
 	CachedRelation* lookupRelation(MetaId id);
 	static void lookup_index(thread_db* tdbb, MetaName& index_name, const MetaName& relation_name, USHORT number);
 	static ObjectBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
 								   MetaId* relation_id, IndexStatus* status);
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
-	static HazardPtr<jrd_prc> findProcedure(thread_db* tdbb, MetaId id, bool noscan, USHORT flags);
+	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
     static jrd_rel* findRelation(thread_db* tdbb, MetaId id);
 	static bool get_char_coll_subtype(thread_db* tdbb, MetaId* id, const UCHAR* name, USHORT length);
 	bool resolve_charset_and_collation(thread_db* tdbb, MetaId* id,
@@ -315,7 +311,7 @@ public:
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	// end of met_proto.h
 
-	static Charset* lookupCharset(thread_db* tdbb, USHORT tt_id);
+	static CharsetElement* lookupCharset(thread_db* tdbb, USHORT tt_id);
 
 	MdcVersion getVersion()
 	{
@@ -328,15 +324,13 @@ public:
 	}
 
 private:
-	CacheVector<jrd_rel, RelationPermanent>		mdc_relations;
-	CacheVector<jrd_prc, RoutinePermanent>		mdc_procedures;
-	CacheVector<Function, RoutinePermanent>		mdc_functions;	// User defined functions
-	Charsets									mdc_charsets;	// intl character set descriptions
-	TriggersSet									mdc_triggers[DB_TRIGGER_MAX];
-	TriggersSet									mdc_ddl_triggers;
-/*	Firebird::GenericMap<Firebird::Pair<Firebird::Left<
-		MetaName, USHORT> > > mdc_charset_ids;				// Character set ids
- */
+	CacheVector<jrd_rel, RelationPermanent>	mdc_relations;
+	CacheVector<jrd_prc, RoutinePermanent>	mdc_procedures;
+	CacheVector<Function, RoutinePermanent>	mdc_functions;	// User defined functions
+	Charsets								mdc_charsets;	// intl character set descriptions
+	TriggersSet								mdc_triggers[DB_TRIGGER_MAX];
+	TriggersSet								mdc_ddl_triggers;
+
 	std::atomic<MdcVersion>					mdc_version;	// Current version of metadata cache
 
 public:

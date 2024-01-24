@@ -81,7 +81,7 @@ static PageNumber get_root_page(thread_db*, jrd_rel*);
 static int index_block_flush(void*);
 static idx_e insert_key(thread_db*, jrd_rel*, Record*, jrd_tra*, WIN *, index_insertion*, IndexErrorContext&);
 static void release_index_block(thread_db*, IndexBlock*);
-static void signal_index_deletion(thread_db*, jrd_rel*, USHORT);
+static void signal_index_deletion(thread_db*, RelationPermanent*, USHORT);
 
 namespace
 {
@@ -976,7 +976,7 @@ void IDX_create_index(thread_db* tdbb,
 }
 
 
-IndexBlock* IDX_create_index_block(thread_db* tdbb, jrd_rel* relation, USHORT id)
+IndexBlock* IDX_create_index_block(thread_db* tdbb, RelationPermanent* relation, USHORT id)
 {
 /**************************************
  *
@@ -993,7 +993,7 @@ IndexBlock* IDX_create_index_block(thread_db* tdbb, jrd_rel* relation, USHORT id
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	IndexBlock* index_block = FB_NEW_POOL(*relation->rel_pool) IndexBlock();
+	IndexBlock* index_block = FB_NEW_POOL(relation->getPool()) IndexBlock();
 	index_block->idb_id = id;
 
 	// link the block in with the relation linked list
@@ -1005,7 +1005,7 @@ IndexBlock* IDX_create_index_block(thread_db* tdbb, jrd_rel* relation, USHORT id
 	// any modification to the index so that the cached information
 	// about the index will be discarded
 
-	Lock* lock = FB_NEW_RPT(*relation->rel_pool, 0)
+	Lock* lock = FB_NEW_RPT(relation->getPool(), 0)
 		Lock(tdbb, sizeof(SLONG), LCK_expression, index_block, index_block_flush);
 	index_block->idb_lock = lock;
 	lock->setKey((relation->getId() << 16) | index_block->idb_id);
@@ -1028,7 +1028,7 @@ void IDX_delete_index(thread_db* tdbb, jrd_rel* relation, USHORT id)
  **************************************/
 	SET_TDBB(tdbb);
 
-	signal_index_deletion(tdbb, relation, id);
+	signal_index_deletion(tdbb, relation->rel_perm, id);
 
 	WIN window(get_root_page(tdbb, relation));
 	CCH_FETCH(tdbb, &window, LCK_write, pag_root);
@@ -2104,7 +2104,7 @@ static void release_index_block(thread_db* tdbb, IndexBlock* index_block)
 }
 
 
-static void signal_index_deletion(thread_db* tdbb, jrd_rel* relation, USHORT id)
+static void signal_index_deletion(thread_db* tdbb, RelationPermanent* relation, USHORT id)
 {
 /**************************************
  *

@@ -294,6 +294,7 @@ namespace Jrd {
 			T& value(FB_SIZE_T i)
 			{
 				fb_assert(i < count);
+				fb_assert(!data[i]);
 				return data[i];
 			}
 
@@ -311,11 +312,16 @@ namespace Jrd {
 				return true;
 			}
 
-			T* add()
+			T* addStart()
 			{
 				if (!hasSpace())
 					return nullptr;
-				return &data[count++];
+				return &data[count];
+			}
+
+			void addComplete()
+			{
+				++count;
 			}
 
 			void truncate(const T& notValue)
@@ -394,6 +400,7 @@ namespace Jrd {
 		virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
 		virtual const char* c_name() const = 0;
 	};
+
 
 class ObjectBase : public HazardObject
 {
@@ -549,6 +556,11 @@ public:
 		return traNumber != currentTrans && !(cacheFlags & CacheFlag::COMMITTED);
 	}
 
+	CacheObject::Flag getFlags() const
+	{
+		return cacheFlags.load(atomics::memory_order_relaxed);
+	}
+
 	// add new entry to the list
 	static bool add(atomics::atomic<ListEntry*>& list, ListEntry* newVal)
 	{
@@ -684,8 +696,8 @@ template <class OBJ, class EXT>
 class CacheElement : public ObjectBase, public EXT
 {
 public:
-	CacheElement(MemoryPool& p, MetaId id, Lock* lock) :
-		EXT(p, id, lock), list(nullptr), resetAt(0), myId(id)
+	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* lock) :
+		EXT(tdbb, p, id, lock), list(nullptr), resetAt(0), myId(id)
 	{ }
 /*
 	CacheElement() :
@@ -819,6 +831,12 @@ public:
 		return list.load(atomics::memory_order_relaxed);
 	}
 
+	bool isDropped() const
+	{
+		auto* l = list.load(atomics::memory_order_relaxed);
+		return l && (l->getFlags() & CacheFlag::ERASED);
+	}
+
 private:
 	void setNewResetAt(TraNumber oldVal, TraNumber newVal)
 	{
@@ -884,15 +902,16 @@ private:
 		{
 			SubArrayData* sub = FB_NEW_POOL(getPool()) SubArrayData[SUBARRAY_SIZE];
 			memset(sub, 0, sizeof(SubArrayData) * SUBARRAY_SIZE);
-			wa->add()->store(sub, atomics::memory_order_release);
+			wa->addStart()->store(sub, atomics::memory_order_release);
+			wa->addComplete();
 		}
 	}
 
 public:
-	StoredElement* getData(MetaId id)
+	StoredElement* getData(MetaId id) const
 	{
-		auto ptr = getDataPointer(id);
-		return ptr ? *ptr : nullptr;
+		SubArrayData* ptr = getDataPointer(id);
+		return ptr ? ptr->load(atomics::memory_order_relaxed) : nullptr;
 	}
 
 	OBJ* getObject(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
@@ -941,7 +960,7 @@ private:
 		HazardPtr<StoredElement> data(*ptr);
 		if (!data)
 		{
-			StoredElement* newData = FB_NEW_POOL(getPool()) StoredElement(getPool(), id, OBJ::makeLock(tdbb, getPool()));
+			StoredElement* newData = FB_NEW_POOL(getPool()) StoredElement(tdbb, getPool(), id, OBJ::makeLock(tdbb, getPool()));
 			if (!data.replace2(*ptr, newData))
 				delete newData;
 		}
@@ -958,8 +977,8 @@ private:
 	}
 
 public:
-//	StoredElement* lookup(thread_db* tdbb, std::function<bool(OBJ* val)> cmp, MetaId* foundId = nullptr) const
-	StoredElement* lookup(thread_db* tdbb, std::function<bool(EXT* val)> cmp, MetaId* foundId = nullptr) const
+//	StoredElement* lookup(std::function<bool(OBJ* val)> cmp, MetaId* foundId = nullptr) const
+	StoredElement* lookup(std::function<bool(EXT* val)> cmp, MetaId* foundId = nullptr) const
 	{
 		auto a = m_objects.readAccessor();
 		for (FB_SIZE_T i = 0; i < a->getCount(); ++i)

@@ -707,7 +707,7 @@ void SnapshotData::putField(thread_db* tdbb, Record* record, const DumpField& fi
 		SLONG rel_id;
 		memcpy(&rel_id, field.data, field.length);
 
-		RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, rel_id, false);
+		RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, rel_id);
 		if (!relation || relation->getName().isEmpty())
 			return;
 

@@ -181,7 +181,7 @@ typedef Triggers* TrigVectorPtr;
 class DbTriggersHeader : public Firebird::PermanentStorage
 {
 public:
-	DbTriggersHeader(MemoryPool& p, MetaId t)
+	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, Lock* /*!!!!!!! dbtriggers lock needed*/)
 		: Firebird::PermanentStorage(p),
 		  type(t)
 	{ }
@@ -408,6 +408,12 @@ struct frgn
 	frgn()
 		: frgn_reference_ids(nullptr), frgn_relations(nullptr), frgn_indexes(nullptr)
 	{ }
+
+	// used to perform move operation in scan_partners()
+	void setNull()
+	{
+		frgn_reference_ids = frgn_relations = frgn_indexes = nullptr;
+	}
 };
 
 
@@ -464,18 +470,14 @@ public:
 
 	SSHORT		rel_scan_count;			// concurrent sequential scan count
 
-	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
 	prim			rel_primary_dpnds;	// foreign dependencies on this relation's primary key
 	frgn			rel_foreign_refs;	// foreign references to other relations' primary keys
 	Nullable<bool>	rel_ss_definer;
-
-	TriState	rel_repl_state;			// replication state
 
 	Firebird::Mutex rel_trig_load_mutex;
 
 	Triggers	rel_triggers[TRIGGER_MAX];
 
-	bool isReplicating(thread_db* tdbb);
 	bool hasData() const;
 	const char* c_name() const override;
 	MetaId getId() const;
@@ -485,10 +487,12 @@ public:
 	bool isVirtual() const;
 	bool isSystem() const;
 
-	void scan(thread_db* tdbb, CacheObject::Flag flags);	// Scan the newly loaded relation for meta data
+	void scan(thread_db* tdbb, CacheObject::Flag flags);		// Scan the newly loaded relation for meta data
+	void scan_partners(thread_db* tdbb, jrd_rel* oldVersion);	// foreign keys scan
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
+	MetaName getOwnerName() const;
 	ExternalFile* getExtFile();
 
 	void afterUnlock(thread_db* tdbb, unsigned flags) override;
@@ -496,9 +500,15 @@ public:
 	static void destroy(jrd_rel *rel);
 	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, RelationPermanent* perm);
 
+	static Lock* makeLock(thread_db*, MemoryPool&)
+	{
+		return nullptr;		// ignored
+	}
+
 public:
 	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
+	const Trigger* findTrigger(const MetaName trig_name) const;
 };
 
 // rel_flags
@@ -593,6 +603,8 @@ public:
 		return 0;
 	}
 
+	void forcedRelease(thread_db* tdbb);
+
 private:
 	void blockingAst();
 	void ensureReleased(thread_db* tdbb);
@@ -620,7 +632,7 @@ class RelationPermanent : public Firebird::PermanentStorage
 	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
 
 public:
-	RelationPermanent(MemoryPool& p, MetaId id);
+	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, Lock*);
 
 	~RelationPermanent();
 
@@ -695,6 +707,12 @@ public:
 		return rel_file;
 	}
 
+	void setExtFile(ExternalFile* f)
+	{
+		fb_assert(!rel_file);
+		rel_file = f;
+	}
+
 
 	void	getRelLockKey(thread_db* tdbb, UCHAR* key);
 
@@ -702,6 +720,11 @@ public:
 	bool isTemporary() const;
 	bool isVirtual() const;
 	bool isView() const;
+	bool isReplicating(thread_db* tdbb);
+
+	static int partners_ast_relation(void* ast_object);
+	static int rescan_ast_relation(void* ast_object);
+	static int blocking_ast_relation(void* ast_object);
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	IndexLocks		rel_index_locks;	// index existence locks
@@ -712,6 +735,11 @@ public:
 	MetaName	rel_owner_name;			// ascii owner
 	MetaName	rel_security_name;		// security class name for relation
 	ULONG		rel_flags;				// lock-related flags
+
+	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
+
+	TriState	rel_repl_state;			// replication state
+
 
 private:
 	Firebird::Mutex			rel_pages_mutex;
@@ -761,6 +789,11 @@ inline ExternalFile* jrd_rel::getExtFile()
 inline MetaName jrd_rel::getSecurityName() const
 {
 	return rel_perm->rel_security_name;
+}
+
+inline MetaName jrd_rel::getOwnerName() const
+{
+	return rel_perm->rel_owner_name;
 }
 
 inline MetaId jrd_rel::getId() const

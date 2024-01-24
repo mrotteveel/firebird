@@ -35,14 +35,13 @@ using namespace Firebird;
 
 namespace Jrd {
 
-RoutinePermanent::RoutinePermanent(MemoryPool& p, MetaId metaId, Lock* existence)
+RoutinePermanent::RoutinePermanent(thread_db*, MemoryPool& p, MetaId metaId, Lock* existence)
 	: PermanentStorage(p),
 	  id(metaId),
 	  name(p),
 	  securityName(p),
 	  subRoutine(false),
 	  flags(0),
-	  alterCount(0),
 	  existenceLock(existence)
 {
 	existenceLock->setKey(metaId);
@@ -308,10 +307,10 @@ bool jrd_prc::checkCache(thread_db* tdbb) const
 	return tdbb->getDatabase()->dbb_mdc->getProcedure(tdbb, getId()) == this;
 }
 
-void Routine::releaseLocks(thread_db* tdbb)
+void RoutinePermanent::releaseLocks(thread_db* tdbb)
 {
-	if (permanent->existenceLock)
-		LCK_release(tdbb, permanent->existenceLock);
+	if (existenceLock)
+		LCK_release(tdbb, existenceLock);
 }
 
 }	// namespace Jrd

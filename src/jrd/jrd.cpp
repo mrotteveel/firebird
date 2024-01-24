@@ -2126,7 +2126,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 					// load DDL triggers
 					mdc->load_ddl_triggers(tdbb);
 
-					auto* trig_connect = dbb->dbb_mdc->getTriggers(DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
+					auto* trig_connect = dbb->dbb_mdc->getTriggers(tdbb, DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
 					if (trig_connect && *trig_connect)
 					{
 						// Start a transaction to execute ON CONNECT triggers.
@@ -8202,7 +8202,7 @@ static void purge_attachment(thread_db* tdbb, StableAttachmentPart* sAtt, unsign
 	{
 		try
 		{
-			auto* trig_disconnect = dbb->dbb_mdc->getTriggers(DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
+			auto* trig_disconnect = dbb->dbb_mdc->getTriggers(tdbb, DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
 
 			if (!forcedPurge &&
 				!(attachment->att_flags & ATT_no_db_triggers) &&
