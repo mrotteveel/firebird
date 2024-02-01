@@ -94,15 +94,14 @@ namespace Jrd
 	{
 	protected:
 		explicit Routine(RoutinePermanent* perm)
-			: permanent(perm),
-			  statement(NULL),
+			: statement(NULL),
 			  implemented(true),
 			  defined(true),
 			  defaultCount(0),
 			  inputFormat(NULL),
 			  outputFormat(NULL),
-			  inputFields(permanent->getPool()),
-			  outputFields(permanent->getPool()),
+			  inputFields(perm->getPool()),
+			  outputFields(perm->getPool()),
 			  flags(0),
 			  invoker(NULL)
 		{
@@ -126,9 +125,9 @@ namespace Jrd
 			delete routine;
 		}
 
-		const QualifiedName& getName() const { return permanent->getName(); }
-		USHORT getId() const { return permanent->getId(); }
-		const char* c_name() const override { return permanent->c_name(); }
+		const QualifiedName& getName() const { return getPermanent()->getName(); }
+		USHORT getId() const { return getPermanent()->getId(); }
+		const char* c_name() const override { return getPermanent()->c_name(); }
 
 		/*const*/ Statement* getStatement() const { return statement; }
 		void setStatement(Statement* value);
@@ -179,7 +178,7 @@ namespace Jrd
 		virtual bool checkCache(thread_db* tdbb) const = 0;
 
 	public:
-		RoutinePermanent* permanent;		// Permanent part of data
+		virtual RoutinePermanent* getPermanent() const = 0;	// Permanent part of data
 
 	private:
 		Statement* statement;				// compiled routine statement

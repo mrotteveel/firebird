@@ -32,6 +32,7 @@
 
 #include "../common/gdsassert.h"
 #include <string.h>
+#include <functional>
 
 namespace Firebird {
 
@@ -182,6 +183,16 @@ public:
 	static bool greaterThan(const T& i1, const T& i2)
 	{
 	    return i1 > i2;
+	}
+};
+
+template <typename T>
+class DefaultComparator<T*>
+{
+public:
+	static bool greaterThan(const T* i1, const T* i2)
+	{
+	    return std::greater{}(i1, i2);
 	}
 };
 

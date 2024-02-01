@@ -38,7 +38,7 @@
 #include "firebird/Interface.h"
 #include "../common/classes/ImplementHelper.h"
 #include "../common/dsc.h"
-#include "../jrd/Resource.h"
+#include "../jrd/Resources.h"
 
 namespace Ods
 {

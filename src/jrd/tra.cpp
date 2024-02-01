@@ -77,6 +77,7 @@
 #include "../jrd/Mapping.h"
 #include "../jrd/DbCreators.h"
 #include "../common/os/fbsyslog.h"
+#include "../jrd/Resources.h"
 
 
 const int DYN_MSG_FAC	= 8;
@@ -100,8 +101,6 @@ static tx_inv_page* fetch_inventory_page(thread_db*, WIN* window, ULONG sequence
 static const char* get_lockname_v3(const UCHAR lock);
 static ULONG inventory_page(thread_db*, ULONG);
 static int limbo_transaction(thread_db*, TraNumber id);
-static void release_temp_tables(thread_db*, jrd_tra*);
-static void retain_temp_tables(thread_db*, jrd_tra*, TraNumber);
 static void restart_requests(thread_db*, jrd_tra*);
 static void start_sweeper(thread_db*);
 //static THREAD_ENTRY_DECLARE sweep_database(THREAD_ENTRY_PARAM);
@@ -950,7 +949,7 @@ void TRA_update_counters(thread_db* tdbb, Database* dbb)
 }
 
 
-void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, ResourceList& resources)
+void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, Resources& resources)
 {
 /**************************************
  *
@@ -963,41 +962,19 @@ void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, ResourceList& res
  *	This guarantees that the relation/procedure/collation won't be dropped
  *	out from under the transaction.
  *
- **************************************
-	SET_TDBB(tdbb); !!!!!!!!!!!!!!!!!!!!!
+ **************************************/
+	SET_TDBB(tdbb);
 
-	Jrd::ContextPoolHolder context(tdbb, transaction->tra_pool);
-
-	ResourceList::ResourceTypes b;
-	b.set(Resource::rsc_relation);
-	b.set(Resource::rsc_procedure);
-	b.set(Resource::rsc_function);
-	b.set(Resource::rsc_collation);
-	ResourceList::NewResources newRsc;
-	transaction->tra_resources.transferResources(tdbb, resources, b, newRsc);
-
-	if (!newRsc.hasData())
-		return;
-	*/
-
-	// !!!!!!!!!!!!! solve EXT_tra_attach problem - where to place references
-
-	MutexLockGuard g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
-
-	for (auto n : newRsc)
+	for (auto& rel : resources.relations)
 	{
-		Resource* rsc = transaction->tra_resources.get(n);
-		switch (rsc->rsc_type)
+		if (auto* ext = rel()->getExtFile())
 		{
-		case Resource::rsc_relation:
-			if (rsc->rsc_rel->rel_file) {
-				EXT_tra_attach(rsc->rsc_rel->rel_file, transaction);
+			FB_SIZE_T pos;
+			if (!transaction->tra_ext.find(ext, pos))
+			{
+				ext->traAttach(tdbb);
+				transaction->tra_ext.insert(pos, ext);
 			}
-			rsc->rsc_state = Resource::State::Extra;
-			break;
-
-		default:   // shut up compiler warning
-			break;
 		}
 	}
 }
@@ -1256,23 +1233,10 @@ void TRA_release_transaction(thread_db* tdbb, jrd_tra* transaction, Jrd::TraceTr
 	}
 
 	// Care about used external files
+	while (transaction->tra_ext.hasData())
+		transaction->tra_ext.pop()->traDetach();
 
-	// !!!!!!!!!!!!! solve EXT_tra_attach problem - where to place references
-/*
-	for (auto rsc : transaction->tra_resources.getObjects(Resource::rsc_relation))
-	{
-		if (rsc->rsc_state == Resource::State::Extra)
-		{
-			if (rsc->rsc_rel->rel_file)
-				EXT_tra_detach(rsc->rsc_rel->rel_file, transaction);
-			rsc->rsc_state = Resource::State::Locked;
-		}
-	}
- */
-	// Release interest in relation/procedure existence for transaction
-	transaction->tra_resources.releaseResources(tdbb, transaction);
-
-	release_temp_tables(tdbb, transaction);
+	MetadataCache::release_temp_tables(tdbb, transaction);
 
 	// Release the locks associated with the transaction
 
@@ -2254,7 +2218,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 	}
 
 	// set up the lock on the relation/view
-	Lock* lock = RLCK_transaction_relation_lock(tdbb, transaction, relation.unsafePointer());
+	Lock* lock = RLCK_transaction_relation_lock(tdbb, transaction, relation->rel_perm);
 	lock->lck_logical = lock_type;
 
 	if (!found)
@@ -2471,7 +2435,7 @@ void jrd_tra::tra_abort(const char* reason)
 }
 
 
-static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction)
+void MetadataCache::release_temp_tables(thread_db* tdbb, jrd_tra* transaction)
 {
 /**************************************
  *
@@ -2485,17 +2449,15 @@ static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction)
  **************************************/
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
-	for (FB_SIZE_T i = 0; i < mdc->relCount(tdbb); i++)
+	for (auto* relation : mdc->mdc_relations)
 	{
-		jrd_rel* relation = mdc->getRelation(tdbb, i);
-
-		if (relation && (relation->rel_flags & REL_temp_tran))
+		if (relation->rel_flags & REL_temp_tran)
 			relation->delPages(tdbb, transaction->tra_number);
 	}
 }
 
 
-static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number)
+void MetadataCache::retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number)
 {
 /**************************************
  *
@@ -2510,11 +2472,9 @@ static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber 
  **************************************/
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
-	for (FB_SIZE_T i = 0; i < mdc->relCount(tdbb); i++)
+	for (auto* relation : mdc->mdc_relations)
 	{
-		jrd_rel* relation = mdc->getRelation(tdbb, i);
-
-		if (relation && (relation->rel_flags & REL_temp_tran))
+		if (relation->rel_flags & REL_temp_tran)
 			relation->retainPages(tdbb, transaction->tra_number, new_number);
 	}
 }
@@ -2649,9 +2609,9 @@ static void retain_context(thread_db* tdbb, jrd_tra* transaction, bool commit, i
 		TRA_set_state(tdbb, transaction, old_number, state);
 	}
 	if (dbb->dbb_config->getClearGTTAtRetaining())
-		release_temp_tables(tdbb, transaction);
+		MetadataCache::release_temp_tables(tdbb, transaction);
 	else
-		retain_temp_tables(tdbb, transaction, new_number);
+		MetadataCache::retain_temp_tables(tdbb, transaction, new_number);
 
 	transaction->tra_number = new_number;
 
@@ -4053,7 +4013,7 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 		!tra_fetched_blobs.locate(*blob_id))
 	{
 		MetadataCache* mdc = tra_attachment->att_database->dbb_mdc;
-		jrd_rel* blobRelation = mdc->getRelation(tdbb, rel_id);
+		auto* blobRelation = mdc->lookupRelation(tdbb, rel_id);
 
 		if (blobRelation)
 		{

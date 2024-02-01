@@ -56,7 +56,7 @@
 #include "../dsql/Nodes.h"
 #include "../dsql/Visitors.h"
 
-#include "../jrd/Resource.h"
+#include "../jrd/Resources.h"
 
 // This macro enables DSQL tracing code
 //#define CMP_DEBUG
@@ -427,9 +427,9 @@ public:
 		return isSubRoutine() ? subroutine : routine(tdbb);
 	}
 
-	RoutinePermanent* operator()() const
+	CacheElement<R, RoutinePermanent>* operator()() const
 	{
-		return isSubRoutine() ? subroutine->permanent : routine();
+		return isSubRoutine() ? subroutine->getPermanent() : routine();
 	}
 
 	bool isSubRoutine() const
@@ -462,10 +462,10 @@ struct Dependency
 
 	union
 	{
-		jrd_rel* relation;
-		const Function* function;
-		const jrd_prc* procedure;
-		const MetaName* name;
+		Cached::Relation* relation;
+		Cached::Function* function;
+		Cached::Procedure* procedure;
+		MetaName* name;
 		SLONG number;
 	};
 

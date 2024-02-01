@@ -112,7 +112,7 @@ using namespace Firebird;
 static ULONG get_rel_flags_from_FLAGS(USHORT);
 static void get_trigger(thread_db*, jrd_rel*, bid*, bid*, Triggers&, const TEXT*, FB_UINT64, bool,
 	USHORT, const MetaName&, const string&, const bid*, Nullable<bool> ssDefiner);
-static bool get_type(thread_db*, USHORT*, const UCHAR*, const TEXT*);
+// !!!!!!!!!!!!!! static bool get_type(thread_db*, USHORT*, const UCHAR*, const TEXT*);
 static void lookup_view_contexts(thread_db*, jrd_rel*);
 static void make_relation_scope_name(const TEXT*, const USHORT, string& str);
 static ValueExprNode* parse_field_default_blr(thread_db* tdbb, bid* blob_id);
@@ -120,7 +120,6 @@ static BoolExprNode* parse_field_validation_blr(thread_db* tdbb, bid* blob_id, c
 static void save_trigger_data(thread_db*, Triggers&, jrd_rel*, Statement*, blb*, blb*,
 	const TEXT*, FB_UINT64, bool, USHORT, const MetaName&, const string&,
 	const bid*, Nullable<bool> ssDefiner);
-static void scan_partners(thread_db*, jrd_rel*);
 static bool verify_TRG_ignore_perm(thread_db*, const MetaName&);
 
 
@@ -1365,7 +1364,7 @@ DmlNode* MET_get_dependencies(thread_db* tdbb,
 
 	if (blob)
 	{
-		node = PAR_blr(tdbb, relation, blob, blob_length, view_csb, &csb, statementPtr,
+		node = PAR_blr(tdbb, relation->rel_perm, blob, blob_length, view_csb, &csb, statementPtr,
 			(type == obj_trigger && relation != NULL), 0);
 	}
 	else
@@ -1611,7 +1610,7 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 		{
 			// actual type will be taken into an account in DbTriggers::scan
 			auto* newCacheElement = FB_NEW_POOL(getPool())
-				CacheElement<DbTriggers, DbTriggersHeader>(tdbb, getPool(), type, DbTriggers::makeLock(tdbb, getPool()));
+				Cached::Triggers(tdbb, getPool(), type, DbTriggers::makeLock(tdbb, getPool()));
 			if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{
@@ -2467,7 +2466,7 @@ bool MET_lookup_partner(thread_db* tdbb, jrd_rel* relation, index_desc* idx, con
 	Attachment* attachment = tdbb->getAttachment();
 
 	if (relation->rel_flags & REL_check_partners)
-		scan_partners(tdbb, relation);
+		relation->scan_partners(tdbb);
 
 	if (idx->idx_flags & idx_foreign)
 	{
@@ -2614,7 +2613,7 @@ jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT f
 }
 
 
-CachedRelation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags)
+Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags)
 {
 	SET_TDBB(tdbb);
 
@@ -2731,10 +2730,10 @@ DmlNode* MET_parse_blob(thread_db*					tdbb,
 	{
 		// The set of MET parse functions needs a rework.
 		// For now, our caller chain is not interested in the returned node.
-		PAR_validation_blr(tdbb, relation, temp, length, NULL, csb_ptr, 0);
+		PAR_validation_blr(tdbb, relation->rel_perm, temp, length, NULL, csb_ptr, 0);
 	}
 	else
-		node = PAR_blr(tdbb, relation, temp, length, NULL, csb_ptr, statementPtr, trigger, 0);
+		node = PAR_blr(tdbb, relation->rel_perm, temp, length, NULL, csb_ptr, statementPtr, trigger, 0);
 
 	return node;
 }
@@ -2806,7 +2805,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 
 			{
 				Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
-				PAR_blr(tdbb, relation, blr.begin(), length, NULL, NULL, &statement, true, par_flags);
+				PAR_blr(tdbb, relation->rel_perm, blr.begin(), length, NULL, NULL, &statement, true, par_flags);
 			}
 
 			statement->triggerName = name;
@@ -2874,7 +2873,7 @@ jrd_prc* MetadataCache::findProcedure(thread_db* tdbb, MetaId id, CacheObject::F
 	return mdc->mdc_procedures.getObject(tdbb, id, flags);
 }
 
-jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, RoutinePermanent* perm)
+jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
 {
 	return FB_NEW_POOL(perm->getPool()) jrd_prc(perm);
 }
@@ -2893,7 +2892,7 @@ void jrd_prc::scan(thread_db* tdbb, CacheObject::Flag)
 		{
 			if (getName().toString().length() == 0)
 			{
-				permanent->name = QualifiedName(P.RDB$PROCEDURE_NAME,
+				getPermanent()->name = QualifiedName(P.RDB$PROCEDURE_NAME,
 					(P.RDB$PACKAGE_NAME.NULL ? "" : P.RDB$PACKAGE_NAME));
 			}
 
@@ -2919,8 +2918,8 @@ void jrd_prc::scan(thread_db* tdbb, CacheObject::Flag)
 				END_FOR
 			}
 
-			if (permanent->securityName.length() == 0)
-				permanent->securityName = secClass;
+			if (getPermanent()->securityName.length() == 0)
+				getPermanent()->securityName = secClass;
 
 			if (!ssDefiner.specified)
 			{
@@ -2930,11 +2929,11 @@ void jrd_prc::scan(thread_db* tdbb, CacheObject::Flag)
 					ssDefiner = MET_get_ss_definer(tdbb);
 			}
 
-			if (permanent->owner.length() == 0)
-				permanent->owner = P.RDB$OWNER_NAME;
+			if (getPermanent()->owner.length() == 0)
+				getPermanent()->owner = P.RDB$OWNER_NAME;
 
 			if (ssDefiner.orElse(false))
-				invoker = attachment->getUserId(permanent->owner);
+				invoker = attachment->getUserId(getPermanent()->owner);
 
 			setImplemented(true);
 			setDefined(true);
@@ -3111,12 +3110,12 @@ void jrd_prc::scan(thread_db* tdbb, CacheObject::Flag)
 				RefPtr<MsgMetadata> inputMetadata(REF_NO_INCR,
 					Routine::createMetadata(getInputFields(), false));
 				setInputFormat(
-					Routine::createFormat(permanent->getPool(), inputMetadata, false));
+					Routine::createFormat(getPermanent()->getPool(), inputMetadata, false));
 
 				RefPtr<MsgMetadata> outputMetadata(REF_NO_INCR,
 					Routine::createMetadata(getOutputFields(), false));
 				setOutputFormat(
-					Routine::createFormat(permanent->getPool(), outputMetadata, true));
+					Routine::createFormat(getPermanent()->getPool(), outputMetadata, true));
 
 				setImplemented(false);
 			}
@@ -3271,7 +3270,7 @@ void MET_scan_partners(thread_db* tdbb, jrd_rel* relation)
 	SET_TDBB(tdbb);
 
 	if (relation->rel_flags & REL_check_partners)
-		scan_partners(tdbb, relation);
+		relation->scan_partners(tdbb);
 }
 
 
@@ -3511,7 +3510,7 @@ void jrd_rel::scan(thread_db* tdbb, CacheObject::Flag flags)
 					DmlNode* nod = dependencies ?
 						MET_get_dependencies(tdbb, this, p, length, csb, NULL, NULL, NULL,
 							field->fld_name, obj_computed, 0, depTrans) :
-						PAR_blr(tdbb, this, p, length, csb, NULL, NULL, false, 0);
+						PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, 0);
 
 					field->fld_computation = static_cast<ValueExprNode*>(nod);
 				}
@@ -3519,12 +3518,12 @@ void jrd_rel::scan(thread_db* tdbb, CacheObject::Flag flags)
 
 			case RSR_missing_value:
 				field->fld_missing_value = static_cast<ValueExprNode*>(
-					PAR_blr(tdbb, this, p, length, csb, NULL, NULL, false, 0));
+					PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, 0));
 				break;
 
 			case RSR_default_value:
 				field->fld_default_value = static_cast<ValueExprNode*>(
-					PAR_blr(tdbb, this, p, length, csb, NULL, NULL, false, 0));
+					PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, 0));
 				break;
 
 			case RSR_validation_blr:
@@ -3536,13 +3535,13 @@ void jrd_rel::scan(thread_db* tdbb, CacheObject::Flag flags)
 				// Because a VIEW can't have a validation section i ignored the whole call.
 				if (!csb)
 				{
-					field->fld_validation = PAR_validation_blr(tdbb, this, p, length, csb,
+					field->fld_validation = PAR_validation_blr(tdbb, rel_perm, p, length, csb,
 						NULL, csb_validation);
 				}
 				break;
 
 			case RSR_field_not_null:
-				field->fld_not_null = PAR_validation_blr(tdbb, this, p, length, csb,
+				field->fld_not_null = PAR_validation_blr(tdbb, rel_perm, p, length, csb,
 					NULL, csb_validation);
 				break;
 
@@ -3931,10 +3930,10 @@ static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 					  name, type, sys_trigger, flags, engine, entryPoint, body, ssDefiner);
 }
 
-
+/* !!!!!!!!!!!!!!!!!!!!
 static bool get_type(thread_db* tdbb, USHORT* id, const UCHAR* name, const TEXT* field)
 {
-/**************************************
+ **************************************
  *
  *      g e t _ t y p e
  *
@@ -3947,7 +3946,7 @@ static bool get_type(thread_db* tdbb, USHORT* id, const UCHAR* name, const TEXT*
  *
  *      Return (1) if found, (0) otherwise.
  *
- **************************************/
+ **************************************
 	UCHAR buffer[MAX_SQL_IDENTIFIER_SIZE];			// BASED ON RDB$TYPE_NAME
 
 	SET_TDBB(tdbb);
@@ -3983,7 +3982,7 @@ static bool get_type(thread_db* tdbb, USHORT* id, const UCHAR* name, const TEXT*
 
 	return found;
 }
-
+*/
 
 static void lookup_view_contexts( thread_db* tdbb, jrd_rel* view)
 {
@@ -4277,7 +4276,7 @@ static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relati
 }
 
 
-void jrd_rel::scan_partners(thread_db* tdbb, jrd_rel* oldRel)
+void jrd_rel::scan_partners(thread_db* tdbb)
 {
 /**************************************
  *
@@ -4291,6 +4290,7 @@ void jrd_rel::scan_partners(thread_db* tdbb, jrd_rel* oldRel)
  *
  **************************************/
 	Attachment* attachment = tdbb->getAttachment();
+	jrd_rel* oldRel = rel_perm->getLatestObject();
 
 	if (oldRel && !(rel_flags & REL_check_partners))
 	{
@@ -4467,8 +4467,8 @@ void MET_store_dependencies(thread_db* tdbb,
 		}
 
 		int dpdo_type = dependency.objType;
-		jrd_rel* relation = nullptr;
-		const jrd_prc* procedure = NULL;
+		Cached::Relation* relation = nullptr;
+		Cached::Procedure* procedure = nullptr;
 		MetaName dpdo_name;
 		MetaName packageName;
 		SubtypeInfo info;
@@ -4504,15 +4504,16 @@ void MET_store_dependencies(thread_db* tdbb,
 				}
 			}
 
-			if (relation->rel_view_rse) {
+			if (relation->getLatestObject()->rel_view_rse)
 				dpdo_type = obj_view;
-			}
 			break;
+
 		case obj_procedure:
 			procedure = dependency.procedure;
 			dpdo_name = procedure->getName().identifier;
 			packageName = procedure->getName().package;
 			break;
+
 		case obj_collation:
 			{
 				const USHORT number = dependency.number;
@@ -4520,6 +4521,7 @@ void MET_store_dependencies(thread_db* tdbb,
 				dpdo_name = info.collationName;
 			}
 			break;
+
 		case obj_exception:
 			{
 				const SLONG number = dependency.number;
@@ -4527,9 +4529,11 @@ void MET_store_dependencies(thread_db* tdbb,
 				dpdo_name = name;
 			}
 			break;
+
 		case obj_field:
 			dpdo_name = *(dependency.name);
 			break;
+
 		case obj_generator:
 			{
 				// CVC: Here I'm going to track those pesky things named generators and UDFs.
@@ -4541,13 +4545,15 @@ void MET_store_dependencies(thread_db* tdbb,
 				dpdo_name = name;
 			}
 			break;
+
 		case obj_udf:
 			{
-				const Function* const udf = dependency.function;
+				Cached::Function* const udf = dependency.function;
 				dpdo_name = udf->getName().identifier;
 				packageName = udf->getName().package;
 			}
 			break;
+
 		case obj_index:
 			name = *dependency.name;
 			dpdo_name = name;
@@ -4563,13 +4569,13 @@ void MET_store_dependencies(thread_db* tdbb,
 				const SSHORT fld_id = (SSHORT) dependency.subNumber;
 				if (relation)
 				{
-					const jrd_fld* field = MET_get_field(relation, fld_id);
+					const jrd_fld* field = MET_get_field(relation->getObject(tdbb), fld_id);
 					if (field)
 						field_name = field->fld_name;
 				}
 				else if (procedure)
 				{
-					const Parameter* param = procedure->getOutputFields()[fld_id];
+					const Parameter* param = procedure->getObject(tdbb)->getOutputFields()[fld_id];
 					// CVC: Setting the field var here didn't make sense alone,
 					// so I thought the missing code was to try to extract
 					// the field name that's in this case an output var from a proc.
@@ -4910,13 +4916,13 @@ const Triggers* MetadataCache::getTriggers(thread_db* tdbb, MetaId triggerId)
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DB)
 	{
 		unsigned triggerKind = triggerId & ~TRIGGER_TYPE_DB;
-		HazardPtr<CacheElement<DbTriggers, DbTriggersHeader>> element(mdc_triggers[triggerKind]);
+		HazardPtr<Cached::Triggers> element(mdc_triggers[triggerKind]);
 		return element->getObject(tdbb);
 	}
 
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DDL)
 	{
-		HazardPtr<CacheElement<DbTriggers, DbTriggersHeader>> element(mdc_ddl_triggers);
+		HazardPtr<Cached::Triggers> element(mdc_ddl_triggers);
 		return element->getObject(tdbb);
 	}
 
@@ -4967,11 +4973,7 @@ void Trigger::compile(thread_db* tdbb)
 										 *csb->csb_dbg_info);
 				}
 
-				jrd_rel* rel = MetadataCache::findRelation(tdbb, relation->getId());
-				if (!rel)
-					fatal_exception::raiseFmt("Relation %s unexpectedly lost", relation->getName());
-
-				PAR_blr(tdbb, rel, blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
+				PAR_blr(tdbb, relation->rel_perm, blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
 					(relation ? true : false), par_flags);
 			}
 			else
@@ -5080,7 +5082,7 @@ void Trigger::compile(thread_db* tdbb)
 										 *csb->csb_dbg_info);
 				}
 
-				PAR_blr(tdbb, relation, blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
+				PAR_blr(tdbb, relation->rel_perm, blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
 					(relation ? true : false), par_flags);
 			}
 			else
@@ -5143,7 +5145,7 @@ void Trigger::release(thread_db* tdbb)
 }
 */
 
-CachedRelation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 {
 	SET_TDBB(tdbb);
 
@@ -5158,12 +5160,12 @@ CachedRelation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, CacheO
 	return rc;
 }
 
-CachedRelation* MetadataCache::lookupRelation(MetaId id)
+Cached::Relation* MetadataCache::lookupRelation(MetaId id)
 {
 	return mdc_relations.getData(id);
 }
 
-CacheElement<jrd_prc, RoutinePermanent>* MetadataCache::lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags)
+Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags)
 {
 	SET_TDBB(tdbb);
 
@@ -5193,7 +5195,7 @@ CacheElement<jrd_prc, RoutinePermanent>* MetadataCache::lookupProcedure(thread_d
 
 }
 
-CacheElement<jrd_prc, RoutinePermanent>* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 {
 	SET_TDBB(tdbb);
 

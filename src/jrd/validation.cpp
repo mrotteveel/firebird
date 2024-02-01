@@ -1635,8 +1635,7 @@ void Validation::walk_database()
 		if (i > dbb->dbb_max_sys_rel) // Why not system flag instead?
 			VAL_debug_level = 2;
 #endif
-		jrd_rel* relation = mdc->getRelation(vdr_tdbb, i);
-		ExistenceGuard g(vdr_tdbb, relation->rel_existence_lock);
+		auto* relation = mdc->lookupRelation(vdr_tdbb, i, CacheFlag::AUTOCREATE);
 
 		if (true)
 		{
@@ -1667,7 +1666,7 @@ void Validation::walk_database()
 			output("%s\n", relName.c_str());
 
 			int errs = vdr_errors;
-			walk_relation(relation);
+			walk_relation(relation->getObject(vdr_tdbb));
 			errs = vdr_errors - errs;
 
 			if (!errs)
@@ -2568,7 +2567,7 @@ Validation::RTN Validation::walk_pointer_page(jrd_rel* relation, ULONG sequence)
  **************************************/
 	Database* dbb = vdr_tdbb->getDatabase();
 
-	const vcl* vector = relation->getBasePages()->rel_pages;
+	const vcl* vector = relation->rel_perm->getBasePages()->rel_pages;
 
 	if (!vector || sequence >= vector->count())
 		return corrupt(VAL_P_PAGE_LOST, relation, sequence);
@@ -2687,7 +2686,7 @@ Validation::RTN Validation::walk_pointer_page(jrd_rel* relation, ULONG sequence)
 
 			DPM_scan_pages(vdr_tdbb);
 
-			vector = relation->getBasePages()->rel_pages;
+			vector = relation->rel_perm->getBasePages()->rel_pages;
 
 			--sequence;
 			if (!vector || sequence >= vector->count()) {
@@ -2854,7 +2853,7 @@ Validation::RTN Validation::walk_record(jrd_rel* relation, const rhd* header, US
 
 	// Check out record length and format
 
-	const Format* format = MET_format(vdr_tdbb, relation, header->rhd_format);
+	const Format* format = MET_format(vdr_tdbb, relation->rel_perm, header->rhd_format);
 
 	if (!delta_flag && record_length != format->fmt_length)
 		return corrupt(VAL_REC_WRONG_LENGTH, relation, number.getValue());
@@ -2920,7 +2919,7 @@ void Validation::checkDPinPP(jrd_rel* relation, ULONG page_number)
 	Database* dbb = vdr_tdbb->getDatabase();
 	DECOMPOSE(sequence, dbb->dbb_dp_per_pp, pp_sequence, slot);
 
-	const vcl* vector = relation->getBasePages()->rel_pages;
+	const vcl* vector = relation->rel_perm->getBasePages()->rel_pages;
 	pointer_page* ppage = 0;
 	if (pp_sequence < vector->count())
 	{
@@ -3021,7 +3020,7 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 	try {
 
 	// skip deleted relations
-	if (relation->rel_flags & (REL_deleted | REL_deleting)) {
+	if (relation->rel_perm->isDropped()) {
 		return rtn_ok;
 	}
 
@@ -3034,15 +3033,15 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 
 	// If it's a view, external file or virtual table, skip this
 
-	if (relation->rel_view_rse || relation->rel_file || relation->isVirtual()) {
+	if (relation->rel_view_rse || relation->getExtFile() || relation->isVirtual()) {
 		return rtn_ok;
 	}
 
 	AutoLock lckRead(vdr_tdbb);
-	jrd_rel::GCExclusive lckGC(vdr_tdbb, relation);
+	GCLock::Exclusive lckGC(vdr_tdbb, relation->rel_perm);
 	if (vdr_flags & VDR_online)
 	{
-		lckRead = jrd_rel::createLock(vdr_tdbb, NULL, relation, LCK_relation, false);
+		lckRead = relation->rel_perm->createLock(vdr_tdbb, LCK_relation, false);
 		if (!LCK_lock(vdr_tdbb, lckRead, LCK_PR, vdr_lock_tout))
 		{
 			output("Acquire relation lock failed\n");
@@ -3085,7 +3084,7 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 
 	for (ULONG sequence = 0; true; sequence++)
 	{
-		const vcl* vector = relation->getBasePages()->rel_pages;
+		const vcl* vector = relation->rel_perm->getBasePages()->rel_pages;
 		const int ppCnt = vector ? vector->count() : 0;
 
 		output("  process pointer page %4d of %4d\n", sequence, ppCnt);
@@ -3156,16 +3155,16 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 	{
 		if (!(vdr_flags & VDR_online))
 		{
-			const char* msg = rel->getName().length() > 0 ?
+			const char* msg = relation->getName().hasData() ?
 				"bugcheck during scan of table %d (%s)" :
 				"bugcheck during scan of table %d";
-			gds__log(msg, rel->getId(), rel->getName().c_str());
+			gds__log(msg, relation->getId(), relation->getName().c_str());
 		}
 #ifdef DEBUG_VAL_VERBOSE
 		if (VAL_debug_level)
 		{
 			char s[256];
-			SNPRINTF(s, sizeof(s), msg, rel->getId(), rel->getName().c_str());
+			SNPRINTF(s, sizeof(s), msg, relation->getId(), relation->getName().c_str());
 			fprintf(stdout, "LOG:\t%s\n", s);
 		}
 #endif
@@ -3191,7 +3190,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
  **************************************/
 
 	// If the relation has an index root, walk it
-	RelationPages* relPages = relation->getBasePages();
+	RelationPages* relPages = relation->rel_perm->getBasePages();
 
 	if (!relPages->rel_index_root)
 		return corrupt(VAL_INDEX_ROOT_MISSING, relation);

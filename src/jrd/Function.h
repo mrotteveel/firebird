@@ -33,6 +33,7 @@ namespace Jrd
 {
 	class ValueListNode;
 	class QualifiedName;
+	class Function;
 
 	class Function : public Routine
 	{
@@ -46,8 +47,9 @@ namespace Jrd
 		static Function* lookup(thread_db* tdbb, const QualifiedName& name);
 
 	private:
-		explicit Function(RoutinePermanent* perm)
+		explicit Function(Cached::Function* perm)
 			: Routine(perm),
+			  cachedFunction(perm),
 			  fun_entrypoint(NULL),
 			  fun_inputs(0),
 			  fun_return_arg(0),
@@ -72,7 +74,7 @@ private:
 		}
  */
 	public:
-		static Function* create(thread_db* tdbb, MemoryPool& pool, RoutinePermanent* perm);
+		static Function* create(thread_db* tdbb, MemoryPool& pool, Cached::Function* perm);
 		void scan(thread_db* tdbb, CacheObject::Flag flags);
 
 	public:
@@ -102,6 +104,7 @@ private:
 		}
 
 	public:
+		Cached::Function* cachedFunction;		// entry in the cache
 		int (*fun_entrypoint)();				// function entrypoint
 		USHORT fun_inputs;						// input arguments
 		USHORT fun_return_arg;					// return argument
@@ -111,6 +114,11 @@ private:
 
 		bool fun_deterministic;
 		const ExtEngineManager::Function* fun_external;
+
+		Cached::Function* getPermanent() const override
+		{
+			return cachedFunction;
+		}
 
 	protected:
 		virtual bool reload(thread_db* tdbb);

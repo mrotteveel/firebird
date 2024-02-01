@@ -104,13 +104,15 @@ public:
 	void setExternal(ExtEngineManager::Procedure* value) { prc_external = value; }
 
 private:
+	Cached::Procedure* cachedProcedure;
 	const ExtEngineManager::Procedure* prc_external;
 
 public:
-	explicit jrd_prc(RoutinePermanent* perm)
+	explicit jrd_prc(Cached::Procedure* perm)
 		: Routine(perm),
 		  prc_record_format(NULL),
 		  prc_type(prc_legacy),
+		  cachedProcedure(perm),
 		  prc_external(NULL)
 	{
 	}
@@ -141,7 +143,7 @@ private:
 	static int blockingAst(void* ast_object);
 
 public:
-	static jrd_prc* create(thread_db* tdbb, MemoryPool& p, RoutinePermanent* perm);
+	static jrd_prc* create(thread_db* tdbb, MemoryPool& p, Cached::Procedure* perm);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	void scan(thread_db* tdbb, CacheObject::Flag);
 
@@ -151,6 +153,11 @@ public:
 	{
 		delete prc_external;
 		prc_external = NULL;
+	}
+
+	Cached::Procedure* getPermanent() const override
+	{
+		return cachedProcedure;
 	}
 
 protected:
@@ -198,26 +205,20 @@ enum IndexStatus
 	MET_object_unknown
 };
 
-class CharSet;
-
-typedef atomics::atomic<CacheElement<DbTriggers, DbTriggersHeader>*> TriggersSet;
+typedef atomics::atomic<Cached::Triggers*> TriggersSet;
 
 class MetadataCache : public Firebird::PermanentStorage
 {
 	friend class CharSetContainer;
 
 public:
-	typedef CacheVector<CharSetVers, CharSetContainer> Charsets;	// intl character set descriptions
-	typedef Charsets::StoredElement CharsetElement;						// character set stored in cache vector
-
 	MetadataCache(MemoryPool& pool)
 		: Firebird::PermanentStorage(pool),
 		  mdc_relations(getPool()),
 		  mdc_procedures(getPool()),
 		  mdc_functions(getPool()),
 		  mdc_charsets(getPool()),
-		  mdc_ddl_triggers(nullptr)/*,
-		  mdc_charset_ids(getPool())*/
+		  mdc_ddl_triggers(nullptr)
 	{
 		memset(mdc_triggers, 0, sizeof(mdc_triggers));
 	}
@@ -290,13 +291,13 @@ public:
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name);
 	static Function* lookup_function(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
-	static CacheElement<jrd_prc, RoutinePermanent>* lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
-	static CacheElement<jrd_prc, RoutinePermanent>* lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
+	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
+	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, CacheObject::Flag flags = CacheFlag::AUTOCREATE);
-	static CachedRelation* lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags = 0);
-	static CachedRelation* lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
-	CachedRelation* lookupRelation(MetaId id);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags = 0);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
+	Cached::Relation* lookupRelation(MetaId id);
 	static void lookup_index(thread_db* tdbb, MetaName& index_name, const MetaName& relation_name, USHORT number);
 	static ObjectBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
 								   MetaId* relation_id, IndexStatus* status);
@@ -311,7 +312,9 @@ public:
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	// end of met_proto.h
 
-	static CharsetElement* lookupCharset(thread_db* tdbb, USHORT tt_id);
+	static Cached::Charset* lookupCharset(thread_db* tdbb, USHORT tt_id);
+	static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction);
+	static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number);
 
 	MdcVersion getVersion()
 	{
@@ -324,14 +327,14 @@ public:
 	}
 
 private:
-	CacheVector<jrd_rel, RelationPermanent>	mdc_relations;
-	CacheVector<jrd_prc, RoutinePermanent>	mdc_procedures;
-	CacheVector<Function, RoutinePermanent>	mdc_functions;	// User defined functions
-	Charsets								mdc_charsets;	// intl character set descriptions
-	TriggersSet								mdc_triggers[DB_TRIGGER_MAX];
-	TriggersSet								mdc_ddl_triggers;
+	CacheVector<Cached::Relation>		mdc_relations;
+	CacheVector<Cached::Procedure>		mdc_procedures;
+	CacheVector<Cached::Function>		mdc_functions;	// User defined functions
+	CacheVector<Cached::Charset>		mdc_charsets;	// intl character set descriptions
+	TriggersSet							mdc_triggers[DB_TRIGGER_MAX];
+	TriggersSet							mdc_ddl_triggers;
 
-	std::atomic<MdcVersion>					mdc_version;	// Current version of metadata cache
+	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 numers!!!!!!!!!!!)
 
 public:
 	Firebird::Mutex

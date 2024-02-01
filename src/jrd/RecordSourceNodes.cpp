@@ -572,7 +572,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 	// Find relation either by id or by name
 	AutoPtr<string> aliasString;
 	MetaName name;
-	CachedRelation* rel = nullptr;
+	Cached::Relation* rel = nullptr;
 
 	switch (blrOp)
 	{
@@ -908,7 +908,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 	const auto blrStartPos = csb->csb_blr_reader.getPos();
 	AutoPtr<string> aliasString;
 	QualifiedName name;
-	CacheElement<jrd_prc, RoutinePermanent>* proc = nullptr;
+	Cached::Procedure* proc = nullptr;
 	SubRoutine<jrd_prc> nodeProc;
 
 	switch (blrOp)

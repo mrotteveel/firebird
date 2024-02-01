@@ -89,7 +89,7 @@ namespace
 	class BlrParseWrapper
 	{
 	public:
-		BlrParseWrapper(thread_db* tdbb, MemoryPool& pool, jrd_rel* relation, CompilerScratch* view_csb,
+		BlrParseWrapper(thread_db* tdbb, MemoryPool& pool, Cached::Relation* relation, CompilerScratch* view_csb,
 						CompilerScratch** csb_ptr, const bool trigger, USHORT flags)
 			: m_csbPtr(csb_ptr)
 		{
@@ -107,23 +107,20 @@ namespace
 				StreamType stream = m_csb->nextStream();
 				CompilerScratch::csb_repeat* t1 = CMP_csb_element(m_csb, 0);
 				t1->csb_flags |= csb_used | csb_active | csb_trigger;
-				t1->csb_relation = m_csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-					relation, relation->getId());
+				t1->csb_relation = m_csb->csb_resources->relations.registerResource(relation);
 				t1->csb_stream = stream;
 
 				stream = m_csb->nextStream();
 				t1 = CMP_csb_element(m_csb, 1);
 				t1->csb_flags |= csb_used | csb_active | csb_trigger;
-				t1->csb_relation = m_csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-					relation, relation->getId());
+				t1->csb_relation = m_csb->csb_resources->relations.registerResource(relation);
 				t1->csb_stream = stream;
 			}
 			else if (relation)
 			{
 				CompilerScratch::csb_repeat* t1 = CMP_csb_element(m_csb, 0);
 				t1->csb_stream = m_csb->nextStream();
-				t1->csb_relation = m_csb->csb_resources.registerResource(tdbb, Resource::rsc_relation,
-					relation, relation->getId());
+				t1->csb_relation = m_csb->csb_resources->relations.registerResource(relation);
 				t1->csb_flags = csb_used | csb_active;
 			}
 
@@ -171,7 +168,7 @@ namespace
 
 // Parse blr, returning a compiler scratch block with the results.
 // Caller must do pool handling.
-DmlNode* PAR_blr(thread_db* tdbb, jrd_rel* relation, const UCHAR* blr, ULONG blr_length,
+DmlNode* PAR_blr(thread_db* tdbb, Cached::Relation* relation, const UCHAR* blr, ULONG blr_length,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, Statement** statementPtr,
 	const bool trigger, USHORT flags)
 {
@@ -204,7 +201,7 @@ DmlNode* PAR_blr(thread_db* tdbb, jrd_rel* relation, const UCHAR* blr, ULONG blr
 // Finish parse of memory nodes, returning a compiler scratch block with the results.
 // Caller must do pool handling.
 // !!!!!!!!!!!!!!! FixMe - pool handling in ExtEngineManager.cpp
-void PAR_preparsed_node(thread_db* tdbb, jrd_rel* relation, DmlNode* node,
+void PAR_preparsed_node(thread_db* tdbb, Cached::Relation* relation, DmlNode* node,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, Statement** statementPtr,
 	const bool trigger, USHORT flags)
 {
@@ -220,7 +217,7 @@ void PAR_preparsed_node(thread_db* tdbb, jrd_rel* relation, DmlNode* node,
 
 // PAR_blr equivalent for validation expressions.
 // Validation expressions are boolean expressions, but may be prefixed with a blr_stmt_expr.
-BoolExprNode* PAR_validation_blr(thread_db* tdbb, jrd_rel* relation, const UCHAR* blr, ULONG blr_length,
+BoolExprNode* PAR_validation_blr(thread_db* tdbb, Cached::Relation* relation, const UCHAR* blr, ULONG blr_length,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, USHORT flags)
 {
 	SET_TDBB(tdbb);
@@ -545,8 +542,10 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 			if (csb->collectingDependencies())
 			{
 				Dependency dependency(obj_relation);
-				jrd_rel* rel = MetadataCache::lookup_relation(tdbb, *relationName);
-				dependency.relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->getId());
+				auto* rel = MetadataCache::lookupRelation(tdbb, *relationName);
+				if (!rel)
+					fatal_exception::raiseFmt("Unexpectedly lost relation %s\n", relationName->c_str());
+				dependency.relation = rel;
 				dependency.subName = fieldName;
 				csb->addDependency(dependency);
 			}
@@ -619,8 +618,8 @@ ValueExprNode* PAR_make_field(thread_db* tdbb, CompilerScratch* csb, USHORT cont
 
 	const StreamType stream = csb->csb_rpt[context].csb_stream;
 
-	jrd_rel* const relation = csb->csb_rpt[stream].csb_relation;
-	jrd_prc* const procedure = csb->csb_rpt[stream].csb_procedure;
+	auto* const relation = csb->csb_rpt[stream].csb_relation(tdbb);
+	auto* const procedure = csb->csb_rpt[stream].csb_procedure(tdbb);
 
 	const SSHORT id =
 		relation ? MET_lookup_field(tdbb, relation, base_field) :
@@ -896,9 +895,10 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 
 	if (csb->csb_rpt[stream].csb_relation)
 	{
-		dependency.relation = csb->csb_rpt[stream].csb_relation;
+		dependency.relation = csb->csb_rpt[stream].csb_relation();
 		// How do I determine reliably this is a view?
 		// At this time, rel_view_rse is still null.
+		//			Add new flag to RelationPermanent ???????????
 		//if (is_view)
 		//	dependency.objType = obj_view;
 		//else
@@ -906,10 +906,10 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 	}
 	else if (csb->csb_rpt[stream].csb_procedure)
 	{
-		if (csb->csb_rpt[stream].csb_procedure->isSubRoutine())
+		if (csb->csb_rpt[stream].csb_procedure()->isSubRoutine())
 			return;
 
-		dependency.procedure = csb->csb_rpt[stream].csb_procedure;
+		dependency.procedure = csb->csb_rpt[stream].csb_procedure();
 		dependency.objType = obj_procedure;
 	}
 
@@ -957,8 +957,8 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 
 	// we have hit a stream; parse the context number and access type
 
-	jrd_rel* relation = nullptr;
-	jrd_prc* procedure = nullptr;
+	Cached::Relation* relation = nullptr;
+	Cached::Procedure* procedure = nullptr;
 
 	if (blrOp == blr_retrieve)
 	{
@@ -983,7 +983,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				{
 					const auto relationNode = RelationSourceNode::parse(tdbb, csb, blrOp, false);
 					plan->recordSourceNode = relationNode;
-					relation = relationNode->relation;
+					relation = relationNode->relation();
 				}
 				break;
 
@@ -997,7 +997,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				{
 					const auto procedureNode = ProcedureSourceNode::parse(tdbb, csb, blrOp, false);
 					plan->recordSourceNode = procedureNode;
-					procedure = procedureNode->procedure;
+					procedure = procedureNode->procedure();
 				}
 				break;
 
@@ -1045,9 +1045,10 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				MetaName name;
 				csb->csb_blr_reader.getMetaName(name);
 
-				SLONG relation_id;
+				MetaId relation_id;
 				IndexStatus idx_status;
-				const SLONG index_id = MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
+				const ObjectBase::ReturnedId index_id =
+					MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
 
 				if (idx_status == MET_object_unknown || idx_status == MET_object_inactive)
 				{
@@ -1114,9 +1115,10 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					MetaName name;
 					csb->csb_blr_reader.getMetaName(name);
 
-					SLONG relation_id;
+					MetaId relation_id;
 					IndexStatus idx_status;
-					const SLONG index_id = MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
+					const ObjectBase::ReturnedId index_id =
+						MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
 
 					if (idx_status == MET_object_unknown || idx_status == MET_object_inactive)
 					{
@@ -1396,7 +1398,7 @@ RseNode* PAR_rse(thread_db* tdbb, CompilerScratch* csb, SSHORT rse_op)
 				if (!subNode)
 					continue;
 				const RelationSourceNode* relNode = static_cast<const RelationSourceNode*>(subNode);		// ?????????????????????????
-				const jrd_rel* relation = relNode->relation;
+				const auto* relation = relNode->relation();
 				fb_assert(relation);
 				if (relation->isVirtual())
 					PAR_error(csb, Arg::Gds(isc_forupdate_virtualtbl) << relation->getName(), false);

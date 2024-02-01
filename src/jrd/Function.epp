@@ -69,7 +69,7 @@ Function* Function::lookup(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 }
 
 
-Function* Function::create(thread_db* tdbb, MemoryPool& pool, RoutinePermanent* perm)
+Function* Function::create(thread_db* tdbb, MemoryPool& pool, Cached::Function* perm)
 {
 	return FB_NEW_POOL(perm->getPool()) Function(perm);
 }
@@ -107,7 +107,7 @@ Lock* Function::makeLock(thread_db* tdbb, MemoryPool& p)
 
 int Function::blockingAst(void* ast_object)
 {
-	CacheElement<Function, RoutinePermanent>* const function = static_cast<CacheElement<Function, RoutinePermanent>*>(ast_object);
+	auto* const function = static_cast<Cached::Function*>(ast_object);
 
 	try
 	{
@@ -131,7 +131,7 @@ void Function::scan(thread_db* tdbb, CacheObject::Flag)
 	Database* dbb = tdbb->getDatabase();
 	MetadataCache* mdc = dbb->dbb_mdc;
 
-	MemoryPool& pool = permanent->getPool();
+	MemoryPool& pool = getPermanent()->getPool();
 
 	//try
 	{
@@ -139,17 +139,17 @@ void Function::scan(thread_db* tdbb, CacheObject::Flag)
 
 		FOR(REQUEST_HANDLE request_fun)
 			X IN RDB$FUNCTIONS
-			WITH X.RDB$FUNCTION_ID EQ permanent->getId()
+			WITH X.RDB$FUNCTION_ID EQ getPermanent()->getId()
 		{
-			permanent->setName(QualifiedName(X.RDB$FUNCTION_NAME,
+			getPermanent()->setName(QualifiedName(X.RDB$FUNCTION_NAME,
 				(X.RDB$PACKAGE_NAME.NULL ? nullptr : X.RDB$PACKAGE_NAME)));
-			permanent->owner = X.RDB$OWNER_NAME;
+			getPermanent()->owner = X.RDB$OWNER_NAME;
 
 			Nullable<bool> ssDefiner;
 
 			if (!X.RDB$SECURITY_CLASS.NULL)
 			{
-				permanent->setSecurityName(X.RDB$SECURITY_CLASS);
+				getPermanent()->setSecurityName(X.RDB$SECURITY_CLASS);
 			}
 			else if (!X.RDB$PACKAGE_NAME.NULL)
 			{
@@ -161,7 +161,7 @@ void Function::scan(thread_db* tdbb, CacheObject::Flag)
 
 					if (!PKG.RDB$SECURITY_CLASS.NULL)
 					{
-						permanent->setSecurityName(PKG.RDB$SECURITY_CLASS);
+						getPermanent()->setSecurityName(PKG.RDB$SECURITY_CLASS);
 					}
 
 					// SQL SECURITY of function must be the same if it's defined in package
@@ -180,7 +180,7 @@ void Function::scan(thread_db* tdbb, CacheObject::Flag)
 			}
 
 			if (ssDefiner.orElse(false))
-				invoker = attachment->getUserId(permanent->owner);
+				invoker = attachment->getUserId(getPermanent()->owner);
 
 			size_t count = 0;
 			ULONG length = 0;

@@ -43,7 +43,7 @@ using namespace Firebird;
 
 /// jrd_rel
 
-jrd_rel::jrd_rel(MemoryPool& p, RelationPermanent* r)
+jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	: rel_pool(&p),
 	  rel_perm(r),
 	  rel_current_fmt(0),
@@ -52,7 +52,6 @@ jrd_rel::jrd_rel(MemoryPool& p, RelationPermanent* r)
 	  rel_fields(nullptr),
 	  rel_view_rse(nullptr),
 	  rel_view_contexts(p),
-	  rel_scan_count(0),
 	  rel_ss_definer(false)
 { }
 
@@ -63,6 +62,8 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_rescan_lock(nullptr),
 	  rel_gc_lock(this),
 	  rel_gc_records(p),
+	  rel_sweep_count(0),
+	  rel_scan_count(0),
 	  rel_formats(nullptr),
 	  rel_index_locks(getPool()),
 	  rel_name(p),
@@ -430,9 +431,14 @@ void Triggers::release(thread_db* tdbb, bool destroy)
 
 Lock* RelationPermanent::createLock(thread_db* tdbb, lck_t lckType, bool noAst)
 {
+	return createLock(tdbb, getPool(), lckType, noAst);
+}
+
+Lock* RelationPermanent::createLock(thread_db* tdbb, MemoryPool& pool, lck_t lckType, bool noAst)
+{
 	const USHORT relLockLen = getRelLockKeyLength();
 
-	Lock* lock = FB_NEW_RPT(getPool(), relLockLen)
+	Lock* lock = FB_NEW_RPT(pool, relLockLen)
 		Lock(tdbb, relLockLen, lckType, lckType == LCK_relation ? (void*)this : (void*)&rel_gc_lock);
 	getRelLockKey(tdbb, lock->getKeyPtr());
 
@@ -775,7 +781,7 @@ void jrd_rel::destroy(jrd_rel* rel)
 	delete rel;
 }
 
-jrd_rel* jrd_rel::create(thread_db* tdbb, MemoryPool& pool, RelationPermanent* rlp)
+jrd_rel* jrd_rel::create(thread_db* tdbb, MemoryPool& pool, Cached::Relation* rlp)
 {
 	return FB_NEW_POOL(pool) jrd_rel(pool, rlp);
 }

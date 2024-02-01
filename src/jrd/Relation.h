@@ -33,6 +33,7 @@
 #include "../jrd/HazardPtr.h"
 #include "../jrd/ExtEngineManager.h"
 #include "../jrd/met_proto.h"
+#include "../jrd/Resources.h"
 
 namespace Jrd
 {
@@ -189,6 +190,11 @@ public:
 	MetaId getId()
 	{
 		return type;
+	}
+
+	const char* c_name()
+	{
+		return "!!!!!!!!!!!!";
 	}
 
 private:
@@ -435,11 +441,11 @@ private:
 public:
 	bool hasData() { return true; }
 	const char* c_name() const;
-
+/*
 	static void destroy(IndexLock *idl);
 	static IndexLock* create(thread_db* tdbb, MemoryPool& p, MetaId id);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-
+ */
 	void lockShared(thread_db* tdbb);
 	void lockExclusive(thread_db* tdbb);
 	void unlock(thread_db* tdbb);
@@ -447,18 +453,17 @@ public:
 };
 
 
+// Relation block; one is created for each relation referenced
 // in the database, though it is not really filled out until
 // the relation is scanned
-
-typedef CacheElement<jrd_rel, RelationPermanent> CachedRelation;
 
 class jrd_rel final : public CacheObject
 {
 public:
-	jrd_rel(MemoryPool& p, RelationPermanent* r);
+	jrd_rel(MemoryPool& p, Cached::Relation* r);
 
 	MemoryPool*		rel_pool;
-	RelationPermanent*	rel_perm;
+	Cached::Relation*	rel_perm;
 	USHORT			rel_current_fmt;	// Current format number
 	ULONG			rel_flags;
 	Format*			rel_current_format;	// Current record format
@@ -467,8 +472,6 @@ public:
 
 	RseNode*		rel_view_rse;		// view record select expression
 	ViewContexts	rel_view_contexts;	// sorted array of view contexts
-
-	SSHORT		rel_scan_count;			// concurrent sequential scan count
 
 	prim			rel_primary_dpnds;	// foreign dependencies on this relation's primary key
 	frgn			rel_foreign_refs;	// foreign references to other relations' primary keys
@@ -488,7 +491,7 @@ public:
 	bool isSystem() const;
 
 	void scan(thread_db* tdbb, CacheObject::Flag flags);		// Scan the newly loaded relation for meta data
-	void scan_partners(thread_db* tdbb, jrd_rel* oldVersion);	// foreign keys scan
+	void scan_partners(thread_db* tdbb);						// Foreign keys scan - impl. in met.epp
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
@@ -498,7 +501,7 @@ public:
 	void afterUnlock(thread_db* tdbb, unsigned flags) override;
 
 	static void destroy(jrd_rel *rel);
-	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, RelationPermanent* perm);
+	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, Cached::Relation* perm);
 
 	static Lock* makeLock(thread_db*, MemoryPool&)
 	{
@@ -614,6 +617,8 @@ private:
 private:
 	Firebird::AutoPtr<Lock> lck;
 	RelationPermanent* relPerm;
+
+public:
 	std::atomic<unsigned> flags;
 
 	static const unsigned GC_counterMask =	0x0FFFFFFF;
@@ -636,9 +641,10 @@ public:
 
 	~RelationPermanent();
 
-	void makeLocks(thread_db* tdbb, CachedRelation* relation);
+	void makeLocks(thread_db* tdbb, Cached::Relation* relation);
 	static constexpr USHORT getRelLockKeyLength();
 	Lock* createLock(thread_db* tdbb, lck_t, bool);
+	Lock* createLock(thread_db* tdbb, MemoryPool& pool, lck_t, bool);
 	void extFile(thread_db* tdbb, const TEXT* file_name);		// impl in ext.cpp
 
 	IndexLock* getIndexLock(thread_db* tdbb, USHORT id);
@@ -648,6 +654,9 @@ public:
 	Lock*		rel_rescan_lock;		// lock forcing relation to be scanned
 	GCLock		rel_gc_lock;			// garbage collection lock
 	GCRecordList	rel_gc_records;		// records for garbage collection
+
+	atomics::atomic<USHORT>	rel_sweep_count;	// sweep and/or garbage collector threads active
+	atomics::atomic<SSHORT>	rel_scan_count;		// concurrent sequential scan count
 
 	class RelPagesSnapshot : public Firebird::Array<RelationPages*>
 	{

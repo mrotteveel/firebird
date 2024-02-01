@@ -27,7 +27,7 @@
 #include "../jrd/RecordNumber.h"
 #include "../jrd/sbm.h"
 #include "../jrd/vio_proto.h"
-#include "../jrd/Resource.h"
+#include "../jrd/Resources.h"
 
 // fwd. decl.
 namespace Jrd

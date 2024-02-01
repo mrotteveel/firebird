@@ -216,7 +216,7 @@ public:
 
 		m_relInfo.grow(m_items.getCount());
 
-		m_lastRelID = att->att_relations->count();
+		m_lastRelID = tdbb->getDatabase()->dbb_mdc->relCount();
 	};
 
 	virtual ~SweepTask()
@@ -429,16 +429,14 @@ bool SweepTask::handler(WorkItem& _item)
 		Database* dbb = tdbb->getDatabase();
 		Attachment* att = tdbb->getAttachment();
 
-		/*relation = (*att->att_relations)[relInfo->rel_id];
-		if (relation)*/
-			relation = MET_lookup_relation_id(tdbb, relInfo->rel_id, false);
+		relation = MetadataCache::lookup_relation_id(tdbb, relInfo->rel_id, CacheFlag::AUTOCREATE);
 
 		if (relation &&
-			!(relation->rel_flags & (REL_deleted | REL_deleting)) &&
+			!relation->rel_perm->isDropped() &&
 			!relation->isTemporary() &&
 			relation->getPages(tdbb)->rel_pages)
 		{
-			jrd_rel::GCShared gcGuard(tdbb, relation);
+			GCLock::Shared gcGuard(tdbb, relation->rel_perm);
 			if (!gcGuard.gcEnabled())
 			{
 				string str;
@@ -452,7 +450,7 @@ bool SweepTask::handler(WorkItem& _item)
 				relInfo->countPP = relation->getPages(tdbb)->rel_pages->count();
 
 			rpb.rpb_relation = relation;
-			rpb.rpb_org_scans = relation->rel_scan_count++;
+			rpb.rpb_org_scans = relation->rel_perm->rel_scan_count++;
 			rpb.rpb_record = NULL;
 			rpb.rpb_stream_flags = RPB_s_no_data | RPB_s_sweeper;
 			rpb.getWindow(tdbb).win_flags = WIN_large_scan;
@@ -468,7 +466,7 @@ bool SweepTask::handler(WorkItem& _item)
 			{
 				CCH_RELEASE(tdbb, &rpb.getWindow(tdbb));
 
-				if (relation->rel_flags & REL_deleting)
+				if (relation->rel_perm->isDropped())
 					break;
 
 				if (rpb.rpb_number >= lastRecNo)
@@ -483,7 +481,7 @@ bool SweepTask::handler(WorkItem& _item)
 			}
 
 			delete rpb.rpb_record;
-			--relation->rel_scan_count;
+			--relation->rel_perm->rel_scan_count;
 		}
 
 		return !m_stop;
@@ -495,8 +493,8 @@ bool SweepTask::handler(WorkItem& _item)
 		delete rpb.rpb_record;
 		if (relation)
 		{
-			if (relation->rel_scan_count) {
-				--relation->rel_scan_count;
+			if (relation->rel_perm->rel_scan_count) {
+				--relation->rel_perm->rel_scan_count;
 			}
 		}
 	}
@@ -627,10 +625,10 @@ static bool assert_gc_enabled(const jrd_tra* transaction, const jrd_rel* relatio
  *  in this case online validation is not run against given relation.
  *
  **************************************/
-	if (relation->rel_sweep_count || relation->isSystem() || relation->isTemporary())
+	if (relation->rel_perm->rel_sweep_count || relation->isSystem() || relation->isTemporary())
 		return true;
 
-	if (relation->rel_flags & REL_gc_disabled)
+	if (relation->rel_perm->rel_gc_lock.flags & GCLock::GC_disabled)
 		return false;
 
 	vec<Lock*>* vector = transaction->tra_relation_locks;
@@ -1241,7 +1239,7 @@ bool VIO_chase_record_version(thread_db* tdbb, record_param* rpb,
 			 ((tdbb->tdbb_flags & TDBB_sweeper) && state == tra_committed &&
 				rpb->rpb_b_page != 0 && rpb->rpb_transaction_nr >= oldest_snapshot)))
 		{
-			jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+			GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 			int_gc_done = true;
 			if (gcGuard.gcEnabled())
@@ -1353,7 +1351,7 @@ bool VIO_chase_record_version(thread_db* tdbb, record_param* rpb,
 
 		case tra_precommitted:
 			{	// scope
-			jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+			GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 			if ((attachment->att_flags & ATT_NO_CLEANUP) || !gcGuard.gcEnabled() ||
 				(rpb->rpb_flags & (rpb_chained | rpb_gc_active)))
@@ -1609,7 +1607,7 @@ bool VIO_chase_record_version(thread_db* tdbb, record_param* rpb,
 					{
 						CCH_RELEASE(tdbb, &rpb->getWindow(tdbb));
 
-						jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+						GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 						if (!gcGuard.gcEnabled())
 							return false;
@@ -1657,7 +1655,7 @@ bool VIO_chase_record_version(thread_db* tdbb, record_param* rpb,
 			}
 
 			{ // scope
-				jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+				GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 				if (!gcGuard.gcEnabled())
 					return true;
@@ -2003,7 +2001,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 	if (needDfw(tdbb, transaction))
 	{
 		jrd_rel* r2;
-		HazardPtr<jrd_prc> procedure;
+		jrd_prc* procedure;
 		USHORT id;
 		DeferredWork* work;
 
@@ -2075,7 +2073,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_prc_name, &desc);
 
 			DFW_post_work(transaction, dfw_delete_procedure, &desc, id, package_name);
-			MetadataCache::lookup_procedure_id(tdbb, id, false, true, 0);
+			MetadataCache::lookup_procedure_id(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 			break;
 
 		case rel_collations:
@@ -2150,8 +2148,8 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 					jrd_rel* partner;
 					index_desc idx;
 
-					if ((BTR_lookup(tdbb, r2.getPointer(), id - 1, &idx, r2->getBasePages())) &&
-						MET_lookup_partner(tdbb, r2.getPointer(), &idx, index_name.nullStr()) &&
+					if ((BTR_lookup(tdbb, r2, id - 1, &idx, r2->rel_perm->getBasePages())) &&
+						MET_lookup_partner(tdbb, r2, &idx, index_name.nullStr()) &&
 						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation)) )
 					{
 						DFW_post_work_arg(transaction, work, 0, partner->getId(),
@@ -2200,7 +2198,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_prm_name, &desc2);
 
 			if ( (procedure = MetadataCache::lookup_procedure(tdbb,
-					QualifiedName(object_name, package_name), true)) )
+					QualifiedName(object_name, package_name)/*, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN*/)) )
 			{
 				work = DFW_post_work(transaction, dfw_delete_prm, &desc2, procedure->getId(),
 					package_name);
@@ -2411,7 +2409,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 	if (backVersion && !(tdbb->getAttachment()->att_flags & ATT_no_cleanup) &&
 		(dbb->dbb_flags & DBB_gc_cooperative))
 	{
-		jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+		GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 		if (gcGuard.gcEnabled())
 		{
 			temp = *rpb;
@@ -2767,7 +2765,7 @@ bool VIO_garbage_collect(thread_db* tdbb, record_param* rpb, jrd_tra* transactio
 		rpb->rpb_f_page, rpb->rpb_f_line);
 #endif
 
-	jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+	GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 	if ((attachment->att_flags & ATT_no_cleanup) || !gcGuard.gcEnabled())
 		return true;
@@ -2850,8 +2848,8 @@ Record* VIO_gc_record(thread_db* tdbb, jrd_rel* relation)
 
 	// Set the active flag on an inactive garbage collect record block and return it
 
-	for (Record** iter = relation->rel_gc_records.begin();
-		 iter != relation->rel_gc_records.end();
+	for (Record** iter = relation->rel_perm->rel_gc_records.begin();
+		 iter != relation->rel_perm->rel_gc_records.end();
 		 ++iter)
 	{
 		Record* const record = *iter;
@@ -2869,7 +2867,7 @@ Record* VIO_gc_record(thread_db* tdbb, jrd_rel* relation)
 
 	Record* const record = FB_NEW_POOL(*relation->rel_pool)
 		Record(*relation->rel_pool, format, REC_gc_active);
-	relation->rel_gc_records.add(record);
+	relation->rel_perm->rel_gc_records.add(record);
 	return record;
 }
 
@@ -3054,7 +3052,7 @@ bool VIO_get_current(thread_db* tdbb,
 			//	return !foreign_key;
 
 			{
-				jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+				GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 				if (!gcGuard.gcEnabled())
 					return !foreign_key;
@@ -3152,7 +3150,7 @@ bool VIO_get_current(thread_db* tdbb,
 			//	return !foreign_key;
 
 			{
-				jrd_rel::GCShared gcGuard(tdbb, rpb->rpb_relation);
+				GCLock::Shared gcGuard(tdbb, rpb->rpb_relation->rel_perm);
 
 				if (!gcGuard.gcEnabled())
 					return !foreign_key;
@@ -3699,7 +3697,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 	if (backVersion && !(tdbb->getAttachment()->att_flags & ATT_no_cleanup) &&
 		(dbb->dbb_flags & DBB_gc_cooperative))
 	{
-		jrd_rel::GCShared gcGuard(tdbb, org_rpb->rpb_relation);
+		GCLock::Shared gcGuard(tdbb, org_rpb->rpb_relation->rel_perm);
 		if (gcGuard.gcEnabled())
 		{
 			temp.rpb_number = org_rpb->rpb_number;
@@ -3818,7 +3816,7 @@ Record* VIO_record(thread_db* tdbb, record_param* rpb, const Format* format, Mem
 	// If format wasn't given, look one up
 
 	if (!format)
-		format = MET_format(tdbb, rpb->rpb_relation, rpb->rpb_format_number);
+		format = MET_format(tdbb, rpb->rpb_relation->rel_perm, rpb->rpb_format_number);
 
 	Record* record = rpb->rpb_record;
 
@@ -4377,27 +4375,25 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 
 	try {
 		MetadataCache* mdc = attachment->att_database->dbb_mdc;
-		for (FB_SIZE_T i = 1; i < mdc->relCount(tdbb); i++)
+		for (FB_SIZE_T i = 1; i < mdc->relCount(); i++)
 		{
-			relation = mdc->getRelation(tdbb, i);
-			if (relation)
-				relation = MetadataCache::lookup_relation_id(tdbb, i);
+			relation = MetadataCache::lookup_relation_id(tdbb, i);
 
 			if (relation &&
-				!(relation->rel_flags & (REL_deleted | REL_deleting)) &&
+				!(relation->rel_perm->isDropped()) &&
 				!relation->isTemporary() &&
-				relation->getPages(tdbb)->rel_pages)
+				relation->rel_perm->getPages(tdbb)->rel_pages)
 			{
-				jrd_rel::GCShared gcGuard(tdbb, relation.unsafePointer());
+				GCLock::Shared gcGuard(tdbb, relation->rel_perm);
 				if (!gcGuard.gcEnabled())
 				{
 					ret = false;
 					break;
 				}
 
-				rpb.rpb_relation = relation.getPointer();
+				rpb.rpb_relation = relation;
 				rpb.rpb_number.setValue(BOF_NUMBER);
-				rpb.rpb_org_scans = relation->rel_scan_count++;
+				rpb.rpb_org_scans = relation->rel_perm->rel_scan_count++;
 
 				traceSweep->beginSweepRelation(relation);
 
@@ -4409,7 +4405,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 				{
 					CCH_RELEASE(tdbb, &rpb.getWindow(tdbb));
 
-					if (relation->rel_flags & REL_deleting)
+					if (relation->rel_perm->isDropped())
 						break;
 
 					JRD_reschedule(tdbb);
@@ -4421,7 +4417,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 
 				traceSweep->endSweepRelation();
 
-				--relation->rel_scan_count;
+				--relation->rel_perm->rel_scan_count;
 			}
 		}
 
@@ -4434,8 +4430,8 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 
 		if (relation)
 		{
-			if (relation->rel_scan_count)
-				--relation->rel_scan_count;
+			if (relation->rel_perm->rel_scan_count)
+				--relation->rel_perm->rel_scan_count;
 		}
 
 		ERR_punt();
@@ -4609,7 +4605,7 @@ WriteLockResult VIO_writelock(thread_db* tdbb, record_param* org_rpb, jrd_tra* t
 	if (backVersion && !(tdbb->getAttachment()->att_flags & ATT_no_cleanup) &&
 		(dbb->dbb_flags & DBB_gc_cooperative))
 	{
-		jrd_rel::GCShared gcGuard(tdbb, org_rpb->rpb_relation);
+		GCLock::Shared gcGuard(tdbb, org_rpb->rpb_relation->rel_perm);
 		if (gcGuard.gcEnabled())
 		{
 			temp.rpb_number = org_rpb->rpb_number;
@@ -5312,7 +5308,7 @@ void Database::garbage_collector(Database* dbb)
 					(gc_bitmap = gc->getPages(dbb->dbb_oldest_snapshot, relID)))
 				{
 					relation = MetadataCache::lookup_relation_id(tdbb, relID);
-					if (!relation || (relation->rel_flags & (REL_deleted | REL_deleting)))
+					if (!relation || relation->rel_perm->isDropped())
 					{
 						delete gc_bitmap;
 						gc_bitmap = NULL;
@@ -5321,11 +5317,11 @@ void Database::garbage_collector(Database* dbb)
 
 					if (gc_bitmap)
 					{
-						jrd_rel::GCShared gcGuard(tdbb, relation.unsafePointer());
+						GCLock::Shared gcGuard(tdbb, relation->rel_perm);
 						if (!gcGuard.gcEnabled())
 							continue;
 
-						rpb.rpb_relation = relation.getPointer();
+						rpb.rpb_relation = relation;
 
 						while (gc_bitmap->getFirst())
 						{
@@ -5371,13 +5367,13 @@ void Database::garbage_collector(Database* dbb)
 									break;
 								}
 
-								if (relation->rel_flags & REL_deleting)
+								if (relation->rel_perm->isDropped())
 								{
 									rel_exit = true;
 									break;
 								}
 
-								if (relation->rel_flags & REL_gc_disabled)
+								if (relation->rel_perm->rel_gc_lock.flags & GCLock::GC_disabled)
 								{
 									rel_exit = true;
 									break;

@@ -907,8 +907,8 @@ SecurityClass::flags_t SCL_get_mask(thread_db* tdbb, const TEXT* relation_name, 
 	SecurityClass::flags_t access = ~0;
 
 	// If there's a relation, track it down
-	jrd_rel* relation;
-	if (relation_name && (relation = MetadataCache::lookup_relation(tdbb, relation_name)))
+	Cached::Relation* relation;
+	if (relation_name && (relation = MetadataCache::lookupRelation(tdbb, relation_name)))
 	{
 		const SecurityClass* s_class;
 		if ( (s_class = SCL_get_class(tdbb, relation->rel_security_name.c_str())) )
@@ -918,12 +918,16 @@ SecurityClass::flags_t SCL_get_mask(thread_db* tdbb, const TEXT* relation_name, 
 
 		const jrd_fld* field;
 		SSHORT id;
-		if (field_name &&
-			(id = MET_lookup_field(tdbb, relation.getPointer(), field_name)) >= 0 &&
-			(field = MET_get_field(relation, id)) &&
-			(s_class = SCL_get_class(tdbb, field->fld_security_name.c_str())))
+		if (field_name)
 		{
-			access &= s_class->scl_flags;
+			auto* rel = relation->getObject(tdbb, CacheFlag::AUTOCREATE);
+			if (rel &&
+				(id = MET_lookup_field(tdbb, rel, field_name)) >= 0 &&
+				(field = MET_get_field(rel, id)) &&
+				(s_class = SCL_get_class(tdbb, field->fld_security_name.c_str())))
+			{
+				access &= s_class->scl_flags;
+			}
 		}
 	}
 

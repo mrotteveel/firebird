@@ -529,7 +529,7 @@ public:
 	{
 		for (; listEntry; listEntry.set(listEntry->next))
 		{
-			CacheObject::Flag f(listEntry->cacheFlags.load() & ~(flags & CacheFlag::IGNORE_MASK));
+			CacheObject::Flag f(listEntry->cacheFlags.load());
 
 			if ((f & CacheFlag::COMMITTED) ||
 					// committed (i.e. confirmed) objects are freely available
@@ -540,6 +540,10 @@ public:
 				{
 					// object does not exist
 					fb_assert(!listEntry->object);
+
+					if (flags & CacheFlag::ERASED)
+						continue;
+
 					return nullptr;
 				}
 
@@ -692,16 +696,19 @@ public:
 
 class Lock;
 
-template <class OBJ, class EXT>
-class CacheElement : public ObjectBase, public EXT
+template <class V, class P>
+class CacheElement : public ObjectBase, public P
 {
 public:
+	typedef V Versioned;
+	typedef P Permanent;
+
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* lock) :
-		EXT(tdbb, p, id, lock), list(nullptr), resetAt(0), myId(id)
+		Permanent(tdbb, p, id, lock), list(nullptr), resetAt(0), myId(id)
 	{ }
 /*
 	CacheElement() :
-		EXT(), list(nullptr), resetAt(0), myId(0)
+		Permanent(), list(nullptr), resetAt(0), myId(0)
 	{ }
  */
 	~CacheElement()
@@ -710,16 +717,23 @@ public:
 		cleanup();
 	}
 
-	OBJ* getObject(thread_db* tdbb, CacheObject::Flag flags = 0)
+	Versioned* getObject(thread_db* tdbb, CacheObject::Flag flags = 0)
 	{
 		TraNumber cur = TransactionNumber::current(tdbb);
-		HazardPtr<ListEntry<OBJ>> listEntry(list);
+
+		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		if (!listEntry)
 		{
-			OBJ* obj = OBJ::create(tdbb, this->getPool(), this);		// creates almost empty object
-			ListEntry<OBJ>* newEntry = FB_NEW_POOL(CachePool::get(tdbb)) ListEntry<OBJ>(obj, cur, flags | CacheFlag::INIT);
+			if (!(flags & CacheFlag::AUTOCREATE))
+				return nullptr;
 
-			if (ListEntry<OBJ>::replace(list, newEntry, nullptr))
+			fb_assert(tdbb);
+
+			Versioned* obj = Versioned::create(tdbb, this->getPool(), this);		// creates almost empty object
+			ListEntry<Versioned>* newEntry = FB_NEW_POOL(CachePool::get(tdbb))
+				ListEntry<Versioned>(obj, cur, flags | CacheFlag::INIT);
+
+			if (ListEntry<Versioned>::replace(list, newEntry, nullptr))
 			{
 				newEntry->scan([&](){ obj->scan(tdbb, flags); }, flags);
 				return obj;
@@ -727,26 +741,38 @@ public:
 
 			delete newEntry;
 			if (obj)
-				OBJ::destroy(obj);
+				Versioned::destroy(obj);
 
 			listEntry.set(list);
 			fb_assert(listEntry);
 		}
-		return ListEntry<OBJ>::getObject(listEntry, cur, flags);
+		return ListEntry<Versioned>::getObject(listEntry, cur, flags);
 	}
 
-	bool storeObject(thread_db* tdbb, OBJ* obj, CacheObject::Flag fl = 0)
+	// return latest committed version or nullptr when does not exist
+	Versioned* getLatestObject() const
+	{
+		HazardPtr<ListEntry<Versioned>> listEntry(list);
+		if (!listEntry)
+			return nullptr;
+
+		return ListEntry<Versioned>::getObject(listEntry, MAX_TRA_NUMBER, 0);
+	}
+
+public:
+	bool storeObject(thread_db* tdbb, Versioned* obj, CacheObject::Flag fl = 0)
 	{
 		TraNumber oldest = TransactionNumber::oldestActive(tdbb);
 		TraNumber oldResetAt = resetAt.load(atomics::memory_order_acquire);
 		if (oldResetAt && oldResetAt < oldest)
-			setNewResetAt(oldResetAt, ListEntry<OBJ>::cleanup(list, oldest));
+			setNewResetAt(oldResetAt, ListEntry<Versioned>::cleanup(list, oldest));
 
 		TraNumber current = TransactionNumber::current(tdbb);
-		ListEntry<OBJ>* newEntry = FB_NEW_POOL(CachePool::get(tdbb))
-			ListEntry<OBJ>(obj, current, fl & (CacheFlag::IGNORE_MASK | CacheFlag::INIT));
+		ListEntry<Versioned>* newEntry = FB_NEW_POOL(CachePool::get(tdbb))
+			ListEntry<Versioned>(obj, current, fl & ((~CacheFlag::IGNORE_MASK) | CacheFlag::INIT));
 
-		bool stored = fl & CacheFlag::INIT ? ListEntry<OBJ>::replace(list, newEntry, nullptr) : ListEntry<OBJ>::add(list, newEntry);
+		bool stored = fl & CacheFlag::INIT ? ListEntry<Versioned>::replace(list, newEntry, nullptr)
+										   : ListEntry<Versioned>::add(list, newEntry);
 		if (stored)
 		{
 			setNewResetAt(oldResetAt, current);
@@ -759,24 +785,24 @@ public:
 		return stored;
 	}
 
-	void storeObjectWithTimeout(thread_db* tdbb, OBJ* obj, std::function<void()> error);
+	void storeObjectWithTimeout(thread_db* tdbb, Versioned* obj, std::function<void()> error);
 
 	void commit(thread_db* tdbb)
 	{
-		HazardPtr<ListEntry<OBJ>> current(list);
+		HazardPtr<ListEntry<Versioned>> current(list);
 		if (current)
 			current->commit(tdbb, TransactionNumber::current(tdbb), TransactionNumber::next(tdbb));
 	}
 
 	void rollback(thread_db* tdbb)
 	{
-		ListEntry<OBJ>::rollback(list, TransactionNumber::current(tdbb));
+		ListEntry<Versioned>::rollback(list, TransactionNumber::current(tdbb));
 	}
 
 	void cleanup()
 	{
 		list.load()->assertCommitted();
-		ListEntry<OBJ>::cleanup(list, MAX_TRA_NUMBER);
+		ListEntry<Versioned>::cleanup(list, MAX_TRA_NUMBER);
 	}
 
 	void resetDependentObject(thread_db* tdbb, ResetType rt) override
@@ -785,12 +811,11 @@ public:
 		{
 		case ObjectBase::ResetType::Recompile:
 			{
-				OBJ* newObj = OBJ::create(tdbb, CachePool::get(tdbb), this);
+				Versioned* newObj = Versioned::create(tdbb, CachePool::get(tdbb), this);
 				if (!storeObject(tdbb, newObj, 0))
 				{
-					OBJ::destroy(newObj);
-					OBJ* oldObj = getObject(tdbb);
-					busyError(tdbb, this->getId(), oldObj ? oldObj->c_name() : nullptr);
+					Versioned::destroy(newObj);
+					busyError(tdbb, this->getId(), this->c_name());
 				}
 			}
 			break;
@@ -813,14 +838,14 @@ public:
 
 	void eraseObject(thread_db* tdbb) override
 	{
-		HazardPtr<ListEntry<OBJ>> l(list);
+		HazardPtr<ListEntry<Versioned>> l(list);
 		fb_assert(l);
 		if (!l)
 			return;
 
 		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED))
 		{
-			OBJ* oldObj = getObject(tdbb);
+			Versioned* oldObj = getObject(tdbb);
 			busyError(tdbb, myId, oldObj ? oldObj->c_name() : nullptr);
 		}
 	}
@@ -845,7 +870,7 @@ private:
 	}
 
 private:
-	atomics::atomic<ListEntry<OBJ>*> list;
+	atomics::atomic<ListEntry<Versioned>*> list;
 	atomics::atomic<TraNumber> resetAt;
 
 public:
@@ -854,14 +879,15 @@ public:
 };
 
 
-template <class OBJ, class EXT, unsigned SUBARRAY_SHIFT = 8>
+template <class StoredElement, unsigned SUBARRAY_SHIFT = 8>
 class CacheVector : public Firebird::PermanentStorage
 {
 public:
 	static const unsigned SUBARRAY_SIZE = 1 << SUBARRAY_SHIFT;
 	static const unsigned SUBARRAY_MASK = SUBARRAY_SIZE - 1;
 
-	typedef CacheElement<OBJ, EXT> StoredElement;
+	typedef typename StoredElement::Versioned Versioned;
+	typedef typename StoredElement::Permanent Permanent;
 	typedef atomics::atomic<StoredElement*> SubArrayData;
 	typedef atomics::atomic<SubArrayData*> ArrayData;
 	typedef SharedReadVector<ArrayData, 4> Storage;
@@ -914,7 +940,7 @@ public:
 		return ptr ? ptr->load(atomics::memory_order_relaxed) : nullptr;
 	}
 
-	OBJ* getObject(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+	Versioned* getObject(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
 	{
 //		In theory that should be endless cycle - object may arrive/disappear again and again.
 //		But in order to faster find devel problems we run it very limited number of times.
@@ -949,7 +975,7 @@ public:
 	}
 
 private:
-	OBJ* makeObject(thread_db* tdbb, MetaId id)
+	Versioned* makeObject(thread_db* tdbb, MetaId id)
 	{
 		if (id >= getCount())
 			grow(id + 1);
@@ -960,25 +986,25 @@ private:
 		HazardPtr<StoredElement> data(*ptr);
 		if (!data)
 		{
-			StoredElement* newData = FB_NEW_POOL(getPool()) StoredElement(tdbb, getPool(), id, OBJ::makeLock(tdbb, getPool()));
+			StoredElement* newData = FB_NEW_POOL(getPool())
+				StoredElement(tdbb, getPool(), id, Versioned::makeLock(tdbb, getPool()));
 			if (!data.replace2(*ptr, newData))
 				delete newData;
 		}
 
-		auto obj = OBJ::create(tdbb, getPool(), *ptr);
+		auto obj = Versioned::create(tdbb, getPool(), *ptr);
 		if (!obj)
 			(Firebird::Arg::Gds(isc_random) << "Object create failed in makeObject()").raise();
 
 		if (data->storeObject(tdbb, obj, 0))
 			return obj;
 
-		OBJ::destroy(obj);
+		Versioned::destroy(obj);
 		return nullptr;
 	}
 
 public:
-//	StoredElement* lookup(std::function<bool(OBJ* val)> cmp, MetaId* foundId = nullptr) const
-	StoredElement* lookup(std::function<bool(EXT* val)> cmp, MetaId* foundId = nullptr) const
+	StoredElement* lookup(std::function<bool(Permanent* val)> cmp, MetaId* foundId = nullptr) const
 	{
 		auto a = m_objects.readAccessor();
 		for (FB_SIZE_T i = 0; i < a->getCount(); ++i)
@@ -1031,7 +1057,7 @@ public:
 		return m_objects.readAccessor()->getCount() << SUBARRAY_SHIFT;
 	}
 
-	bool replace2(MetaId id, HazardPtr<OBJ>& oldVal, OBJ* const newVal)
+	bool replace2(MetaId id, HazardPtr<Versioned>& oldVal, Versioned* const newVal)
 	{
 		if (id >= getCount())
 			grow(id + 1);
@@ -1057,8 +1083,8 @@ public:
 		sub->store(nullptr, atomics::memory_order_release);
 		return true;
 	}
-
-	bool load(MetaId id, HazardPtr<OBJ>& val) const
+/*
+	bool load(MetaId id, HazardPtr<Versioned>& val) const
 	{
 		auto a = m_objects.readAccessor();
 		if (id < getCount(a))
@@ -1075,14 +1101,14 @@ public:
 		return false;
 	}
 
-	HazardPtr<OBJ> load(MetaId id) const
+	HazardPtr<Versioned> load(MetaId id) const
 	{
-		HazardPtr<OBJ> val;
+		HazardPtr<Versioned> val;
 		if (!load(id, val))
 			val.clear();
 		return val;
 	}
-
+ */
 	HazardPtr<typename Storage::Generation> readAccessor() const
 	{
 		return m_objects.readAccessor();

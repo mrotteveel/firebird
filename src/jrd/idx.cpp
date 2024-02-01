@@ -568,7 +568,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 	if (m_flags & IS_LARGE_SCAN)
 	{
 		primary.getWindow(tdbb).win_flags = secondary.getWindow(tdbb).win_flags = WIN_large_scan;
-		primary.rpb_org_scans = secondary.rpb_org_scans = relation->rel_scan_count++;
+		primary.rpb_org_scans = secondary.rpb_org_scans = relation->rel_perm->rel_scan_count++;
 	}
 
 	const bool isDescending = (idx->idx_flags & idx_descending);
@@ -673,7 +673,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 				} while (stack.hasData() && (record = stack.pop()));
 
 				if (primary.getWindow(tdbb).win_flags & WIN_large_scan)
-					--relation->rel_scan_count;
+					--relation->rel_perm->rel_scan_count;
 
 				context.raise(tdbb, result, record);
 			}
@@ -686,7 +686,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 				} while (stack.hasData() && (record = stack.pop()));
 
 				if (primary.getWindow(tdbb).win_flags & WIN_large_scan)
-					--relation->rel_scan_count;
+					--relation->rel_perm->rel_scan_count;
 
 				context.raise(tdbb, idx_e_keytoobig, record);
 			}
@@ -745,7 +745,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 	gc_record.release();
 
 	if (primary.getWindow(tdbb).win_flags & WIN_large_scan)
-		--relation->rel_scan_count;
+		--relation->rel_perm->rel_scan_count;
 	}
 	catch (const Exception& ex)
 	{

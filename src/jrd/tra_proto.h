@@ -25,13 +25,14 @@
 #define JRD_TRA_PROTO_H
 
 #include "../jrd/tra.h"
+#include "../jrd/Resources.h"
 
 namespace Jrd {
 	class Attachment;
 	class Database;
 	class TraceTransactionEnd;
 
-	class ResourceList;
+	class Resources;
 }
 
 bool	TRA_active_transactions(Jrd::thread_db* tdbb, Jrd::Database*);
@@ -50,7 +51,7 @@ void	TRA_invalidate(Jrd::thread_db* tdbb, ULONG);
 void	TRA_link_cursor(Jrd::jrd_tra*, Jrd::DsqlCursor*);
 void	TRA_unlink_cursor(Jrd::jrd_tra*, Jrd::DsqlCursor*);
 
-void	TRA_post_resources(Jrd::thread_db* tdbb, Jrd::jrd_tra*, Jrd::ResourceList&);
+void	TRA_post_resources(Jrd::thread_db* tdbb, Jrd::jrd_tra*, Jrd::Resources&);
 
 bool	TRA_is_active(Jrd::thread_db*, TraNumber);
 void	TRA_prepare(Jrd::thread_db* tdbb, Jrd::jrd_tra*, USHORT, const UCHAR*);

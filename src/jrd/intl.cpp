@@ -151,7 +151,7 @@ static int blocking_ast_charset(void* ast_object)
  *      Someone is trying to modify collation(s) in charset.
  *
  **************************************/
-	auto* const ce = static_cast<CacheElement<CharSetVers, CharSetContainer>*>(ast_object);
+	auto* const ce = static_cast<Cached::Charset*>(ast_object);
 
 	try
 	{
