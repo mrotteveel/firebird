@@ -34,6 +34,8 @@ struct SubtypeInfo;
 
 namespace Jrd {
 
+typedef UCHAR CollId;
+
 class CharSetContainer : public Firebird::PermanentStorage
 {
 public:
@@ -117,11 +119,39 @@ public:
 	Collation* lookupCollation(thread_db* tdbb, MetaId tt_id);
 	Collation* lookupCollation(thread_db* tdbb, MetaName name);
 	//void unloadCollation(thread_db* tdbb, USHORT tt_id);
+	Collation* getCollation(CollId collId);
 
 private:
 	CharSetContainer* perm;
 	Firebird::HalfStaticArray<Collation*, 16> charset_collations;
 };
+
+namespace Rsc
+{
+
+class Coll
+{
+public:
+	Coll(CSet* cs, CollId id)
+		: cSet(cs), collId(id)
+	{ }
+
+	Collation* operator()(const VersionedObjects* runTime) const
+	{
+		return (*cSet)(runTime)->getCollation(collId);
+	}
+
+	Collation* operator()(thread_db* tdbb) const
+	{
+		return (*cSet)(tdbb)->getCollation(collId);
+	}
+
+private:
+	CSet* cSet;
+	CollId collId;
+};
+
+} // namespace Rsc
 
 } // namespace Jrd
 

@@ -8447,9 +8447,7 @@ void DropRelationNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {
-	HazardPtr<jrd_rel> rel_drop = MetadataCache::lookup_relation(tdbb, name);
-	if (rel_drop)
-		MET_scan_relation(tdbb, rel_drop);
+	MetadataCache::lookup_relation(tdbb, name);
 
 	const dsql_rel* relation = METD_get_relation(transaction, dsqlScratch, name);
 

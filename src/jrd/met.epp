@@ -2632,7 +2632,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName&
 	FOR(REQUEST_HANDLE request)
 		X IN RDB$RELATIONS WITH X.RDB$RELATION_NAME EQ name.c_str()
 	{
-		if (mdc->mdc_relations.getObject(tdbb, X.RDB$RELATION_ID, CacheFlag::AUTOCREATE))
+		if (mdc->mdc_relations.getObject(tdbb, X.RDB$RELATION_ID, flags))
 			rc = mdc->mdc_relations.getData(X.RDB$RELATION_ID);
 
 /* !!!!!!!!!!!!!!!!!!!!!
@@ -2666,10 +2666,10 @@ jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name)
 	MetadataCache* mdc = attachment->att_database->dbb_mdc;
 	jrd_rel* check_relation = nullptr;
 
-	auto* perm = lookupRelation(tdbb, name);
+	auto* perm = lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
 	if (!perm)
 		return nullptr;
-	return mdc->mdc_relations.getObject(tdbb, perm->getId(), 0);
+	return mdc->mdc_relations.getObject(tdbb, perm->getId(), CacheFlag::AUTOCREATE);
 }
 
 

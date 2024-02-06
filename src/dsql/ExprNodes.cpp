@@ -94,12 +94,12 @@ namespace
 
 	// Try to expand the given stream. If it's a view reference, collect its base streams
 	// (the ones directly residing in the FROM clause) and recurse.
-	void expandViewStreams(CompilerScratch* csb, StreamType baseStream, SortedStreamList& streams)
+	void expandViewStreams(thread_db* tdbb, CompilerScratch* csb, StreamType baseStream, SortedStreamList& streams)
 	{
 		const auto csb_tail = &csb->csb_rpt[baseStream];
 
 		const RseNode* const rse =
-			csb_tail->csb_relation ? csb_tail->csb_relation->rel_view_rse : NULL;
+			csb_tail->csb_relation ? csb_tail->csb_relation(tdbb)->rel_view_rse : NULL;
 
 		// If we have a view, collect its base streams and remap/expand them
 
@@ -114,7 +114,7 @@ namespace
 			for (auto stream : viewStreams)
 			{
 				// Remap stream and expand it recursively
-				expandViewStreams(csb, map[stream], streams);
+				expandViewStreams(tdbb, csb, map[stream], streams);
 			}
 
 			return;
@@ -127,11 +127,11 @@ namespace
 	}
 
 	// Expand DBKEY for view
-	void expandViewNodes(CompilerScratch* csb, StreamType baseStream,
+	void expandViewNodes(thread_db* tdbb, CompilerScratch* csb, StreamType baseStream,
 						 ValueExprNodeStack& stack, UCHAR blrOp)
 	{
 		SortedStreamList viewStreams;
-		expandViewStreams(csb, baseStream, viewStreams);
+		expandViewStreams(tdbb, csb, baseStream, viewStreams);
 
 		for (auto stream : viewStreams)
 		{
@@ -3395,7 +3395,7 @@ DmlNode* CastNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb
 
 	if (csb->collectingDependencies() && itemInfo.explicitCollation)
 	{
-		CompilerScratch::Dependency dependency(obj_collation);
+		Dependency dependency(obj_collation);
 		dependency.number = INTL_TEXT_TYPE(node->castDesc);
 		csb->addDependency(dependency);
 	}
@@ -3547,11 +3547,7 @@ ValueExprNode* CastNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 	// Are we using a collation?
 	if (TTYPE_TO_COLLATION(ttype) != 0)
-	{
-		Collation* collation = csb->csb_resources.registerResource(tdbb, Resource::rsc_collation,
-			INTL_texttype_lookup(tdbb, ttype), ttype);
-		csb->csb_resources.postResource(tdbb, Resource::rsc_collation, collation, ttype);
-	}
+		INTL_texttype_lookup(tdbb, ttype);
 
 	return this;
 }
@@ -4851,9 +4847,8 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 
 	if (csb->collectingDependencies())
 	{
-		CompilerScratch::Dependency dependency(obj_relation);
-		auto rel = MetadataCache::lookup_relation(tdbb, relationName);
-		dependency.relation = csb->csb_resources.registerResource(tdbb, Resource::rsc_relation, rel, rel->rel_id);
+		Dependency dependency(obj_relation);
+		dependency.relation = MetadataCache::lookupRelation(tdbb, relationName);
 		dependency.subName = FB_NEW_POOL(pool) MetaName(fieldName);
 		csb->addDependency(dependency);
 	}
@@ -4866,7 +4861,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 
 		if (relation && relation->rel_fields)
 		{
-			int fieldId = MET_lookup_field(tdbb, relation.getPointer(), fieldName);
+			int fieldId = MET_lookup_field(tdbb, relation, fieldName);
 
 			if (fieldId >= 0)
 			{
@@ -5113,7 +5108,7 @@ ValueExprNode* DerivedExprNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 	for (const auto i : internalStreamList)
 	{
 		markVariant(csb, i);
-		expandViewStreams(csb, i, newStreams);
+		expandViewStreams(tdbb, csb, i, newStreams);
 	}
 
 #ifdef CMP_DEBUG
@@ -5806,7 +5801,7 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 	else if (blrOp == blr_field)
 	{
 		CompilerScratch::csb_repeat* tail = &csb->csb_rpt[stream];
-		const jrd_prc* procedure = tail->csb_procedure;
+		jrd_prc* procedure = tail->csb_procedure(tdbb);
 
 		if (procedure)
 		{
@@ -5820,15 +5815,9 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 		}
 		else
 		{
-			jrd_rel* relation = tail->csb_relation;
+			jrd_rel* relation = tail->csb_relation(tdbb);
 			if (!relation)
 				PAR_error(csb, Arg::Gds(isc_ctxnotdef));
-
-			// make sure relation has been scanned before using it
-			HazardPtr<jrd_rel> wrk = MET_scan_relation(tdbb, relation->rel_id);
-			if (!wrk)
-				PAR_error(csb, Arg::Gds(isc_ctxnotdef));
-			relation = wrk.getPointer();
 
 			csb->csb_blr_reader.getMetaName(name);
 
@@ -5848,12 +5837,12 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
  					if (tdbb->getAttachment()->isGbak())
 					{
 						PAR_warning(Arg::Warning(isc_fldnotdef) << Arg::Str(name) <<
-																   Arg::Str(relation->rel_name));
+																   Arg::Str(relation->getName()));
 					}
-					else if (!(relation->rel_flags & REL_deleted))
+					else if (!relation->rel_perm->isDropped())
 					{
 						PAR_error(csb, Arg::Gds(isc_fldnotdef) << Arg::Str(name) <<
-																  Arg::Str(relation->rel_name));
+																  Arg::Str(relation->getName()));
 					}
 					else
 						PAR_error(csb, Arg::Gds(isc_ctxnotdef));
@@ -5876,7 +5865,7 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 
 	if (is_column)
 	{
-		const jrd_rel* const temp_rel = csb->csb_rpt[stream].csb_relation;
+		const jrd_rel* const temp_rel = csb->csb_rpt[stream].csb_relation(tdbb);
 
 		if (temp_rel)
 		{
@@ -6513,7 +6502,7 @@ void FieldNode::getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc)
 		desc->dsc_address = NULL;
 
 		// Fix UNICODE_FSS wrong length used in system tables.
-		jrd_rel* relation = csb->csb_rpt[fieldStream].csb_relation;
+		jrd_rel* relation = csb->csb_rpt[fieldStream].csb_relation(tdbb);
 
 		if (relation && (relation->rel_flags & REL_system) &&
 			desc->isText() && desc->getCharSet() == CS_UNICODE_FSS)
@@ -6556,13 +6545,13 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 	StreamType stream = fieldStream;
 
 	CompilerScratch::csb_repeat* tail = &csb->csb_rpt[stream];
-	jrd_rel* relation = tail->csb_relation;
+	Rsc::Rel relation = tail->csb_relation;
 	jrd_fld* field;
 
-	if (!relation || !(field = MET_get_field(relation, fieldId)) ||
+	if (!relation || !(field = MET_get_field(relation(tdbb), fieldId)) ||
 		(field->fld_flags & FLD_parse_computed))
 	{
-		if (relation && (relation->rel_flags & REL_being_scanned))
+		if (relation && relation()->scanInProgress())
 			csb->csb_g_flags |= csb_reload;
 
 		markVariant(csb, stream);
@@ -6582,8 +6571,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		try
 		{
 			ThreadStatusGuard local_status(tdbb);
-			collation = csb->csb_resources.registerResource(tdbb, Resource::rsc_collation,
-				INTL_texttype_lookup(tdbb, ttype), ttype);
+			INTL_texttype_lookup(tdbb, ttype);
 		}
 		catch (Exception&)
 		{
@@ -6592,9 +6580,6 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 			if (!tdbb->getAttachment()->isGbak())
 				throw;
 		}
-
-		if (collation)
-			csb->csb_resources.postResource(tdbb, Resource::rsc_collation, collation, ttype);
 	}
 
 	// if this is a modify or store, check REFERENCES access to any foreign keys
@@ -6626,17 +6611,17 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		}
 
 		const SLONG ssRelationId = tail->csb_view ?
-			tail->csb_view->rel_id : (csb->csb_view ? csb->csb_view->rel_id : 0);
+			tail->csb_view(tdbb)->getId() : csb->csb_view ? csb->csb_view(tdbb)->getId() : 0;
 
-		CMP_post_access(tdbb, csb, relation->rel_security_name, ssRelationId,
-			privilege, obj_relations, relation->rel_name);
+		CMP_post_access(tdbb, csb, relation()->getSecurityName(), ssRelationId,
+			privilege, obj_relations, relation()->getName());
 
 		// Field-level privilege access is posted for every operation except DELETE
 
 		if (privilege != SCL_delete)
 		{
 			CMP_post_access(tdbb, csb, field->fld_security_name, ssRelationId,
-				privilege, obj_column, field->fld_name, relation->rel_name);
+				privilege, obj_column, field->fld_name, relation()->getName());
 		}
 	}
 
@@ -6644,7 +6629,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 	if (!(sub = field->fld_computation) && !(sub = field->fld_source))
 	{
-		if (!relation->rel_view_rse)
+		if (!relation()->isView())
 		{
 			markVariant(csb, stream);
 			return ValueExprNode::pass1(tdbb, csb);
@@ -6652,7 +6637,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 		// Msg 364 "cannot access column %s in view %s"
 		ERR_post(Arg::Gds(isc_no_field_access) << Arg::Str(field->fld_name) <<
-												  Arg::Str(relation->rel_name));
+												  Arg::Str(relation()->getName()));
 	}
 
 	// The previous test below is an apparent temporary fix
@@ -6668,7 +6653,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 	{
 		// dimitr:	added an extra check for views, because we don't
 		//			want their old/new contexts to be substituted
-		if (relation->rel_view_rse || !field->fld_computation)
+		if (relation()->isView() || !field->fld_computation)
 		{
 			markVariant(csb, stream);
 			return ValueExprNode::pass1(tdbb, csb);
@@ -6696,14 +6681,14 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 	// If this is a computed field, cast the computed expression to the field type if required.
 	// See CORE-5097.
-	if (field->fld_computation && !relation->rel_view_rse)
+	if (field->fld_computation && !relation()->isView())
 	{
 		if (csb->csb_currentAssignTarget == this)
 		{
 			// This is an assignment to a computed column. Report the error here when we have the field name.
 			ERR_post(
 				Arg::Gds(isc_read_only_field) <<
-				(string(relation->rel_name.c_str()) + "." + field->fld_name.c_str()));
+				(string(relation()->getName()) + "." + field->fld_name.c_str()));
 		}
 
 		FB_SIZE_T pos;
@@ -6725,15 +6710,15 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		sub = cast;
 	}
 
-	AutoSetRestore<jrd_rel*> autoRelationStream(&csb->csb_parent_relation,
-		relation->rel_ss_definer.value ? relation : NULL);
+	AutoSetRestore<Rsc::Rel> autoRelationStream(&csb->csb_parent_relation,
+		relation(tdbb)->rel_ss_definer.value ? relation : Rsc::Rel());
 
-	if (relation->rel_view_rse)
+	if (relation()->isView())
 	{
 		// dimitr:	if we reference view columns, we need to pass them
 		//			as belonging to a view (in order to compute the access
 		//			permissions properly).
-		AutoSetRestore<jrd_rel*> autoView(&csb->csb_view, relation);
+		AutoSetRestore<Rsc::Rel> autoView(&csb->csb_view, relation);
 		AutoSetRestore<StreamType> autoViewStream(&csb->csb_view_stream, stream);
 
 		// ASF: If the view field doesn't reference any of the view streams,
@@ -6916,7 +6901,7 @@ DmlNode* GenIdNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 
 	if (csb->collectingDependencies())
 	{
-		CompilerScratch::Dependency dependency(obj_generator);
+		Dependency dependency(obj_generator);
 		dependency.number = node->generator.id;
 		csb->addDependency(dependency);
 	}
@@ -10171,7 +10156,7 @@ ValueExprNode* RecordKeyNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		return this;
 
 	ValueExprNodeStack stack;
-	expandViewNodes(csb, recStream, stack, blrOp);
+	expandViewNodes(tdbb, csb, recStream, stack, blrOp);
 
 #ifdef CMP_DEBUG
 	csb->dump("expand RecordKeyNode: %d\n", recStream);
@@ -10322,7 +10307,7 @@ dsc* RecordKeyNode::execute(thread_db* /*tdbb*/, Request* request) const
 
 		// Now, put relation ID into first 16 bits of DB_KEY
 		// We do not assign it as SLONG because of big-endian machines.
-		*(USHORT*) impure->vlu_misc.vlu_dbkey = relation->rel_id;
+		*(USHORT*) impure->vlu_misc.vlu_dbkey = relation->getId();
 
 		// Encode 40-bit record number. Before that, increment the value
 		// because users expect the numbering to start with one.
@@ -10374,7 +10359,7 @@ dsc* RecordKeyNode::execute(thread_db* /*tdbb*/, Request* request) const
 		const jrd_rel* relation = rpb->rpb_relation;
 
 		// If it doesn't point to a valid record, return NULL.
-		if (!rpb->rpb_number.isValid() || !relation || relation->isVirtual() || relation->rel_file)
+		if (!rpb->rpb_number.isValid() || !relation || relation->isVirtual() || relation->getExtFile())
 		{
 			request->req_flags |= req_null;
 			return NULL;
@@ -10444,12 +10429,12 @@ DmlNode* ScalarNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* c
 	return node;
 }
 
-void ScalarNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* csb, dsc* desc)
+void ScalarNode::getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc)
 {
 	FieldNode* fieldNode = nodeAs<FieldNode>(field);
 	fb_assert(fieldNode);
 
-	jrd_rel* relation = csb->csb_rpt[fieldNode->fieldStream].csb_relation;
+	jrd_rel* relation = csb->csb_rpt[fieldNode->fieldStream].csb_relation(tdbb);
 	const jrd_fld* field = MET_get_field(relation, fieldNode->fieldId);
 	const ArrayField* array;
 
@@ -10709,7 +10694,7 @@ dsc* StrCaseNode::execute(thread_db* tdbb, Request* request) const
 	if (request->req_flags & req_null)
 		return NULL;
 
-	HazardPtr<Collation> textType = INTL_texttype_lookup(tdbb, value->getTextType());
+	Collation* textType = INTL_texttype_lookup(tdbb, value->getTextType());
 	CharSet* charSet = textType->getCharSet();
 //	auto intlFunction = (blrOp == blr_lowcase ? &TextType::str_to_lower : &TextType::str_to_upper);
 	auto intlFunction = (blrOp == blr_lowcase ? &Collation::str_to_lower : &Collation::str_to_upper);
@@ -10742,7 +10727,7 @@ dsc* StrCaseNode::execute(thread_db* tdbb, Request* request) const
 
 			if (len)
 			{
-				len = (textType.getPointer()->*intlFunction)(len, buffer.begin(), buffer.getCapacity(), buffer.begin());
+				len = (textType->*intlFunction)(len, buffer.begin(), buffer.getCapacity(), buffer.begin());
 				newBlob->BLB_put_data(tdbb, buffer.begin(), len);
 			}
 		}
@@ -10764,7 +10749,7 @@ dsc* StrCaseNode::execute(thread_db* tdbb, Request* request) const
 		desc.setTextType(ttype);
 		EVL_make_value(tdbb, &desc, impure);
 
-		len = (textType.getPointer()->*intlFunction)(len, ptr, desc.dsc_length, impure->vlu_desc.dsc_address);
+		len = (textType->*intlFunction)(len, ptr, desc.dsc_length, impure->vlu_desc.dsc_address);
 
 		if (len == INTL_BAD_STR_LENGTH)
 			status_exception::raise(Arg::Gds(isc_arith_except));
@@ -12019,20 +12004,20 @@ dsc* SubstringSimilarNode::execute(thread_db* tdbb, Request* request) const
 		return NULL;
 
 	USHORT textType = exprDesc->getTextType();
-	HazardPtr<Collation> collation = INTL_texttype_lookup(tdbb, textType);
+	Collation* collation = INTL_texttype_lookup(tdbb, textType);
 	CharSet* charSet = collation->getCharSet();
 
 	MoveBuffer exprBuffer;
 	UCHAR* exprStr;
-	int exprLen = MOV_make_string2(tdbb, exprDesc, textType, &exprStr, exprBuffer);
+	ULONG exprLen = MOV_make_string2(tdbb, exprDesc, textType, &exprStr, exprBuffer);
 
 	MoveBuffer patternBuffer;
 	UCHAR* patternStr;
-	int patternLen = MOV_make_string2(tdbb, patternDesc, textType, &patternStr, patternBuffer);
+	ULONG patternLen = MOV_make_string2(tdbb, patternDesc, textType, &patternStr, patternBuffer);
 
 	MoveBuffer escapeBuffer;
 	UCHAR* escapeStr;
-	int escapeLen = MOV_make_string2(tdbb, escapeDesc, textType, &escapeStr, escapeBuffer);
+	ULONG escapeLen = MOV_make_string2(tdbb, escapeDesc, textType, &escapeStr, escapeBuffer);
 
 	// Verify the correctness of the escape character.
 	if (escapeLen == 0 || charSet->length(escapeLen, escapeStr, true) != 1)
@@ -12581,7 +12566,7 @@ dsc* TrimNode::execute(thread_db* tdbb, Request* request) const
 		return NULL;
 
 	USHORT ttype = INTL_TEXT_TYPE(*valueDesc);
-	HazardPtr<Collation> tt = INTL_texttype_lookup(tdbb, ttype);
+	Collation* tt = INTL_texttype_lookup(tdbb, ttype);
 	CharSet* cs = tt->getCharSet();
 
 	const UCHAR* charactersAddress;
@@ -12734,7 +12719,7 @@ UdfCallNode::UdfCallNode(MemoryPool& pool, const QualifiedName& aName, ValueList
 	: TypedNode<ValueExprNode, ExprNode::TYPE_UDF_CALL>(pool),
 	  name(pool, aName),
 	  args(aArgs),
-	  function(NULL),
+	  function(),
 	  dsqlFunction(NULL),
 	  isSubRoutine(false)
 {
@@ -12774,15 +12759,14 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 		}
 	}
 
-	Function* func = nullptr;
 	if (!node->function)
 	{
-		func = Function::lookup(tdbb, name, false);
+		auto* func = MetadataCache::lookupFunction(tdbb, name, CacheFlag::AUTOCREATE);
 		if (func)
-			node->function = csb->csb_resources.registerResource(tdbb, Resource::rsc_function, func, func->getId());
+			node->function = csb->csb_resources->functions.registerResource(func);
 	}
 
-	Function* function = node->function;
+	Function* const function = node->function(tdbb);
 	if (function)
 	{
 		if (function->isImplemented() && !function->isDefined())
@@ -12806,7 +12790,7 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 		PAR_error(csb, Arg::Gds(isc_funnotdef) << Arg::Str(name.toString()));
 	}
 
-	node->isSubRoutine = function->isSubRoutine();
+	node->isSubRoutine = node->function.isSubRoutine();
 
 	const UCHAR argCount = csb->csb_blr_reader.getByte();
 
@@ -12823,10 +12807,10 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	}
 
 	// CVC: I will track ufds only if a function is not being dropped.
-	if (!function->isSubRoutine() && csb->collectingDependencies())
+	if (!node->function.isSubRoutine() && csb->collectingDependencies())
 	{
-		CompilerScratch::Dependency dependency(obj_udf);
-		dependency.function = function;
+		Dependency dependency(obj_udf);
+		dependency.function = function->getPermanent();
 		csb->addDependency(dependency);
 	}
 
@@ -12881,7 +12865,7 @@ void UdfCallNode::make(DsqlCompilerScratch* /*dsqlScratch*/, dsc* desc)
 		desc->dsc_ttype() = dsqlFunction->udf_sub_type;
 }
 
-void UdfCallNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, dsc* desc)
+void UdfCallNode::getDesc(thread_db* tdbb, CompilerScratch* /*csb*/, dsc* desc)
 {
 	// Null value for the function indicates that the function was not
 	// looked up during parsing the BLR. This is true if the function
@@ -12891,7 +12875,7 @@ void UdfCallNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, dsc* de
 	// For normal requests, function would never be null. We would have
 	// created a valid block while parsing.
 	if (function)
-		*desc = function->getOutputFields()[0]->prm_desc;
+		*desc = function(tdbb)->getOutputFields()[0]->prm_desc;
 	else
 		desc->clear();
 }
@@ -12904,8 +12888,8 @@ ValueExprNode* UdfCallNode::copy(thread_db* tdbb, NodeCopier& copier) const
 		node->function = function;
 	else
 	{
-		Function* func = Function::lookup(tdbb, name, false);
-		node->function = copier.csb->csb_resources.registerResource(tdbb, Resource::rsc_function, func, func->getId());
+		auto* func = MetadataCache::lookupFunction(tdbb, name);
+		node->function = copier.csb->csb_resources->functions.registerResource(func);
 	}
 	return node;
 }
@@ -12935,37 +12919,35 @@ ValueExprNode* UdfCallNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 {
 	ValueExprNode::pass1(tdbb, csb);
 
-	if (!function->isSubRoutine())
+	if (!function.isSubRoutine())
 	{
 		if (!(csb->csb_g_flags & (csb_internal | csb_ignore_perm)))
 		{
-			if (function->getName().package.isEmpty())
+			if (function()->getName().package.isEmpty())
 			{
-				SLONG ssRelationId = csb->csb_view ? csb->csb_view->rel_id : 0;
+				SLONG ssRelationId = csb->csb_view ? csb->csb_view()->getId() : 0;
 
 				if (!ssRelationId && csb->csb_parent_relation)
 				{
-					fb_assert(csb->csb_parent_relation->rel_ss_definer.value);
-					ssRelationId = csb->csb_parent_relation->rel_id;
+					fb_assert(csb->csb_parent_relation(tdbb)->rel_ss_definer.value);
+					ssRelationId = csb->csb_parent_relation()->rel_id;
 				}
 
-				CMP_post_access(tdbb, csb, function->getSecurityName(), ssRelationId,
-					SCL_execute, obj_functions, function->getName().identifier);
+				CMP_post_access(tdbb, csb, function()->getSecurityName(), ssRelationId,
+					SCL_execute, obj_functions, function()->getName().identifier);
 			}
 			else
 			{
-				CMP_post_access(tdbb, csb, function->getSecurityName(),
-					(csb->csb_view ? csb->csb_view->rel_id : 0),
-					SCL_execute, obj_packages, function->getName().package);
+				CMP_post_access(tdbb, csb, function()->getSecurityName(),
+					(csb->csb_view ? csb->csb_view()->getId() : 0),
+					SCL_execute, obj_packages, function()->getName().package);
 			}
 
-			ExternalAccess temp(ExternalAccess::exa_function, function->getId());
+			ExternalAccess temp(ExternalAccess::exa_function, function()->getId());
 			FB_SIZE_T idx;
 			if (!csb->csb_external.find(temp, idx))
 				csb->csb_external.insert(idx, temp);
 		}
-
-		csb->csb_resources.postResource(tdbb, Resource::rsc_function, function.getObject(), function->getId());
 	}
 
 	return this;
@@ -12973,7 +12955,8 @@ ValueExprNode* UdfCallNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 ValueExprNode* UdfCallNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 {
-	if (function->fun_deterministic && !function->fun_inputs)
+	Function* f = function(tdbb);
+	if (f->fun_deterministic && !f->fun_inputs)
 	{
 		// Deterministic function without input arguments is expected to be
 		// always returning the same result, so it can be marked as invariant
@@ -12988,18 +12971,18 @@ ValueExprNode* UdfCallNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 
 	impureOffset = csb->allocImpure<Impure>();
 
-	if (function->isDefined() && !function->fun_entrypoint)
+	if (f->isDefined() && !f->fun_entrypoint)
 	{
-		if (function->getInputFormat() && function->getInputFormat()->fmt_count)
+		if (f->getInputFormat() && f->getInputFormat()->fmt_count)
 		{
-			fb_assert(function->getInputFormat()->fmt_length);
-			csb->allocImpure(FB_ALIGNMENT, function->getInputFormat()->fmt_length);
+			fb_assert(f->getInputFormat()->fmt_length);
+			csb->allocImpure(FB_ALIGNMENT, f->getInputFormat()->fmt_length);
 		}
 
-		fb_assert(function->getOutputFormat()->fmt_count == 3);
+		fb_assert(f->getOutputFormat()->fmt_count == 3);
 
-		fb_assert(function->getOutputFormat()->fmt_length);
-		csb->allocImpure(FB_ALIGNMENT, function->getOutputFormat()->fmt_length);
+		fb_assert(f->getOutputFormat()->fmt_length);
+		csb->allocImpure(FB_ALIGNMENT, f->getOutputFormat()->fmt_length);
 	}
 
 	return this;
@@ -13007,6 +12990,8 @@ ValueExprNode* UdfCallNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 
 dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 {
+	Function* f = function(request->resources);
+
 	UCHAR* impure = request->getImpure<UCHAR>(impureOffset);
 	Impure* impureArea = request->getImpure<Impure>(impureOffset);
 	impure_value* value = &impureArea->value;
@@ -13029,16 +13014,16 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 		}
 	}
 
-	if (!function->isImplemented())
+	if (!f->isImplemented())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_func_pack_not_implemented) <<
-				Arg::Str(function->getName().identifier) << Arg::Str(function->getName().package));
+				Arg::Str(function()->getName().identifier) << Arg::Str(function()->getName().package));
 	}
-	else if (!function->isDefined())
+	else if (!f->isDefined())
 	{
 		status_exception::raise(
-			Arg::Gds(isc_funnotdef) << Arg::Str(function->getName().toString()) <<
+			Arg::Gds(isc_funnotdef) << Arg::Str(function()->getName().toString()) <<
 			Arg::Gds(isc_modnotfound));
 	}
 
@@ -13048,9 +13033,9 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 
 	// Evaluate the function.
 
-	if (function->fun_entrypoint)
+	if (f->fun_entrypoint)
 	{
-		const Parameter* const returnParam = function->getOutputFields()[0];
+		const Parameter* const returnParam = f->getOutputFields()[0];
 		value->vlu_desc = returnParam->prm_desc;
 
 		// If the return data type is any of the string types, allocate space to hold value.
@@ -13084,22 +13069,22 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 				FB_NEW_POOL(*tdbb->getDefaultPool()) Array<UCHAR>(*tdbb->getDefaultPool());
 		}
 
-		FUN_evaluate(tdbb, function, args->items, value, *impureArea->temp);
+		FUN_evaluate(tdbb, f, args->items, value, *impureArea->temp);
 	}
 	else
 	{
-		const_cast<Function*>(function.getObject())->checkReload(tdbb);
+		//const_cast<Function*>(function.getObject())->checkReload(tdbb);
 
 		Jrd::Attachment* attachment = tdbb->getAttachment();
 
-		const ULONG inMsgLength = function->getInputFormat() ? function->getInputFormat()->fmt_length : 0;
-		const ULONG outMsgLength = function->getOutputFormat()->fmt_length;
+		const ULONG inMsgLength = f->getInputFormat() ? f->getInputFormat()->fmt_length : 0;
+		const ULONG outMsgLength = f->getOutputFormat()->fmt_length;
 		UCHAR* const inMsg = FB_ALIGN(impure + sizeof(impure_value), FB_ALIGNMENT);
 		UCHAR* const outMsg = FB_ALIGN(inMsg + inMsgLength, FB_ALIGNMENT);
 
-		if (function->fun_inputs != 0)
+		if (f->fun_inputs != 0)
 		{
-			const dsc* fmtDesc = function->getInputFormat()->fmt_desc.begin();
+			const dsc* fmtDesc = f->getInputFormat()->fmt_desc.begin();
 
 			for (auto& source : args->items)
 			{
@@ -13129,7 +13114,7 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 		const SavNumber savNumber = transaction->tra_save_point ?
 			transaction->tra_save_point->getNumber() : 0;
 
-		Request* funcRequest = function->getStatement()->findRequest(tdbb);
+		Request* funcRequest = f->getStatement()->findRequest(tdbb);
 
 		// trace function execution start
 		TraceFuncExecute trace(tdbb, funcRequest, request, inMsg, inMsgLength);
@@ -13169,12 +13154,13 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 
 			EXE_unwind(tdbb, funcRequest);
 			funcRequest->req_attachment = NULL;
-			funcRequest->req_flags &= ~(req_in_use | req_proc_fetch);
+			funcRequest->setUsed(false);
+			funcRequest->req_flags &= ~req_proc_fetch;
 			funcRequest->invalidateTimeStamp();
 			throw;
 		}
 
-		const dsc* fmtDesc = function->getOutputFormat()->fmt_desc.begin();
+		const dsc* fmtDesc = f->getOutputFormat()->fmt_desc.begin();
 		const ULONG nullOffset = (IPTR) fmtDesc[1].dsc_address;
 		SSHORT* const nullPtr = reinterpret_cast<SSHORT*>(outMsg + nullOffset);
 
@@ -13197,7 +13183,8 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 		EXE_unwind(tdbb, funcRequest);
 
 		funcRequest->req_attachment = NULL;
-		funcRequest->req_flags &= ~(req_in_use | req_proc_fetch);
+		funcRequest->setUsed(false);
+		funcRequest->req_flags &= ~req_proc_fetch;
 		funcRequest->invalidateTimeStamp();
 	}
 

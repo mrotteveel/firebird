@@ -75,7 +75,7 @@ Function* Function::create(thread_db* tdbb, MemoryPool& pool, Cached::Function* 
 }
 
 
-Function* Function::lookup(thread_db* tdbb, const QualifiedName& name)
+Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags)
 {
 	Attachment* const attachment = tdbb->getAttachment();
 	Database* const dbb = tdbb->getDatabase();
@@ -93,7 +93,7 @@ Function* Function::lookup(thread_db* tdbb, const QualifiedName& name)
 			 X.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
 		if (!function)
-			function = dbb->dbb_mdc->getFunction(tdbb, X.RDB$FUNCTION_ID, CacheFlag::AUTOCREATE);
+			function = dbb->dbb_mdc->getFunction(tdbb, X.RDB$FUNCTION_ID, flags | CacheFlag::AUTOCREATE);
 	}
 	END_FOR
 

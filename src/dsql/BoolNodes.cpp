@@ -835,7 +835,7 @@ bool ComparativeBoolNode::stringBoolean(thread_db* tdbb, Request* request, dsc* 
 		type1 = desc1->dsc_sub_type == isc_blob_text ? desc1->dsc_blob_ttype() : ttype_none;
 	}
 
-	HazardPtr<Collation> obj = INTL_texttype_lookup(tdbb, type1);
+	Collation* obj = INTL_texttype_lookup(tdbb, type1);
 	CharSet* charset = obj->getCharSet();
 
 	VaryStr<TEMP_STR_LENGTH> escapeTemp;
@@ -1041,7 +1041,7 @@ bool ComparativeBoolNode::sleuth(thread_db* tdbb, Request* request, const dsc* d
 	else
 		ttype = INTL_TTYPE(desc1);
 
-	HazardPtr<Collation> obj = INTL_texttype_lookup(tdbb, ttype);
+	Collation* obj = INTL_texttype_lookup(tdbb, ttype);
 
 	// Get operator definition string (control string)
 

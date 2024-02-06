@@ -27,6 +27,7 @@
 #include "../jrd/MetaName.h"
 #include "../jrd/QualifiedName.h"
 #include "../jrd/HazardPtr.h"
+#include "../jrd/Resources.h"
 #include "../common/classes/NestConst.h"
 #include "../common/MsgMetadata.h"
 #include "../common/classes/auto.h"
@@ -200,6 +201,65 @@ namespace Jrd
 	public:
 		Jrd::UserId* invoker;		// Invoker ID
 	};
+
+
+	template <class R>
+	class SubRoutine
+	{
+	public:
+		SubRoutine()
+			: routine(), subroutine(nullptr)
+		{ }
+
+		SubRoutine(const CachedResource<R, RoutinePermanent>& r)
+			: routine(r), subroutine(nullptr)
+		{ }
+
+		SubRoutine(R* r)
+			: routine(), subroutine(r)
+		{ }
+
+		SubRoutine& operator=(const CachedResource<R, RoutinePermanent>& r)
+		{
+			routine = r;
+			subroutine = nullptr;
+			return *this;
+		}
+
+		SubRoutine& operator=(R* r)
+		{
+			routine.clear();
+			subroutine = r;
+			return *this;
+		}
+
+		template <typename T>
+		R* operator()(T t) const
+		{
+			return isSubRoutine() ? subroutine : routine(t);
+		}
+
+		CacheElement<R, RoutinePermanent>* operator()() const
+		{
+			return isSubRoutine() ? subroutine->getPermanent() : routine();
+		}
+
+		bool isSubRoutine() const
+		{
+			return subroutine != nullptr;
+		}
+
+		operator bool() const
+		{
+			fb_assert((routine.isSet() ? 1 : 0) + (subroutine ? 1 : 0) < 2);
+			return routine.isSet() || subroutine;
+		}
+
+	private:
+		CachedResource<R, RoutinePermanent> routine;
+		R* subroutine;
+	};
+
 }
 
 #endif // JRD_ROUTINE_H

@@ -392,62 +392,6 @@ typedef Firebird::GenericMap<Firebird::Pair<Firebird::Left<MetaNamePair, FieldIn
 	MapFieldInfo;
 typedef Firebird::GenericMap<Firebird::Pair<Firebird::Right<Item, ItemInfo> > > MapItemInfo;
 
-template <class R>
-class SubRoutine
-{
-public:
-	SubRoutine()
-		: routine(), subroutine(nullptr)
-	{ }
-
-	SubRoutine(const CachedResource<R, RoutinePermanent>& r)
-		: routine(r), subroutine(nullptr)
-	{ }
-
-	SubRoutine(R* r)
-		: routine(), subroutine(r)
-	{ }
-
-	SubRoutine& operator=(const CachedResource<R, RoutinePermanent>& r)
-	{
-		routine = r;
-		subroutine = nullptr;
-		return *this;
-	}
-
-	SubRoutine& operator=(R* r)
-	{
-		routine.clear();
-		subroutine = r;
-		return *this;
-	}
-
-	R* operator()(thread_db* tdbb) const
-	{
-		return isSubRoutine() ? subroutine : routine(tdbb);
-	}
-
-	CacheElement<R, RoutinePermanent>* operator()() const
-	{
-		return isSubRoutine() ? subroutine->getPermanent() : routine();
-	}
-
-	bool isSubRoutine() const
-	{
-		return subroutine != nullptr;
-	}
-
-	operator bool() const
-	{
-		fb_assert((routine.isSet() ? 1 : 0) + (subroutine ? 1 : 0) < 2);
-		return routine.isSet() || subroutine;
-	}
-
-private:
-	CachedResource<R, RoutinePermanent> routine;
-	R* subroutine;
-};
-
 // Compile scratch block
 
 struct Dependency

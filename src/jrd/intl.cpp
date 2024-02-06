@@ -317,10 +317,10 @@ CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CHARSET_ID toCsId)
 	return CsConvert(cs->getStruct(), toCs->getStruct());
 }
 
-Collation* CharSetVers::lookupCollation(thread_db* tdbb, USHORT tt_id)
+Collation* CharSetVers::lookupCollation(thread_db* tdbb, MetaId tt_id)
 {
 	const USHORT id = TTYPE_TO_COLLATION(tt_id);
-
+/*
 	if (Collation* coll = charset_collations[id])
 		return coll;
 
@@ -377,6 +377,9 @@ Collation* CharSetVers::lookupCollation(thread_db* tdbb, USHORT tt_id)
 		charset_collations[id] = collation;
 	}
 	else
+		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(tt_id));
+*/
+	if (!charset_collations[id])
 		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(tt_id));
 
 	return charset_collations[id];
@@ -978,7 +981,7 @@ CharSet* INTL_charset_lookup(thread_db* tdbb, USHORT parm1)
 }
 
 
-Collation* INTL_texttype_lookup(thread_db* tdbb, USHORT parm1)
+Collation* INTL_texttype_lookup(thread_db* tdbb, MetaId parm1)
 {
 /**************************************
  *
@@ -1005,13 +1008,9 @@ Collation* INTL_texttype_lookup(thread_db* tdbb, USHORT parm1)
 	if (parm1 == ttype_dynamic)
 		parm1 = MAP_CHARSET_TO_TTYPE(tdbb->getCharSet());
 
-	auto* perm = MetadataCache::lookupCharset(tdbb, TTYPE_TO_CHARSET(parm1));
-	if (!perm)
-		return nullptr;
+	auto* vers = MetadataCache::lookup_charset(tdbb, TTYPE_TO_CHARSET(parm1));
 
-	auto* vers = perm->getObject(tdbb);
-
-	return vers ? vers->lookupCollation(tdbb, TTYPE_TO_COLLATION(parm1)) : nullptr;
+	return vers ? vers->lookupCollation(tdbb, parm1) : nullptr;
 }
 
 

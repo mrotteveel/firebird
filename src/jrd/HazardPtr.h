@@ -455,6 +455,18 @@ public:
 		: thd(0), flg(INITIAL)
 	{ }
 
+	bool scanInProgress() const
+	{
+		if (flg == READY)
+			return false;
+
+		if ((thd == Thread::getId()) && (flg == SCANNING))
+			return true;
+
+		return false;
+	}
+
+
 	void pass(std::function<void()> scan)
 	{
 		// no need opening barrier twice
@@ -665,6 +677,11 @@ public:
 			bar.pass(objScan);
 	}
 
+	bool scanInProgress() const
+	{
+		return bar.scanInProgress();
+	}
+
 private:
 	// object (nill/not nill) & ERASED bit in cacheFlags together control state of cache element
 	//				|				 ERASED
@@ -860,6 +877,15 @@ public:
 	{
 		auto* l = list.load(atomics::memory_order_relaxed);
 		return l && (l->getFlags() & CacheFlag::ERASED);
+	}
+
+	bool scanInProgress() const
+	{
+		HazardPtr<ListEntry<Versioned>> listEntry(list);
+		if (!listEntry)
+			return false;
+
+		return listEntry->scanInProgress();
 	}
 
 private:

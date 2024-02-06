@@ -34,6 +34,7 @@
 
 #include "fb_blk.h"
 #include "../jrd/HazardPtr.h"
+#include <functional>
 
 namespace Jrd {
 
@@ -135,6 +136,11 @@ public:
 		return runTime->get<OBJ>(versionOffset);
 	}
 
+	OBJ* operator()(const VersionedObjects& runTime) const
+	{
+		return runTime.get<OBJ>(versionOffset);
+	}
+
 	OBJ* operator()(thread_db* tdbb) const
 	{
 		return cacheElement->getObject(tdbb);
@@ -183,18 +189,19 @@ public:
 	class RscArray : public Firebird::Array<CachedResource<OBJ, PERM>>
 	{
 	public:
+		typedef CacheElement<OBJ, PERM> StoredElement;
+
 		RscArray(MemoryPool& p, FB_SIZE_T& pos)
 			: Firebird::Array<CachedResource<OBJ, PERM>>(p),
 			  versionCurrentPosition(pos)
 		{ }
 
-		CachedResource<OBJ, PERM>& registerResource(CacheElement<OBJ, PERM>* res)
+		CachedResource<OBJ, PERM>& registerResource(StoredElement* res)
 		{
 			FB_SIZE_T pos;
 			if (!this->find([res](const CachedResource<OBJ, PERM>& elem) {
-					const void* p1 = elem();
-					const void* p2 = res;
-					return p1 < p2 ? -1 : p1 == p2 ? 0 : 1;
+					auto* e = elem();
+					return e == res ? 0 : std::less<StoredElement*>{}(e, res) ? -1 : 1;
 				}, pos))
 			{
 				CachedResource<OBJ, PERM> newPtr(res, versionCurrentPosition++);

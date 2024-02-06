@@ -496,7 +496,7 @@ public:
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
 	MetaName getOwnerName() const;
-	ExternalFile* getExtFile();
+	ExternalFile* getExtFile() const;
 
 	void afterUnlock(thread_db* tdbb, unsigned flags) override;
 
@@ -711,7 +711,12 @@ public:
 		return rel_id;
 	}
 
-	ExternalFile* getExtFile()
+	MetaName getSecurityName() const
+	{
+		return rel_security_name;
+	}
+
+	ExternalFile* getExtFile() const
 	{
 		return rel_file;
 	}
@@ -790,7 +795,7 @@ inline MemoryPool& jrd_rel::getPool() const
 	return rel_perm->getPool();
 }
 
-inline ExternalFile* jrd_rel::getExtFile()
+inline ExternalFile* jrd_rel::getExtFile() const
 {
 	return rel_perm->getExtFile();
 }
@@ -863,7 +868,6 @@ inline RelationPages* RelationPermanent::getPages(thread_db* tdbb, TraNumber tra
 
 	return getPagesInternal(tdbb, tran, allocPages);
 }
-
 
 
 /// class GCLock::Shared

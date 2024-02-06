@@ -293,8 +293,10 @@ public:
 	static Function* lookup_function(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
+	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
+	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
-	static jrd_rel* lookup_relation_id(thread_db*, MetaId, CacheObject::Flag flags = CacheFlag::AUTOCREATE);
+	static jrd_rel* lookup_relation_id(thread_db*, MetaId, CacheObject::Flag flags = 0/*CacheFlag::AUTOCREATE*/);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags = 0);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
 	Cached::Relation* lookupRelation(MetaId id);
@@ -312,7 +314,9 @@ public:
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	// end of met_proto.h
 
-	static Cached::Charset* lookupCharset(thread_db* tdbb, USHORT tt_id);
+	static Cached::Charset* lookupCharset(thread_db* tdbb, MetaId id);
+	static CharSetVers* lookup_charset(thread_db* tdbb, MetaId id);
+
 	static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction);
 	static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number);
 
@@ -334,7 +338,7 @@ private:
 	TriggersSet							mdc_triggers[DB_TRIGGER_MAX];
 	TriggersSet							mdc_ddl_triggers;
 
-	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 numers!!!!!!!!!!!)
+	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums!!!!!!!!!!!)
 
 public:
 	Firebird::Mutex

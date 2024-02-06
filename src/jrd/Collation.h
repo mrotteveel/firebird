@@ -32,6 +32,7 @@
 
 #include "../common/TextType.h"
 #include "../jrd/HazardPtr.h"
+#include "../jrd/Resources.h"
 
 
 namespace Jrd {
@@ -39,7 +40,7 @@ namespace Jrd {
 class Lock;
 class BaseSubstringSimilarMatcher;
 
-class Collation : public TextType, public CacheObject
+class Collation : public TextType
 {
 public:
 	static Collation* createInstance(MemoryPool& pool, TTYPE_ID id, texttype* tt, USHORT attributes, CharSet* cs);
@@ -88,12 +89,12 @@ public:
 	{
 		return true;
 	}
-
+/* ???????????????//
 	const char* c_name() const override
 	{
 		return name.c_str();
 	}
-
+ */
 public:
 	int useCount;
 	Lock* existenceLock;
