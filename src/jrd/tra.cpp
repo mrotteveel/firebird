@@ -210,6 +210,7 @@ void TRA_attach_request(Jrd::jrd_tra* transaction, Jrd::Request* request)
 		TRA_detach_request(request);
 	}
 
+	fb_assert(request->isUsed());
 	fb_assert(request->req_transaction == NULL);
 	fb_assert(request->req_tra_next == NULL);
 	fb_assert(request->req_tra_prev == NULL);
@@ -2500,18 +2501,8 @@ static void restart_requests(thread_db* tdbb, jrd_tra* trans)
 		 i != trans->tra_attachment->att_requests.end();
 		 ++i)
 	{
-		Array<Request*>& requests = (*i)->getStatement()->requests;
-
-		for (Request** j = requests.begin(); j != requests.end(); ++j)
-		{
-			Request* request = *j;
-
-			if (request && request->req_transaction)
-			{
-				EXE_unwind(tdbb, request);
-				EXE_start(tdbb, request, trans);
-			}
-		}
+		auto* statement = (*i)->getStatement();
+		statement->restartRequests(tdbb, trans);
 	}
 }
 

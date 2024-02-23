@@ -241,8 +241,8 @@ bool BufferedStream::internalGetRecord(thread_db* tdbb) const
 			rpb->rpb_runtime_flags &= ~RPB_CLEAR_FLAGS;
 
 			if (relation &&
-				!relation->rel_file &&
-				!relation->rel_view_rse &&
+				!relation->getExtFile() &&
+				!relation->isView() &&
 				!relation->isVirtual())
 			{
 				rpb->rpb_runtime_flags |= RPB_refetch;

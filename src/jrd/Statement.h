@@ -25,6 +25,7 @@
 #include "../jrd/exe.h"
 #include "../jrd/req.h"
 #include "../jrd/EngineInterface.h"
+#include "../jrd/HazardPtr.h"
 #include <functional>
 
 namespace Jrd {
@@ -32,6 +33,8 @@ namespace Jrd {
 // Compiled statement.
 class Statement : public pool_alloc<type_req>
 {
+	typedef SharedReadVector<Request*, 16> Requests;
+
 public:
 	static const unsigned FLAG_SYS_TRIGGER	= 0x01;
 	static const unsigned FLAG_INTERNAL		= 0x02;
@@ -45,6 +48,7 @@ public:
 
 private:
 	Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb);
+	Request* getRequest(thread_db* tdbb, const Requests::ReadAccessor& g, USHORT level);
 
 public:
 	static Statement* makeStatement(thread_db* tdbb, CompilerScratch* csb, bool internalFlag,
@@ -57,6 +61,15 @@ public:
 		CompilerScratch* csb, bool internalFlag);
 
 	static Request* makeRequest(thread_db* tdbb, CompilerScratch* csb, bool internalFlag);
+
+	Request* makeRootRequest(thread_db* tdbb)
+	{
+		auto g = requests.readAccessor();
+		if (g->getCount())
+			return g->value(0);
+
+		return getRequest(tdbb, g, 0);
+	}
 
 	StmtNumber getStatementId() const
 	{
@@ -71,11 +84,21 @@ public:
 	}
 
 	const Routine* getRoutine() const;
-	bool isActive() const;
+	//bool isActive() const;
 
 	Request* findRequest(thread_db* tdbb, bool unique = false);
-	Request* getRequest(thread_db* tdbb, USHORT level, bool systemRequest = false);
+	Request* getRequest(thread_db* tdbb, USHORT level);
+
+	Request* rootRequest()
+	{
+		auto g = requests.readAccessor();
+		return g->getCount() == 0 ? nullptr : g->value(0);
+	}
+
+	void restartRequests(thread_db* tdbb, jrd_tra* trans);
+
 	void verifyAccess(thread_db* tdbb);
+	Request* verifyRequestSynchronization(USHORT level);
 	void release(thread_db* tdbb);
 
 	Firebird::string getPlan(thread_db* tdbb, bool detailed) const;
@@ -90,7 +113,7 @@ private:
 	static void triggersExternalAccess(thread_db* tdbb, ExternalAccessList& list, const Triggers& tvec, const MetaName &user);
 	void buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, const MetaName& user);
 
-	void loadResources(thread_db* tdbb);
+	void loadResources(thread_db* tdbb, Request* req);
 	bool streamsFormatCompare(thread_db* tdbb);
 
 public:
@@ -101,8 +124,12 @@ public:
 	mutable StmtNumber id;				// statement identifier
 	USHORT charSetId;					// client character set (CS_METADATA for internal statements)
 	Firebird::Array<RecordParameter> rpbsSetup;
-	Firebird::Array<Request*> requests;	// vector of requests
-	Firebird::Mutex requestsGrow;		// vector of requests protection when added new element
+
+private:
+	SharedReadVector<Request*, 16> requests;	// vector of requests
+	Firebird::Mutex requestsGrow;		// requests' vector protection when adding new element
+
+public:
 	ExternalAccessList externalList;	// Access to procedures/triggers to be checked
 	AccessItemList accessList;			// Access items to be checked
 	const jrd_prc* procedure;			// procedure, if any

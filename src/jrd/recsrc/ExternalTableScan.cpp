@@ -56,7 +56,7 @@ void ExternalTableScan::internalOpen(thread_db* tdbb) const
 	record_param* const rpb = &request->req_rpb[m_stream];
 	rpb->getWindow(tdbb).win_flags = 0;
 
-	EXT_open(dbb, m_relation->rel_file);
+	// ???????????????? m_relation->getExtFile()->open(dbb);
 
 	VIO_record(tdbb, rpb, MET_current(tdbb, m_relation), request->req_pool);
 
@@ -92,7 +92,7 @@ bool ExternalTableScan::internalGetRecord(thread_db* tdbb) const
 
 	rpb->rpb_runtime_flags &= ~RPB_CLEAR_FLAGS;
 
-	if (EXT_get(tdbb, rpb, impure->irsb_position))
+	if (rpb->rpb_relation->getExtFile()->get(tdbb, rpb, impure->irsb_position))
 	{
 		rpb->rpb_number.increment();
 		rpb->rpb_number.setValid(true);
@@ -125,7 +125,7 @@ void ExternalTableScan::print(thread_db* tdbb, string& plan,
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Full Scan";
+			printName(tdbb, m_relation->c_name(), m_alias) + " Full Scan";
 		printOptInfo(plan);
 	}
 	else

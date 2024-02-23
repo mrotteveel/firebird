@@ -12990,7 +12990,7 @@ ValueExprNode* UdfCallNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 
 dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 {
-	Function* f = function(request->resources);
+	Function* f = function(request->getResources());
 
 	UCHAR* impure = request->getImpure<UCHAR>(impureOffset);
 	Impure* impureArea = request->getImpure<Impure>(impureOffset);
@@ -13154,9 +13154,10 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 
 			EXE_unwind(tdbb, funcRequest);
 			funcRequest->req_attachment = NULL;
-			funcRequest->setUsed(false);
 			funcRequest->req_flags &= ~req_proc_fetch;
 			funcRequest->invalidateTimeStamp();
+
+			funcRequest->setUnused();
 			throw;
 		}
 
@@ -13183,9 +13184,10 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 		EXE_unwind(tdbb, funcRequest);
 
 		funcRequest->req_attachment = NULL;
-		funcRequest->setUsed(false);
 		funcRequest->req_flags &= ~req_proc_fetch;
 		funcRequest->invalidateTimeStamp();
+
+		funcRequest->setUnused();
 	}
 
 	if (!(request->req_flags & req_null))

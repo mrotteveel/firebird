@@ -95,7 +95,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		mapFieldInfo.takeOwnership(csb->csb_map_field_info);
 
 		// versioned metadata support
-		loadResources(tdbb);
+		loadResources(tdbb, nullptr);
 
 		impureSize = csb->csb_impure;
 
@@ -172,7 +172,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	}
 }
 
-void Statement::loadResources(thread_db* tdbb)
+void Statement::loadResources(thread_db* tdbb, Request* req)
 {
 	const MdcVersion currentMdcVersion = tdbb->getDatabase()->dbb_mdc->getVersion();
 	if ((!latestVersion) || (latestVersion->version != currentMdcVersion))
@@ -188,6 +188,16 @@ void Statement::loadResources(thread_db* tdbb)
 
 		latestVersion = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
 		resources->transfer(tdbb, latestVersion);
+	}
+
+	if (req && req->getResources() != latestVersion)
+	{
+		req->setResources(latestVersion);
+
+		// setup correct jrd_rel pointers in rpbs
+		fb_assert(req->req_rpb.getCount() == rpbsSetup.getCount());
+		for (FB_SIZE_T n = 0; n < rpbsSetup.getCount(); ++n)
+			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latestVersion);
 	}
 }
 
@@ -352,7 +362,11 @@ Statement* Statement::makeValueExpression(thread_db* tdbb, ValueExprNode*& node,
 Request* Statement::makeRequest(thread_db* tdbb, CompilerScratch* csb, bool internalFlag)
 {
 	Statement* statement = makeStatement(tdbb, csb, internalFlag);
-	return statement->getRequest(tdbb, 0);
+
+	Request* req = statement->getRequest(tdbb, statement->requests.readAccessor(), 0);
+	statement->loadResources(tdbb, req);
+
+	return req;
 }
 
 // Returns function or procedure routine.
@@ -366,7 +380,24 @@ const Routine* Statement::getRoutine() const
 	return function;
 }
 
-// Determine if any request of this statement are active.
+void Statement::restartRequests(thread_db* tdbb, jrd_tra* trans)
+{
+	auto g = requests.readAccessor();
+	for (FB_SIZE_T n = 0; n < g->getCount(); ++n)
+	{
+		Request* request = g->value(n);
+
+		if (request && request->req_transaction)
+		{
+			fb_assert(request->req_attachment == tdbb->getAttachment());
+
+			EXE_unwind(tdbb, request);
+			EXE_start(tdbb, request, trans);
+		}
+	}
+}
+
+/*/ Determine if any request of this statement are active.
 bool Statement::isActive() const
 {
 	for (auto request : requests)
@@ -376,7 +407,7 @@ bool Statement::isActive() const
 	}
 
 	return false;
-}
+} ?????????/// */
 
 Request* Statement::findRequest(thread_db* tdbb, bool unique)
 {
@@ -387,83 +418,95 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 	if (!thisPointer)
 		BUGCHECK(167);	/* msg 167 invalid SEND request */
 
-	// Search clones for one request in use by this attachment.
+	// Search clones for one request used whenever by this attachment.
 	// If not found, return first inactive request.
-
 	Request* clone = NULL;
-	USHORT count = 0;
-	const USHORT clones = requests.getCount();
-	USHORT n;
 
-	for (n = 0; n < clones; ++n)
+	do
 	{
-		Request* next = getRequest(tdbb, n);
+		USHORT count = 0;
+		auto g = requests.readAccessor();
+		const USHORT clones = g->getCount();
+		USHORT n;
 
-		if (next->req_attachment == attachment)
+		for (n = 0; n < clones; ++n)
 		{
-			if (!next->isUsed())
+			Request* next = getRequest(tdbb, g, n);
+
+			if (next->req_attachment == attachment)
 			{
-				clone = next;
-				break;
+				if (!next->isUsed())
+				{
+					clone = next;
+					break;
+				}
+
+				if (unique)
+					return NULL;
+
+				++count;
 			}
-
-			if (unique)
-				return NULL;
-
-			++count;
+			else if (!(next->isUsed()) && !clone)
+				clone = next;
 		}
-		else if (!(next->isUsed()) && !clone)
-			clone = next;
-	}
 
-	if (count > MAX_CLONES)
-		ERR_post(Arg::Gds(isc_req_max_clones_exceeded));
+		if (count > MAX_CLONES)
+			ERR_post(Arg::Gds(isc_req_max_clones_exceeded));
 
-	if (!clone)
-		clone = getRequest(tdbb, n);
+		if (!clone)
+			clone = getRequest(tdbb, g, n);
+
+	} while (!clone->setUsed());
 
 	clone->setAttachment(attachment);
 	clone->req_stats.reset();
 	clone->req_base_stats.reset();
-	clone->setUsed(true);
+
+	loadResources(tdbb, clone);
 
 	return clone;
 }
 
-Request* Statement::getRequest(thread_db* tdbb, USHORT level, bool systemRequest)
+Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g, USHORT level)
 {
 	SET_TDBB(tdbb);
 
-	Jrd::Attachment* const attachment = tdbb->getAttachment();
 	Database* const dbb = tdbb->getDatabase();
 	fb_assert(dbb);
 
-	if (level >= requests.getCount() || !requests[level])
-	{
-		// Create the request.
-		AutoMemoryPool reqPool(MemoryPool::createPool(pool));
-		auto request = FB_NEW_POOL(*reqPool) Request(reqPool, attachment, this);
+	if (level < g->getCount() && g->value(level))
+		return g->value(level);
 
-		{	// guard scope
-			MutexLockGuard guard(requestsGrow, FB_FUNCTION);
+	// Create the request.
+	AutoMemoryPool reqPool(MemoryPool::createPool(pool));
+	auto request = FB_NEW_POOL(*reqPool) Request(reqPool, dbb, this);
+	loadResources(tdbb, request);
 
-			if (level >= requests.getCount() || !requests[level])
-			{
-				requests.grow(level + 1);
-				requests[level] = request;
-				request = nullptr;
-			}
+	Request* arrivedRq;
+	{ // mutex scope
+		MutexLockGuard guard(requestsGrow, FB_FUNCTION);
+
+		auto g = requests.writeAccessor();
+
+		if (level >= g->getCount() || !g->value(level))
+		{
+			requests.grow(level + 1);
+
+			g = requests.writeAccessor();
+			g->value(level) = request;
+			return request;
 		}
 
-		if (request)
-			delete request;
+		arrivedRq = g->value(level);
 	}
 
-	const auto request = requests[level];
-	if (!(systemRequest && request->resources))
-		loadResources(tdbb);
-	request->resources = latestVersion;
-	return request;
+	delete request;
+	return arrivedRq;
+}
+
+Request* Statement::getRequest(thread_db* tdbb, USHORT level)
+{
+	return getRequest(tdbb, requests.readAccessor(), level);
 }
 
 // Check that we have enough rights to access all resources this request touches including
@@ -655,10 +698,13 @@ void Statement::release(thread_db* tdbb)
 
 	// resources.releaseResources(tdbb); !!!!!!!!!!!!!!! place to release 
 
-	for (Request** instance = requests.begin(); instance != requests.end(); ++instance)
+	// ok to use write accessor w/o lock - we are in a kind of "dtor"
+	auto g = requests.writeAccessor();
+	for (Request** instance = g->begin(); instance != g->end(); ++instance)
 	{
 		if (*instance)
 		{
+			fb_assert(!((*instance)->isUsed()));
 			EXE_release(tdbb, *instance);
 			MemoryPool::deletePool((*instance)->req_pool);
 			*instance = nullptr;
@@ -845,6 +891,24 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 }
 
 
+// verify_request_synchronization
+//
+// @brief Finds the sub-request at the given level. If that specific
+// sub-request is not found, throw the dreaded "request synchronization error".
+// This function replaced a chunk of code repeated four times.
+//
+// @param level The level of the sub-request we need to find.
+Request* Statement::verifyRequestSynchronization(USHORT level)
+{
+	auto g = requests.readAccessor();
+	fb_assert(g->getCount() > 0);
+	if (level && (level >= g->getCount() || !g->value(level)))
+		ERR_post(Arg::Gds(isc_req_sync));
+
+	return g->value(level);
+}
+
+
 // Make sub routines.
 template <typename T> static void makeSubRoutines(thread_db* tdbb, Statement* statement,
 	CompilerScratch* csb, T& subs)
@@ -899,7 +963,7 @@ bool Request::hasPowerfulStatement() const
 
 bool Request::isRoot() const
 {
-	return statement->requests.hasData() && this == statement->requests[0];
+	return this == statement->rootRequest();
 }
 
 StmtNumber Request::getRequestId() const
@@ -912,6 +976,51 @@ StmtNumber Request::getRequestId() const
 	}
 
 	return req_id;
+}
+
+Request::Request(Firebird::AutoMemoryPool& pool, Database* dbb, /*const*/ Statement* aStatement)
+	: statement(aStatement),
+	  req_inUse(false),
+	  req_pool(pool),
+	  req_memory_stats(&aStatement->pool->getStatsGroup()),
+	  req_blobs(req_pool),
+	  req_stats(*req_pool),
+	  req_base_stats(*req_pool),
+	  req_ext_stmt(NULL),
+	  req_cursors(*req_pool),
+	  req_ext_resultset(NULL),
+	  req_timeout(0),
+	  req_domain_validation(NULL),
+	  req_auto_trans(*req_pool),
+	  req_sorts(*req_pool, dbb),
+	  req_rpb(*req_pool),
+	  impureArea(*req_pool)
+{
+	fb_assert(statement);
+	req_rpb = statement->rpbsSetup;
+	impureArea.grow(statement->impureSize);
+
+	pool->setStatsGroup(req_memory_stats);
+	pool.release();
+}
+
+bool Request::setUsed()
+{
+	bool old = isUsed();
+	if (old)
+		return false;
+	return req_inUse.compare_exchange_strong(old, true);
+}
+
+void Request::setUnused()
+{
+	fb_assert(isUsed());
+	req_inUse.store(false, std::memory_order_release);
+}
+
+bool Request::isUsed() const
+{
+	return req_inUse.load(std::memory_order_relaxed);
 }
 
 #ifdef DEV_BUILD

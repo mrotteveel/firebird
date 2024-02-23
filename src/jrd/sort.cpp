@@ -68,11 +68,6 @@ const USHORT MAX_MERGE_LEVEL	= 2;
 using namespace Jrd;
 using namespace Firebird;
 
-void SortOwner::unlinkAll()
-{
-	while (sorts.getCount())
-		delete sorts.pop();
-}
 
 // The sort buffer size should be just under a multiple of the
 // hardware memory page size to account for memory allocator
@@ -2181,6 +2176,53 @@ void Sort::sortRunsBySeek(int n)
 }
 
 
+/// class SortOwner
+
+
+UCHAR* SortOwner::allocateBuffer()
+{
+	if (buffers.hasData())
+		return buffers.pop();
+
+	if (dbb->dbb_sort_buffers.hasData())
+	{
+		SyncLockGuard guard(&dbb->dbb_sortbuf_sync, SYNC_EXCLUSIVE, FB_FUNCTION);
+
+		// The sort buffer cache has at least one big block, let's use it
+		if (dbb->dbb_sort_buffers.hasData())
+			return dbb->dbb_sort_buffers.pop();
+	}
+
+	return nullptr;
+}
+
+void SortOwner::releaseBuffer(UCHAR* memory)
+{
+	buffers.push(memory);
+}
+
+void SortOwner::unlinkAll()
+{
+	while (sorts.getCount())
+		delete sorts.pop();
+
+	if (buffers.hasData())
+	{
+		// Move cached buffers to the database level cache to be reused later by other attachments
+
+		const size_t MAX_CACHED_SORT_BUFFERS = 8; // 1MB
+
+		SyncLockGuard guard(&dbb->dbb_sortbuf_sync, SYNC_EXCLUSIVE, FB_FUNCTION);
+
+		while (buffers.hasData() && dbb->dbb_sort_buffers.getCount() < MAX_CACHED_SORT_BUFFERS)
+			dbb->dbb_sort_buffers.push(buffers.pop());
+	}
+
+	while (buffers.hasData())
+		delete[] buffers.pop();
+}
+
+
 /// class PartitionedSort
 
 
@@ -2412,3 +2454,4 @@ sort_record* PartitionedSort::getMerge()
 
 	return eof ? NULL : record;
 }
+

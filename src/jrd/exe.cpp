@@ -776,7 +776,7 @@ void EXE_release(thread_db* tdbb, Request* request)
 		request->req_attachment = NULL;
 	}
 
-	request->setUsed(false);
+	request->setUnused();
 }
 
 
@@ -1004,7 +1004,6 @@ void EXE_unwind(thread_db* tdbb, Request* request)
 	}
 
 	request->req_sorts.unlinkAll();
-
 	TRA_release_request_snapshot(tdbb, request);
 	TRA_detach_request(request);
 
@@ -1237,12 +1236,17 @@ void EXE_execute_triggers(thread_db* tdbb,
 
 			EXE_unwind(tdbb, trigger);
 			trigger->req_attachment = NULL;
-			trigger->setUsed(false);
+
+			Request* t = trigger;
+			trigger = NULL;
+
+			// Use RAII cleanup because trigger_failure is using trigger & may throw
+			Cleanup cleanSetUsed([&t] {
+				t->setUnused();
+			});
 
 			if (!ok)
-				trigger_failure(tdbb, trigger);
-
-			trigger = NULL;
+				trigger_failure(tdbb, t);
 		}
 	}
 	catch (const Exception& ex)
@@ -1251,7 +1255,6 @@ void EXE_execute_triggers(thread_db* tdbb,
 		{
 			EXE_unwind(tdbb, trigger);
 			trigger->req_attachment = NULL;
-			trigger->setUsed(false);
 
 			ex.stuffException(tdbb->tdbb_status_vector);
 
@@ -1261,6 +1264,11 @@ void EXE_execute_triggers(thread_db* tdbb,
 				stuff_stack_trace(trigger);
 				tdbb->tdbb_flags |= TDBB_stack_trace_done;
 			}
+
+			// Use RAII cleanup because trigger_failure is using trigger & may throw
+			Cleanup cleanSetUsed([&trigger] {
+				trigger->setUnused();
+			});
 
 			trigger_failure(tdbb, trigger);
 		}

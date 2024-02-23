@@ -923,7 +923,7 @@ Jrd::Request* Attachment::findSystemRequest(thread_db* tdbb, USHORT id, Internal
 			// Msg363 "request depth exceeded. (Recursive definition?)"
 		}
 
-		Request* clone = statement->getRequest(tdbb, n, true);
+		Request* clone = statement->getRequest(tdbb, n);
 
 		if (!(clone->req_flags & (req_active | req_reserved)))
 		{

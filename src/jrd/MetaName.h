@@ -347,7 +347,7 @@ protected:
 	static void adjustLength(const char* const s, FB_SIZE_T& l);
 };
 
-bool operator==(const char* s, const MetaName& m)
+inline bool operator==(const char* s, const MetaName& m)
 {
 	return m.compare(s) == 0;
 }

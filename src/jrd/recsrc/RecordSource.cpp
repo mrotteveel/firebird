@@ -298,7 +298,7 @@ WriteLockResult RecordStream::lockRecord(thread_db* tdbb, bool skipLocked) const
 
 	fb_assert(relation && !relation->rel_view_rse);
 
-	RLCK_reserve_relation(tdbb, transaction, relation, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
 
 	return VIO_writelock(tdbb, rpb, transaction, skipLocked);
 }

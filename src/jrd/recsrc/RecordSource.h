@@ -360,8 +360,8 @@ namespace Jrd
 		};
 
 	public:
-		ProcedureScan(CompilerScratch* csb, const Firebird::string& alias, StreamType stream,
-					  const SubRoutine<jrd_prc>& procedure, const ValueListNode* sourceList,
+		ProcedureScan(thread_db* tdbb, CompilerScratch* csb, const Firebird::string& alias,
+					  StreamType stream, const SubRoutine<jrd_prc>& procedure, const ValueListNode* sourceList,
 					  const ValueListNode* targetList, MessageNode* message);
 
 		void close(thread_db* tdbb) const override;
@@ -383,7 +383,7 @@ namespace Jrd
 						  const UCHAR* msg, const dsc* to_desc, SSHORT to_id, Record* record) const;
 
 		const Firebird::string m_alias;
-		const jrd_prc* const m_procedure;
+		const SubRoutine<jrd_prc> m_procedure;
 		const ValueListNode* m_sourceList;
 		const ValueListNode* m_targetList;
 		NestConst<MessageNode> const m_message;

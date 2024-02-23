@@ -489,6 +489,7 @@ public:
 	bool isView() const;
 	bool isVirtual() const;
 	bool isSystem() const;
+	bool isReplicating(thread_db* tdbb);
 
 	void scan(thread_db* tdbb, CacheObject::Flag flags);		// Scan the newly loaded relation for meta data
 	void scan_partners(thread_db* tdbb);						// Foreign keys scan - impl. in met.epp
@@ -838,6 +839,11 @@ inline bool jrd_rel::isVirtual() const
 inline bool jrd_rel::isSystem() const
 {
 	return rel_perm->isSystem();
+}
+
+inline bool jrd_rel::isReplicating(thread_db* tdbb)
+{
+	return rel_perm->isReplicating(tdbb);
 }
 
 

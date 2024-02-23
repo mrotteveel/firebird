@@ -134,7 +134,7 @@ public:
 public:
 	static DmlNode* parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp);
 
-	static void validateTarget(CompilerScratch* csb, const ValueExprNode* target);
+	static void validateTarget(thread_db* tdbb, CompilerScratch* csb, const ValueExprNode* target);
 	static void dsqlValidateTarget(const ValueExprNode* target);
 
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;

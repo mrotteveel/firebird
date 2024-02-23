@@ -215,7 +215,7 @@ Request* CMP_compile_request(thread_db* tdbb, const UCHAR* blr, ULONG blrLength,
 	SET_TDBB(tdbb);
 
 	auto statement = CMP_compile(tdbb, blr, blrLength, internalFlag, 0, nullptr);
-	auto request = statement->getRequest(tdbb, 0);
+	auto request = statement->makeRootRequest(tdbb);
 
 	return request;
 }
@@ -375,7 +375,7 @@ ItemInfo* CMP_pass2_validation(thread_db* tdbb, CompilerScratch* csb, const Item
 }
 
 
-void CMP_post_procedure_access(thread_db* tdbb, CompilerScratch* csb, Rsc::Proc proc)
+void CMP_post_procedure_access(thread_db* tdbb, CompilerScratch* csb, Cached::Procedure* proc)
 {
 /**************************************
  *
@@ -399,21 +399,21 @@ void CMP_post_procedure_access(thread_db* tdbb, CompilerScratch* csb, Rsc::Proc 
 		return;
 
 	// this request must have EXECUTE permission on the stored procedure
-	if (proc()->getName().package.isEmpty())
+	if (proc->getName().package.isEmpty())
 	{
-		CMP_post_access(tdbb, csb, proc()->getSecurityName(),
+		CMP_post_access(tdbb, csb, proc->getSecurityName(),
 			(csb->csb_view ? csb->csb_view()->getId() : 0),
-			SCL_execute, obj_procedures, proc()->getName().identifier);
+			SCL_execute, obj_procedures, proc->getName().identifier);
 	}
 	else
 	{
-		CMP_post_access(tdbb, csb, proc()->getSecurityName(),
+		CMP_post_access(tdbb, csb, proc->getSecurityName(),
 			(csb->csb_view ? csb->csb_view()->getId() : 0),
-			SCL_execute, obj_packages, proc()->getName().package);
+			SCL_execute, obj_packages, proc->getName().package);
 	}
 
 	// Add the procedure to list of external objects accessed
-	ExternalAccess temp(ExternalAccess::exa_procedure, proc()->getId());
+	ExternalAccess temp(ExternalAccess::exa_procedure, proc->getId());
 	FB_SIZE_T idx;
 	if (!csb->csb_external.find(temp, idx))
 		csb->csb_external.insert(idx, temp);

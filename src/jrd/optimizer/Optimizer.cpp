@@ -376,19 +376,16 @@ namespace
 		return false;
 	}
 
-	double getCardinality(thread_db* tdbb, jrd_rel* relation, const Format* format)
+	double getCardinality(thread_db* tdbb, const Rsc::Rel& relation, const Format* format)
 	{
 		// Return the estimated cardinality for the given relation
 
 		double cardinality = DEFAULT_CARDINALITY;
 
-		if (relation->rel_file)
-			cardinality = EXT_cardinality(tdbb, relation);
-		else if (!relation->isVirtual())
-		{
-			ExistenceGuard g(tdbb, relation->rel_existence_lock);
-			cardinality = DPM_cardinality(tdbb, relation, format);
-		}
+		if (auto* extFile = relation()->getExtFile())
+			cardinality = extFile->getCardinality(tdbb, relation(tdbb));
+		else if (!relation()->isVirtual())
+			cardinality = DPM_cardinality(tdbb, relation(tdbb), format);
 
 		return MAX(cardinality, MINIMUM_CARDINALITY);
 	}
@@ -1021,9 +1018,9 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 
 			fb_assert(tail->csb_relation);
 
-			CMP_post_access(tdbb, csb, tail->csb_relation->rel_security_name,
-				tail->csb_view ? tail->csb_view->getId() : 0,
-				SCL_update, obj_relations, tail->csb_relation->getName());
+			CMP_post_access(tdbb, csb, tail->csb_relation()->getSecurityName(),
+				tail->csb_view ? tail->csb_view()->getId() : 0,
+				SCL_update, obj_relations, tail->csb_relation()->getName());
 		}
 
 		rsb = FB_NEW_POOL(getPool()) LockedStream(csb, rsb, rse->hasSkipLocked());
@@ -1066,17 +1063,17 @@ void Optimizer::compileRelation(StreamType stream)
 
 	tail->csb_idx = nullptr;
 
-	if (needIndices && !relation->rel_file && !relation->isVirtual())
+	if (needIndices && !relation()->getExtFile() && !relation()->isVirtual())
 	{
-		const auto relPages = relation->getPages(tdbb);
+		const auto relPages = relation()->getPages(tdbb);
 		IndexDescList idxList;
-		BTR_all(tdbb, relation, idxList, relPages);
+		BTR_all(tdbb, relation(), idxList, relPages);
 
 		if (idxList.hasData())
 			tail->csb_idx = FB_NEW_POOL(getPool()) IndexDescList(getPool(), idxList);
 
 		if (tail->csb_plan)
-			markIndices(tail, relation->getId());
+			markIndices(tail, relation()->getId());
 	}
 
 	const auto format = CMP_format(tdbb, csb, stream);
@@ -1358,9 +1355,9 @@ SortedStream* Optimizer::generateSort(const StreamList& streams,
 			const auto relation = csb->csb_rpt[item.stream].csb_relation;
 
 			if (relation &&
-				!relation->rel_file &&
-				!relation->rel_view_rse &&
-				!relation->isVirtual())
+				!relation()->getExtFile() &&
+				!relation()->isView() &&
+				!relation()->isVirtual())
 			{
 				item.desc = nullptr;
 				--fieldCount;
@@ -1656,7 +1653,7 @@ void Optimizer::checkIndices()
 				((idx.idx_runtime_flags & idx_plan_navigate) && !(idx.idx_runtime_flags & idx_navigate)))
 			{
 				if (relation)
-					MetadataCache::lookup_index(tdbb, index_name, relation->getName(), (USHORT) (idx.idx_id + 1));
+					MetadataCache::lookup_index(tdbb, index_name, relation()->getName(), (USHORT) (idx.idx_id + 1));
 				else
 					index_name = "";
 
@@ -2680,7 +2677,7 @@ RecordSource* Optimizer::generateRetrieval(StreamType stream,
 										   BoolExprNode** returnBoolean)
 {
 	const auto tail = &csb->csb_rpt[stream];
-	const auto relation = tail->csb_relation;
+	const auto relation = tail->csb_relation(tdbb);
 	fb_assert(relation);
 
 	const string alias = makeAlias(stream);
@@ -2699,7 +2696,7 @@ RecordSource* Optimizer::generateRetrieval(StreamType stream,
 	Array<DbKeyRangeNode*> dbkeyRanges;
 	double scanSelectivity = MAXIMUM_SELECTIVITY;
 
-	if (relation->rel_file)
+	if (relation->getExtFile())
 	{
 		// External table
 		rsb = FB_NEW_POOL(getPool()) ExternalTableScan(csb, alias, stream, relation);
@@ -2948,9 +2945,9 @@ string Optimizer::getStreamName(StreamType stream)
 	string name;
 
 	if (relation)
-		name = relation->getName().c_str();
+		name = relation()->c_name();
 	else if (procedure)
-		name = procedure->getName().toString();
+		name = procedure()->c_name();
 
 	if (alias && alias->hasData())
 	{
@@ -2983,7 +2980,7 @@ string Optimizer::makeAlias(StreamType stream)
 			if (csb_tail->csb_alias)
 				alias_list.push(*csb_tail->csb_alias);
 			else if (csb_tail->csb_relation)
-				alias_list.push(csb_tail->csb_relation->getName().c_str());
+				alias_list.push(csb_tail->csb_relation()->c_name());
 
 			if (!csb_tail->csb_view)
 				break;
@@ -3000,9 +2997,9 @@ string Optimizer::makeAlias(StreamType stream)
 		}
 	}
 	else if (csb_tail->csb_relation)
-		alias = csb_tail->csb_relation->getName().c_str();
+		alias = csb_tail->csb_relation()->c_name();
 	else if (csb_tail->csb_procedure)
-		alias = csb_tail->csb_procedure->getName().toString();
+		alias = csb_tail->csb_procedure()->c_name();
 	//// TODO: LocalTableSourceNode
 	else
 		fb_assert(false);
@@ -3103,9 +3100,9 @@ ValueExprNode* Optimizer::optimizeLikeSimilar(ComparativeBoolNode* cmpNode)
 		return nullptr;
 	}
 
-	HazardPtr<TextType> matchTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(&matchDesc));
+	TextType* matchTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(&matchDesc));
 	CharSet* matchCharset = matchTextType->getCharSet();
-	HazardPtr<TextType> patternTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(patternDesc));
+	TextType* patternTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(patternDesc));
 	CharSet* patternCharset = patternTextType->getCharSet();
 
 	if (cmpNode->blrOp == blr_like)

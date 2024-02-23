@@ -285,6 +285,16 @@ namespace Jrd {
 				return capacity;
 			}
 
+			T* begin()
+			{
+				return &data[0];
+			}
+
+			T* end()
+			{
+				return &data[count];
+			}
+
 			const T& value(FB_SIZE_T i) const
 			{
 				fb_assert(i < count);
@@ -337,17 +347,20 @@ namespace Jrd {
 			}
 		};
 
+		typedef HazardPtr<Generation> ReadAccessor;
+		typedef Generation* WriteAccessor;
+
 		SharedReadVector(MemoryPool& p)
 			: Firebird::PermanentStorage(p),
 			  currentData(Generation::create(getPool(), CAP))
 		{ }
 
-		Generation* writeAccessor()
+		WriteAccessor writeAccessor()
 		{
 			return currentData.load(std::memory_order_acquire);
 		}
 
-		HazardPtr<Generation> readAccessor() const
+		ReadAccessor readAccessor() const
 		{
 			return HazardPtr<Generation>(currentData);
 		}
@@ -723,11 +736,11 @@ public:
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* lock) :
 		Permanent(tdbb, p, id, lock), list(nullptr), resetAt(0), myId(id)
 	{ }
-/*
-	CacheElement() :
-		Permanent(), list(nullptr), resetAt(0), myId(0)
+
+	CacheElement(MemoryPool& p) :
+		Permanent(p), list(nullptr), resetAt(0), myId(0)
 	{ }
- */
+
 	~CacheElement()
 	{
 		delete list.load();

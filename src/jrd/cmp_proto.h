@@ -25,8 +25,9 @@
 #define JRD_CMP_PROTO_H
 
 #include "../jrd/req.h"
-// req.h includes exe.h => Jrd::CompilerScratch and Jrd::CompilerScratch::csb_repeat, Jrd::Subroutine
+#include "../jrd/exe.h"
 #include "../jrd/scl.h"
+#include "../jrd/Resources.h"
 
 StreamType* CMP_alloc_map(Jrd::thread_db*, Jrd::CompilerScratch*, StreamType stream);
 Jrd::ValueExprNode* CMP_clone_node_opt(Jrd::thread_db*, Jrd::CompilerScratch*, Jrd::ValueExprNode*);
@@ -44,7 +45,7 @@ void CMP_post_access(Jrd::thread_db*, Jrd::CompilerScratch*, const Jrd::MetaName
 					 Jrd::SecurityClass::flags_t, ObjectType obj_type, const Jrd::MetaName&,
 					 const Jrd::MetaName& = "");
 
-void CMP_post_procedure_access(Jrd::thread_db*, Jrd::CompilerScratch*, Jrd::SubRoutine<Jrd::jrd_prc>);
+void CMP_post_procedure_access(Jrd::thread_db*, Jrd::CompilerScratch*, Jrd::Cached::Procedure*);
 Jrd::RecordSource* CMP_post_rse(Jrd::thread_db*, Jrd::CompilerScratch*, Jrd::RseNode*);
 void CMP_release(Jrd::thread_db*, Jrd::Request*);
 

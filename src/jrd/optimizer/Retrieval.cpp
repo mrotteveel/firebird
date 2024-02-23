@@ -149,7 +149,7 @@ Retrieval::Retrieval(thread_db* aTdbb, Optimizer* opt, StreamType streamNumber,
 	const auto dbb = tdbb->getDatabase();
 
 	const auto tail = &csb->csb_rpt[stream];
-	relation = tail->csb_relation;
+	relation = tail->csb_relation(tdbb);
 	fb_assert(relation);
 
 	if (!tail->csb_idx)
@@ -242,7 +242,7 @@ InversionCandidate* Retrieval::getInversion()
 
 	InversionCandidate* invCandidate = nullptr;
 
-	if (relation && !relation->rel_file && !relation->isVirtual())
+	if (relation && !relation->getExtFile() && !relation->isVirtual())
 	{
 		InversionCandidateList inversions;
 
@@ -847,9 +847,10 @@ void Retrieval::getInversionCandidates(InversionCandidateList& inversions,
 
 				if (iType >= idx_first_intl_string)
 				{
+					auto textType = INTL_texttype_lookup(tdbb, INTL_INDEX_TO_TEXT(iType));
+
 					if (segment.scanType != segmentScanMissing && !(idx->idx_flags & idx_unique))
 					{
-						auto textType = INTL_texttype_lookup(tdbb, INTL_INDEX_TO_TEXT(iType));
 						if (textType->getFlags() & TEXTTYPE_SEPARATE_UNIQUE)
 						{
 							// ASF: Order is more precise than equivalence class.
@@ -1064,6 +1065,8 @@ InversionNode* Retrieval::makeIndexScanNode(IndexScratch* indexScratch) const
 
 	index_desc* const idx = indexScratch->index;
 
+/*
+ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	// Check whether this is during a compile or during a SET INDEX operation
 	if (csb)
 		csb->csb_resources.postResource(tdbb, Resource::rsc_index, relation, idx->idx_id);
@@ -1072,6 +1075,7 @@ InversionNode* Retrieval::makeIndexScanNode(IndexScratch* indexScratch) const
 		auto& resources = tdbb->getRequest()->getStatement()->resources;
 		resources.postIndex(tdbb, relation, idx->idx_id);
 	}
+ */
 
 	// For external requests, determine index name (to be reported in plans)
 	MetaName indexName;

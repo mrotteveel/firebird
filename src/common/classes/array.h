@@ -177,6 +177,15 @@ public:
 		return *this;
 	}
 
+	template <typename T2, typename S2 >
+	Array& operator =(const Array<T2, S2>& source)
+	{
+		ensureCapacity(source.getCount(), false);
+		for (size_type index = 0; index < count; ++index)
+			data[index] = source[index];
+		return *this;
+	}
+
 	const T& operator[](size_type index) const throw()
 	{
   		return getElement(index);

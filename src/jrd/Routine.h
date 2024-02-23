@@ -94,15 +94,15 @@ namespace Jrd
 	class Routine : public CacheObject
 	{
 	protected:
-		explicit Routine(RoutinePermanent* perm)
+		explicit Routine(MemoryPool& p)
 			: statement(NULL),
 			  implemented(true),
 			  defined(true),
 			  defaultCount(0),
 			  inputFormat(NULL),
 			  outputFormat(NULL),
-			  inputFields(perm->getPool()),
-			  outputFields(perm->getPool()),
+			  inputFields(p),
+			  outputFields(p),
 			  flags(0),
 			  invoker(NULL)
 		{

@@ -48,7 +48,7 @@ namespace Jrd
 
 	private:
 		explicit Function(Cached::Function* perm)
-			: Routine(perm),
+			: Routine(perm->getPool()),
 			  cachedFunction(perm),
 			  fun_entrypoint(NULL),
 			  fun_inputs(0),
@@ -59,10 +59,11 @@ namespace Jrd
 			  fun_external(NULL)
 		{
 		}
-/* ????????????????
-private:
-		Function(MemoryPool& p, MetaId id)
-			: Routine(p, id),
+
+	public:
+		Function(MemoryPool& p)
+			: Routine(p),
+			  cachedFunction(FB_NEW_POOL(p) Cached::Function(p)),
 			  fun_entrypoint(NULL),
 			  fun_inputs(0),
 			  fun_return_arg(0),
@@ -72,8 +73,7 @@ private:
 			  fun_external(NULL)
 		{
 		}
- */
-	public:
+
 		static Function* create(thread_db* tdbb, MemoryPool& pool, Cached::Function* perm);
 		void scan(thread_db* tdbb, CacheObject::Flag flags);
 

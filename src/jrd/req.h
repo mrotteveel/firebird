@@ -91,8 +91,25 @@ struct RecordParameterBase
 	USHORT rpb_runtime_flags;		// runtime flags
 	SSHORT rpb_org_scans;			// relation scan count at stream open
 
+	RecordParameterBase& operator=(const RecordParameterBase&) = default;
+	void assign(const RecordParameterBase& from)
+	{
+		*this = from;
+	}
+
 protected:
 	struct win rpb_window;
+};
+
+struct RecordParameter : public RecordParameterBase
+{
+	RecordParameter()
+		: RecordParameterBase(), rpb_relation()
+	{ }
+
+	WIN& getWindow(thread_db* tdbb);	// in Statement.cpp
+
+	Rsc::Rel	rpb_relation;		// relation of record
 };
 
 struct record_param : public RecordParameterBase
@@ -111,17 +128,13 @@ struct record_param : public RecordParameterBase
 	}
 
 	jrd_rel*	rpb_relation;		// relation of record
-};
 
-struct RecordParameter : public RecordParameterBase
-{
-	RecordParameter()
-		: RecordParameterBase(), rpb_relation()
-	{ }
-
-	WIN& getWindow(thread_db* tdbb);	// in Statement.cpp
-
-	Rsc::Rel	rpb_relation;		// relation of record
+	// rpb_relation is not assigned here!!!
+	record_param& operator=(const RecordParameter& from)
+	{
+		assign(from);
+		return *this;
+	}
 };
 
 // Record flags must be an exact replica of ODS record header flags
@@ -323,7 +336,7 @@ private:
 	};
 
 public:
-	Request(Firebird::AutoMemoryPool& pool, Attachment* attachment, /*const*/ Statement* aStatement);
+	Request(Firebird::AutoMemoryPool& pool, Database* dbb, /*const*/ Statement* aStatement);
 
 	Statement* getStatement()
 	{
@@ -358,13 +371,15 @@ public:
 		req_id = id;
 	}
 
-	void setUsed(bool inUse);
-	bool isUsed();
+	bool setUsed();
+	void setUnused();
+	bool isUsed() const;
 
 private:
 	Statement* const statement;
 	mutable StmtNumber	req_id;			// request identifier
 	TimeStampCache req_timeStampCache;	// time stamp cache
+	std::atomic<bool> req_inUse;
 
 public:
 	MemoryPool* req_pool;
@@ -422,7 +437,20 @@ public:
 	SnapshotData req_snapshot;
 	StatusXcp req_last_xcp;			// last known exception
 	bool req_batch_mode;
-	Firebird::RefPtr<VersionedObjects> resources;
+
+private:
+	Firebird::RefPtr<VersionedObjects> req_resources;
+
+public:
+	const Firebird::RefPtr<VersionedObjects>& getResources()
+	{
+		return req_resources;
+	}
+
+	void setResources(Firebird::RefPtr<VersionedObjects>& r)
+	{
+		req_resources = r;
+	}
 
 	enum req_s {
 		req_evaluate,

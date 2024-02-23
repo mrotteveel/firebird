@@ -597,11 +597,11 @@ bool BTR_check_condition(Jrd::thread_db* tdbb, Jrd::index_desc* idx, Jrd::Record
 	}
 
 	EXE_unwind(tdbb, conditionRequest);
-	conditionRequest->setUsed(false);
 	conditionRequest->req_attachment = nullptr;
 
-	tdbb->setRequest(orgRequest);
+	conditionRequest->setUnused();
 
+	tdbb->setRequest(orgRequest);
 	status.check();
 
 	return result;
@@ -659,10 +659,10 @@ DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool&
 		tdbb->setRequest(org_request);
 
 		expr_request->req_caller = NULL;
-		expr_request->setUsed(false);
 		expr_request->req_attachment = NULL;
 		expr_request->invalidateTimeStamp();
 
+		expr_request->setUnused();
 		throw;
 	}
 
@@ -670,10 +670,10 @@ DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool&
 	tdbb->setRequest(org_request);
 
 	expr_request->req_caller = NULL;
-	expr_request->setUsed(false);
 	expr_request->req_attachment = NULL;
 	expr_request->invalidateTimeStamp();
 
+	expr_request->setUnused();
 	return result;
 }
 

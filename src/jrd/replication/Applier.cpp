@@ -549,11 +549,10 @@ void Applier::insertRecord(thread_db* tdbb, TraNumber traNum,
 
 	TRA_attach_request(transaction, m_request);
 
-	auto rel = MetadataCache::lookup_relation(tdbb, relName);
-	if (!rel)
+	const auto relation = MetadataCache::lookup_relation(tdbb, relName);
+	if (!relation)
 		raiseError("Table %s is not found", relName.c_str());
 
-	const auto relation = rel.getPointer();
 	const auto format = findFormat(tdbb, relation, length);
 
 	record_param rpb;
@@ -683,11 +682,10 @@ void Applier::updateRecord(thread_db* tdbb, TraNumber traNum,
 
 	TRA_attach_request(transaction, m_request);
 
-	auto rel = MetadataCache::lookup_relation(tdbb, relName);
-	if (!rel)
+	const auto relation = MetadataCache::lookup_relation(tdbb, relName);
+	if (!relation)
 		raiseError("Table %s is not found", relName.c_str());
 
-	const auto relation = rel.getPointer();
 	const auto orgFormat = findFormat(tdbb, relation, orgLength);
 
 	record_param orgRpb;
@@ -822,11 +820,10 @@ void Applier::deleteRecord(thread_db* tdbb, TraNumber traNum,
 
 	TRA_attach_request(transaction, m_request);
 
-	auto rel = MetadataCache::lookup_relation(tdbb, relName);
-	if (!rel)
+	const auto relation = MetadataCache::lookup_relation(tdbb, relName);
+	if (!relation)
 		raiseError("Table %s is not found", relName.c_str());
 
-	const auto relation = rel.getPointer();
 	const auto format = findFormat(tdbb, relation, length);
 
 	record_param rpb;
@@ -1109,7 +1106,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 
 	const auto transaction = tdbb->getTransaction();
 
-	RLCK_reserve_relation(tdbb, transaction, relation, false);
+	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, false);
 
 	record_param rpb;
 	rpb.rpb_relation = relation;
@@ -1154,7 +1151,7 @@ const Format* Applier::findFormat(thread_db* tdbb, jrd_rel* relation, ULONG leng
 	auto format = MET_current(tdbb, relation);
 
 	while (format->fmt_length != length && format->fmt_version)
-		format = MET_format(tdbb, relation, format->fmt_version - 1);
+		format = MET_format(tdbb, relation->rel_perm, format->fmt_version - 1);
 
 	if (format->fmt_length != length)
 	{
@@ -1173,7 +1170,7 @@ void Applier::doInsert(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 	const auto format = record->getFormat();
 	const auto relation = rpb->rpb_relation;
 
-	RLCK_reserve_relation(tdbb, transaction, relation, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
 
 	for (USHORT id = 0; id < format->fmt_count; id++)
 	{
@@ -1256,7 +1253,7 @@ void Applier::doUpdate(thread_db* tdbb, record_param* orgRpb, record_param* newR
 	const auto format = newRecord->getFormat();
 	const auto relation = newRpb->rpb_relation;
 
-	RLCK_reserve_relation(tdbb, transaction, relation, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
 
 	for (USHORT id = 0; id < format->fmt_count; id++)
 	{
@@ -1346,7 +1343,7 @@ void Applier::doDelete(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 {
 	fb_assert(!(transaction->tra_flags & TRA_system));
 
-	RLCK_reserve_relation(tdbb, transaction, rpb->rpb_relation, true);
+	RLCK_reserve_relation(tdbb, transaction, rpb->rpb_relation->rel_perm, true);
 
 	Savepoint::ChangeMarker marker(transaction->tra_save_point);
 

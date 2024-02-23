@@ -5036,13 +5036,13 @@ int Trigger::release(thread_db* tdbb)
 	retire();
 	return 0;
 }
-*/
 
 
-bool Trigger::isActive() const
+bool Trigger::isActive() const ?????????????????????
 {
 	return statement && statement->isActive();
 }
+*/
 
 void Trigger::compile(thread_db* tdbb)
 {

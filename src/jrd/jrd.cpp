@@ -670,7 +670,7 @@ namespace
 		if (!statement)
 			status_exception::raise(Arg::Gds(isc_bad_req_handle));
 
-		validateHandle(tdbb, statement->requests[0]->req_attachment);
+		validateHandle(tdbb, statement->makeRootRequest(tdbb)->req_attachment);		// ????????????????
 	}
 
 	inline void validateHandle(thread_db* tdbb, DsqlRequest* const statement)
@@ -1207,7 +1207,6 @@ static bool			drop_files(const jrd_file*);
 static void			find_intl_charset(thread_db*, Jrd::Attachment*, const DatabaseOptions*);
 static void			init_database_lock(thread_db*);
 static void			run_commit_triggers(thread_db* tdbb, jrd_tra* transaction);
-static Request*		verify_request_synchronization(Statement* statement, USHORT level);
 static void			purge_transactions(thread_db*, Jrd::Attachment*, const bool);
 static void			check_single_maintenance(thread_db* tdbb);
 
@@ -2593,7 +2592,7 @@ JRequest* JAttachment::compileRequest(CheckStatusWrapper* user_status,
 			stmt = CMP_compile(tdbb, blr, blr_length, false, 0, nullptr);
 
 			const auto attachment = tdbb->getAttachment();
-			const auto rootRequest = stmt->getRequest(tdbb, 0);
+			const auto rootRequest = stmt->makeRootRequest(tdbb);
 			rootRequest->setAttachment(attachment);
 			attachment->att_requests.add(rootRequest);
 
@@ -3793,7 +3792,7 @@ void JRequest::receive(CheckStatusWrapper* user_status, int level, unsigned int 
 		EngineContextHolder tdbb(user_status, this, FB_FUNCTION);
 		check_database(tdbb);
 
-		Request* request = verify_request_synchronization(getHandle(), level);
+		Request* request = getHandle()->verifyRequestSynchronization(level);
 
 		try
 		{
@@ -3930,7 +3929,7 @@ void JRequest::getInfo(CheckStatusWrapper* user_status, int level, unsigned int 
 		EngineContextHolder tdbb(user_status, this, FB_FUNCTION);
 		check_database(tdbb);
 
-		Request* request = verify_request_synchronization(getHandle(), level);
+		Request* request = getHandle()->verifyRequestSynchronization(level);
 
 		try
 		{
@@ -4133,7 +4132,7 @@ void JRequest::send(CheckStatusWrapper* user_status, int level, unsigned int msg
 		EngineContextHolder tdbb(user_status, this, FB_FUNCTION);
 		check_database(tdbb);
 
-		Request* request = verify_request_synchronization(getHandle(), level);
+		Request* request = getHandle()->verifyRequestSynchronization(level);
 
 		try
 		{
@@ -4861,7 +4860,7 @@ void JRequest::unwind(CheckStatusWrapper* user_status, int level)
 		EngineContextHolder tdbb(user_status, this, FB_FUNCTION);
 		check_database(tdbb);
 
-		Request* request = verify_request_synchronization(getHandle(), level);
+		Request* request = getHandle()->verifyRequestSynchronization(level);
 
 		try
 		{
@@ -8367,29 +8366,6 @@ static void run_commit_triggers(thread_db* tdbb, jrd_tra* transaction)
 	EXE_execute_db_triggers(tdbb, transaction, TRIGGER_TRANS_COMMIT);
 
 	savePoint.release();
-}
-
-
-// verify_request_synchronization
-//
-// @brief Finds the sub-requests at the given level and replaces it with the
-// original passed request (note the pointer by reference). If that specific
-// sub-request is not found, throw the dreaded "request synchronization error".
-// Notice that at this time, the calling function's "request" pointer has been
-// set to null, so remember that if you write a debugging routine.
-// This function replaced a chunk of code repeated four times.
-//
-// @param request The incoming, parent request to be replaced.
-// @param level The level of the sub-request we need to find.
-static Request* verify_request_synchronization(Statement* statement, USHORT level)
-{
-	if (level)
-	{
-		if (level >= statement->requests.getCount() || !statement->requests[level])
-			ERR_post(Arg::Gds(isc_req_sync));
-	}
-
-	return statement->requests[level];
 }
 
 

@@ -1239,7 +1239,7 @@ void ProcedureSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, Rse
 	pass1(tdbb, csb);
 
 	if (!procedure.isSubRoutine())
-		CMP_post_procedure_access(tdbb, csb, procedure);
+		CMP_post_procedure_access(tdbb, csb, procedure());
 
 	Rsc::Rel const parentView = csb->csb_view;
 	const StreamType viewStream = csb->csb_view_stream;
@@ -1285,7 +1285,7 @@ RecordSource* ProcedureSourceNode::compile(thread_db* tdbb, Optimizer* opt, bool
 	const auto csb = opt->getCompilerScratch();
 	const string alias = opt->makeAlias(stream);
 
-	return FB_NEW_POOL(*tdbb->getDefaultPool()) ProcedureScan(csb, alias, stream, procedure,
+	return FB_NEW_POOL(*tdbb->getDefaultPool()) ProcedureScan(tdbb, csb, alias, stream, procedure,
 		sourceList, targetList, in_msg);
 }
 

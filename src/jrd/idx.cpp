@@ -244,7 +244,7 @@ public:
 		m_tdbb_flags(tdbb->tdbb_flags),
 		m_flags(0),
 		m_creation(creation),
-		m_sorts(*m_pool),
+		m_sorts(*m_pool, tdbb->getDatabase()),
 		m_items(*m_pool),
 		m_stop(false),
 		m_countPP(0),

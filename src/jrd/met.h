@@ -109,10 +109,19 @@ private:
 
 public:
 	explicit jrd_prc(Cached::Procedure* perm)
-		: Routine(perm),
+		: Routine(perm->getPool()),
 		  prc_record_format(NULL),
 		  prc_type(prc_legacy),
 		  cachedProcedure(perm),
+		  prc_external(NULL)
+	{
+	}
+
+	explicit jrd_prc(MemoryPool& p)
+		: Routine(p),
+		  prc_record_format(NULL),
+		  prc_type(prc_legacy),
+		  cachedProcedure(FB_NEW_POOL(p) Cached::Procedure(p)),
 		  prc_external(NULL)
 	{
 	}
@@ -214,6 +223,7 @@ class MetadataCache : public Firebird::PermanentStorage
 public:
 	MetadataCache(MemoryPool& pool)
 		: Firebird::PermanentStorage(pool),
+		  mdc_generators(getPool()),
 		  mdc_relations(getPool()),
 		  mdc_procedures(getPool()),
 		  mdc_functions(getPool()),
@@ -330,7 +340,81 @@ public:
 		return ++mdc_version;
 	}
 
+	SLONG lookupSequence(thread_db*, const MetaName& genName)
+	{
+		return mdc_generators.lookup(genName);
+	}
+
+	void setSequence(thread_db*, SLONG id, const MetaName& name)
+	{
+		mdc_generators.store(id, name);
+	}
+
+	bool getSequence(thread_db*, SLONG id, MetaName& name)
+	{
+		return mdc_generators.lookup(id, name);
+	}
+
 private:
+	class GeneratorFinder
+	{
+		typedef Firebird::MutexLockGuard Guard;
+
+	public:
+		explicit GeneratorFinder(MemoryPool& pool)
+			: m_objects(pool)
+		{}
+
+		void store(SLONG id, const MetaName& name)
+		{
+			fb_assert(id >= 0);
+			fb_assert(name.hasData());
+
+			Guard g(m_tx, FB_FUNCTION);
+
+			if (id < (int) m_objects.getCount())
+			{
+				fb_assert(m_objects[id].isEmpty());
+				m_objects[id] = name;
+			}
+			else
+			{
+				m_objects.resize(id + 1);
+				m_objects[id] = name;
+			}
+		}
+
+		bool lookup(SLONG id, MetaName& name)
+		{
+			Guard g(m_tx, FB_FUNCTION);
+
+			if (id < (int) m_objects.getCount() && m_objects[id].hasData())
+			{
+				name = m_objects[id];
+				return true;
+			}
+
+			return false;
+		}
+
+		SLONG lookup(const MetaName& name)
+		{
+			Guard g(m_tx, FB_FUNCTION);
+
+			FB_SIZE_T pos;
+
+			if (m_objects.find(name, pos))
+				return (SLONG) pos;
+
+			return -1;
+		}
+
+	private:
+		Firebird::Array<MetaName> m_objects;
+		Firebird::Mutex m_tx;
+	};
+
+	GeneratorFinder						mdc_generators;
 	CacheVector<Cached::Relation>		mdc_relations;
 	CacheVector<Cached::Procedure>		mdc_procedures;
 	CacheVector<Cached::Function>		mdc_functions;	// User defined functions

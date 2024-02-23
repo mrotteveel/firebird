@@ -41,10 +41,10 @@ using namespace Jrd;
 // Data access: procedure scan
 // ---------------------------
 
-ProcedureScan::ProcedureScan(CompilerScratch* csb, const string& alias, StreamType stream,
-							 const jrd_prc* procedure, const ValueListNode* sourceList,
+ProcedureScan::ProcedureScan(thread_db* tdbb, CompilerScratch* csb, const string& alias, StreamType stream,
+							 const SubRoutine<jrd_prc>& procedure, const ValueListNode* sourceList,
 							 const ValueListNode* targetList, MessageNode* message)
-	: RecordStream(csb, stream, procedure->prc_record_format), m_alias(csb->csb_pool, alias),
+	: RecordStream(csb, stream, procedure(tdbb)->prc_record_format), m_alias(csb->csb_pool, alias),
 	  m_procedure(procedure), m_sourceList(sourceList), m_targetList(targetList), m_message(message)
 {
 	m_impure = csb->allocImpure<Impure>();
@@ -58,20 +58,20 @@ ProcedureScan::ProcedureScan(CompilerScratch* csb, const string& alias, StreamTy
 
 void ProcedureScan::internalOpen(thread_db* tdbb) const
 {
-	if (!m_procedure->isImplemented())
+	if (!m_procedure(tdbb)->isImplemented())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_proc_pack_not_implemented) <<
-				Arg::Str(m_procedure->getName().identifier) << Arg::Str(m_procedure->getName().package));
+				Arg::Str(m_procedure()->getName().identifier) << Arg::Str(m_procedure()->getName().package));
 	}
-	else if (!m_procedure->isDefined())
+	else if (!m_procedure(tdbb)->isDefined())
 	{
 		status_exception::raise(
-			Arg::Gds(isc_prcnotdef) << Arg::Str(m_procedure->getName().toString()) <<
+			Arg::Gds(isc_prcnotdef) << Arg::Str(m_procedure()->getName().toString()) <<
 			Arg::Gds(isc_modnotfound));
 	}
 
-	const_cast<jrd_prc*>(m_procedure)->checkReload(tdbb);
+//	????????????? const_cast<jrd_prc*>(m_procedure)->checkReload(tdbb);
 
 	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
@@ -107,7 +107,7 @@ void ProcedureScan::internalOpen(thread_db* tdbb) const
 		im = NULL;
 	}
 
-	Request* const proc_request = m_procedure->getStatement()->findRequest(tdbb);
+	Request* const proc_request = m_procedure(request->getResources())->getStatement()->findRequest(tdbb);
 	impure->irsb_req_handle = proc_request;
 
 	// req_proc_fetch flag used only when fetching rows, so
@@ -158,9 +158,10 @@ void ProcedureScan::close(thread_db* tdbb) const
 		if (proc_request)
 		{
 			EXE_unwind(tdbb, proc_request);
-			proc_request->req_flags &= ~req_in_use;
 			impure->irsb_req_handle = NULL;
 			proc_request->req_attachment = NULL;
+
+			proc_request->setUnused();
 		}
 
 		delete [] impure->irsb_message;
@@ -172,10 +173,12 @@ bool ProcedureScan::internalGetRecord(thread_db* tdbb) const
 {
 	JRD_reschedule(tdbb);
 
-	UserId* invoker = m_procedure->invoker ? m_procedure->invoker : tdbb->getAttachment()->att_ss_user;
+	Request* const request = tdbb->getRequest();
+	jrd_prc* proc = m_procedure(request->getResources());
+
+	UserId* invoker = proc->invoker ? proc->invoker : tdbb->getAttachment()->att_ss_user;
 	AutoSetRestore<UserId*> userIdHolder(&tdbb->getAttachment()->att_ss_user, invoker);
 
-	Request* const request = tdbb->getRequest();
 	record_param* const rpb = &request->req_rpb[m_stream];
 	Impure* const impure = request->getImpure<Impure>(m_impure);
 
@@ -185,7 +188,7 @@ bool ProcedureScan::internalGetRecord(thread_db* tdbb) const
 		return false;
 	}
 
-	const Format* const msg_format = m_procedure->getOutputFormat();
+	const Format* const msg_format = proc->getOutputFormat();
 	const ULONG oml = msg_format->fmt_length;
 	UCHAR* om = impure->irsb_message;
 
@@ -258,7 +261,7 @@ void ProcedureScan::print(thread_db* tdbb, string& plan, bool detailed, unsigned
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Procedure " +
-			printName(tdbb, m_procedure->getName().toString(), m_alias) + " Scan";
+			printName(tdbb, m_procedure()->getName().toString(), m_alias) + " Scan";
 		printOptInfo(plan);
 	}
 	else
