@@ -560,7 +560,7 @@ void EXE_execute_ddl_triggers(thread_db* tdbb, jrd_tra* transaction, bool preTri
 
 	if (cachedTriggers && *cachedTriggers)
 	{
-		Triggers triggers;
+		Triggers triggers(*(transaction->tra_pool));
 
 		for (auto t : *cachedTriggers)
 		{

@@ -153,7 +153,7 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, jrd_rel* view, jrd_
 			index_root_page* referenced_root =
 				(index_root_page*) CCH_FETCH(tdbb, &referenced_window, LCK_read, pag_root);
 			index_desc referenced_idx;
-			if (!BTR_description(tdbb, referenced_relation, referenced_root,
+			if (!BTR_description(tdbb, referenced_relation->rel_perm, referenced_root,
 								 &referenced_idx, index_id))
 			{
 				CCH_RELEASE(tdbb, &referenced_window);
@@ -209,7 +209,7 @@ bool IDX_check_master_types(thread_db* tdbb, index_desc& idx, jrd_rel* partner_r
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
 
 	// get the description of the partner index
-	const bool ok = BTR_description(tdbb, partner_relation, root, &partner_idx, idx.idx_primary_index);
+	const bool ok = BTR_description(tdbb, partner_relation->rel_perm, root, &partner_idx, idx.idx_primary_index);
 	CCH_RELEASE(tdbb, &window);
 
 	if (!ok)
@@ -555,7 +555,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		CompilerScratch* csb = NULL;
 		Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
 
-		idx->idx_expression = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, relation, &m_exprBlob,
+		idx->idx_expression = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, relation->rel_perm, &m_exprBlob,
 			&csb, &idx->idx_expression_statement, false, false));
 
 		delete csb;
@@ -1156,7 +1156,7 @@ void IDX_garbage_collect(thread_db* tdbb, record_param* rpb, RecordStack& going,
 
 	for (USHORT i = 0; i < root->irt_count; i++)
 	{
-		if (BTR_description(tdbb, rpb->rpb_relation, root, &idx, i))
+		if (BTR_description(tdbb, rpb->rpb_relation->rel_perm, root, &idx, i))
 		{
 			IndexErrorContext context(rpb->rpb_relation, &idx);
 
@@ -1235,7 +1235,7 @@ void IDX_garbage_collect(thread_db* tdbb, record_param* rpb, RecordStack& going,
 				root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
 
 				if (stack1.hasMore(1))
-					BTR_description(tdbb, rpb->rpb_relation, root, &idx, i);
+					BTR_description(tdbb, rpb->rpb_relation->rel_perm, root, &idx, i);
 			}
 		}
 	}
@@ -1826,7 +1826,7 @@ static idx_e check_partner_index(thread_db* tdbb,
 	// get the description of the partner index
 
 	index_desc partner_idx;
-	if (!BTR_description(tdbb, partner_relation, root, &partner_idx, index_id))
+	if (!BTR_description(tdbb, partner_relation->rel_perm, root, &partner_idx, index_id))
 	{
 		CCH_RELEASE(tdbb, &window);
 		BUGCHECK(175);			// msg 175 partner index description not found

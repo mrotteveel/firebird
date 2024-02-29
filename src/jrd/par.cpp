@@ -1047,7 +1047,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 
 				MetaId relation_id;
 				IndexStatus idx_status;
-				const ObjectBase::ReturnedId index_id =
+				const ElementBase::ReturnedId index_id =
 					MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
 
 				if (idx_status == MET_object_unknown || idx_status == MET_object_inactive)
@@ -1117,7 +1117,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 
 					MetaId relation_id;
 					IndexStatus idx_status;
-					const ObjectBase::ReturnedId index_id =
+					const ElementBase::ReturnedId index_id =
 						MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
 
 					if (idx_status == MET_object_unknown || idx_status == MET_object_inactive)

@@ -971,7 +971,7 @@ void Applier::executeSql(thread_db* tdbb,
 						   NULL, NULL, NULL, NULL, false);
 }
 
-bool Applier::lookupKey(thread_db* tdbb, jrd_rel* relation, index_desc& key)
+bool Applier::lookupKey(thread_db* tdbb, Cached::Relation* relation, index_desc& key)
 {
 	RelationPages* const relPages = relation->getPages(tdbb);
 	auto page = relPages->rel_index_root;
@@ -1070,7 +1070,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 		return false;
 	}
 
-	if (lookupKey(tdbb, relation, idx))
+	if (lookupKey(tdbb, relation->rel_perm, idx))
 	{
 		temporary_key key;
 		const auto result = BTR_key(tdbb, relation, record, &idx, &key,

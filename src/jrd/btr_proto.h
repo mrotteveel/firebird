@@ -29,11 +29,11 @@
 #include "../jrd/req.h"
 #include "../jrd/exe.h"
 
-void	BTR_all(Jrd::thread_db*, Jrd::RelationPermanent*, Jrd::IndexDescList&, Jrd::RelationPages*);
+void	BTR_all(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::IndexDescList&, Jrd::RelationPages*);
 void	BTR_complement_key(Jrd::temporary_key*);
 void	BTR_create(Jrd::thread_db*, Jrd::IndexCreation&, Jrd::SelectivityList&);
 bool	BTR_delete_index(Jrd::thread_db*, Jrd::win*, USHORT);
-bool	BTR_description(Jrd::thread_db*, Jrd::jrd_rel*, Ods::index_root_page*, Jrd::index_desc*, USHORT);
+bool	BTR_description(Jrd::thread_db*, Jrd::Cached::Relation*, Ods::index_root_page*, Jrd::index_desc*, USHORT);
 bool	BTR_check_condition(Jrd::thread_db*, Jrd::index_desc*, Jrd::Record*);
 DSC*	BTR_eval_expression(Jrd::thread_db*, Jrd::index_desc*, Jrd::Record*, bool&);
 void	BTR_evaluate(Jrd::thread_db*, const Jrd::IndexRetrieval*, Jrd::RecordBitmap**, Jrd::RecordBitmap*);
@@ -45,7 +45,7 @@ Jrd::idx_e	BTR_key(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::Record*, Jrd::index_desc
 					const USHORT, USHORT = 0);
 USHORT	BTR_key_length(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::index_desc*);
 Ods::btree_page*	BTR_left_handoff(Jrd::thread_db*, Jrd::win*, Ods::btree_page*, SSHORT);
-bool	BTR_lookup(Jrd::thread_db*, Jrd::jrd_rel*, USHORT, Jrd::index_desc*, Jrd::RelationPages*);
+bool	BTR_lookup(Jrd::thread_db*, Jrd::Cached::Relation*, USHORT, Jrd::index_desc*, Jrd::RelationPages*);
 Jrd::idx_e	BTR_make_key(Jrd::thread_db*, USHORT, const Jrd::ValueExprNode* const*, const Jrd::index_desc*,
 						 Jrd::temporary_key*, USHORT);
 void	BTR_make_null_key(Jrd::thread_db*, const Jrd::index_desc*, Jrd::temporary_key*);

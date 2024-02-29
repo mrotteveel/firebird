@@ -40,7 +40,7 @@ using namespace Firebird;
 HazardObject::~HazardObject()
 { }
 
-CacheObject* TRAP = nullptr;
+ObjectBase* TRAP = nullptr;
 
 
 // class TransactionNumber
@@ -70,12 +70,19 @@ MdcVersion VersionSupport::next(thread_db* tdbb)
 }
 
 
-void CacheObject::afterUnlock(thread_db* tdbb, unsigned flags)
-{
-	// do nothing
-}
-
-void CacheObject::lockedExcl [[noreturn]] (thread_db* tdbb)
+void ObjectBase::lockedExcl [[noreturn]] (thread_db* tdbb)
 {
 	fatal_exception::raise("Unspecified object locked exclusive for deletion");
+}
+
+MemoryPool& CachePool::get(thread_db* tdbb)
+{
+	Database* dbb = tdbb->getDatabase();
+	return dbb->dbb_mdc->getPool();
+}
+
+[[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* name, const char* family)
+{
+	fatal_exception::raiseFmt("%s %s%sid=%d busy in another thread - operation failed\n",
+		family, name ? name : "", name ? " " : "", id);
 }

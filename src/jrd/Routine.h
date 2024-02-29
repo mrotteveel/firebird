@@ -59,7 +59,7 @@ namespace Jrd
 			  existenceLock(NULL)
 		{ }
 
-		USHORT getId() const
+		MetaId getId() const
 		{
 			fb_assert(!subRoutine);
 			return id;
@@ -82,7 +82,7 @@ namespace Jrd
 		void releaseLocks(thread_db* tdbb);
 
 	public:
-		USHORT id;							// routine ID
+		MetaId id;							// routine ID
 		QualifiedName name;					// routine name
 		MetaName securityName;				// security class name
 		bool subRoutine;                    // Is this a subroutine?
@@ -91,7 +91,7 @@ namespace Jrd
 		MetaName owner;
 	};
 
-	class Routine : public CacheObject
+	class Routine : public ObjectBase
 	{
 	protected:
 		explicit Routine(MemoryPool& p)
@@ -127,7 +127,7 @@ namespace Jrd
 		}
 
 		const QualifiedName& getName() const { return getPermanent()->getName(); }
-		USHORT getId() const { return getPermanent()->getId(); }
+		MetaId getId() const { return getPermanent()->getId(); }
 		const char* c_name() const override { return getPermanent()->c_name(); }
 
 		/*const*/ Statement* getStatement() const { return statement; }
@@ -164,7 +164,6 @@ namespace Jrd
 		}
 
 		void afterDecrement(Jrd::thread_db*);
-		void afterUnlock(thread_db* tdbb, unsigned fl) override;
 		void releaseStatement(thread_db* tdbb);
 		//void remove(thread_db* tdbb);
 		virtual void releaseExternal()
@@ -176,7 +175,6 @@ namespace Jrd
 	public:
 		virtual int getObjectType() const = 0;
 		virtual SLONG getSclType() const = 0;
-		virtual bool checkCache(thread_db* tdbb) const = 0;
 
 	public:
 		virtual RoutinePermanent* getPermanent() const = 0;	// Permanent part of data

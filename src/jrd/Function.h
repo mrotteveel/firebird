@@ -43,8 +43,8 @@ namespace Jrd
 		static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 		static int blockingAst(void* ast_object);
 
-		static Function* lookup(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
-		static Function* lookup(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
+		static Function* lookup(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+		static Function* lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
 
 	private:
 		explicit Function(Cached::Function* perm)
@@ -75,7 +75,13 @@ namespace Jrd
 		}
 
 		static Function* create(thread_db* tdbb, MemoryPool& pool, Cached::Function* perm);
-		void scan(thread_db* tdbb, CacheObject::Flag flags);
+		void scan(thread_db* tdbb, ObjectBase::Flag flags);
+
+		static const char* objectFamily(void*)
+		{
+			return "function";
+		}
+
 
 	public:
 		virtual int getObjectType() const
@@ -87,8 +93,6 @@ namespace Jrd
 		{
 			return obj_functions;
 		}
-
-		virtual bool checkCache(thread_db* tdbb) const;
 
 	private:
 		virtual ~Function()

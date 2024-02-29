@@ -47,375 +47,363 @@
 
 namespace Jrd {
 
-	class HazardObject
+class HazardObject
+{
+protected:
+	void retire()
 	{
-	protected:
-		void retire()
+		struct Disposer
 		{
-			struct Disposer
+			void operator()(HazardObject* ho)
 			{
-				void operator()(HazardObject* ho)
-				{
-					fb_assert(ho);
-					delete ho;
-				}
-			};
+				fb_assert(ho);
+				delete ho;
+			}
+		};
 
-			cds::gc::DHP::retire<Disposer>(this);
-		}
+		cds::gc::DHP::retire<Disposer>(this);
+	}
 
-		virtual ~HazardObject();
-	};
+	virtual ~HazardObject();
+};
 
-	template <typename T>
-	class HazardPtr : private cds::gc::DHP::Guard
+template <typename T>
+class HazardPtr : private cds::gc::DHP::Guard
+{
+	typedef cds::gc::DHP::Guard inherited;
+	static_assert(std::is_base_of<HazardObject, T>::value, "class derived from HazardObject should be used");
+
+public:
+	HazardPtr() = default;
+
+	HazardPtr(const atomics::atomic<T*>& from)
 	{
-		typedef cds::gc::DHP::Guard inherited;
-		static_assert(std::is_base_of<HazardObject, T>::value, "class derived from HazardObject should be used");
+		protect(from);
+	}
 
-	public:
-		HazardPtr() = default;
+	HazardPtr(const HazardPtr& copyFrom)
+	{
+		copy(copyFrom);
+	}
 
-		HazardPtr(const atomics::atomic<T*>& from)
-		{
-			protect(from);
-		}
+	HazardPtr(HazardPtr&& moveFrom) = default;
 
-		HazardPtr(const HazardPtr& copyFrom)
-		{
-			copy(copyFrom);
-		}
+	template <class T2>
+	HazardPtr(const HazardPtr<T2>& copyFrom)
+	{
+		checkAssign<T2>();
+		copy(copyFrom);
+	}
 
-		HazardPtr(HazardPtr&& moveFrom) = default;
+	template <class T2>
+	HazardPtr(HazardPtr<T2>&& moveFrom)
+		: inherited(std::move(moveFrom))
+	{
+		checkAssign<T2>();
+	}
 
-		template <class T2>
-		HazardPtr(const HazardPtr<T2>& copyFrom)
-		{
-			checkAssign<T2>();
-			copy(copyFrom);
-		}
+	~HazardPtr()
+	{ }
 
-		template <class T2>
-		HazardPtr(HazardPtr<T2>&& moveFrom)
-			: inherited(std::move(moveFrom))
-		{
-			checkAssign<T2>();
-		}
+	T* getPointer() const
+	{
+		return get<T>();
+	}
 
-		~HazardPtr()
-		{ }
+	T* releasePointer()
+	{
+		T* rc = get<T>();
+		clear();
+		return rc;
+	}
 
-		T* getPointer() const
-		{
-			return get<T>();
-		}
+	void set(const atomics::atomic<T*>& from)
+	{
+		protect(from);
+	}
 
-		T* releasePointer()
-		{
-			T* rc = get<T>();
-			clear();
-			return rc;
-		}
+	// atomically replaces 'where' with 'newVal', using *this as old value for comparison
+	// sets *this to actual data from 'where' if replace failed
+	bool replace2(atomics::atomic<T*>& where, T* newVal)
+	{
+		T* val = get<T>();
+		bool rc = where.compare_exchange_strong(val, newVal,
+			std::memory_order_release, std::memory_order_acquire);
+		if (!rc)
+			assign(val);
+		return rc;
+	}
 
-		void set(const atomics::atomic<T*>& from)
-		{
-			protect(from);
-		}
+	void clear()
+	{
+		inherited::clear();
+	}
 
-		/*/ atomically replaces 'where' with 'newVal', using *this as old value for comparison
-		// always sets *this to actual data from 'where'
-		bool replace(atomics::atomic<T*>& where, T* newVal)
-		{
-			T* val = get<T>();
-			bool rc = where.compare_exchange_strong(val, newVal,
-				std::memory_order_release, std::memory_order_acquire);
-			assign(rc ? newVal : val);
-			return rc;
-		}
-*/
-		// atomically replaces 'where' with 'newVal', using *this as old value for comparison
-		// sets *this to actual data from 'where' if replace failed
-		bool replace2(atomics::atomic<T*>& where, T* newVal)
-		{
-			T* val = get<T>();
-			bool rc = where.compare_exchange_strong(val, newVal,
-				std::memory_order_release, std::memory_order_acquire);
-			if (!rc)
-				assign(val);
-			return rc;
-		}
+	T* operator->()
+	{
+		return get<T>();
+	}
 
-		void clear()
-		{
-			inherited::clear();
-		}
-
-		T* operator->()
-		{
-			return get<T>();
-		}
-
-		const T* operator->() const
-		{
-			return get<T>();
-		}
+	const T* operator->() const
+	{
+		return get<T>();
+	}
 /*
-		template <typename R>
-		R& operator->*(R T::*mem)
-		{
-			return (this->hazardPointer)->*mem;
-		}
+	template <typename R>
+	R& operator->*(R T::*mem)
+	{
+		return (this->hazardPointer)->*mem;
+	}
  */
-		bool operator!() const
-		{
-			return !hasData();
-		}
+	bool operator!() const
+	{
+		return !hasData();
+	}
 
-		bool hasData() const
-		{
-			return get_native() != nullptr;
-		}
+	bool hasData() const
+	{
+		return get_native() != nullptr;
+	}
 
-		bool operator==(const T* v) const
-		{
-			return get<T>() == v;
-		}
+	bool operator==(const T* v) const
+	{
+		return get<T>() == v;
+	}
 
-		bool operator!=(const T* v) const
-		{
-			return get<T>() != v;
-		}
+	bool operator!=(const T* v) const
+	{
+		return get<T>() != v;
+	}
 
-		operator bool() const
-		{
-			return hasData();
-		}
+	operator bool() const
+	{
+		return hasData();
+	}
 
-		HazardPtr& operator=(const HazardPtr& copyAssign)
-		{
-			copy(copyAssign);
-			return *this;
-		}
+	HazardPtr& operator=(const HazardPtr& copyAssign)
+	{
+		copy(copyAssign);
+		return *this;
+	}
 
-		HazardPtr& operator=(HazardPtr&& moveAssign)
-		{
-			inherited::operator=(std::move(moveAssign));
-			return *this;
-		}
+	HazardPtr& operator=(HazardPtr&& moveAssign)
+	{
+		inherited::operator=(std::move(moveAssign));
+		return *this;
+	}
 
-		template <class T2>
-		HazardPtr& operator=(const HazardPtr<T2>& copyAssign)
-		{
-			checkAssign<T2>();
-			copy(copyAssign);
-			return *this;
-		}
+	template <class T2>
+	HazardPtr& operator=(const HazardPtr<T2>& copyAssign)
+	{
+		checkAssign<T2>();
+		copy(copyAssign);
+		return *this;
+	}
 
-		template <class T2>
-		HazardPtr& operator=(HazardPtr<T2>&& moveAssign)
-		{
-			checkAssign<T2>();
-			inherited::operator=(std::move(moveAssign));
-			return *this;
-		}
+	template <class T2>
+	HazardPtr& operator=(HazardPtr<T2>&& moveAssign)
+	{
+		checkAssign<T2>();
+		inherited::operator=(std::move(moveAssign));
+		return *this;
+	}
 
-		void safePointer(T* ptr)
-		{
-			assign(ptr);
-		}
+	void safePointer(T* ptr)
+	{
+		assign(ptr);
+	}
 
-	private:
-		template <class T2>
-		struct checkAssign
-		{
-			static_assert(std::is_trivially_assignable<T*&, T2*>::value, "Invalid type of pointer assigned");
-		};
+private:
+	template <class T2>
+	struct checkAssign
+	{
+		static_assert(std::is_trivially_assignable<T*&, T2*>::value, "Invalid type of pointer assigned");
 	};
+};
 
-	template <typename T>
-	bool operator==(const T* v1, const HazardPtr<T> v2)
+template <typename T>
+bool operator==(const T* v1, const HazardPtr<T> v2)
+{
+	return v2 == v1;
+}
+
+template <typename T, typename T2>
+bool operator==(const T* v1, const HazardPtr<T2> v2)
+{
+	return v1 == v2.getPointer();
+}
+
+template <typename T>
+bool operator!=(const T* v1, const HazardPtr<T> v2)
+{
+	return v2 != v1;
+}
+
+
+// Shared read here means that any thread can read from vector using HP.
+// It can be modified only in single thread, and it's caller's responsibility
+// that modifying thread is single.
+
+template <typename T, FB_SIZE_T CAP>
+class SharedReadVector : public Firebird::PermanentStorage
+{
+public:
+	class Generation : public HazardObject, public pool_alloc_rpt<T>
 	{
-		return v2 == v1;
-	}
-
-	template <typename T, typename T2>
-	bool operator==(const T* v1, const HazardPtr<T2> v2)
-	{
-		return v1 == v2.getPointer();
-	}
-
-	template <typename T>
-	bool operator!=(const T* v1, const HazardPtr<T> v2)
-	{
-		return v2 != v1;
-	}
-
-
-	// Shared read here means that any thread can read from vector using HP.
-	// It can be modified only in single thread, and it's caller's responsibility
-	// that modifying thread is single.
-
-	template <typename T, FB_SIZE_T CAP>
-	class SharedReadVector : public Firebird::PermanentStorage
-	{
-	public:
-		class Generation : public HazardObject, public pool_alloc_rpt<T>
-		{
-		private:
-			Generation(FB_SIZE_T size)
-				: count(0), capacity(size)
-			{ }
-
-			FB_SIZE_T count, capacity;
-			T data[1];
-
-		public:
-			static Generation* create(MemoryPool& p, FB_SIZE_T cap)
-			{
-				return FB_NEW_RPT(p, cap) Generation(cap);
-			}
-
-			FB_SIZE_T getCount() const
-			{
-				return count;
-			}
-
-			FB_SIZE_T getCapacity() const
-			{
-				return capacity;
-			}
-
-			T* begin()
-			{
-				return &data[0];
-			}
-
-			T* end()
-			{
-				return &data[count];
-			}
-
-			const T& value(FB_SIZE_T i) const
-			{
-				fb_assert(i < count);
-				return data[i];
-			}
-
-			T& value(FB_SIZE_T i)
-			{
-				fb_assert(i < count);
-				fb_assert(!data[i]);
-				return data[i];
-			}
-
-			bool hasSpace(FB_SIZE_T needs = 1) const
-			{
-				return count + needs <= capacity;
-			}
-
-			bool add(const Generation* from)
-			{
-				if (!hasSpace(from->count))
-					return false;
-				memcpy(&data[count], from->data, from->count * sizeof(T));
-				count += from->count;
-				return true;
-			}
-
-			T* addStart()
-			{
-				if (!hasSpace())
-					return nullptr;
-				return &data[count];
-			}
-
-			void addComplete()
-			{
-				++count;
-			}
-
-			void truncate(const T& notValue)
-			{
-				while (count && data[count - 1] == notValue)
-					count--;
-			}
-
-			static void destroy(Generation* gen)
-			{
-				// delay delete - someone else may access it
-				gen->retire();
-			}
-		};
-
-		typedef HazardPtr<Generation> ReadAccessor;
-		typedef Generation* WriteAccessor;
-
-		SharedReadVector(MemoryPool& p)
-			: Firebird::PermanentStorage(p),
-			  currentData(Generation::create(getPool(), CAP))
+	private:
+		Generation(FB_SIZE_T size)
+			: count(0), capacity(size)
 		{ }
 
-		WriteAccessor writeAccessor()
+		FB_SIZE_T count, capacity;
+		T data[1];
+
+	public:
+		static Generation* create(MemoryPool& p, FB_SIZE_T cap)
 		{
-			return currentData.load(std::memory_order_acquire);
+			return FB_NEW_RPT(p, cap) Generation(cap);
 		}
 
-		ReadAccessor readAccessor() const
+		FB_SIZE_T getCount() const
 		{
-			return HazardPtr<Generation>(currentData);
+			return count;
 		}
 
-		void grow(FB_SIZE_T newSize = 0)
+		FB_SIZE_T getCapacity() const
 		{
-			for(;;)
+			return capacity;
+		}
+
+		T* begin()
+		{
+			return &data[0];
+		}
+
+		T* end()
+		{
+			return &data[count];
+		}
+
+		const T& value(FB_SIZE_T i) const
+		{
+			fb_assert(i < count);
+			return data[i];
+		}
+
+		T& value(FB_SIZE_T i)
+		{
+			fb_assert(i < count);
+			fb_assert(!data[i]);
+			return data[i];
+		}
+
+		bool hasSpace(FB_SIZE_T needs = 1) const
+		{
+			return count + needs <= capacity;
+		}
+
+		bool add(const Generation* from)
+		{
+			if (!hasSpace(from->count))
+				return false;
+			memcpy(&data[count], from->data, from->count * sizeof(T));
+			count += from->count;
+			return true;
+		}
+
+		T* addStart()
+		{
+			if (!hasSpace())
+				return nullptr;
+			return &data[count];
+		}
+
+		void addComplete()
+		{
+			++count;
+		}
+
+		void truncate(const T& notValue)
+		{
+			while (count && data[count - 1] == notValue)
+				count--;
+		}
+
+		static void destroy(Generation* gen)
+		{
+			// delay delete - someone else may access it
+			gen->retire();
+		}
+	};
+
+	typedef HazardPtr<Generation> ReadAccessor;
+	typedef Generation* WriteAccessor;
+
+	SharedReadVector(MemoryPool& p)
+		: Firebird::PermanentStorage(p),
+		  currentData(Generation::create(getPool(), CAP))
+	{ }
+
+	WriteAccessor writeAccessor()
+	{
+		return currentData.load(std::memory_order_acquire);
+	}
+
+	ReadAccessor readAccessor() const
+	{
+		return HazardPtr<Generation>(currentData);
+	}
+
+	void grow(FB_SIZE_T newSize = 0)
+	{
+		for(;;)
+		{
+			HazardPtr<Generation> current(currentData);
+			if (newSize && (current->getCapacity() >= newSize))
+				return;
+
+			FB_SIZE_T doubleSize = current->getCapacity() * 2;
+			if (newSize > doubleSize)
+				doubleSize = newSize;
+
+			Generation* newGeneration = Generation::create(getPool(), doubleSize);
+			Generation* oldGeneration = current.getPointer();
+			newGeneration->add(oldGeneration);
+			if (current.replace2(currentData, newGeneration))
 			{
-				HazardPtr<Generation> current(currentData);
-				if (newSize && (current->getCapacity() >= newSize))
-					return;
-
-				FB_SIZE_T doubleSize = current->getCapacity() * 2;
-				if (newSize > doubleSize)
-					doubleSize = newSize;
-
-				Generation* newGeneration = Generation::create(getPool(), doubleSize);
-				Generation* oldGeneration = current.getPointer();
-				newGeneration->add(oldGeneration);
-				if (current.replace2(currentData, newGeneration))
-				{
-					Generation::destroy(oldGeneration);
-					break;
-				}
-				else
-				{
-					// Use plain delete - this instance is not known to anybody else
-					delete newGeneration;
-				}
+				Generation::destroy(oldGeneration);
+				break;
+			}
+			else
+			{
+				// Use plain delete - this instance is not known to anybody else
+				delete newGeneration;
 			}
 		}
+	}
 
-		~SharedReadVector()
-		{
-			Generation::destroy(currentData.load(std::memory_order_acquire));
-		}
-
-		void clear() { }	// NO-op, rely on dtor
-
-	private:
-		atomics::atomic<Generation*> currentData;
-	};
-
-	class thread_db;
-	class CacheObject
+	~SharedReadVector()
 	{
-	public:
-		typedef unsigned Flag;
-		virtual void afterUnlock(thread_db* tdbb, unsigned flags);
-		virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
-		virtual const char* c_name() const = 0;
-	};
+		Generation::destroy(currentData.load(std::memory_order_acquire));
+	}
+
+	void clear() { }	// NO-op, rely on dtor
+
+private:
+	atomics::atomic<Generation*> currentData;
+};
+
+class thread_db;
+class ObjectBase
+{
+public:
+	typedef unsigned Flag;
+	virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
+	virtual const char* c_name() const = 0;
+};
 
 
-class ObjectBase : public HazardObject
+class ElementBase : public HazardObject
 {
 public:
 	enum ResetType {Recompile, Mark, Commit, Rollback};
@@ -428,20 +416,20 @@ public:
 
 public:
 	void resetDependentObjects(thread_db* tdbb, TraNumber olderThan);
-	void addDependentObject(thread_db* tdbb, ObjectBase* dep);
-	void removeDependentObject(thread_db* tdbb, ObjectBase* dep);
-	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* name);
+	void addDependentObject(thread_db* tdbb, ElementBase* dep);
+	void removeDependentObject(thread_db* tdbb, ElementBase* dep);
+	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* name, const char* family);
 };
 
 namespace CacheFlag
 {
-	static const CacheObject::Flag COMMITTED =	0x01;
-	static const CacheObject::Flag ERASED =		0x02;
-	static const CacheObject::Flag NOSCAN =		0x04;
-	static const CacheObject::Flag AUTOCREATE =	0x08;
-	static const CacheObject::Flag INIT =		0x10;
+	static const ObjectBase::Flag COMMITTED =	0x01;
+	static const ObjectBase::Flag ERASED =		0x02;
+	static const ObjectBase::Flag NOSCAN =		0x04;
+	static const ObjectBase::Flag AUTOCREATE =	0x08;
+	static const ObjectBase::Flag INIT =		0x10;
 
-	static const CacheObject::Flag IGNORE_MASK = COMMITTED | ERASED;
+	static const ObjectBase::Flag IGNORE_MASK = COMMITTED | ERASED;
 }
 
 
@@ -455,10 +443,6 @@ class CachePool
 {
 public:
 	static MemoryPool& get(thread_db* tdbb);
-/*
-				Database* dbb = tdbb->getDatabase();
-				return dbb->dbb_mdc->getPool();
-*/
 };
 
 class StartupBarrier
@@ -539,7 +523,7 @@ template <class OBJ>
 class ListEntry : public HazardObject
 {
 public:
-	ListEntry(OBJ* obj, TraNumber currentTrans, CacheObject::Flag fl)
+	ListEntry(OBJ* obj, TraNumber currentTrans, ObjectBase::Flag fl)
 		: object(obj), next(nullptr), traNumber(currentTrans), cacheFlags(fl)
 	{ }
 
@@ -550,11 +534,11 @@ public:
 	}
 
 	// find appropriate object in cache
-	static OBJ* getObject(HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, CacheObject::Flag flags)
+	static OBJ* getObject(HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag flags)
 	{
 		for (; listEntry; listEntry.set(listEntry->next))
 		{
-			CacheObject::Flag f(listEntry->cacheFlags.load());
+			ObjectBase::Flag f(listEntry->cacheFlags.load());
 
 			if ((f & CacheFlag::COMMITTED) ||
 					// committed (i.e. confirmed) objects are freely available
@@ -585,7 +569,7 @@ public:
 		return traNumber != currentTrans && !(cacheFlags & CacheFlag::COMMITTED);
 	}
 
-	CacheObject::Flag getFlags() const
+	ObjectBase::Flag getFlags() const
 	{
 		return cacheFlags.load(atomics::memory_order_relaxed);
 	}
@@ -684,7 +668,7 @@ public:
 		fb_assert(cacheFlags & CacheFlag::COMMITTED);
 	}
 
-	void scan(std::function<void()> objScan, CacheObject::Flag flags)
+	void scan(std::function<void()> objScan, ObjectBase::Flag flags)
 	{
 		if (!(flags & CacheFlag::NOSCAN))
 			bar.pass(objScan);
@@ -711,7 +695,7 @@ private:
 							// when COMMITTED is set - stores transaction after which older elements are not needed
 							// traNumber to be changed BEFORE setting COMMITTED
 	MdcVersion version;		// version of metadata cache when object was added
-	atomics::atomic<CacheObject::Flag> cacheFlags;
+	atomics::atomic<ObjectBase::Flag> cacheFlags;
 };
 
 
@@ -727,7 +711,7 @@ public:
 class Lock;
 
 template <class V, class P>
-class CacheElement : public ObjectBase, public P
+class CacheElement : public ElementBase, public P
 {
 public:
 	typedef V Versioned;
@@ -747,7 +731,7 @@ public:
 		cleanup();
 	}
 
-	Versioned* getObject(thread_db* tdbb, CacheObject::Flag flags = 0)
+	Versioned* getObject(thread_db* tdbb, ObjectBase::Flag flags = 0)
 	{
 		TraNumber cur = TransactionNumber::current(tdbb);
 
@@ -790,7 +774,7 @@ public:
 	}
 
 public:
-	bool storeObject(thread_db* tdbb, Versioned* obj, CacheObject::Flag fl = 0)
+	bool storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl = 0)
 	{
 		TraNumber oldest = TransactionNumber::oldestActive(tdbb);
 		TraNumber oldResetAt = resetAt.load(atomics::memory_order_acquire);
@@ -839,28 +823,28 @@ public:
 	{
 		switch (rt)
 		{
-		case ObjectBase::ResetType::Recompile:
+		case ElementBase::ResetType::Recompile:
 			{
 				Versioned* newObj = Versioned::create(tdbb, CachePool::get(tdbb), this);
 				if (!storeObject(tdbb, newObj, 0))
 				{
 					Versioned::destroy(newObj);
-					busyError(tdbb, this->getId(), this->c_name());
+					busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
 				}
 			}
 			break;
 
-		case ObjectBase::ResetType::Mark:
+		case ElementBase::ResetType::Mark:
 			// used in AST, therefore ignore error when saving empty object
 			if (storeObject(tdbb, nullptr, 0))
 				commit(tdbb);
 			break;
 
-		case ObjectBase::ResetType::Commit:
+		case ElementBase::ResetType::Commit:
 			commit(tdbb);
 			break;
 
-		case ObjectBase::ResetType::Rollback:
+		case ElementBase::ResetType::Rollback:
 			rollback(tdbb);
 			break;
 		}
@@ -876,7 +860,7 @@ public:
 		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED))
 		{
 			Versioned* oldObj = getObject(tdbb);
-			busyError(tdbb, myId, oldObj ? oldObj->c_name() : nullptr);
+			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
 		}
 	}
 
@@ -979,7 +963,7 @@ public:
 		return ptr ? ptr->load(atomics::memory_order_relaxed) : nullptr;
 	}
 
-	Versioned* getObject(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+	Versioned* getObject(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 	{
 //		In theory that should be endless cycle - object may arrive/disappear again and again.
 //		But in order to faster find devel problems we run it very limited number of times.

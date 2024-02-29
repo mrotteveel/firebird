@@ -110,11 +110,13 @@ private:
 };
 
 // specialization
-template <> Function*& VersionedObjects::object<Function>(FB_SIZE_T n) { return data[n].function; }
-template <> jrd_prc*& VersionedObjects::object<jrd_prc>(FB_SIZE_T n) { return data[n].procedure; }
-template <> jrd_rel*& VersionedObjects::object<jrd_rel>(FB_SIZE_T n) { return data[n].relation; }
+template <> inline Function*& VersionedObjects::object<Function>(FB_SIZE_T n) { return data[n].function; }
+template <> inline jrd_prc*& VersionedObjects::object<jrd_prc>(FB_SIZE_T n) { return data[n].procedure; }
+template <> inline jrd_rel*& VersionedObjects::object<jrd_rel>(FB_SIZE_T n) { return data[n].relation; }
 
-template <> jrd_rel* VersionedObjects::object<jrd_rel>(FB_SIZE_T n) const { return data[n].relation; }
+template <> inline Function* VersionedObjects::object<Function>(FB_SIZE_T n) const { return data[n].function; }
+template <> inline jrd_prc* VersionedObjects::object<jrd_prc>(FB_SIZE_T n) const { return data[n].procedure; }
+template <> inline jrd_rel* VersionedObjects::object<jrd_rel>(FB_SIZE_T n) const { return data[n].relation; }
 
 //template <> *& object<*>(FB_SIZE_T n) { check(n); return data[n].; }
 
@@ -246,11 +248,11 @@ public:
 };
 
 // specialization
-template <> const Resources::RscArray<jrd_rel, RelationPermanent>& Resources::objects() const { return relations; }
-template <> const Resources::RscArray<jrd_prc, RoutinePermanent>& Resources::objects() const { return procedures; }
-template <> const Resources::RscArray<Function, RoutinePermanent>& Resources::objects() const { return functions; }
-template <> const Resources::RscArray<CharSetVers, CharSetContainer>& Resources::objects() const { return charSets; }
-template <> const Resources::RscArray<DbTriggers, DbTriggersHeader>& Resources::objects() const { return triggers; }
+template <> inline const Resources::RscArray<jrd_rel, RelationPermanent>& Resources::objects() const { return relations; }
+template <> inline const Resources::RscArray<jrd_prc, RoutinePermanent>& Resources::objects() const { return procedures; }
+template <> inline const Resources::RscArray<Function, RoutinePermanent>& Resources::objects() const { return functions; }
+template <> inline const Resources::RscArray<CharSetVers, CharSetContainer>& Resources::objects() const { return charSets; }
+template <> inline const Resources::RscArray<DbTriggers, DbTriggersHeader>& Resources::objects() const { return triggers; }
 
 namespace Rsc
 {

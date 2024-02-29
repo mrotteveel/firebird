@@ -60,7 +60,7 @@ const char* const Function::EXCEPTION_MESSAGE = "The user defined function: \t%s
 	" entrypoint: \t%s\n\t                in module: \t%s\n\tcaused the fatal exception:";
 
 
-Function* Function::lookup(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+Function* Function::lookup(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
 	Database* const dbb = tdbb->getDatabase();
 
@@ -75,7 +75,7 @@ Function* Function::create(thread_db* tdbb, MemoryPool& pool, Cached::Function* 
 }
 
 
-Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags)
+Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 	Attachment* const attachment = tdbb->getAttachment();
 	Database* const dbb = tdbb->getDatabase();
@@ -93,7 +93,7 @@ Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, CacheObje
 			 X.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
 		if (!function)
-			function = dbb->dbb_mdc->getFunction(tdbb, X.RDB$FUNCTION_ID, flags | CacheFlag::AUTOCREATE);
+			function = dbb->dbb_mdc->getFunction(tdbb, X.RDB$FUNCTION_ID, flags);
 	}
 	END_FOR
 
@@ -116,7 +116,7 @@ int Function::blockingAst(void* ast_object)
 		AsyncContextHolder tdbb(dbb, FB_FUNCTION, function->existenceLock);
 
 		LCK_release(tdbb, function->existenceLock);
-		function->resetDependentObject(tdbb, ObjectBase::ResetType::Mark);
+		function->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
 	}
 	catch (const Firebird::Exception&)
 	{} // no-op
@@ -124,7 +124,7 @@ int Function::blockingAst(void* ast_object)
 	return 0;
 }
 
-void Function::scan(thread_db* tdbb, CacheObject::Flag)
+void Function::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* sysTransaction = attachment->getSysTransaction();
@@ -426,13 +426,6 @@ void Function::scan(thread_db* tdbb, CacheObject::Flag)
 		END_FOR
 	}
 }
-
-/* ???????????????
-bool Function::checkCache(thread_db* tdbb) const
-{
-	return tdbb->getDatabase()->dbb_mdc->get-Function(tdbb, getId(), true) == this;
-}
-*/
 
 bool Function::reload(thread_db* tdbb)
 {

@@ -107,7 +107,7 @@ const int TRIGGER_COMBINED_MAX	= 128;
 
 // Relation trigger definition
 
-class Trigger : public Firebird::RefCounted
+class Trigger
 {
 public:
 	Firebird::HalfStaticArray<UCHAR, 128> blr;			// BLR code
@@ -150,34 +150,54 @@ public:
 	}
 };
 
-// Set of triggers (suppose separate arrays for triggers of different types)
+// Set of triggers (use separate arrays for triggers of different types)
 class Triggers
 {
 public:
-	Triggers()
-		// : nullify everything needed
+	explicit Triggers(MemoryPool& p)
+		: triggers(p)
 	{ }
 
 	bool hasActive() const;
 	void decompile(thread_db* tdbb);
 
-	void addTrigger(thread_db* tdbb, Trigger* trigger);
+	void addTrigger(thread_db*, Trigger* trigger)
+	{
+		triggers.add(trigger);
+	}
 
-	Trigger** begin() const;
-	Trigger** end() const;
-	bool operator!() const;
-	operator bool() const;
-	//bool hasData() const;
+	Trigger* const* begin() const
+	{
+		return triggers.begin();
+	}
+
+	Trigger* const* end() const
+	{
+		return triggers.end();
+	}
+
+	bool operator!() const
+	{
+		return !hasData();
+	}
+
+	operator bool() const
+	{
+		return hasData();
+	}
+
+	bool hasData() const
+	{
+		return triggers.hasData();
+	}
 
 	void release(thread_db* tdbb, bool destroy);
 
 	static void destroy(Triggers* trigs);
 
 private:
-	// implementation ...
+	Firebird::HalfStaticArray<Trigger*, 8> triggers;
 };
-
-typedef Triggers* TrigVectorPtr;
 
 class DbTriggersHeader : public Firebird::PermanentStorage
 {
@@ -192,40 +212,53 @@ public:
 		return type;
 	}
 
-	const char* c_name()
-	{
-		return "!!!!!!!!!!!!";
-	}
+	const char* c_name() const;
 
 private:
 	MetaId type;
 };
 
-class DbTriggers final : public Triggers, public CacheObject
+class DbTriggers final : public Triggers, public ObjectBase
 {
 public:
 	DbTriggers(DbTriggersHeader* hdr)
-		: Triggers(),
-		  CacheObject(),
+		: Triggers(hdr->getPool()),
+		  ObjectBase(),
 		  perm(hdr)
 	{ }
 
-	static DbTriggers* create(thread_db*, MemoryPool& pool, DbTriggersHeader* hdr)
+	static DbTriggers* create(thread_db*, MemoryPool&, DbTriggersHeader* hdr)
 	{
-		return FB_NEW_POOL(pool) DbTriggers(hdr);
+		return FB_NEW_POOL(hdr->getPool()) DbTriggers(hdr);
 	}
 
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	static void destroy(DbTriggers* t);
-	void scan(thread_db* tdbb, CacheObject::Flag flags);
+	void scan(thread_db* tdbb, ObjectBase::Flag flags);
 
 	const char* c_name() const override
 	{
-		return "Trigger's set";
+		return perm->c_name();
+	}
+
+	static const char* objectFamily(void*)
+	{
+		return "set of database-wide triggers on";
 	}
 
 private:
 	DbTriggersHeader* perm;
+};
+
+class TrigArray
+{
+public:
+	TrigArray(MemoryPool& p);
+	Triggers& operator[](int t);
+	const Triggers& operator[](int t) const;
+
+private:
+	Triggers preErase, postErase, preModify, postModify, preStore, postStore;
 };
 
 
@@ -425,7 +458,7 @@ struct frgn
 
 // Index lock block
 
-class IndexLock final : public CacheObject
+class IndexLock final : public ObjectBase
 {
 public:
 	IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id);
@@ -457,7 +490,7 @@ public:
 // in the database, though it is not really filled out until
 // the relation is scanned
 
-class jrd_rel final : public CacheObject
+class jrd_rel final : public ObjectBase
 {
 public:
 	jrd_rel(MemoryPool& p, Cached::Relation* r);
@@ -479,7 +512,7 @@ public:
 
 	Firebird::Mutex rel_trig_load_mutex;
 
-	Triggers	rel_triggers[TRIGGER_MAX];
+	TrigArray rel_triggers;
 
 	bool hasData() const;
 	const char* c_name() const override;
@@ -491,15 +524,13 @@ public:
 	bool isSystem() const;
 	bool isReplicating(thread_db* tdbb);
 
-	void scan(thread_db* tdbb, CacheObject::Flag flags);		// Scan the newly loaded relation for meta data
+	void scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
 	void scan_partners(thread_db* tdbb);						// Foreign keys scan - impl. in met.epp
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
 	MetaName getOwnerName() const;
 	ExternalFile* getExtFile() const;
-
-	void afterUnlock(thread_db* tdbb, unsigned flags) override;
 
 	static void destroy(jrd_rel *rel);
 	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, Cached::Relation* perm);
@@ -508,6 +539,8 @@ public:
 	{
 		return nullptr;		// ignored
 	}
+
+	static const char* objectFamily(RelationPermanent* perm);
 
 public:
 	// bool hasTriggers() const;  unused ???????????????????
@@ -816,7 +849,7 @@ inline MetaId jrd_rel::getId() const
 	return rel_perm->rel_id;
 }
 
-RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool allocPages)
+inline RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool allocPages)
 {
 	return rel_perm->getPages(tdbb, tran, allocPages);
 }

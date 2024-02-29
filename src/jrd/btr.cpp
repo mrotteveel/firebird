@@ -198,7 +198,7 @@ static void delete_tree(thread_db*, USHORT, USHORT, PageNumber, PageNumber);
 static DSC* eval(thread_db*, const ValueExprNode*, DSC*, bool*);
 static ULONG fast_load(thread_db*, IndexCreation&, SelectivityList&);
 
-static index_root_page* fetch_root(thread_db*, WIN*, const jrd_rel*, const RelationPages*);
+static index_root_page* fetch_root(thread_db*, WIN*, const RelationPermanent*, const RelationPages*);
 static UCHAR* find_node_start_point(btree_page*, temporary_key*, UCHAR*, USHORT*,
 									bool, bool, bool = false, RecordNumber = NO_VALUE);
 
@@ -344,7 +344,7 @@ void IndexErrorContext::raise(thread_db* tdbb, idx_e result, Record* record)
 }
 
 
-void BTR_all(thread_db* tdbb, jrd_rel* relation, IndexDescList& idxList, RelationPages* relPages)
+void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList, RelationPages* relPages)
 {
 /**************************************
  *
@@ -482,7 +482,7 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
 }
 
 
-bool BTR_description(thread_db* tdbb, jrd_rel* relation, index_root_page* root, index_desc* idx,
+bool BTR_description(thread_db* tdbb, Cached::Relation* relation, index_root_page* root, index_desc* idx,
 					 USHORT id)
 {
 /**************************************
@@ -1012,7 +1012,7 @@ btree_page* BTR_find_page(thread_db* tdbb,
 	window->win_page = relPages->rel_index_root;
 	index_root_page* rpage = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 
-	if (!BTR_description(tdbb, retrieval->irb_relation, rpage, idx, retrieval->irb_index))
+	if (!BTR_description(tdbb, retrieval->irb_relation->rel_perm, rpage, idx, retrieval->irb_index))
 	{
 		CCH_RELEASE(tdbb, window);
 		IBERROR(260);	// msg 260 index unexpectedly deleted
@@ -1579,7 +1579,7 @@ USHORT BTR_key_length(thread_db* tdbb, jrd_rel* relation, index_desc* idx)
 }
 
 
-bool BTR_lookup(thread_db* tdbb, jrd_rel* relation, USHORT id, index_desc* buffer,
+bool BTR_lookup(thread_db* tdbb, Cached::Relation* relation, USHORT id, index_desc* buffer,
 				  RelationPages* relPages)
 {
 /**************************************
@@ -1896,7 +1896,7 @@ bool BTR_next_index(thread_db* tdbb, jrd_rel* relation, jrd_tra* transaction, in
 		RelationPages* const relPages = transaction ?
 			relation->getPages(tdbb, transaction->tra_number) : relation->getPages(tdbb);
 
-		if (!(root = fetch_root(tdbb, window, relation, relPages)))
+		if (!(root = fetch_root(tdbb, window, relation->rel_perm, relPages)))
 			return false;
 	}
 
@@ -1926,7 +1926,7 @@ bool BTR_next_index(thread_db* tdbb, jrd_rel* relation, jrd_tra* transaction, in
 			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 		}
 
-		if (BTR_description(tdbb, relation, root, idx, id))
+		if (BTR_description(tdbb, relation->rel_perm, root, idx, id))
 			return true;
 	}
 
@@ -2168,7 +2168,7 @@ void BTR_selectivity(thread_db* tdbb, jrd_rel* relation, USHORT id, SelectivityL
 	RelationPages* relPages = relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
-	index_root_page* root = fetch_root(tdbb, &window, relation, relPages);
+	index_root_page* root = fetch_root(tdbb, &window, relation->rel_perm, relPages);
 	if (!root)
 		return;
 
@@ -4276,7 +4276,7 @@ static ULONG fast_load(thread_db* tdbb,
 }
 
 
-static index_root_page* fetch_root(thread_db* tdbb, WIN* window, const jrd_rel* relation,
+static index_root_page* fetch_root(thread_db* tdbb, WIN* window, const RelationPermanent* relation,
 								   const RelationPages* relPages)
 {
 /**************************************

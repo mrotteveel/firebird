@@ -302,11 +302,6 @@ void Routine::remove(thread_db* tdbb)
 }
 */
 
-bool jrd_prc::checkCache(thread_db* tdbb) const
-{
-	return tdbb->getDatabase()->dbb_mdc->getProcedure(tdbb, getId()) == this;
-}
-
 void RoutinePermanent::releaseLocks(thread_db* tdbb)
 {
 	if (existenceLock)

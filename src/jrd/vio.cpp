@@ -2148,7 +2148,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 					jrd_rel* partner;
 					index_desc idx;
 
-					if ((BTR_lookup(tdbb, r2, id - 1, &idx, r2->rel_perm->getBasePages())) &&
+					if ((BTR_lookup(tdbb, r2->rel_perm, id - 1, &idx, r2->rel_perm->getBasePages())) &&
 						MET_lookup_partner(tdbb, r2, &idx, index_name.nullStr()) &&
 						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation)) )
 					{
@@ -6572,7 +6572,7 @@ static void refresh_fk_fields(thread_db* tdbb, Record* old_rec, record_param* cu
 			index_desc idx;
 			idx.idx_id = idx_invalid;
 
-			if (BTR_lookup(tdbb, relation, (*relation->rel_foreign_refs.frgn_reference_ids)[i],
+			if (BTR_lookup(tdbb, relation->rel_perm, (*relation->rel_foreign_refs.frgn_reference_ids)[i],
 					&idx, relPages))
 			{
 				fb_assert(idx.idx_flags & idx_foreign);

@@ -41,7 +41,88 @@
 using namespace Jrd;
 using namespace Firebird;
 
-/// jrd_rel
+
+TrigArray::TrigArray(MemoryPool& p)
+	: preErase(p), postErase(p), preModify(p),
+	  postModify(p), preStore(p), postStore(p)
+{ }
+
+Triggers& TrigArray::operator[](int t)
+{
+	switch(t)
+	{
+	case TRIGGER_PRE_STORE:
+		return preStore;
+
+	case TRIGGER_POST_STORE:
+		return postStore;
+
+	case TRIGGER_PRE_MODIFY:
+		return preModify;
+
+	case TRIGGER_POST_MODIFY:
+		return postModify;
+
+	case TRIGGER_PRE_ERASE:
+		return preErase;
+
+	case TRIGGER_POST_ERASE:
+		return postErase;
+	}
+
+	fb_assert(false);
+	fatal_exception::raise("Invalid trigger type");
+}
+
+const char* DbTriggersHeader::c_name() const
+{
+	switch(type)
+	{
+	case TRIGGER_CONNECT:
+		return "database connect";
+
+	case TRIGGER_DISCONNECT:
+		return "database disconnect";
+
+	case TRIGGER_TRANS_START:
+		return "transaction start";
+
+	case TRIGGER_TRANS_COMMIT:
+		return "transaction commit";
+
+	case TRIGGER_TRANS_ROLLBACK:
+		return "transaction rollback";
+	}
+
+	return "DDL";
+}
+
+const Triggers& TrigArray::operator[](int t) const
+{
+	switch(t)
+	{
+	case TRIGGER_PRE_STORE:
+		return preStore;
+
+	case TRIGGER_POST_STORE:
+		return postStore;
+
+	case TRIGGER_PRE_MODIFY:
+		return preModify;
+
+	case TRIGGER_POST_MODIFY:
+		return postModify;
+
+	case TRIGGER_PRE_ERASE:
+		return preErase;
+
+	case TRIGGER_POST_ERASE:
+		return postErase;
+	}
+
+	fb_assert(false);
+	fatal_exception::raise("Invalid trigger type");
+}
 
 jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	: rel_pool(&p),
@@ -52,7 +133,8 @@ jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	  rel_fields(nullptr),
 	  rel_view_rse(nullptr),
 	  rel_view_contexts(p),
-	  rel_ss_definer(false)
+	  rel_ss_definer(false),
+	  rel_triggers(p)
 { }
 
 RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* /*lock*/)
@@ -190,7 +272,8 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 
 		IndexDescList indices;
 		// read indices from "base" index root page
-		BTR_all(tdbb, this, indices, &rel_pages_base);
+		//fb_assert(dynamic_cast<Cached::Relation*>(this));
+		BTR_all(tdbb, reinterpret_cast<Cached::Relation*>(this), indices, &rel_pages_base);
 
 		for (auto& idx : indices)
 		{
@@ -784,4 +867,9 @@ void jrd_rel::destroy(jrd_rel* rel)
 jrd_rel* jrd_rel::create(thread_db* tdbb, MemoryPool& pool, Cached::Relation* rlp)
 {
 	return FB_NEW_POOL(pool) jrd_rel(pool, rlp);
+}
+
+const char* jrd_rel::objectFamily(RelationPermanent* perm)
+{
+	return perm->isView() ? "view" : "table";
 }

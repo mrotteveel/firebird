@@ -160,7 +160,7 @@ static int blocking_ast_charset(void* ast_object)
 
 		AsyncContextHolder tdbb(dbb, FB_FUNCTION, l);
 
-		ce->resetDependentObject(tdbb, ObjectBase::ResetType::Mark);
+		ce->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
 		LCK_release(tdbb, l);
 	}
 	catch (const Firebird::Exception&)

@@ -154,9 +154,7 @@ private:
 public:
 	static jrd_prc* create(thread_db* tdbb, MemoryPool& p, Cached::Procedure* perm);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	void scan(thread_db* tdbb, CacheObject::Flag);
-
-	bool checkCache(thread_db* tdbb) const override;
+	void scan(thread_db* tdbb, ObjectBase::Flag);
 
 	void releaseExternal() override
 	{
@@ -167,6 +165,11 @@ public:
 	Cached::Procedure* getPermanent() const override
 	{
 		return cachedProcedure;
+	}
+
+	static const char* objectFamily(void*)
+	{
+		return "procedure";
 	}
 
 protected:
@@ -238,7 +241,7 @@ public:
 /*
 	// Objects are placed to this list after DROP OBJECT 
 	// and wait for current OAT >= NEXT when DDL committed
-	atomics::atomic<Cache List<ObjectBase>*> dropList;
+	atomics::atomic<Cache List<ElementBase>*> dropList;
 	{
 public:
 	void drop(
@@ -264,28 +267,17 @@ public:
 		return mdc_relations.getCount();
 	}
 
-	Function* getFunction(thread_db* tdbb, MetaId id, CacheObject::Flag flags)
+	Function* getFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 	{
 		return mdc_functions.getObject(tdbb, id, flags);
 	}
-/* ??????????????
-	bool makeFunction(thread_db* tdbb, MetaId id, Function* f)
-	{
-		return mdc_functions.storeObject(tdbb, id, f);
-	}
-*/
+
 	jrd_prc* getProcedure(thread_db* tdbb, MetaId id)
 	{
 		return mdc_procedures.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 	}
-/* ??????????
-	bool makeProcedure(thread_db* tdbb, MetaId id, jrd_prc* p)
-	{
-		return mdc_procedures.storeObject(tdbb, id, p);
-	}
-*/
-	static CharSetContainer* getCharSet(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
-// ??????????	bool makeCharSet(thread_db* tdbb, USHORT id, CharSetContainer* cs);
+
+	static CharSetContainer* getCharSet(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 
 	// former met_proto.h
 #ifdef DEV_BUILD
@@ -300,25 +292,25 @@ public:
 	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name);
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name);
-	static Function* lookup_function(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
-	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
-	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
-	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, CacheObject::Flag flags = 0);
-	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
+	static Function* lookup_function(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
+	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags = 0);
+	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
+	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
-	static jrd_rel* lookup_relation_id(thread_db*, MetaId, CacheObject::Flag flags = 0/*CacheFlag::AUTOCREATE*/);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, CacheObject::Flag flags = 0);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, CacheObject::Flag flags = 0);
+	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags = 0/*CacheFlag::AUTOCREATE*/);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags = 0);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags = 0);
 	Cached::Relation* lookupRelation(MetaId id);
 	static void lookup_index(thread_db* tdbb, MetaName& index_name, const MetaName& relation_name, USHORT number);
-	static ObjectBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
-								   MetaId* relation_id, IndexStatus* status);
+	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
+													 MetaId* relation_id, IndexStatus* status);
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
-	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, CacheObject::Flag flags);
+	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
     static jrd_rel* findRelation(thread_db* tdbb, MetaId id);
 	static bool get_char_coll_subtype(thread_db* tdbb, MetaId* id, const UCHAR* name, USHORT length);
 	bool resolve_charset_and_collation(thread_db* tdbb, MetaId* id,
-											  const UCHAR* charset, const UCHAR* collation);
+									   const UCHAR* charset, const UCHAR* collation);
 	static DSqlCacheItem* get_dsql_cache_item(thread_db* tdbb, sym_type type, const QualifiedName& name);
 	static void dsql_cache_release(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");

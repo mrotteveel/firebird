@@ -2011,7 +2011,7 @@ Validation::RTN Validation::walk_index(jrd_rel* relation, index_root_page& root_
 			AutoSetRestoreFlag<UCHAR> flags(&root_page.irt_rpt[id].irt_flags,
 				irt_expression | irt_condition, false);
 
-			BTR_description(vdr_tdbb, relation, &root_page, &idx, id);
+			BTR_description(vdr_tdbb, relation->rel_perm, &root_page, &idx, id);
 		}
 
 		null_key = &nullKey;
@@ -3230,7 +3230,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 				AutoSetRestoreFlag<UCHAR> flag(&page->irt_rpt[i].irt_flags, irt_expression, false);
 
 				IdxInfo info;
-				if (BTR_description(vdr_tdbb, relation, page, &info.m_desc, i))
+				if (BTR_description(vdr_tdbb, relation->rel_perm, page, &info.m_desc, i))
 					vdr_cond_idx.add(info);
 			}
 			continue;

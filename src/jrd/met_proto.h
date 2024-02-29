@@ -27,6 +27,9 @@
 #include "../common/classes/array.h"
 #include "../jrd/MetaName.h"
 #include "../jrd/HazardPtr.h"
+#include "../jrd/Resources.h"
+
+#include <functional>
 
 struct dsc;
 
@@ -53,6 +56,7 @@ namespace Jrd
 	class BlobFilter;
 	class RelationPermanent;
 	class Triggers;
+	class TrigArray;
 }
 
 struct SubtypeInfo
@@ -89,7 +93,7 @@ ULONG		MET_get_rel_flags_from_TYPE(USHORT);
 bool		MET_get_repl_state(Jrd::thread_db*, const Jrd::MetaName&);
 void		MET_get_shadow_files(Jrd::thread_db*, bool);
 bool		MET_load_exception(Jrd::thread_db*, Jrd::ExceptionItem&);
-void		MET_load_trigger(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&, Jrd::Triggers*);
+void		MET_load_trigger(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&, std::function<Jrd::Triggers&(int)>);
 void		MET_lookup_cnstrt_for_index(Jrd::thread_db*, Jrd::MetaName& constraint, const Jrd::MetaName& index_name);
 void		MET_lookup_cnstrt_for_trigger(Jrd::thread_db*, Jrd::MetaName&, Jrd::MetaName&, const Jrd::MetaName&);
 void		MET_lookup_exception(Jrd::thread_db*, SLONG, /* OUT */ Jrd::MetaName&, /* OUT */ Firebird::string*);
@@ -99,11 +103,11 @@ bool		MET_load_generator(Jrd::thread_db*, Jrd::GeneratorItem&, bool* sysGen = 0,
 SLONG		MET_lookup_generator(Jrd::thread_db*, const Jrd::MetaName&, bool* sysGen = 0, SLONG* step = 0);
 bool		MET_lookup_generator_id(Jrd::thread_db*, SLONG, Jrd::MetaName&, bool* sysGen = 0);
 void		MET_update_generator_increment(Jrd::thread_db* tdbb, SLONG gen_id, SLONG step);
-void		MET_lookup_index_condition(Jrd::thread_db* tdbb, Jrd::jrd_rel* relation, Jrd::index_desc* idx);
-void		MET_lookup_index_expression(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::index_desc*);
+void		MET_lookup_index_condition(Jrd::thread_db* tdbb, Jrd::Cached::Relation* relation, Jrd::index_desc* idx);
+void		MET_lookup_index_expression(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::index_desc*);
 void		MET_lookup_index_expression_blr(Jrd::thread_db*, Jrd::MetaName index_name, Jrd::bid& expr_blob_id);
 bool		MET_lookup_partner(Jrd::thread_db* tdbb, Jrd::jrd_rel* relation, Jrd::index_desc* idx, const TEXT* index_name);
-Jrd::DmlNode*	MET_parse_blob(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::bid*, Jrd::CompilerScratch**,
+Jrd::DmlNode*	MET_parse_blob(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::bid*, Jrd::CompilerScratch**,
 							   Jrd::Statement**, bool, bool);
 void		MET_parse_sys_trigger(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_prepare(Jrd::thread_db*, Jrd::jrd_tra*, USHORT, const UCHAR*);
