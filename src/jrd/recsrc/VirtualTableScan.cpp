@@ -37,7 +37,7 @@ using namespace Jrd;
 // -------------------------------
 
 VirtualTableScan::VirtualTableScan(CompilerScratch* csb, const string& alias,
-								   StreamType stream, jrd_rel* relation)
+								   StreamType stream, Rsc::Rel relation)
 	: RecordStream(csb, stream), m_relation(relation), m_alias(csb->csb_pool, alias)
 {
 	m_impure = csb->allocImpure<Impure>();
@@ -54,7 +54,7 @@ void VirtualTableScan::internalOpen(thread_db* tdbb) const
 	record_param* const rpb = &request->req_rpb[m_stream];
 	rpb->getWindow(tdbb).win_flags = 0;
 
-	VIO_record(tdbb, rpb, getFormat(tdbb, m_relation), request->req_pool);
+	VIO_record(tdbb, rpb, getFormat(tdbb, m_relation()), request->req_pool);
 
 	rpb->rpb_number.setValue(BOF_NUMBER);
 }
@@ -89,7 +89,7 @@ bool VirtualTableScan::internalGetRecord(thread_db* tdbb) const
 
 	rpb->rpb_number.increment();
 
-	if (retrieveRecord(tdbb, m_relation, rpb->rpb_number.getValue(), rpb->rpb_record))
+	if (retrieveRecord(tdbb, m_relation(request->getResources()), rpb->rpb_number.getValue(), rpb->rpb_record))
 	{
 		rpb->rpb_number.setValid(true);
 		return true;
@@ -118,7 +118,7 @@ void VirtualTableScan::print(thread_db* tdbb, string& plan, bool detailed, unsig
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Full Scan";
+			printName(tdbb, m_relation()->getName().c_str(), m_alias) + " Full Scan";
 		printOptInfo(plan);
 	}
 	else

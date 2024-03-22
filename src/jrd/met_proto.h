@@ -106,7 +106,8 @@ void		MET_update_generator_increment(Jrd::thread_db* tdbb, SLONG gen_id, SLONG s
 void		MET_lookup_index_condition(Jrd::thread_db* tdbb, Jrd::Cached::Relation* relation, Jrd::index_desc* idx);
 void		MET_lookup_index_expression(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::index_desc*);
 void		MET_lookup_index_expression_blr(Jrd::thread_db*, Jrd::MetaName index_name, Jrd::bid& expr_blob_id);
-bool		MET_lookup_partner(Jrd::thread_db* tdbb, Jrd::jrd_rel* relation, Jrd::index_desc* idx, const TEXT* index_name);
+bool		MET_lookup_partner(Jrd::thread_db* tdbb, Jrd::RelationPermanent* relation, Jrd::index_desc* idx,
+							   const TEXT* index_name);
 Jrd::DmlNode*	MET_parse_blob(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::bid*, Jrd::CompilerScratch**,
 							   Jrd::Statement**, bool, bool);
 void		MET_parse_sys_trigger(Jrd::thread_db*, Jrd::jrd_rel*);
@@ -114,7 +115,7 @@ void		MET_prepare(Jrd::thread_db*, Jrd::jrd_tra*, USHORT, const UCHAR*);
 void		MET_release_existence(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_revoke(Jrd::thread_db*, Jrd::jrd_tra*, const Jrd::MetaName&,
 	const Jrd::MetaName&, const Firebird::string&);
-void		MET_scan_partners(Jrd::thread_db*, Jrd::jrd_rel*);
+void		MET_scan_partners(Jrd::thread_db*, Jrd::RelationPermanent*);
 void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, Jrd::jrd_rel*,
 	const Jrd::MetaName&, int, Jrd::jrd_tra*);
 void		MET_trigger_msg(Jrd::thread_db*, Firebird::string&, const Jrd::MetaName&, USHORT);

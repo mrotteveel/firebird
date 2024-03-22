@@ -40,7 +40,7 @@ using namespace Jrd;
 // ------------------------------------
 
 IndexTableScan::IndexTableScan(CompilerScratch* csb, const string& alias,
-							   StreamType stream, jrd_rel* relation,
+							   StreamType stream, Rsc::Rel relation,
 							   InversionNode* index, USHORT length,
 							   double selectivity)
 	: RecordStream(csb, stream),
@@ -69,7 +69,7 @@ void IndexTableScan::internalOpen(thread_db* tdbb) const
 	impure->irsb_flags = irsb_first | irsb_open;
 
 	record_param* const rpb = &request->req_rpb[m_stream];
-	RLCK_reserve_relation(tdbb, request->req_transaction, m_relation->rel_perm, false);
+	RLCK_reserve_relation(tdbb, request->req_transaction, m_relation(), false);
 
 	rpb->rpb_number.setValue(BOF_NUMBER);
 
@@ -180,7 +180,7 @@ bool IndexTableScan::internalGetRecord(thread_db* tdbb) const
 	index_desc* const idx = (index_desc*) ((SCHAR*) impure + m_offset);
 
 	// find the last fetched position from the index
-	const USHORT pageSpaceID = m_relation->getPages(tdbb)->rel_pg_space_id;
+	const USHORT pageSpaceID = m_relation()->getPages(tdbb)->rel_pg_space_id;
 	win window(pageSpaceID, impure->irsb_nav_page);
 
 	const IndexRetrieval* const retrieval = m_index->retrieval;
@@ -264,13 +264,14 @@ bool IndexTableScan::internalGetRecord(thread_db* tdbb) const
 			if (VIO_get(tdbb, rpb, request->req_transaction, request->req_pool))
 			{
 				temporary_key value;
+				jrd_rel* rel = m_relation(request->getResources());
 
-				const idx_e result = BTR_key(tdbb, m_relation, rpb->rpb_record, idx, &value,
+				const idx_e result = BTR_key(tdbb, rel, rpb->rpb_record, idx, &value,
 					((idx->idx_flags & idx_unique) ? INTL_KEY_UNIQUE : INTL_KEY_SORT));
 
 				if (result != idx_e_ok)
 				{
-					IndexErrorContext context(m_relation, idx);
+					IndexErrorContext context(rel, idx);
 					context.raise(tdbb, result, rpb->rpb_record);
 				}
 
@@ -312,7 +313,7 @@ void IndexTableScan::print(thread_db* tdbb, string& plan, bool detailed, unsigne
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Access By ID";
+			printName(tdbb, m_relation()->getName().c_str(), m_alias) + " Access By ID";
 
 		printOptInfo(plan);
 		printInversion(tdbb, m_index, plan, true, level, true);

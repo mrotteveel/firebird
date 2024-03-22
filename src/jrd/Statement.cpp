@@ -201,13 +201,12 @@ void Statement::loadResources(thread_db* tdbb, Request* req)
 	}
 }
 
-void Resources::transfer(thread_db* tdbb, VersionedObjects* to)
+bool Statement::streamsFormatCompare(thread_db* tdbb)
 {
-	charSets.transfer(tdbb, to);
-	relations.transfer(tdbb, to);
-	procedures.transfer(tdbb, to);
-	functions.transfer(tdbb, to);
-	triggers.transfer(tdbb, to);
+	// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	// check whether all streams used by statement remain unchanged
+
+	return true;
 }
 
 // Turn a parsed scratch into a statement.
@@ -553,7 +552,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 		}
 		else
 		{
-			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id);
+			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, CacheFlag::AUTOCREATE);
 
 			if (!relation)
 				continue;
@@ -695,8 +694,7 @@ void Statement::release(thread_db* tdbb)
 	}
 
 	// Release existence locks on references.
-
-	// resources.releaseResources(tdbb); !!!!!!!!!!!!!!! place to release 
+	 resources->release(tdbb);
 
 	// ok to use write accessor w/o lock - we are in a kind of "dtor"
 	auto g = requests.writeAccessor();
@@ -856,7 +854,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else
 		{
-			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id);
+			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, CacheFlag::AUTOCREATE);
 			if (!relation)
 				continue;
 

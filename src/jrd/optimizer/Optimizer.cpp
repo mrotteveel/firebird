@@ -2677,7 +2677,7 @@ RecordSource* Optimizer::generateRetrieval(StreamType stream,
 										   BoolExprNode** returnBoolean)
 {
 	const auto tail = &csb->csb_rpt[stream];
-	const auto relation = tail->csb_relation(tdbb);
+	const auto relation = tail->csb_relation;
 	fb_assert(relation);
 
 	const string alias = makeAlias(stream);
@@ -2696,15 +2696,15 @@ RecordSource* Optimizer::generateRetrieval(StreamType stream,
 	Array<DbKeyRangeNode*> dbkeyRanges;
 	double scanSelectivity = MAXIMUM_SELECTIVITY;
 
-	if (relation->getExtFile())
+	if (relation()->getExtFile())
 	{
 		// External table
 		rsb = FB_NEW_POOL(getPool()) ExternalTableScan(csb, alias, stream, relation);
 	}
-	else if (relation->isVirtual())
+	else if (relation()->isVirtual())
 	{
 		// Virtual table: monitoring or security
-		switch (relation->getId())
+		switch (relation()->getId())
 		{
 		case rel_global_auth_mapping:
 			rsb = FB_NEW_POOL(getPool()) GlobalMappingScan(csb, alias, stream, relation);

@@ -233,7 +233,6 @@ public:
 	}
 
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	static void destroy(DbTriggers* t);
 	void scan(thread_db* tdbb, ObjectBase::Flag flags);
 
 	const char* c_name() const override
@@ -421,68 +420,39 @@ friend class RelationPermanent;
 };
 
 
-// Primary dependencies from all foreign references to relation's
-// primary/unique keys
-
-struct prim
-{
-	vec<int>* prim_reference_ids;
-	vec<int>* prim_relations;
-	vec<int>* prim_indexes;
-
-	prim()
-		: prim_reference_ids(nullptr), prim_relations(nullptr), prim_indexes(nullptr)
-	{ }
-};
-
-
-// Foreign references to other relations' primary/unique keys
-
-struct frgn
-{
-	vec<int>* frgn_reference_ids;
-	vec<int>* frgn_relations;
-	vec<int>* frgn_indexes;
-
-	frgn()
-		: frgn_reference_ids(nullptr), frgn_relations(nullptr), frgn_indexes(nullptr)
-	{ }
-
-	// used to perform move operation in scan_partners()
-	void setNull()
-	{
-		frgn_reference_ids = frgn_relations = frgn_indexes = nullptr;
-	}
-};
-
-
 // Index lock block
 
-class IndexLock final : public ObjectBase
+class IndexLock final
 {
+	static const int exclLock = -1000000;
+	static const int offTheLock = -2000000;
+
 public:
+	enum class GetMode {shared, exclusive};
+
 	IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id);
 
 	~IndexLock()
-	{ }
+	{
+		fb_assert(!idl_lock);
+	}
+
+public:
+	bool exclusiveLock(thread_db* tdbb);
+	void sharedLock(thread_db* tdbb);
+	bool exclusiveUnlock(thread_db* tdbb);
+	void sharedUnlock(thread_db* tdbb);
+
+	void unlockAll(thread_db* tdbb);
+	void recreate(thread_db* tdbb);
 
 private:
 	RelationPermanent*	idl_relation;	// Parent relation
-	USHORT				idl_id;			// Index id
-	Lock*				idl_lock;		// Lock block
+	Lock*				idl_lock;
+	Firebird::Mutex		idl_mutex;
+	int					idl_count;		// Use count
 
-public:
-	bool hasData() { return true; }
-	const char* c_name() const;
-/*
-	static void destroy(IndexLock *idl);
-	static IndexLock* create(thread_db* tdbb, MemoryPool& p, MetaId id);
-	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
- */
-	void lockShared(thread_db* tdbb);
-	void lockExclusive(thread_db* tdbb);
-	void unlock(thread_db* tdbb);
-	void unlockAll(thread_db* tdbb);
+	[[noreturn]] void errIndexGone();
 };
 
 
@@ -506,8 +476,6 @@ public:
 	RseNode*		rel_view_rse;		// view record select expression
 	ViewContexts	rel_view_contexts;	// sorted array of view contexts
 
-	prim			rel_primary_dpnds;	// foreign dependencies on this relation's primary key
-	frgn			rel_foreign_refs;	// foreign references to other relations' primary keys
 	Nullable<bool>	rel_ss_definer;
 
 	Firebird::Mutex rel_trig_load_mutex;
@@ -525,7 +493,6 @@ public:
 	bool isReplicating(thread_db* tdbb);
 
 	void scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
-	void scan_partners(thread_db* tdbb);						// Foreign keys scan - impl. in met.epp
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
@@ -646,7 +613,7 @@ private:
 	void blockingAst();
 	void ensureReleased(thread_db* tdbb);
 
-	void incrementError [[noreturn]] ();
+	[[noreturn]] void incrementError();
 
 private:
 	Firebird::AutoPtr<Lock> lck;
@@ -718,6 +685,7 @@ public:
 	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
 	void	cleanUp();
 	void	fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
+	void scan_partners(thread_db* tdbb);		// Foreign keys scan - impl. in met.epp
 
 	RelationPages* getBasePages()
 	{
@@ -780,14 +748,16 @@ public:
 	MetaName		rel_name;			// ascii relation name
 	MetaId			rel_id;
 
-	MetaName	rel_owner_name;			// ascii owner
-	MetaName	rel_security_name;		// security class name for relation
-	ULONG		rel_flags;				// lock-related flags
+	MetaName		rel_owner_name;		// ascii owner
+	MetaName		rel_security_name;	// security class name for relation
+	ULONG			rel_flags;			// lock-related flags
 
 	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
 
-	TriState	rel_repl_state;			// replication state
+	TriState		rel_repl_state;		// replication state
 
+	PrimaryDeps*	rel_primary_dpnds;	// foreign dependencies on this relation's primary key
+	ForeignDeps*	rel_foreign_refs;	// foreign references to other relations' primary keys
 
 private:
 	Firebird::Mutex			rel_pages_mutex;
@@ -931,6 +901,11 @@ inline bool GCLock::Exclusive::acquire(int wait)
 	return m_rl->rel_gc_lock.disable(m_tdbb, wait, m_lock);
 }
 
+inline void GCLock::Exclusive::release()
+{
+	return m_rl->rel_gc_lock.enable(m_tdbb, m_lock);
+}
+
 
 // Field block, one for each field in a scanned relation
 
@@ -963,6 +938,6 @@ public:
 	}
 };
 
-};
+}
 
 #endif	// JRD_RELATION_H

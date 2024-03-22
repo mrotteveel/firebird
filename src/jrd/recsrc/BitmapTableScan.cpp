@@ -36,7 +36,7 @@ using namespace Jrd;
 // ---------------------------------------------
 
 BitmapTableScan::BitmapTableScan(CompilerScratch* csb, const string& alias,
-								 StreamType stream, jrd_rel* relation,
+								 StreamType stream, Rsc::Rel relation,
 								 InversionNode* inversion, double selectivity)
 	: RecordStream(csb, stream),
 	  m_alias(csb->csb_pool, alias), m_relation(relation), m_inversion(inversion)
@@ -56,7 +56,7 @@ void BitmapTableScan::internalOpen(thread_db* tdbb) const
 	impure->irsb_bitmap = EVL_bitmap(tdbb, m_inversion, NULL);
 
 	record_param* const rpb = &request->req_rpb[m_stream];
-	RLCK_reserve_relation(tdbb, request->req_transaction, m_relation->rel_perm, false);
+	RLCK_reserve_relation(tdbb, request->req_transaction, m_relation(), false);
 
 	rpb->rpb_number.setValue(BOF_NUMBER);
 }
@@ -132,7 +132,7 @@ void BitmapTableScan::print(thread_db* tdbb, string& plan,
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->getName().c_str(), m_alias) + " Access By ID";
+			printName(tdbb, m_relation()->getName().c_str(), m_alias) + " Access By ID";
 
 		printOptInfo(plan);
 		printInversion(tdbb, m_inversion, plan, true, level);

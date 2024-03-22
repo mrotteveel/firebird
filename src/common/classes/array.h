@@ -85,6 +85,8 @@ public:
 	typedef pointer iterator;
 	typedef const_pointer const_iterator;
 
+	static const size_type npos = ~size_type(0);
+
 	explicit Array(MemoryPool& p)
 		: Storage(p), count(0), capacity(this->getStorageSize()), data(this->getStorage())
 	{
@@ -608,6 +610,18 @@ public:
 		}
 		this->insert(pos, item);
 		return pos;
+	}
+
+	size_type addUniq(const Value& item)
+	{
+		size_type pos;
+		fb_assert(sortMode == FB_ARRAY_SORT_WHEN_ADD);
+		if (!find(KeyOfValue::generate(item), pos))
+		{
+			this->insert(pos, item);
+			return pos;
+		}
+		return this->npos;
 	}
 
 	void setSortMode(int sm)

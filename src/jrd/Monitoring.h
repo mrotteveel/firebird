@@ -226,7 +226,7 @@ public:
 	void putField(thread_db*, Record*, const DumpField&);
 
 	RecordBuffer* allocBuffer(thread_db*, MemoryPool&, int);
-	RecordBuffer* getData(const jrd_rel*) const;
+	RecordBuffer* getData(const RelationPermanent*) const;
 	RecordBuffer* getData(int) const;
 	void clearSnapshot();
 
@@ -356,12 +356,12 @@ class MonitoringTableScan: public VirtualTableScan
 {
 public:
 	MonitoringTableScan(CompilerScratch* csb, const Firebird::string& alias,
-						StreamType stream, jrd_rel* relation)
+						StreamType stream, Rsc::Rel relation)
 		: VirtualTableScan(csb, alias, stream, relation)
 	{}
 
 protected:
-	const Format* getFormat(thread_db* tdbb, jrd_rel* relation) const override;
+	const Format* getFormat(thread_db* tdbb, RelationPermanent* relation) const override;
 	bool retrieveRecord(thread_db* tdbb, jrd_rel* relation, FB_UINT64 position,
 		Record* record) const override;
 };

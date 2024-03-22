@@ -32,6 +32,7 @@
 #include "../include/fb_blk.h"
 
 #include "../jrd/err_proto.h"    // Index error types
+#include "../jrd/Resources.h"
 #include "../jrd/RecordNumber.h"
 #include "../jrd/sbm.h"
 #include "../jrd/lck.h"
@@ -52,6 +53,28 @@ class Sort;
 class PartitionedSort;
 struct sort_key_def;
 
+
+// Dependencies from/to foreign references
+
+struct dep
+{
+	int dep_reference_id;
+	int dep_relation;
+	int dep_index;
+
+	dep() = default;
+};
+
+// Primary dependencies from all foreign references to relation's
+// primary/unique keys
+
+typedef Firebird::HalfStaticArray<dep, 8> PrimaryDeps;
+
+// Foreign references to other relations' primary/unique keys
+
+typedef Firebird::HalfStaticArray<dep, 8> ForeignDeps;
+
+
 // Index descriptor block -- used to hold info from index root page
 
 struct index_desc
@@ -64,9 +87,7 @@ struct index_desc
 	USHORT	idx_primary_index;				// id for primary key partner index
 	USHORT	idx_primary_relation;			// id for primary key partner relation
 	USHORT	idx_count;						// number of keys
-	vec<int>*	idx_foreign_primaries;		// ids for primary/unique indexes with partners
-	vec<int>*	idx_foreign_relations;		// ids for foreign key partner relations
-	vec<int>*	idx_foreign_indexes;		// ids for foreign key partner indexes
+	ForeignDeps*	idx_foreign_deps;		// foreign key partners
 	ValueExprNode* idx_expression;			// node tree for indexed expression
 	dsc		idx_expression_desc;			// descriptor for expression result
 	Statement* idx_expression_statement;	// stored statement for expression evaluation
@@ -189,16 +210,16 @@ class IndexRetrieval
 {
 public:
 	IndexRetrieval(jrd_rel* relation, const index_desc* idx, USHORT count, temporary_key* key)
-		: irb_relation(relation), irb_index(idx->idx_id),
+		: irb_rsc_relation(), irb_jrd_relation(relation), irb_index(idx->idx_id),
 		  irb_generic(0), irb_lower_count(count), irb_upper_count(count), irb_key(key),
 		  irb_name(NULL), irb_value(NULL)
 	{
 		memcpy(&irb_desc, idx, sizeof(irb_desc));
 	}
 
-	IndexRetrieval(MemoryPool& pool, jrd_rel* relation, const index_desc* idx,
+	IndexRetrieval(MemoryPool& pool, Rsc::Rel relation, const index_desc* idx,
 				   const MetaName& name)
-		: irb_relation(relation), irb_index(idx->idx_id),
+		: irb_rsc_relation(relation), irb_jrd_relation(nullptr), irb_index(idx->idx_id),
 		  irb_generic(0), irb_lower_count(0), irb_upper_count(0), irb_key(NULL),
 		  irb_name(FB_NEW_POOL(pool) MetaName(name)),
 		  irb_value(FB_NEW_POOL(pool) ValueExprNode*[idx->idx_count * 2])
@@ -212,8 +233,16 @@ public:
 		delete[] irb_value;
 	}
 
+	jrd_rel* getRelation(thread_db* tdbb) const;
+	Cached::Relation* getPermRelation() const;
+
 	index_desc irb_desc;			// Index descriptor
-	jrd_rel* irb_relation;			// Relation for retrieval
+
+private:
+	Rsc::Rel irb_rsc_relation;		// Relation for retrieval
+	jrd_rel* irb_jrd_relation;		// when use din different contexts
+
+public:
 	USHORT irb_index;				// Index id
 	USHORT irb_generic;				// Flags for generic search
 	USHORT irb_lower_count;			// Number of segments for retrieval

@@ -135,7 +135,6 @@ using namespace Firebird;
 static bool allSpaces(CharSet*, const BYTE*, ULONG, ULONG);
 //static int blocking_ast_collation(void* ast_object);
 static void pad_spaces(thread_db*, CHARSET_ID, BYTE *, ULONG);
-static void lookup_texttype(texttype* tt, const SubtypeInfo* info);
 
 static GlobalPtr<Mutex> createCollationMtx;
 
@@ -348,7 +347,7 @@ Collation* CharSetVers::lookupCollation(thread_db* tdbb, MetaId tt_id)
 		AutoPtr<texttype> tt = FB_NEW_POOL(*dbb->dbb_permanent) texttype;
 		memset(tt, 0, sizeof(texttype));
 
-		lookup_texttype(tt, &info);
+		INTL_lookup_texttype(tt, &info);
 
 		if (charset_collations.getCount() <= id)
 			charset_collations.grow(id + 1);
@@ -422,7 +421,7 @@ void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
 }
  */
 
-static void lookup_texttype(texttype* tt, const SubtypeInfo* info)
+void INTL_lookup_texttype(texttype* tt, const SubtypeInfo* info)
 {
 	IntlManager::lookupCollation(info->baseCollationName.c_str(), info->charsetName.c_str(),
 		info->attributes, info->specificAttributes.begin(),
@@ -1053,7 +1052,7 @@ bool INTL_texttype_validate(Jrd::thread_db* tdbb, const SubtypeInfo* info)
 
 	try
 	{
-		lookup_texttype(&tt, info);
+		INTL_lookup_texttype(&tt, info);
 
 		if (tt.texttype_fn_destroy)
 			tt.texttype_fn_destroy(&tt);

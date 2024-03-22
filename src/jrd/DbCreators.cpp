@@ -251,7 +251,7 @@ bool checkCreateDatabaseGrant(const MetaString& userName, const MetaString& trus
 }
 
 
-const Format* DbCreatorsScan::getFormat(thread_db* tdbb, jrd_rel* relation) const
+const Format* DbCreatorsScan::getFormat(thread_db* tdbb, RelationPermanent* relation) const
 {
 	jrd_tra* const transaction = tdbb->getTransaction();
 	return transaction->getDbCreatorsList()->getList(tdbb, relation)->getFormat();
@@ -261,7 +261,7 @@ bool DbCreatorsScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 									FB_UINT64 position, Record* record) const
 {
 	jrd_tra* const transaction = tdbb->getTransaction();
-	return transaction->getDbCreatorsList()->getList(tdbb, relation)->fetch(position, record);
+	return transaction->getDbCreatorsList()->getList(tdbb, relation->rel_perm)->fetch(position, record);
 }
 
 DbCreatorsList::DbCreatorsList(jrd_tra* tra)
@@ -275,7 +275,7 @@ RecordBuffer* DbCreatorsList::makeBuffer(thread_db* tdbb)
 	return getData(rel_sec_db_creators);
 }
 
-RecordBuffer* DbCreatorsList::getList(thread_db* tdbb, jrd_rel* relation)
+RecordBuffer* DbCreatorsList::getList(thread_db* tdbb, RelationPermanent* relation)
 {
 	fb_assert(relation);
 	fb_assert(relation->getId() == rel_sec_db_creators);

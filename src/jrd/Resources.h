@@ -3,30 +3,22 @@
  *	MODULE:		Resources.h
  *	DESCRIPTION:	Resource used by request / transaction
  *
- * The contents of this file are subject to the Interbase Public
- * License Version 1.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy
- * of the License at http://www.Inprise.com/IPL.html
+ *  The contents of this file are subject to the Initial
+ *  Developer's Public License Version 1.0 (the "License");
+ *  you may not use this file except in compliance with the
+ *  License. You may obtain a copy of the License at
+ *  http://www.firebirdsql.org/en/initial-developer-s-public-license-version-1-0/
  *
- * Software distributed under the License is distributed on an
- * "AS IS" basis, WITHOUT WARRANTY OF ANY KIND, either express
- * or implied. See the License for the specific language governing
- * rights and limitations under the License.
+ *  Software distributed under the License is distributed AS IS,
+ *  WITHOUT WARRANTY OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing rights
+ *  and limitations under the License.
  *
- * The Original Code was created by Inprise Corporation
- * and its predecessors. Portions created by Inprise Corporation are
- * Copyright (C) Inprise Corporation.
+ *  The Original Code was created by Alexander Peshkov
+ *  for the Firebird Open Source RDBMS project.
  *
- * All Rights Reserved.
- * Contributor(s): ______________________________________.
- *
- * 2001.07.28: Added rse_skip to class RecordSelExpr to support LIMIT.
- * 2002.09.28 Dmitry Yemanov: Reworked internal_info stuff, enhanced
- *                            exception handling in SPs/triggers,
- *                            implemented ROWS_AFFECTED system variable
- * 2002.10.21 Nickolay Samofatov: Added support for explicit pessimistic locks
- * 2002.10.29 Nickolay Samofatov: Added support for savepoints
- * Adriano dos Santos Fernandes
+ *  Copyright (c) 2023 Alexander Peshkov <peshkoff@mail.ru>
+ *  and all contributors signed below.
  */
 
 #ifndef JRD_RESOURCES_H
@@ -47,6 +39,7 @@ class Function;
 class DbTriggersHeader;
 class DbTriggers;
 class CharSetVers;
+class IndexLock;
 
 namespace Cached
 {
@@ -67,6 +60,8 @@ union VersionedPartPtr
 	jrd_rel* relation;
 	jrd_prc* procedure;
 	Function* function;
+	CharSetVers* charset;
+	DbTriggers* triggers;
 };
 
 class VersionedObjects : public pool_alloc_rpt<VersionedPartPtr>,
@@ -113,12 +108,14 @@ private:
 template <> inline Function*& VersionedObjects::object<Function>(FB_SIZE_T n) { return data[n].function; }
 template <> inline jrd_prc*& VersionedObjects::object<jrd_prc>(FB_SIZE_T n) { return data[n].procedure; }
 template <> inline jrd_rel*& VersionedObjects::object<jrd_rel>(FB_SIZE_T n) { return data[n].relation; }
+template <> inline CharSetVers*& VersionedObjects::object<CharSetVers>(FB_SIZE_T n) { return data[n].charset; }
+template <> inline DbTriggers*& VersionedObjects::object<DbTriggers>(FB_SIZE_T n) { return data[n].triggers; }
 
 template <> inline Function* VersionedObjects::object<Function>(FB_SIZE_T n) const { return data[n].function; }
 template <> inline jrd_prc* VersionedObjects::object<jrd_prc>(FB_SIZE_T n) const { return data[n].procedure; }
 template <> inline jrd_rel* VersionedObjects::object<jrd_rel>(FB_SIZE_T n) const { return data[n].relation; }
-
-//template <> *& object<*>(FB_SIZE_T n) { check(n); return data[n].; }
+template <> inline CharSetVers* VersionedObjects::object<CharSetVers>(FB_SIZE_T n) const { return data[n].charset; }
+template <> inline DbTriggers* VersionedObjects::object<DbTriggers>(FB_SIZE_T n) const { return data[n].triggers; }
 
 
 template <class OBJ, class PERM>
@@ -184,7 +181,7 @@ private:
 };
 
 
-class Resources
+class Resources final
 {
 public:
 	template <class OBJ, class PERM>
@@ -223,7 +220,9 @@ public:
 		FB_SIZE_T& versionCurrentPosition;
 	};
 
-	void transfer(thread_db* tdbb, VersionedObjects* to);	// Impl-ted in Statement.cpp
+	void transfer(thread_db* tdbb, VersionedObjects* to);
+	void postIndex(thread_db* tdbb, RelationPermanent* relation, USHORT index);
+	void release(thread_db* tdbb);
 
 private:
 	FB_SIZE_T versionCurrentPosition;
@@ -237,14 +236,20 @@ public:
 		  relations(p, versionCurrentPosition),
 		  procedures(p, versionCurrentPosition),
 		  functions(p, versionCurrentPosition),
-		  triggers(p, versionCurrentPosition)
+		  triggers(p, versionCurrentPosition),
+		  indexLocks(p)
 	{ }
+
+	~Resources();
 
 	RscArray<CharSetVers, CharSetContainer> charSets;
 	RscArray<jrd_rel, RelationPermanent> relations;
 	RscArray<jrd_prc, RoutinePermanent> procedures;
 	RscArray<Function, RoutinePermanent> functions;
 	RscArray<DbTriggers, DbTriggersHeader> triggers;
+
+private:
+	Firebird::SortedArray<IndexLock*, Firebird::InlineStorage<IndexLock*, 16>> indexLocks;
 };
 
 // specialization

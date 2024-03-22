@@ -1434,13 +1434,13 @@ blb* blb::open2(thread_db* tdbb,
 
 	if (try_relations)
 	{
-		// Ordinarily, we would call findRelation() to get the relation id.
+		// Ordinarily, we call with AUTOCREATE set to get the relation by id.
 		// However, since the blob id must be considered suspect, this is
 		// not a good idea.  On the other hand, if we don't already
 		// know about the relation, the blob id has got to be invalid
 		// anyway.
 
-		jrd_rel* relation = dbb->dbb_mdc->getRelation(tdbb, blobId.bid_internal.bid_relation_id);
+		jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, blobId.bid_internal.bid_relation_id, 0);
 		if (!relation)
 				ERR_post(Arg::Gds(isc_bad_segstr_id));
 

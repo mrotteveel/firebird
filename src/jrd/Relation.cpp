@@ -33,6 +33,7 @@
 #include "../jrd/pag_proto.h"
 #include "../jrd/vio_debug.h"
 #include "../jrd/ext_proto.h"
+#include "../jrd/Statement.h"
 #include "../common/StatusArg.h"
 
 // Pick up relation ids
@@ -270,10 +271,11 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 		if (!idxTran)
 			idxTran = attachment->getSysTransaction();
 
+		jrd_rel* rel = MetadataCache::lookup_relation_id(tdbb, getId(), CacheFlag::AUTOCREATE);
+		fb_assert(rel);
+
 		IndexDescList indices;
-		// read indices from "base" index root page
-		//fb_assert(dynamic_cast<Cached::Relation*>(this));
-		BTR_all(tdbb, reinterpret_cast<Cached::Relation*>(this), indices, &rel_pages_base);
+		BTR_all(tdbb, rel->rel_perm, indices, &rel_pages_base);
 
 		for (auto& idx : indices)
 		{
@@ -282,7 +284,7 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 
 			idx.idx_root = 0;
 			SelectivityList selectivity(*pool);
-			IDX_create_index(tdbb, this, &idx, idx_name.c_str(), NULL, idxTran, selectivity);
+			IDX_create_index(tdbb, rel, &idx, idx_name.c_str(), NULL, idxTran, selectivity);
 
 #ifdef VIO_DEBUG
 			VIO_trace(DEBUG_WRITES,
@@ -589,6 +591,11 @@ void GCLock::blockingAst()
 	}
 }
 
+[[noreturn]] void GCLock::incrementError()
+{
+	fatal_exception::raise("Overflow when changing GC lock atomic counter (guard bit set)");
+}
+
 bool GCLock::acquire(thread_db* tdbb, int wait)
 {
 	unsigned oldFlags = flags.load(std::memory_order_acquire);
@@ -610,11 +617,10 @@ bool GCLock::acquire(thread_db* tdbb, int wait)
 		if (!(oldFlags & GC_counterMask))	// we must take lock
 			break;
 
-		// unstable state - someone else it getting a lock right now
-		// decrement counter, wait a bit and retry
-		--flags;
-		suspend();
-		oldFlags = flags.fetch_sub(1, std::memory_order_acquire);	// reload after wait
+		// unstable state - someone else it getting a lock right now:
+		--flags;													// decrement counter,
+		Thread::yield();											// wait a bit
+		oldFlags = flags.fetch_sub(1, std::memory_order_acquire);	// and retry
 	}
 
 	// We incremented counter from 0 to 1 - take care about lck
@@ -785,7 +791,7 @@ void RelationPages::free(RelationPages*& nextFree)
 }
 
 
-IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, MetaId id)
+IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, USHORT id)
 {
 /**************************************
  *
@@ -834,16 +840,97 @@ IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, MetaId id)
 
 IndexLock::IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id)
 	: idl_relation(rel),
-	  idl_id(id),
 	  idl_lock(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_idx_exist))
 {
 	idl_lock->setKey((idl_relation->rel_id << 16) | id);
 }
 
-const char* IndexLock::c_name() const
+void IndexLock::sharedLock(thread_db* tdbb)
 {
-	return "* unk *";
+	MutexLockGuard g(idl_mutex, FB_FUNCTION);
+
+	if (idl_count++ <= 0)
+	{
+		if (idl_count < 0)
+		{
+			--idl_count;
+			errIndexGone();
+		}
+
+		LCK_lock(tdbb, idl_lock, LCK_SR, LCK_WAIT);
+	}
 }
+
+bool IndexLock::exclusiveLock(thread_db* tdbb)
+{
+	MutexLockGuard g(idl_mutex, FB_FUNCTION);
+
+	if (idl_count < 0)
+		errIndexGone();
+
+	if (idl_count > 0)
+		MetadataCache::clear(tdbb);
+
+	if (idl_count ||
+		!LCK_lock(tdbb, idl_lock, LCK_EX, tdbb->getTransaction()->getLockWait()))
+	{
+		return false;
+	}
+
+	idl_mutex.enter(FB_FUNCTION);		// keep exclusive in-process
+	idl_count = exclLock;
+	return true;
+}
+
+bool IndexLock::exclusiveUnlock(thread_db* tdbb)
+{
+	MutexLockGuard g(idl_mutex, FB_FUNCTION);
+
+	if (idl_count == exclLock)
+	{
+		idl_mutex.leave();
+		idl_count = 0;
+		LCK_release(tdbb, idl_lock);
+
+		return true;
+	}
+
+	return false;
+}
+
+void IndexLock::sharedUnlock(thread_db* tdbb)
+{
+	MutexLockGuard g(idl_mutex, FB_FUNCTION);
+
+	if (idl_count > 0)
+		--idl_count;
+
+	if (idl_count == 0)
+		LCK_release(tdbb, idl_lock);
+}
+
+void IndexLock::unlockAll(thread_db* tdbb)
+{
+	MutexLockGuard g(idl_mutex, FB_FUNCTION);
+
+	if (!exclusiveUnlock(tdbb))
+		LCK_release(tdbb, idl_lock);
+
+	idl_count = offTheLock;
+}
+
+void IndexLock::recreate(thread_db*)
+{
+	MutexLockGuard g(idl_mutex, FB_FUNCTION);
+
+	idl_count = 0;
+}
+
+[[noreturn]] void IndexLock::errIndexGone()
+{
+	fatal_exception::raise("Index is gone unexpectedly");
+}
+
 
 void jrd_rel::destroy(jrd_rel* rel)
 {
@@ -873,3 +960,39 @@ const char* jrd_rel::objectFamily(RelationPermanent* perm)
 {
 	return perm->isView() ? "view" : "table";
 }
+
+void Triggers::destroy(Triggers* trigs)
+{
+	auto tdbb = JRD_get_thread_data();
+	for (auto t : trigs->triggers)
+	{
+		t->free(tdbb);
+		delete t;
+	}
+}
+
+void Trigger::free(thread_db* tdbb)
+{
+	if (extTrigger)
+	{
+		delete extTrigger;
+		extTrigger = nullptr;
+	}
+
+	// dimitr:	We should never release triggers created by MET_parse_sys_trigger().
+	//			System triggers do have BLR, but it's not stored inside the trigger object.
+	//			However, triggers backing RI constraints are also marked as system,
+	//			but they are loaded in a regular way and their BLR is present here.
+	//			This is why we cannot simply check for sysTrigger, sigh.
+
+	const bool sysTableTrigger = (blr.isEmpty() && engine.isEmpty());
+
+	if (sysTableTrigger || !statement || releaseInProgress)
+		return;
+
+	AutoSetRestore<bool> autoProgressFlag(&releaseInProgress, true);
+
+	statement->release(tdbb);
+	statement = nullptr;
+}
+

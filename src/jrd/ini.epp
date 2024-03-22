@@ -767,7 +767,7 @@ void INI_format(thread_db* tdbb, const string& charset)
 		for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent)
-				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID]));
+				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID], 0));
 
 			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
 				;
@@ -1297,7 +1297,7 @@ void INI_upgrade(thread_db* tdbb)
 		for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent && relfld[RFLD_R_ODS] > odsVersion)
-				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID]));
+				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID], 0));
 
 			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
 				;
@@ -1782,8 +1782,8 @@ static void store_indices(thread_db* tdbb, USHORT odsVersion)
 	for (int n = 0; n < SYSTEM_INDEX_COUNT; n++)
 	{
 		const ini_idx_t* index = &indices[n];
-		const auto* relVers = MetadataCache::lookup_relation_id(tdbb, index->ini_idx_relid);
-		const auto* relation = relVers->rel_perm;
+		auto* relVers = MetadataCache::lookup_relation_id(tdbb, index->ini_idx_relid, 0);
+		auto* relation = relVers->rel_perm;
 
 		if (odsVersion && index->ini_idx_ods <= odsVersion)
 			continue;
@@ -1838,7 +1838,7 @@ static void store_indices(thread_db* tdbb, USHORT odsVersion)
 			idx.idx_flags = index->ini_idx_flags;
 			SelectivityList selectivity(*tdbb->getDefaultPool());
 
-			IDX_create_index(tdbb, relation, &idx, indexName.c_str(), NULL,
+			IDX_create_index(tdbb, relVers, &idx, indexName.c_str(), NULL,
 				transaction, selectivity);
 
 			X.RDB$INDEX_ID = idx.idx_id + 1;

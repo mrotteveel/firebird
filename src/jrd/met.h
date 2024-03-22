@@ -257,7 +257,6 @@ public:
 	void releaseGTTs(thread_db* tdbb);
 	void runDBTriggers(thread_db* tdbb, TriggerAction action);
 	void invalidateReplSet(thread_db* tdbb);
-	jrd_rel* getRelation(thread_db* tdbb, ULONG rel_id);
 	void setRelation(thread_db* tdbb, ULONG rel_id, jrd_rel* rel);
 	void releaseTrigger(thread_db* tdbb, MetaId triggerId, const MetaName& name);
 	const Triggers* getTriggers(thread_db* tdbb, MetaId tType);
@@ -285,7 +284,7 @@ public:
 #else
 	static void verify_cache(thread_db* tdbb) { }
 #endif
-	static void clear_cache(thread_db* tdbb);
+	static void clear(thread_db* tdbb);
 	static void update_partners(thread_db* tdbb);
 	void load_db_triggers(thread_db* tdbb, int type, bool force = false);
 	void load_ddl_triggers(thread_db* tdbb, bool force = false);
@@ -298,7 +297,7 @@ public:
 	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
 	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
-	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags = 0/*CacheFlag::AUTOCREATE*/);
+	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags = 0);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags = 0);
 	Cached::Relation* lookupRelation(MetaId id);

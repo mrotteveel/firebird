@@ -178,7 +178,7 @@ namespace Jrd
 
 	public:
 		FullTableScan(CompilerScratch* csb, const Firebird::string& alias,
-					  StreamType stream, jrd_rel* relation,
+					  StreamType stream, Rsc::Rel relation,
 					  const Firebird::Array<DbKeyRangeNode*>& dbkeyRanges);
 
 		void close(thread_db* tdbb) const override;
@@ -194,7 +194,7 @@ namespace Jrd
 
 	private:
 		const Firebird::string m_alias;
-		jrd_rel* const m_relation;
+		const Rsc::Rel m_relation;
 		Firebird::Array<DbKeyRangeNode*> m_dbkeyRanges;
 	};
 
@@ -207,7 +207,7 @@ namespace Jrd
 
 	public:
 		BitmapTableScan(CompilerScratch* csb, const Firebird::string& alias,
-						StreamType stream, jrd_rel* relation,
+						StreamType stream, Rsc::Rel relation,
 						InversionNode* inversion, double selectivity);
 
 		void close(thread_db* tdbb) const override;
@@ -223,7 +223,7 @@ namespace Jrd
 
 	private:
 		const Firebird::string m_alias;
-		jrd_rel* const m_relation;
+		const Rsc::Rel m_relation;
 		NestConst<InversionNode> const m_inversion;
 	};
 
@@ -249,7 +249,7 @@ namespace Jrd
 
 	public:
 		IndexTableScan(CompilerScratch* csb, const Firebird::string& alias,
-					   StreamType stream, jrd_rel* relation,
+					   StreamType stream, Rsc::Rel relation,
 					   InversionNode* index, USHORT keyLength,
 					   double selectivity);
 
@@ -284,7 +284,7 @@ namespace Jrd
 		bool setupBitmaps(thread_db* tdbb, Impure* impure) const;
 
 		const Firebird::string m_alias;
-		jrd_rel* const m_relation;
+		const Rsc::Rel m_relation;
 		NestConst<InversionNode> const m_index;
 		NestConst<InversionNode> m_inversion;
 		NestConst<BoolExprNode> m_condition;
@@ -301,7 +301,7 @@ namespace Jrd
 
 	public:
 		ExternalTableScan(CompilerScratch* csb, const Firebird::string& alias,
-						  StreamType stream, jrd_rel* relation);
+						  StreamType stream, Rsc::Rel relation);
 
 		void close(thread_db* tdbb) const override;
 
@@ -318,7 +318,7 @@ namespace Jrd
 		bool internalGetRecord(thread_db* tdbb) const override;
 
 	private:
-		jrd_rel* const m_relation;
+		const Rsc::Rel m_relation;
 		const Firebird::string m_alias;
 	};
 
@@ -326,7 +326,7 @@ namespace Jrd
 	{
 	public:
 		VirtualTableScan(CompilerScratch* csb, const Firebird::string& alias,
-						 StreamType stream, jrd_rel* relation);
+						 StreamType stream, Rsc::Rel relation);
 
 		void close(thread_db* tdbb) const override;
 
@@ -342,12 +342,12 @@ namespace Jrd
 		void internalOpen(thread_db* tdbb) const override;
 		bool internalGetRecord(thread_db* tdbb) const override;
 
-		virtual const Format* getFormat(thread_db* tdbb, jrd_rel* relation) const = 0;
+		virtual const Format* getFormat(thread_db* tdbb, RelationPermanent* relation) const = 0;
 		virtual bool retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 									FB_UINT64 position, Record* record) const = 0;
 
 	private:
-		jrd_rel* const m_relation;
+		const Rsc::Rel m_relation;
 		const Firebird::string m_alias;
 	};
 

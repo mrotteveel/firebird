@@ -79,10 +79,10 @@ static void check_swept(thread_db*, record_param*);
 static USHORT compress(thread_db*, data_page*);
 static void delete_tail(thread_db*, rhdf*, const USHORT, USHORT);
 static void fragment(thread_db*, record_param*, SSHORT, Compressor&, SSHORT, const jrd_tra*);
-static void extend_relation(thread_db*, jrd_rel*, WIN*, const Jrd::RecordStorageType type);
+static void extend_relation(thread_db*, Cached::Relation*, WIN*, const Jrd::RecordStorageType type);
 static UCHAR* find_space(thread_db*, record_param*, SSHORT, PageStack&, Record*, const Jrd::RecordStorageType type);
 static bool get_header(WIN*, USHORT, record_param*);
-static pointer_page* get_pointer_page(thread_db*, jrd_rel*, RelationPages*, WIN*, ULONG, USHORT);
+static pointer_page* get_pointer_page(thread_db*, RelationPermanent*, RelationPages*, WIN*, ULONG, USHORT);
 static rhd* locate_space(thread_db*, record_param*, SSHORT, PageStack&, Record*, const Jrd::RecordStorageType type);
 static void mark_full(thread_db*, record_param*);
 static void store_big_record(thread_db*, record_param*, PageStack&, Compressor&, const Jrd::RecordStorageType type);
@@ -239,7 +239,7 @@ double DPM_cardinality(thread_db* tdbb, jrd_rel* relation, const Format* format)
 
 	// Get the number of data pages for this relation
 
-	const ULONG dataPages = DPM_data_pages(tdbb, relation);
+	const ULONG dataPages = DPM_data_pages(tdbb, relation->rel_perm);
 
 	// Calculate record count and total compressed record length
 	// on the first data page
@@ -622,7 +622,7 @@ void DPM_create_relation_pages(thread_db* tdbb, RelationPermanent* relation, Rel
 }
 
 
-ULONG DPM_data_pages(thread_db* tdbb, jrd_rel* relation)
+ULONG DPM_data_pages(thread_db* tdbb, Cached::Relation* relation)
 {
 /**************************************
  *
@@ -826,7 +826,7 @@ void DPM_delete( thread_db* tdbb, record_param* rpb, ULONG prior_page)
 		relPages = rpb->rpb_relation->getPages(tdbb);
 		pwindow = WIN(relPages->rel_pg_space_id, -1);
 
-		if (!(ppage = get_pointer_page(tdbb, rpb->rpb_relation, relPages, &pwindow,
+		if (!(ppage = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm, relPages, &pwindow,
 				pp_sequence, LCK_write)))
 		{
 			BUGCHECK(245);	// msg 245 pointer page disappeared in DPM_delete
@@ -1035,7 +1035,7 @@ void DPM_delete_relation( thread_db* tdbb, RelationPermanent* relation)
 }
 
 
-void DPM_delete_relation_pages(Jrd::thread_db* tdbb, Jrd::jrd_rel* relation,
+void DPM_delete_relation_pages(Jrd::thread_db* tdbb, Jrd::RelationPermanent* relation,
 	Jrd::RelationPages* relPages)
 {
 	SET_TDBB(tdbb);
@@ -1500,7 +1500,7 @@ bool DPM_get(thread_db* tdbb, record_param* rpb, SSHORT lock_type)
 	}
 
 	// Find the pointer page, data page, and record
-	pointer_page* page = get_pointer_page(tdbb, rpb->rpb_relation,
+	pointer_page* page = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm,
 		relPages, window, pp_sequence, LCK_read);
 
 	if (!page)
@@ -1575,7 +1575,7 @@ ULONG DPM_get_blob(thread_db* tdbb,
 	// record doesn't exist, or the record isn't a blob, give up and
 	// let somebody else complain.
 
-	pointer_page* ppage = get_pointer_page(tdbb, relation,
+	pointer_page* ppage = get_pointer_page(tdbb, relation->rel_perm,
 		relation->getPages(tdbb), &rpb.getWindow(tdbb), pp_sequence, LCK_read);
 	if (!ppage)
 	{
@@ -1775,7 +1775,7 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 
 	while (true)
 	{
-		const pointer_page* ppage = get_pointer_page(tdbb, rpb->rpb_relation,
+		const pointer_page* ppage = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm,
 							relPages, window, pp_sequence, LCK_read);
 		if (!ppage)
 			BUGCHECK(249);	// msg 249 pointer page vanished from DPM_next
@@ -1863,7 +1863,7 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 				if (scope == DPM_next_data_page)
 					return false;
 
-				if (!(ppage = get_pointer_page(tdbb, rpb->rpb_relation, relPages, window,
+				if (!(ppage = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm, relPages, window,
 												pp_sequence, LCK_read)))
 				{
 					BUGCHECK(249);	// msg 249 pointer page vanished from DPM_next
@@ -1972,7 +1972,7 @@ SLONG DPM_prefetch_bitmap(thread_db* tdbb, jrd_rel* relation, PageBitmap* bitmap
 		DECOMPOSE(number, dbb->dbb_max_records, dp_sequence, line);
 		DECOMPOSE(dp_sequence, dbb->dbb_dp_per_pp, pp_sequence, slot);
 
-		const pointer_page* ppage = get_pointer_page(tdbb, relation, &window, pp_sequence, LCK_read);
+		const pointer_page* ppage = get_pointer_page(tdbb, relation->rel_perm, &window, pp_sequence, LCK_read);
 		if (!ppage)
 			BUGCHECK(249);	// msg 249 pointer page vanished from DPM_prefetch_bitmap
 
@@ -2453,7 +2453,7 @@ static void check_swept(thread_db* tdbb, record_param* rpb)
 		line, slot, pp_sequence);
 
 	pointer_page* ppage =
-		get_pointer_page(tdbb, rpb->rpb_relation, relPages, window, pp_sequence, LCK_read);
+		get_pointer_page(tdbb, rpb->rpb_relation->rel_perm, relPages, window, pp_sequence, LCK_read);
 	if (!ppage)
 		return;
 
@@ -2847,7 +2847,7 @@ static void fragment(thread_db* tdbb,
 }
 
 
-static void extend_relation(thread_db* tdbb, jrd_rel* relation, WIN* window, const Jrd::RecordStorageType type)
+static void extend_relation(thread_db* tdbb, Cached::Relation* relation, WIN* window, const Jrd::RecordStorageType type)
 {
 /**************************************
  *
@@ -3221,7 +3221,7 @@ static bool get_header(WIN* window, USHORT line, record_param* rpb)
 
 
 static pointer_page* get_pointer_page(thread_db* tdbb,
-	   	 							  jrd_rel* relation, RelationPages* relPages,
+	   	 							  RelationPermanent* relation, RelationPages* relPages,
 									  WIN* window, ULONG sequence, USHORT lock)
 {
 /**************************************
@@ -3311,7 +3311,7 @@ static rhd* locate_space(thread_db* tdbb,
 		rpb->rpb_number.decompose(dbb->dbb_max_records, dbb->dbb_dp_per_pp, line, slot, pp_sequence);
 
 		const pointer_page* ppage =
-			get_pointer_page(tdbb, relation, relPages, window, pp_sequence, LCK_read);
+			get_pointer_page(tdbb, relation->rel_perm, relPages, window, pp_sequence, LCK_read);
 
 		if (ppage)
 		{
@@ -3391,7 +3391,7 @@ static rhd* locate_space(thread_db* tdbb,
 			relPages->rel_sec_data_space = pp_sequence;
 
 		const pointer_page* ppage =
-			get_pointer_page(tdbb, relation, relPages, window, pp_sequence, ppLock);
+			get_pointer_page(tdbb, relation->rel_perm, relPages, window, pp_sequence, ppLock);
 		if (!ppage)
 			BUGCHECK(254);	// msg 254 pointer page vanished from relation list in locate_space
 
@@ -3434,7 +3434,7 @@ static rhd* locate_space(thread_db* tdbb,
 					CCH_RELEASE(tdbb, window);
 
 					ppLock = LCK_write;
-					ppage = get_pointer_page(tdbb, relation, relPages, window, pp_sequence, ppLock);
+					ppage = get_pointer_page(tdbb, relation->rel_perm, relPages, window, pp_sequence, ppLock);
 					if (!ppage)
 						BUGCHECK(254);
 
@@ -3504,7 +3504,7 @@ static rhd* locate_space(thread_db* tdbb,
 	int i;
 	for (i = 0; i < 20; ++i)
 	{
-		extend_relation(tdbb, relation, window, type);
+		extend_relation(tdbb, relation->rel_perm, window, type);
 		space = find_space(tdbb, rpb, size, stack, record, type);
 
 		if (space)
@@ -3581,7 +3581,7 @@ static void mark_full(thread_db* tdbb, record_param* rpb)
 
 	pointer_page* ppage = 0;
 	do {
-		ppage = get_pointer_page(tdbb, relation, relPages, &pp_window, pp_sequence, LCK_write);
+		ppage = get_pointer_page(tdbb, relation->rel_perm, relPages, &pp_window, pp_sequence, LCK_write);
 		if (!ppage)
 			BUGCHECK(256);	// msg 256 pointer page vanished from mark_full
 

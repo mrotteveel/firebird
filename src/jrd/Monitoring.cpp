@@ -105,7 +105,7 @@ namespace
 }
 
 
-const Format* MonitoringTableScan::getFormat(thread_db* tdbb, jrd_rel* relation) const
+const Format* MonitoringTableScan::getFormat(thread_db* tdbb, RelationPermanent* relation) const
 {
 	MonitoringSnapshot* const snapshot = MonitoringSnapshot::create(tdbb);
 	return snapshot->getData(relation)->getFormat();
@@ -116,7 +116,7 @@ bool MonitoringTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 										 FB_UINT64 position, Record* record) const
 {
 	MonitoringSnapshot* const snapshot = MonitoringSnapshot::create(tdbb);
-	if (!snapshot->getData(relation)->fetch(position, record))
+	if (!snapshot->getData(relation->rel_perm)->fetch(position, record))
 		return false;
 
 	if (relation->getId() == rel_mon_attachments || relation->getId() == rel_mon_statements)
@@ -626,7 +626,7 @@ void SnapshotData::clearSnapshot()
 }
 
 
-RecordBuffer* SnapshotData::getData(const jrd_rel* relation) const
+RecordBuffer* SnapshotData::getData(const RelationPermanent* relation) const
 {
 	fb_assert(relation);
 
@@ -648,7 +648,7 @@ RecordBuffer* SnapshotData::getData(int id) const
 
 RecordBuffer* SnapshotData::allocBuffer(thread_db* tdbb, MemoryPool& pool, int rel_id)
 {
-	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id);
+	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id, 0);
 	fb_assert(relation);
 	fb_assert(relation->isVirtual());
 

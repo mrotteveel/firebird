@@ -38,7 +38,7 @@ using namespace Jrd;
 // --------------------------------
 
 ExternalTableScan::ExternalTableScan(CompilerScratch* csb, const string& alias,
-									 StreamType stream, jrd_rel* relation)
+									 StreamType stream, Rsc::Rel relation)
 	: RecordStream(csb, stream), m_relation(relation), m_alias(csb->csb_pool, alias)
 {
 	m_impure = csb->allocImpure<Impure>();
@@ -58,7 +58,7 @@ void ExternalTableScan::internalOpen(thread_db* tdbb) const
 
 	// ???????????????? m_relation->getExtFile()->open(dbb);
 
-	VIO_record(tdbb, rpb, MET_current(tdbb, m_relation), request->req_pool);
+	VIO_record(tdbb, rpb, MET_current(tdbb, m_relation(request->getResources())), request->req_pool);
 
 	impure->irsb_position = 0;
 	rpb->rpb_number.setValue(BOF_NUMBER);
@@ -125,7 +125,7 @@ void ExternalTableScan::print(thread_db* tdbb, string& plan,
 	if (detailed)
 	{
 		plan += printIndent(++level) + "Table " +
-			printName(tdbb, m_relation->c_name(), m_alias) + " Full Scan";
+			printName(tdbb, m_relation()->c_name(), m_alias) + " Full Scan";
 		printOptInfo(plan);
 	}
 	else

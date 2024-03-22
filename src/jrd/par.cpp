@@ -1208,7 +1208,7 @@ void PAR_procedure_parms(thread_db* tdbb, CompilerScratch* csb, jrd_prc* procedu
 		const Format* format = input_flag ? procedure->getInputFormat() : procedure->getOutputFormat();
 		/* dimitr: procedure (with its parameter formats) is allocated out of
 				   its own pool (prc_request->req_pool) and can be freed during
-				   the cache cleanup clear_cache(). Since the current
+				   the cache cleanup. Since the current
 				   tdbb default pool is different from the procedure's one,
 				   it's dangerous to copy a pointer from one request to another.
 				   As an experiment, I've decided to copy format by value

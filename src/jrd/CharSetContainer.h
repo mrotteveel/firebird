@@ -28,6 +28,7 @@
 
 #include "../jrd/HazardPtr.h"
 #include "../jrd/Collation.h"
+#include "../jrd/Resources.h"
 #include "../common/classes/alloc.h"
 
 struct SubtypeInfo;
@@ -75,6 +76,11 @@ public:
 		return cs->getName();
 	}
 
+	MetaName getName() const
+	{
+		return cs->getName();
+	}
+
 	MetaId getId();
 
 	Lock* getLock()
@@ -116,14 +122,23 @@ public:
 		}
 	}
 
+	MetaId getId()
+	{
+		return perm->getId();
+	}
+
+	MetaName getName() const
+	{
+		return perm->getName();
+	}
+
 	static void destroy(CharSetVers* csv);
-	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, CharSetContainer* perm);
+	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::Charset* perm);
 	void scan(thread_db* tdbb, ObjectBase::Flag flags);
 	static Lock* makeLock(thread_db*, MemoryPool&);
 
 	Collation* lookupCollation(thread_db* tdbb, MetaId tt_id);
 	Collation* lookupCollation(thread_db* tdbb, MetaName name);
-	//void unloadCollation(thread_db* tdbb, USHORT tt_id);
 	Collation* getCollation(CollId collId);
 
 private:

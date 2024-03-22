@@ -49,7 +49,6 @@ public:
 protected:
 	Collation(TTYPE_ID id, texttype *a_tt, USHORT a_attributes, CharSet* a_cs)
 		: TextType(id, a_tt, a_attributes, a_cs),
-		  useCount(0),
 		  existenceLock(NULL),
 		  obsolete(false)
 	{
@@ -95,8 +94,8 @@ public:
 		return name.c_str();
 	}
  */
+
 public:
-	int useCount;
 	Lock* existenceLock;
 	bool obsolete;
 };

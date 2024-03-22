@@ -110,7 +110,7 @@ namespace
 }
 
 
-void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, jrd_rel* view, jrd_rel* relation)
+void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* view, Cached::Relation* relation)
 {
 /**************************************
  *
@@ -275,7 +275,7 @@ public:
 			// preserving the page working sets of other attachments.
 			if (att && (att != m_dbb->dbb_attachments || att->att_next))
 			{
-				if (att->isGbak() || DPM_data_pages(tdbb, m_creation->relation) > m_dbb->dbb_bcb->bcb_count)
+				if (att->isGbak() || DPM_data_pages(tdbb, m_creation->relation->rel_perm) > m_dbb->dbb_bcb->bcb_count)
 					m_flags |= IS_LARGE_SCAN;
 			}
 
@@ -392,9 +392,7 @@ public:
 				{
 					m_idx.idx_expression = NULL;
 					m_idx.idx_expression_statement = NULL;
-					m_idx.idx_foreign_indexes = NULL;
-					m_idx.idx_foreign_primaries = NULL;
-					m_idx.idx_foreign_relations = NULL;
+					m_idx.idx_foreign_deps = NULL;
 				}
 
 				FPTR_REJECT_DUP_CALLBACK callback = NULL;
@@ -483,7 +481,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 
 	Database* dbb = tdbb->getDatabase();
 	Attachment* attachment = tdbb->getAttachment();
-	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, m_creation->relation->getId());
+	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, m_creation->relation->getId(), CacheFlag::AUTOCREATE);
 
 	index_desc* idx = &item->m_idx;
 	jrd_tra* transaction = item->m_tra ? item->m_tra : m_creation->transaction;
@@ -544,7 +542,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 //		if (!MET_lookup_partner(tdbb, relation, idx, m_creation->index_name)) {
 //			BUGCHECK(173);		// msg 173 referenced index description not found
 //		}
-		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation, CacheFlag::AUTOCREATE);
 		partner_index_id = idx->idx_primary_index;
 	}
 
@@ -884,7 +882,7 @@ void IDX_create_index(thread_db* tdbb,
 
 	if (isForeign)
 	{
-		if (!MET_lookup_partner(tdbb, relation, idx, index_name)) {
+		if (!MET_lookup_partner(tdbb, relation->rel_perm, idx, index_name)) {
 			BUGCHECK(173);		// msg 173 referenced index description not found
 		}
 	}
@@ -971,7 +969,7 @@ void IDX_create_index(thread_db* tdbb,
 	{
 		IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, idx->idx_id);
 		if (idx_lock)
-			idx_lock->lockShared(tdbb);
+			idx_lock->sharedLock(tdbb);
 	}
 }
 
@@ -1045,7 +1043,7 @@ void IDX_delete_index(thread_db* tdbb, jrd_rel* relation, USHORT id)
 }
 
 
-void IDX_delete_indices(thread_db* tdbb, jrd_rel* relation, RelationPages* relPages)
+void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPages* relPages)
 {
 /**************************************
  *
@@ -1074,7 +1072,7 @@ void IDX_delete_indices(thread_db* tdbb, jrd_rel* relation, RelationPages* relPa
 
 		if (is_temp && tree_exists)
 		{
-			IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, i);
+			IndexLock* idx_lock = relation->getIndexLock(tdbb, i);
 			if (idx_lock)
 				idx_lock->unlockAll(tdbb);
 		}
@@ -1106,7 +1104,7 @@ void IDX_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 	RelationPages* relPages = rpb->rpb_relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
-	while (BTR_next_index(tdbb, rpb->rpb_relation, transaction, &idx, &window))
+	while (BTR_next_index(tdbb, rpb->rpb_relation->rel_perm, transaction, &idx, &window))
 	{
 		if (idx.idx_flags & (idx_primary | idx_unique))
 		{
@@ -1279,7 +1277,7 @@ void IDX_modify(thread_db* tdbb,
 	RelationPages* relPages = org_rpb->rpb_relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
-	while (BTR_next_index(tdbb, org_rpb->rpb_relation, transaction, &idx, &window))
+	while (BTR_next_index(tdbb, org_rpb->rpb_relation->rel_perm, transaction, &idx, &window))
 	{
 		if (!BTR_check_condition(tdbb, &idx, new_rpb->rpb_record))
 			continue;
@@ -1336,7 +1334,7 @@ void IDX_modify_check_constraints(thread_db* tdbb,
 	// relations' foreign keys then don't bother cycling thru all index descriptions.
 
 	if (!(org_rpb->rpb_relation->rel_flags & REL_check_partners) &&
-		!(org_rpb->rpb_relation->rel_primary_dpnds.prim_reference_ids))
+		!(org_rpb->rpb_relation->rel_perm->rel_primary_dpnds))
 	{
 		return;
 	}
@@ -1352,10 +1350,10 @@ void IDX_modify_check_constraints(thread_db* tdbb,
 	// Now check all the foreign key constraints. Referential integrity relation
 	// could be established by primary key/foreign key or unique key/foreign key
 
-	while (BTR_next_index(tdbb, org_rpb->rpb_relation, transaction, &idx, &window))
+	while (BTR_next_index(tdbb, org_rpb->rpb_relation->rel_perm, transaction, &idx, &window))
 	{
 		if (!(idx.idx_flags & (idx_primary | idx_unique)) ||
-			!MET_lookup_partner(tdbb, org_rpb->rpb_relation, &idx, 0))
+			!MET_lookup_partner(tdbb, org_rpb->rpb_relation->rel_perm, &idx, 0))
 		{
 			continue;
 		}
@@ -1431,10 +1429,10 @@ void IDX_modify_flag_uk_modified(thread_db* tdbb,
 	index_desc idx;
 	idx.idx_id = idx_invalid;
 
-	while (BTR_next_index(tdbb, relation, transaction, &idx, &window))
+	while (BTR_next_index(tdbb, relation->rel_perm, transaction, &idx, &window))
 	{
 		if (!(idx.idx_flags & (idx_primary | idx_unique)) ||
-			!MET_lookup_partner(tdbb, relation, &idx, 0))
+			!MET_lookup_partner(tdbb, relation->rel_perm, &idx, 0))
 		{
 			continue;
 		}
@@ -1509,7 +1507,7 @@ void IDX_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 	RelationPages* relPages = rpb->rpb_relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
-	while (BTR_next_index(tdbb, rpb->rpb_relation, transaction, &idx, &window))
+	while (BTR_next_index(tdbb, rpb->rpb_relation->rel_perm, transaction, &idx, &window))
 	{
 		if (!BTR_check_condition(tdbb, &idx, rpb->rpb_record))
 			continue;
@@ -1726,7 +1724,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 
 	idx_e result = idx_e_ok;
 
-	if (!MET_lookup_partner(tdbb, relation, idx, 0))
+	if (!MET_lookup_partner(tdbb, relation->rel_perm, idx, 0))
 		return result;
 
 	jrd_rel* partner_relation = nullptr;
@@ -1739,17 +1737,15 @@ static idx_e check_foreign_key(thread_db* tdbb,
 		result = check_partner_index(tdbb, relation, record, transaction, idx,
 									 partner_relation, index_id);
 	}
-	else if (idx->idx_flags & (idx_primary | idx_unique))
+	else if ((idx->idx_flags & (idx_primary | idx_unique)) && idx->idx_foreign_deps)
 	{
-		for (int index_number = 0;
-			index_number < (int) idx->idx_foreign_primaries->count();
-			index_number++)
+		for (auto& frgn : *(idx->idx_foreign_deps))
 		{
-			if (idx->idx_id != (*idx->idx_foreign_primaries)[index_number])
+			if (idx->idx_id != frgn.dep_reference_id)
 				continue;
 
-			partner_relation = MetadataCache::findRelation(tdbb, (*idx->idx_foreign_relations)[index_number]);
-			index_id = (*idx->idx_foreign_indexes)[index_number];
+			partner_relation = MetadataCache::findRelation(tdbb, frgn.dep_relation);
+			index_id = frgn.dep_index;
 
 			if ((relation->rel_flags & REL_temp_conn) && (partner_relation->rel_flags & REL_temp_tran))
 			{

@@ -229,6 +229,26 @@ static void update_selectivity(index_root_page*, USHORT, const SelectivityList&)
 static void checkForLowerKeySkip(bool&, const bool, const IndexNode&, const temporary_key&,
 								 const index_desc&, const IndexRetrieval*);
 
+
+// IndexRetrieval class
+
+jrd_rel* IndexRetrieval::getRelation(thread_db* tdbb) const
+{
+	if (irb_jrd_relation)
+		return irb_jrd_relation;
+
+	auto* rq = tdbb->getRequest();
+	if (rq)
+		return irb_rsc_relation(rq->getResources());
+
+	return irb_rsc_relation(tdbb);
+}
+
+Cached::Relation* IndexRetrieval::getPermRelation() const
+{
+	return irb_jrd_relation ? irb_jrd_relation->rel_perm : irb_rsc_relation();
+}
+
 // BtrPageLock class
 
 BtrPageGCLock::BtrPageGCLock(thread_db* tdbb)
@@ -511,9 +531,7 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, index_root_pag
 	idx->idx_count = irt_desc->irt_keys;
 	idx->idx_flags = irt_desc->irt_flags;
 	idx->idx_runtime_flags = 0;
-	idx->idx_foreign_primaries = nullptr;
-	idx->idx_foreign_relations = nullptr;
-	idx->idx_foreign_indexes = nullptr;
+	idx->idx_foreign_deps = nullptr;
 	idx->idx_primary_relation = 0;
 	idx->idx_primary_index = 0;
 	idx->idx_expression = nullptr;
@@ -764,7 +782,7 @@ void BTR_evaluate(thread_db* tdbb, const IndexRetrieval* retrieval, RecordBitmap
 	//const Database* dbb = tdbb->getDatabase();
 
 	index_desc idx;
-	RelationPages* relPages = retrieval->irb_relation->getPages(tdbb);
+	RelationPages* relPages = retrieval->getPermRelation()->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 	temporary_key lowerKey, upperKey;
 	lowerKey.key_flags = 0;
@@ -1001,18 +1019,18 @@ btree_page* BTR_find_page(thread_db* tdbb,
 		if (errorCode != idx_e_ok)
 		{
 			index_desc temp_idx = retrieval->irb_desc; // to avoid constness issues
-			IndexErrorContext context(retrieval->irb_relation, &temp_idx);
+			IndexErrorContext context(retrieval->getRelation(tdbb), &temp_idx);
 			context.raise(tdbb, errorCode, NULL);
 		}
 	}
 
-	RelationPages* relPages = retrieval->irb_relation->getPages(tdbb);
+	RelationPages* relPages = retrieval->getPermRelation()->getPages(tdbb);
 	fb_assert(window->win_page.getPageSpaceID() == relPages->rel_pg_space_id);
 
 	window->win_page = relPages->rel_index_root;
 	index_root_page* rpage = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 
-	if (!BTR_description(tdbb, retrieval->irb_relation->rel_perm, rpage, idx, retrieval->irb_index))
+	if (!BTR_description(tdbb, retrieval->getPermRelation(), rpage, idx, retrieval->irb_index))
 	{
 		CCH_RELEASE(tdbb, window);
 		IBERROR(260);	// msg 260 index unexpectedly deleted
@@ -1864,7 +1882,7 @@ void BTR_make_null_key(thread_db* tdbb, const index_desc* idx, temporary_key* ke
 }
 
 
-bool BTR_next_index(thread_db* tdbb, jrd_rel* relation, jrd_tra* transaction, index_desc* idx, WIN* window)
+bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transaction, index_desc* idx, WIN* window)
 {
 /**************************************
  *
@@ -1896,7 +1914,7 @@ bool BTR_next_index(thread_db* tdbb, jrd_rel* relation, jrd_tra* transaction, in
 		RelationPages* const relPages = transaction ?
 			relation->getPages(tdbb, transaction->tra_number) : relation->getPages(tdbb);
 
-		if (!(root = fetch_root(tdbb, window, relation->rel_perm, relPages)))
+		if (!(root = fetch_root(tdbb, window, relation, relPages)))
 			return false;
 	}
 
@@ -1926,7 +1944,7 @@ bool BTR_next_index(thread_db* tdbb, jrd_rel* relation, jrd_tra* transaction, in
 			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 		}
 
-		if (BTR_description(tdbb, relation->rel_perm, root, idx, id))
+		if (BTR_description(tdbb, relation, root, idx, id))
 			return true;
 	}
 

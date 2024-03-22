@@ -651,7 +651,7 @@ private:
 	const bool innerFlag;
 	const bool outerFlag;
 	SortNode* const sort;
-	jrd_rel* relation;
+	Rsc::Rel relation;
 	const bool createIndexScanNodes;
 	const bool setConjunctionsMatched;
 	Firebird::string alias;

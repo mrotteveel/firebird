@@ -335,8 +335,6 @@ inline void SET_DBB(Jrd::Database*& dbb)
 // global variables for engine
 
 namespace Jrd {
-	void suspend();
-
 	typedef Firebird::SubsystemContextPoolHolder <Jrd::thread_db, MemoryPool> ContextPoolHolder;
 
 	class DatabaseContextHolder : public Jrd::ContextPoolHolder

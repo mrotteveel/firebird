@@ -1127,22 +1127,17 @@ Collation* Collation::createInstance(MemoryPool& pool, TTYPE_ID id, texttype* tt
 
 void Collation::release(thread_db* tdbb)
 {
-	fb_assert(useCount >= 0);
-
 	if (existenceLock)
 	{
 		if (!tdbb)
 			tdbb = JRD_get_thread_data();
 		LCK_release(tdbb, existenceLock);
 	}
-
-	useCount = 0;
 }
 
 void Collation::destroy(thread_db* tdbb, int xxx)
 {
 	fprintf(stderr, "Collation::destroy(%p) tt=%p\n", this, tt);
-	fb_assert(useCount == 0);
 
 	if (tt->texttype_fn_destroy)
 		tt->texttype_fn_destroy(tt);
@@ -1154,34 +1149,7 @@ void Collation::destroy(thread_db* tdbb, int xxx)
 	delete existenceLock;
 	existenceLock = NULL;
 
-	fprintf(stderr, "retire collation %p\n", this);
-	//this->retire();
+	delete this;
 }
-
-void Collation::incUseCount(thread_db* /*tdbb*/)
-{
-	fb_assert(!obsolete);
-	fb_assert(useCount >= 0);
-
-	++useCount;
-}
-
-void Collation::decUseCount(thread_db* tdbb)
-{
-	fb_assert(useCount >= 0);
-
-	if (useCount > 0)
-	{
-		useCount--;
-
-		if (!useCount)
-		{
-			fb_assert(existenceLock);
-			if (obsolete)
-				LCK_re_post(tdbb, existenceLock);
-		}
-	}
-}
-
 
 }	// namespace Jrd

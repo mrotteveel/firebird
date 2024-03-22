@@ -149,8 +149,7 @@ Retrieval::Retrieval(thread_db* aTdbb, Optimizer* opt, StreamType streamNumber,
 	const auto dbb = tdbb->getDatabase();
 
 	const auto tail = &csb->csb_rpt[stream];
-	relation = tail->csb_relation(tdbb);
-	fb_assert(relation);
+	relation = tail->csb_relation;
 
 	if (!tail->csb_idx)
 		return;
@@ -166,7 +165,7 @@ Retrieval::Retrieval(thread_db* aTdbb, Optimizer* opt, StreamType streamNumber,
 		if ((index.idx_flags & idx_condition) && !checkIndexCondition(index, matches))
 			continue;
 
-		const auto length = ROUNDUP(BTR_key_length(tdbb, relation, &index), sizeof(SLONG));
+		const auto length = ROUNDUP(BTR_key_length(tdbb, relation(tdbb), &index), sizeof(SLONG));
 
 		// AB: Calculate the cardinality which should reflect the total number
 		// of index pages for this index.
@@ -242,7 +241,7 @@ InversionCandidate* Retrieval::getInversion()
 
 	InversionCandidate* invCandidate = nullptr;
 
-	if (relation && !relation->getExtFile() && !relation->isVirtual())
+	if (relation && !relation()->getExtFile() && !relation()->isVirtual())
 	{
 		InversionCandidateList inversions;
 
@@ -374,7 +373,7 @@ IndexTableScan* Retrieval::getNavigation()
 	scratch->index->idx_runtime_flags |= idx_navigate;
 
 	const USHORT key_length =
-		ROUNDUP(BTR_key_length(tdbb, relation, scratch->index), sizeof(SLONG));
+		ROUNDUP(BTR_key_length(tdbb, relation(tdbb), scratch->index), sizeof(SLONG));
 
 	InversionNode* const index_node = makeIndexScanNode(scratch);
 
@@ -1065,22 +1064,13 @@ InversionNode* Retrieval::makeIndexScanNode(IndexScratch* indexScratch) const
 
 	index_desc* const idx = indexScratch->index;
 
-/*
- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	// Check whether this is during a compile or during a SET INDEX operation
-	if (csb)
-		csb->csb_resources.postResource(tdbb, Resource::rsc_index, relation, idx->idx_id);
-	else
-	{
-		auto& resources = tdbb->getRequest()->getStatement()->resources;
-		resources.postIndex(tdbb, relation, idx->idx_id);
-	}
- */
+	fb_assert(csb);
+	csb->csb_resources->postIndex(tdbb, relation(), idx->idx_id);
 
 	// For external requests, determine index name (to be reported in plans)
 	MetaName indexName;
 	if (!(csb->csb_g_flags & csb_internal))
-		MetadataCache::lookup_index(tdbb, indexName, relation->getName(), idx->idx_id + 1);
+		MetadataCache::lookup_index(tdbb, indexName, relation()->getName(), idx->idx_id + 1);
 
 	const auto retrieval =
 		FB_NEW_POOL(getPool()) IndexRetrieval(getPool(), relation, idx, indexName);

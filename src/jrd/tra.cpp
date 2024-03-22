@@ -950,7 +950,7 @@ void TRA_update_counters(thread_db* tdbb, Database* dbb)
 }
 
 
-void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, Resources& resources)
+void jrd_tra::postResources(thread_db* tdbb, const Resources* resources)
 {
 /**************************************
  *
@@ -959,22 +959,20 @@ void TRA_post_resources(thread_db* tdbb, jrd_tra* transaction, Resources& resour
  **************************************
  *
  * Functional description
- *	Post interest in relation/procedure/collation existence to transaction.
- *	This guarantees that the relation/procedure/collation won't be dropped
- *	out from under the transaction.
+ *	Post interest in external relation existence to transaction.
  *
  **************************************/
 	SET_TDBB(tdbb);
 
-	for (auto& rel : resources.relations)
+	for (auto& rel : resources->relations)
 	{
 		if (auto* ext = rel()->getExtFile())
 		{
 			FB_SIZE_T pos;
-			if (!transaction->tra_ext.find(ext, pos))
+			if (!traExtRel.find(ext, pos))
 			{
 				ext->traAttach(tdbb);
-				transaction->tra_ext.insert(pos, ext);
+				traExtRel.insert(pos, ext);
 			}
 		}
 	}
@@ -1234,8 +1232,8 @@ void TRA_release_transaction(thread_db* tdbb, jrd_tra* transaction, Jrd::TraceTr
 	}
 
 	// Care about used external files
-	while (transaction->tra_ext.hasData())
-		transaction->tra_ext.pop()->traDetach();
+	while (transaction->traExtRel.hasData())
+		transaction->traExtRel.pop()->traDetach();
 
 	MetadataCache::release_temp_tables(tdbb, transaction);
 
@@ -4131,7 +4129,7 @@ void TraceSweepEvent::beginSweepRelation(const jrd_rel* relation)
 	if (relation && relation->getName().isEmpty())
 	{
 		// don't accumulate per-relation stats for metadata query below
-		MetadataCache::lookup_relation_id(m_tdbb, relation->getId());
+		MetadataCache::lookup_relation_id(m_tdbb, relation->getId(), CacheFlag::AUTOCREATE);
 	}
 
 	m_relation_clock = fb_utils::query_performance_counter();

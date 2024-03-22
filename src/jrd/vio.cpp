@@ -2000,7 +2000,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 	if (needDfw(tdbb, transaction))
 	{
-		jrd_rel* r2;
+		Cached::Relation* r2;
 		jrd_prc* procedure;
 		USHORT id;
 		DeferredWork* work;
@@ -2058,7 +2058,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				}
 				EVL_field(0, rpb->rpb_record, f_rel_name, &desc);
 				DFW_post_work(transaction, dfw_delete_relation, &desc, id);
-				MetadataCache::lookup_relation_id(tdbb, id);
+				MetadataCache::lookup_relation_id(tdbb, id, CacheFlag::AUTOCREATE);
 			}
 			break;
 
@@ -2122,7 +2122,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			{
 				MetaName relation_name;
 				MOV_get_metaname(tdbb, &desc, relation_name);
-				r2 = MetadataCache::lookup_relation(tdbb, relation_name);
+				r2 = MetadataCache::lookupRelation(tdbb, relation_name);
 				fb_assert(r2);
 
 				DSC idx_name;
@@ -2148,9 +2148,9 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 					jrd_rel* partner;
 					index_desc idx;
 
-					if ((BTR_lookup(tdbb, r2->rel_perm, id - 1, &idx, r2->rel_perm->getBasePages())) &&
+					if ((BTR_lookup(tdbb, r2, id - 1, &idx, r2->getBasePages())) &&
 						MET_lookup_partner(tdbb, r2, &idx, index_name.nullStr()) &&
-						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation)) )
+						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE)) )
 					{
 						DFW_post_work_arg(transaction, work, 0, partner->getId(),
 										  dfw_arg_partner_rel_id);
@@ -2174,7 +2174,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 			EVL_field(0, rpb->rpb_record, f_rfr_fname, &desc2);
 			MOV_get_metaname(tdbb, &desc, object_name);
-			if ( (r2 = MetadataCache::lookup_relation(tdbb, object_name)) )
+			if ( (r2 = MetadataCache::lookupRelation(tdbb, object_name)) )
 				DFW_post_work(transaction, dfw_delete_rfr, &desc2, r2->getId());
 
 			EVL_field(0, rpb->rpb_record, f_rfr_sname, &desc2);
@@ -3625,7 +3625,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 	// if the same page should be fetched for read.
 	// Explicit scan of relation's partners allows to avoid possible deadlock.
 
-	MET_scan_partners(tdbb, org_rpb->rpb_relation);
+	MET_scan_partners(tdbb, org_rpb->rpb_relation->rel_perm);
 
 	/* We're almost ready to go.  To modify the record, we must first
 	make a copy of the old record someplace else.  Then we must re-fetch
@@ -4377,7 +4377,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 		MetadataCache* mdc = attachment->att_database->dbb_mdc;
 		for (FB_SIZE_T i = 1; i < mdc->relCount(); i++)
 		{
-			relation = MetadataCache::lookup_relation_id(tdbb, i);
+			relation = MetadataCache::lookup_relation_id(tdbb, i, CacheFlag::AUTOCREATE);
 
 			if (relation &&
 				!(relation->rel_perm->isDropped()) &&
@@ -5307,7 +5307,7 @@ void Database::garbage_collector(Database* dbb)
 				if ((dbb->dbb_flags & DBB_gc_pending) &&
 					(gc_bitmap = gc->getPages(dbb->dbb_oldest_snapshot, relID)))
 				{
-					relation = MetadataCache::lookup_relation_id(tdbb, relID);
+					relation = MetadataCache::lookup_relation_id(tdbb, relID, CacheFlag::AUTOCREATE);
 					if (!relation || relation->rel_perm->isDropped())
 					{
 						delete gc_bitmap;
@@ -6548,15 +6548,15 @@ static void refresh_fk_fields(thread_db* tdbb, Record* old_rec, record_param* cu
  *  new_rpb - new record evaluated by modify statement and before-triggers
  *
  **************************************/
-	jrd_rel* relation = cur_rpb->rpb_relation;
+	auto* relation = cur_rpb->rpb_relation->rel_perm;
 
 	MET_scan_partners(tdbb, relation);
 
-	if (!(relation->rel_foreign_refs.frgn_relations))
+	const auto* frgn = relation->rel_foreign_refs;
+	if (!frgn)
 		return;
 
-	const FB_SIZE_T frgnCount = relation->rel_foreign_refs.frgn_relations->count();
-	if (!frgnCount)
+	if (!frgn->getCount())
 		return;
 
 	RelationPages* relPages = cur_rpb->rpb_relation->getPages(tdbb);
@@ -6564,16 +6564,15 @@ static void refresh_fk_fields(thread_db* tdbb, Record* old_rec, record_param* cu
 	// Collect all fields of all foreign keys
 	SortedArray<int, InlineStorage<int, 16> > fields;
 
-	for (FB_SIZE_T i = 0; i < frgnCount; i++)
+	for (auto& dep : *frgn)
 	{
 		// We need self-referenced FK's only
-		if ((*relation->rel_foreign_refs.frgn_relations)[i] == relation->getId())
+		if (dep.dep_relation == relation->getId())
 		{
 			index_desc idx;
 			idx.idx_id = idx_invalid;
 
-			if (BTR_lookup(tdbb, relation->rel_perm, (*relation->rel_foreign_refs.frgn_reference_ids)[i],
-					&idx, relPages))
+			if (BTR_lookup(tdbb, relation, dep.dep_reference_id, &idx, relPages))
 			{
 				fb_assert(idx.idx_flags & idx_foreign);
 
@@ -6595,15 +6594,15 @@ static void refresh_fk_fields(thread_db* tdbb, Record* old_rec, record_param* cu
 	{
 		// Detect if user changed FK field by himself.
 		const int fld = fields[idx];
-		const bool flag_old = EVL_field(relation, old_rec, fld, &desc1);
-		const bool flag_new = EVL_field(relation, new_rpb->rpb_record, fld, &desc2);
+		const bool flag_old = EVL_field(cur_rpb->rpb_relation, old_rec, fld, &desc1);
+		const bool flag_new = EVL_field(cur_rpb->rpb_relation, new_rpb->rpb_record, fld, &desc2);
 
 		// If field was not changed by user - pick up possible modification by
 		// system cascade trigger
 		if (flag_old == flag_new &&
 			(!flag_old || (flag_old && !MOV_compare(tdbb, &desc1, &desc2))))
 		{
-			const bool flag_tmp = EVL_field(relation, cur_rpb->rpb_record, fld, &desc1);
+			const bool flag_tmp = EVL_field(cur_rpb->rpb_relation, cur_rpb->rpb_record, fld, &desc1);
 			if (flag_tmp)
 				MOV_move(tdbb, &desc1, &desc2);
 			else

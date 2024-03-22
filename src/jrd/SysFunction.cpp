@@ -3693,7 +3693,7 @@ dsc* evlEncodeDecodeHex(thread_db* tdbb, bool encodeFlag, const SysFunction* fun
 	}
 	else
 	{
-		if (encodeFlag && arg->getStringLength() * 2 > MAX_VARY_COLUMN_SIZE)
+		if (encodeFlag && arg->getStringLength() * 2 > int(MAX_VARY_COLUMN_SIZE))
 		{
 			outBlob.reset(blb::create2(tdbb, tdbb->getRequest()->req_transaction,
 				&impure->vlu_misc.vlu_bid, sizeof(streamBpb), streamBpb));
