@@ -281,7 +281,7 @@ USHORT DsqlRequest::parseMetadata(IMessageMetadata* meta, const Array<dsql_par*>
 		checkD(&st);
 		desc.dsc_sub_type = meta->getSubType(&st, index);
 		checkD(&st);
-		unsigned textType = meta->getCharSet(&st, index);
+		auto textType = CSetId(meta->getCharSet(&st, index));
 		checkD(&st);
 		desc.setTextType(textType);
 		desc.dsc_address = (UCHAR*)(IPTR) dataOffset;

@@ -128,8 +128,8 @@ void DsqlDescMaker::composeDesc(dsc* desc,
 								SSHORT scale,
 								SSHORT subType,
 								FLD_LENGTH length,
-								SSHORT charsetId,
-								SSHORT collationId,
+								CSetId charsetId,
+								CollId collationId,
 								bool nullable)
 {
 	desc->clear();
@@ -139,8 +139,7 @@ void DsqlDescMaker::composeDesc(dsc* desc,
 	desc->dsc_length = length;
 	desc->dsc_flags = nullable ? DSC_nullable : 0;
 
-	if (desc->isText() || desc->isBlob())
-		desc->setTextType(INTL_CS_COLL_TO_TTYPE(charsetId, collationId));
+	desc->setTextType(TTypeId(charsetId, collationId));
 }
 
 
@@ -256,7 +255,7 @@ ValueExprNode* MAKE_constant(const char* str, dsql_constant_type numeric_flag, S
 			tmp.dsc_dtype = dtype_text;
 			tmp.dsc_scale = 0;
 			tmp.dsc_flags = 0;
-			tmp.dsc_ttype() = ttype_ascii;
+			tmp.setTextType(ttype_ascii);
 			tmp.dsc_length = static_cast<USHORT>(strlen(str));
 			tmp.dsc_address = (UCHAR*) str;
 
@@ -342,7 +341,7 @@ ValueExprNode* MAKE_constant(const char* str, dsql_constant_type numeric_flag, S
     @param character_set
 
  **/
-LiteralNode* MAKE_str_constant(const IntlString* constant, SSHORT character_set)
+LiteralNode* MAKE_str_constant(const IntlString* constant, CSetId character_set)
 {
 	thread_db* tdbb = JRD_get_thread_data();
 
@@ -354,7 +353,7 @@ LiteralNode* MAKE_str_constant(const IntlString* constant, SSHORT character_set)
 	literal->litDesc.dsc_scale = 0;
 	literal->litDesc.dsc_length = static_cast<USHORT>(str.length());
 	literal->litDesc.dsc_address = (UCHAR*) str.c_str();
-	literal->litDesc.dsc_ttype() = character_set;
+	literal->litDesc.setTextType(character_set);
 
 	literal->dsqlStr = constant;
 

@@ -53,11 +53,11 @@ namespace Jrd
 		}
 
 	public:
-		virtual bool transliterate(const dsc* from, dsc* to, CHARSET_ID&);
-		virtual CHARSET_ID getChid(const dsc* d);
-		virtual CharSet* getToCharset(CHARSET_ID charset2);
+		virtual bool transliterate(const dsc* from, dsc* to, CSetId&);
+		virtual CSetId getChid(const dsc* d);
+		virtual CharSet* getToCharset(CSetId charset2);
 		virtual void validateData(CharSet* toCharset, SLONG length, const UCHAR* q);
-		virtual ULONG validateLength(CharSet* charSet, CHARSET_ID charSetId, ULONG length, const UCHAR* start,
+		virtual ULONG validateLength(CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 			const USHORT size);
 		virtual SLONG getLocalDate();
 		virtual ISC_TIMESTAMP getCurrentGmtTimeStamp();
@@ -76,7 +76,7 @@ namespace Jrd
 		{
 		}
 
-		virtual ULONG validateLength(CharSet* charSet, CHARSET_ID charSetId, ULONG length, const UCHAR* start,
+		virtual ULONG validateLength(CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 			const USHORT size);
 
 	private:
@@ -89,7 +89,7 @@ inline void CVT_move(const dsc* from, dsc* to, Firebird::DecimalStatus decSt)
 	CVT_move_common(from, to, decSt, &Jrd::EngineCallbacks::instance);
 }
 
-inline USHORT CVT_get_string_ptr(const dsc* desc, USHORT* ttype, UCHAR** address,
+inline USHORT CVT_get_string_ptr(const dsc* desc, TTypeId* ttype, UCHAR** address,
                                  vary* temp, USHORT length, Firebird::DecimalStatus decSt)
 {
 	return CVT_get_string_ptr_common(desc, ttype, address, temp, length, decSt,

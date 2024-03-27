@@ -245,7 +245,7 @@ static void define_default_class(thread_db* tdbb,
 	desc.dsc_dtype = dtype_text;
 	desc.dsc_sub_type = 0;
 	desc.dsc_scale = 0;
-	desc.dsc_ttype() = ttype_metadata;
+	desc.setTextType(ttype_metadata);
 	desc.dsc_address = (UCHAR *) relation_name;
 	desc.dsc_length = static_cast<USHORT>(strlen(relation_name));
 	DFW_post_work(transaction, dfw_scan_relation, &desc, 0);
@@ -841,7 +841,7 @@ static SecurityClass::flags_t save_field_privileges(thread_db* tdbb,
 		desc.dsc_dtype = dtype_text;
 		desc.dsc_sub_type = 0;
 		desc.dsc_scale = 0;
-		desc.dsc_ttype() = ttype_metadata;
+		desc.setTextType(ttype_metadata);
 		desc.dsc_address = (UCHAR *) relation_name;
 		desc.dsc_length = static_cast<USHORT>(strlen(relation_name));
 		DFW_post_work(transaction, dfw_update_format, &desc, 0);

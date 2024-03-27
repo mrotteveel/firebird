@@ -319,7 +319,7 @@ MetaName Jrd::Attachment::nameToUserCharSet(thread_db* tdbb, const MetaName& nam
 string Jrd::Attachment::stringToMetaCharSet(thread_db* tdbb, const string& str,
 	const char* charSet)
 {
-	USHORT charSetId = att_charset;
+	auto charSetId = att_charset;
 
 	if (charSet)
 	{

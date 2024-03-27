@@ -2082,7 +2082,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			id = MOV_get_long(tdbb, &desc2, 0);
 
 			EVL_field(0, rpb->rpb_record, f_coll_id, &desc2);
-			id = INTL_CS_COLL_TO_TTYPE(id, MOV_get_long(tdbb, &desc2, 0));
+			id = TTypeId(CSetId(id), CollId(MOV_get_long(tdbb, &desc2, 0)));
 
 			EVL_field(0, rpb->rpb_record, f_coll_name, &desc);
 			DFW_post_work(transaction, dfw_delete_collation, &desc, id);
@@ -4272,7 +4272,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				USHORT id = MOV_get_long(tdbb, &desc, 0);
 
 				EVL_field(0, rpb->rpb_record, f_coll_id, &desc);
-				id = INTL_CS_COLL_TO_TTYPE(id, MOV_get_long(tdbb, &desc, 0));
+				id = TTypeId(CSetId(id), CollId(MOV_get_long(tdbb, &desc, 0)));
 
 				EVL_field(0, rpb->rpb_record, f_coll_name, &desc);
 				DFW_post_work(transaction, dfw_create_collation, &desc, id);

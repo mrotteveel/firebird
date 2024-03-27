@@ -40,6 +40,7 @@
 #include "../jrd/RuntimeStatistics.h"
 #include "../jrd/status.h"
 #include "../jrd/err_proto.h"
+#include "../jrd/intl.h"
 
 #define BUGCHECK(number) ERR_bugcheck(number, __FILE__, __LINE__)
 
@@ -295,7 +296,7 @@ public:
 
 	void setRequest(Request* val);
 
-	SSHORT getCharSet() const;
+	CSetId getCharSet() const;
 
 	void markAsSweeper()
 	{

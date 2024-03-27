@@ -218,7 +218,7 @@ void setParamsInt64(DataTypeUtilBase* dataTypeUtil, const SysFunction* function,
 void setParamsSecondInteger(DataTypeUtilBase* dataTypeUtil, const SysFunction* function, int argsCount, dsc** args);
 
 // helper functions for setParams
-void setParamVarying(dsc* param, USHORT textType, bool condition = false);
+void setParamVarying(dsc* param, TTypeId textType, bool condition = false);
 bool dscHasData(const dsc* param);
 
 // specific setParams functions
@@ -676,7 +676,7 @@ void setParamsUnicodeVal(DataTypeUtilBase*, const SysFunction*, int argsCount, d
 }
 
 
-void setParamVarying(dsc* param, USHORT textType, bool condition)
+void setParamVarying(dsc* param, TTypeId textType, bool condition)
 {
 	if (!param)
 		return;
@@ -1266,7 +1266,7 @@ bool makeBlobAppendBlob(dsc* result, const dsc* arg, bid* blob_id = nullptr)
 
 	if (arg->isText())
 	{
-		USHORT ttype = arg->getTextType();
+		auto ttype = arg->getTextType();
 		if (ttype == ttype_binary)
 			result->makeBlob(isc_blob_untyped, ttype_binary, ptr);
 		else
@@ -4531,7 +4531,7 @@ dsc* evlGetContext(thread_db* tdbb, const SysFunction*, const NestValueArray& ar
 	const string nameStr(MOV_make_string2(tdbb, name, ttype_none));
 
 	string resultStr;
-	USHORT resultType = ttype_none;
+	auto resultType = ttype_none;
 	request->req_flags |= req_null;
 
 	if (nameSpaceStr == SYSTEM_NAMESPACE)	// Handle system variables
@@ -5546,7 +5546,7 @@ dsc* evlOverlay(thread_db* tdbb, const SysFunction* function, const NestValueArr
 										Arg::Str(function->name));
 	}
 
-	const USHORT resultTextType = DataTypeUtil::getResultTextType(value, placing);
+	const auto resultTextType = DataTypeUtil::getResultTextType(value, placing);
 	CharSet* cs = INTL_charset_lookup(tdbb, resultTextType);
 
 	MoveBuffer temp1;
@@ -5713,7 +5713,7 @@ dsc* evlPad(thread_db* tdbb, const SysFunction* function, const NestValueArray& 
 			return NULL;
 	}
 
-	const USHORT ttype = value1->getTextType();
+	const auto ttype = value1->getTextType();
 	CharSet* cs = INTL_charset_lookup(tdbb, ttype);
 
 	MoveBuffer buffer1;
@@ -5891,7 +5891,7 @@ dsc* evlPosition(thread_db* tdbb, const SysFunction* function, const NestValueAr
 	impure->vlu_desc.makeLong(0, &impure->vlu_misc.vlu_long);
 
 	// we'll use the collation from the second string
-	const USHORT ttype = value2->getTextType();
+	const auto ttype = value2->getTextType();
 	TextType* tt = INTL_texttype_lookup(tdbb, ttype);
 	CharSet* cs = tt->getCharSet();
 	const UCHAR canonicalWidth = tt->getCanonicalWidth();
@@ -6075,7 +6075,7 @@ dsc* evlReplace(thread_db* tdbb, const SysFunction*, const NestValueArray& args,
 			firstBlob = values[i];
 	}
 
-	const USHORT ttype = values[0]->getTextType();
+	const auto ttype = values[0]->getTextType();
 	TextType* tt = INTL_texttype_lookup(tdbb, ttype);
 	CharSet* cs = tt->getCharSet();
 	const UCHAR canonicalWidth = tt->getCanonicalWidth();

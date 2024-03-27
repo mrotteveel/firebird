@@ -141,7 +141,7 @@ namespace
 		bool present;
 	};
 
-	class ChangeCharset : public AutoSetRestore<SSHORT>
+	class ChangeCharset : public AutoSetRestore<CSetId>
 	{
 	public:
 		ChangeCharset(Attachment* att)

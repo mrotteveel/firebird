@@ -24,6 +24,8 @@
 #ifndef JRD_OBJ_H
 #define JRD_OBJ_H
 
+#include "../common/gdsassert.h"
+
 // Object types used in RDB$DEPENDENCIES and RDB$USER_PRIVILEGES and stored in backup.
 // Note: some values are hard coded in grant.gdl
 // Keep existing constants unchanged.

@@ -272,7 +272,7 @@ void METD_drop_relation(jrd_tra* transaction, const MetaName& name)
 }
 
 
-dsql_intlsym* METD_get_collation(jrd_tra* transaction, const MetaName& name, USHORT charset_id)
+dsql_intlsym* METD_get_collation(jrd_tra* transaction, const MetaName& name, CSetId charset_id)
 {
 /**************************************
  *
@@ -313,15 +313,15 @@ dsql_intlsym* METD_get_collation(jrd_tra* transaction, const MetaName& name, USH
 	X IN RDB$COLLATIONS
 		CROSS Y IN RDB$CHARACTER_SETS OVER RDB$CHARACTER_SET_ID
 		WITH X.RDB$COLLATION_NAME EQ name.c_str() AND
-			 X.RDB$CHARACTER_SET_ID EQ charset_id;
+			 X.RDB$CHARACTER_SET_ID EQ charset_id
 	{
 		symbol = FB_NEW_POOL(dbb->dbb_pool) dsql_intlsym(dbb->dbb_pool);
 		symbol->intlsym_name = name;
 		symbol->intlsym_flags = 0;
-		symbol->intlsym_charset_id = X.RDB$CHARACTER_SET_ID;
-		symbol->intlsym_collate_id = X.RDB$COLLATION_ID;
+		symbol->intlsym_charset_id = CSetId(X.RDB$CHARACTER_SET_ID);
+		symbol->intlsym_collate_id = CollId(X.RDB$COLLATION_ID);
 		symbol->intlsym_ttype =
-			INTL_CS_COLL_TO_TTYPE(symbol->intlsym_charset_id, symbol->intlsym_collate_id);
+			TTypeId(symbol->intlsym_charset_id, symbol->intlsym_collate_id);
 		symbol->intlsym_bytes_per_char =
 			(Y.RDB$BYTES_PER_CHARACTER.NULL) ? 1 : (Y.RDB$BYTES_PER_CHARACTER);
 	}
@@ -386,10 +386,10 @@ dsql_intlsym* METD_get_charset(jrd_tra* transaction, USHORT length, const char* 
 		symbol = FB_NEW_POOL(dbb->dbb_pool) dsql_intlsym(dbb->dbb_pool);
 		symbol->intlsym_name = metaName;
 		symbol->intlsym_flags = 0;
-		symbol->intlsym_charset_id = X.RDB$CHARACTER_SET_ID;
-		symbol->intlsym_collate_id = X.RDB$COLLATION_ID;
+		symbol->intlsym_charset_id = CSetId(X.RDB$CHARACTER_SET_ID);
+		symbol->intlsym_collate_id = CollId(X.RDB$COLLATION_ID);
 		symbol->intlsym_ttype =
-			INTL_CS_COLL_TO_TTYPE(symbol->intlsym_charset_id, symbol->intlsym_collate_id);
+			TTypeId(CSetId(symbol->intlsym_charset_id), CollId(symbol->intlsym_collate_id));
 		symbol->intlsym_bytes_per_char =
 			(Y.RDB$BYTES_PER_CHARACTER.NULL) ? 1 : (Y.RDB$BYTES_PER_CHARACTER);
 	}
@@ -406,7 +406,7 @@ dsql_intlsym* METD_get_charset(jrd_tra* transaction, USHORT length, const char* 
 }
 
 
-USHORT METD_get_charset_bpc(jrd_tra* transaction, SSHORT charset_id)
+USHORT METD_get_charset_bpc(jrd_tra* transaction, CSetId charset_id)
 {
 /**************************************
  *
@@ -442,7 +442,7 @@ USHORT METD_get_charset_bpc(jrd_tra* transaction, SSHORT charset_id)
 }
 
 
-MetaName METD_get_charset_name(jrd_tra* transaction, SSHORT charset_id)
+MetaName METD_get_charset_name(jrd_tra* transaction, CSetId charset_id)
 {
 /**************************************
  *
@@ -562,12 +562,12 @@ bool METD_get_domain(jrd_tra* transaction, TypeClause* field, const MetaName& na
 		field->subType = FLX.RDB$FIELD_SUB_TYPE;
 		field->dimensions = FLX.RDB$DIMENSIONS.NULL ? 0 : FLX.RDB$DIMENSIONS;
 
-		field->charSetId = Nullable<SSHORT>::empty();
+		field->charSetId = Nullable<CSetId>::empty();
 		if (!FLX.RDB$CHARACTER_SET_ID.NULL)
-			field->charSetId = FLX.RDB$CHARACTER_SET_ID;
-		field->collationId = 0;
+			field->charSetId = CSetId(FLX.RDB$CHARACTER_SET_ID);
+		field->collationId = CollId(0);
 		if (!FLX.RDB$COLLATION_ID.NULL)
-			field->collationId = FLX.RDB$COLLATION_ID;
+			field->collationId = CollId(FLX.RDB$COLLATION_ID);
 		field->charLength = 0;
 		if (!FLX.RDB$CHARACTER_LENGTH.NULL)
 			field->charLength = FLX.RDB$CHARACTER_LENGTH;
@@ -710,7 +710,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 						userFunc->udf_length = F.RDB$FIELD_LENGTH;
 
 					if (!F.RDB$CHARACTER_SET_ID.NULL) {
-						userFunc->udf_character_set_id = F.RDB$CHARACTER_SET_ID;
+						userFunc->udf_character_set_id = CSetId(F.RDB$CHARACTER_SET_ID);
 					}
 
 					if (!X.RDB$ARGUMENT_MECHANISM.NULL && X.RDB$ARGUMENT_MECHANISM == prm_mech_type_of &&
@@ -752,12 +752,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 					if (!F.RDB$CHARACTER_SET_ID.NULL)
 					{
-						if (d.dsc_dtype != dtype_blob) {
-							d.dsc_ttype() = F.RDB$CHARACTER_SET_ID;
-						}
-						else {
-							d.dsc_scale = F.RDB$CHARACTER_SET_ID;
-						}
+						d.setTextType(CSetId(F.RDB$CHARACTER_SET_ID));
 					}
 
 					if (X.RDB$MECHANISM != FUN_value && X.RDB$MECHANISM != FUN_reference)
@@ -798,7 +793,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 					userFunc->udf_length = X.RDB$FIELD_LENGTH;
 
 				if (!X.RDB$CHARACTER_SET_ID.NULL) {
-					userFunc->udf_character_set_id = X.RDB$CHARACTER_SET_ID;
+					userFunc->udf_character_set_id = CSetId(X.RDB$CHARACTER_SET_ID);
 				}
 			}
 			else
@@ -825,12 +820,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 				if (!X.RDB$CHARACTER_SET_ID.NULL)
 				{
-					if (d.dsc_dtype != dtype_blob) {
-						d.dsc_ttype() = X.RDB$CHARACTER_SET_ID;
-					}
-					else {
-						d.dsc_scale = X.RDB$CHARACTER_SET_ID;
-					}
+					d.setTextType(CSetId(X.RDB$CHARACTER_SET_ID));
 				}
 
 				if (X.RDB$MECHANISM != FUN_value && X.RDB$MECHANISM != FUN_reference)
@@ -1054,7 +1044,7 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 			SORTED BY DESCENDING PR.RDB$PARAMETER_NUMBER
 		{
 			const SSHORT pr_collation_id_null = PR.RDB$COLLATION_ID.NULL;
-			const SSHORT pr_collation_id = PR.RDB$COLLATION_ID;
+			const CollId pr_collation_id(PR.RDB$COLLATION_ID);
 
 			const SSHORT pr_default_value_null = PR.RDB$DEFAULT_VALUE.NULL;
 
@@ -1086,12 +1076,12 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 			parameter->fld_procedure = procedure;
 
 			if (!FLD.RDB$CHARACTER_SET_ID.NULL)
-				parameter->charSetId = FLD.RDB$CHARACTER_SET_ID;
+				parameter->charSetId = CSetId(FLD.RDB$CHARACTER_SET_ID);
 
 			if (!pr_collation_id_null)
 				parameter->collationId = pr_collation_id;
 			else if (!FLD.RDB$COLLATION_ID.NULL)
-				parameter->collationId = FLD.RDB$COLLATION_ID;
+				parameter->collationId = CollId(FLD.RDB$COLLATION_ID);
 
 			convert_dtype(parameter, FLD.RDB$FIELD_TYPE);
 
@@ -1327,12 +1317,12 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 			}
 
 			if (!FLX.RDB$CHARACTER_SET_ID.NULL)
-				field->charSetId = FLX.RDB$CHARACTER_SET_ID;
+				field->charSetId = CSetId(FLX.RDB$CHARACTER_SET_ID);
 
 			if (!RFR.RDB$COLLATION_ID.NULL)
-				field->collationId = RFR.RDB$COLLATION_ID;
+				field->collationId = CollId(RFR.RDB$COLLATION_ID);
 			else if (!FLX.RDB$COLLATION_ID.NULL)
-				field->collationId = FLX.RDB$COLLATION_ID;
+				field->collationId = CollId(FLX.RDB$COLLATION_ID);
 
 			if (!(RFR.RDB$NULL_FLAG || FLX.RDB$NULL_FLAG) || (relation->rel_flags & REL_view))
 			{

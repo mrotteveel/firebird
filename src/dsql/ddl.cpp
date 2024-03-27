@@ -321,7 +321,7 @@ void DDL_resolve_intl_type(DsqlCompilerScratch* dsqlScratch, dsql_fld* field,
 			defaultCharSet = METD_get_default_charset(dsqlScratch->getTransaction());
 		else
 		{
-			USHORT charSet = dsqlScratch->getAttachment()->dbb_attachment->att_charset;
+			auto charSet = dsqlScratch->getAttachment()->dbb_attachment->att_charset;
 			if (charSet != CS_NONE)
 				defaultCharSet = METD_get_charset_name(dsqlScratch->getTransaction(), charSet);
 		}

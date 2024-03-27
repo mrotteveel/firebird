@@ -513,7 +513,7 @@ public:
 		setCharSet(tdbb, attInfo, obj);
 	}
 
-	ContextManager(thread_db* tdbb, EngineAttachmentInfo* aAttInfo, USHORT aCharSet,
+	ContextManager(thread_db* tdbb, EngineAttachmentInfo* aAttInfo, CSetId aCharSet,
 				CallerName aCallerName = CallerName())
 		: attInfo(aAttInfo),
 		  attachment(tdbb->getAttachment()),
@@ -570,7 +570,7 @@ private:
 			charSetName[MAX_SQL_IDENTIFIER_LEN] = '\0';
 		}
 
-		USHORT charSetId;
+		TTypeId charSetId;
 
 		if (!MetadataCache::get_char_coll_subtype(tdbb, &charSetId,
 				reinterpret_cast<const UCHAR*>(charSetName), static_cast<USHORT>(strlen(charSetName))))
@@ -586,7 +586,7 @@ private:
 	Jrd::Attachment* attachment;
 	jrd_tra* transaction;
 	// These data members are to restore the original information.
-	const USHORT charSet;
+	const CSetId charSet;
 	const bool attInUse;
 	const bool traInUse;
 	CallerName callerName;

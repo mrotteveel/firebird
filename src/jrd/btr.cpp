@@ -1821,7 +1821,7 @@ void BTR_make_null_key(thread_db* tdbb, const index_desc* idx, temporary_key* ke
 	null_desc.dsc_sub_type = 0;
 	null_desc.dsc_scale = 0;
 	null_desc.dsc_length = 1;
-	null_desc.dsc_ttype() = ttype_ascii;
+	null_desc.setTextType(ttype_ascii);
 	null_desc.dsc_address = (UCHAR*) " ";
 
 	temporary_key temp;
@@ -2632,7 +2632,7 @@ static void compress(thread_db* tdbb,
 					to.dsc_flags = 0;
 					to.dsc_sub_type = 0;
 					to.dsc_scale = 0;
-					to.dsc_ttype() = ttype_sort_key;
+					to.setTextType(ttype_sort_key);
 					to.dsc_length = MIN(MAX_COLUMN_SIZE, MAX_KEY * 4);
 					ptr = to.dsc_address = reinterpret_cast<UCHAR*>(buffer.vary_string);
 					multiKeyLength = length = INTL_string_to_key(tdbb, itype, desc, &to, key_type);
@@ -3504,7 +3504,7 @@ static DSC* eval(thread_db* tdbb, const ValueExprNode* node, DSC* temp, bool* is
 	temp->dsc_sub_type = 0;
 	temp->dsc_scale = 0;
 	temp->dsc_length = 1;
-	temp->dsc_ttype() = ttype_ascii;
+	temp->setTextType(ttype_ascii);
 	temp->dsc_address = (UCHAR*) " ";
 
 	return temp;

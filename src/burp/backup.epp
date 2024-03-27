@@ -741,13 +741,13 @@ burp_fld* get_fields( burp_rel* relation)
 
 			if (!Y.RDB$CHARACTER_SET_ID.NULL)
 			{
-				field->fld_character_set_id = Y.RDB$CHARACTER_SET_ID;
+				field->fld_character_set_id = CSetId(Y.RDB$CHARACTER_SET_ID);
 				field->fld_flags |= FLD_charset_flag;
 			}
 
 			if (!X.RDB$COLLATION_ID.NULL)
 			{
-				field->fld_collation_id = X.RDB$COLLATION_ID;
+				field->fld_collation_id = CollId(X.RDB$COLLATION_ID);
 				field->fld_flags |= FLD_collate_flag;
 			}
 
@@ -860,13 +860,13 @@ burp_fld* get_fields( burp_rel* relation)
 
 			if (!Y.RDB$CHARACTER_SET_ID.NULL)
 			{
-				field->fld_character_set_id = Y.RDB$CHARACTER_SET_ID;
+				field->fld_character_set_id = CSetId(Y.RDB$CHARACTER_SET_ID);
 				field->fld_flags |= FLD_charset_flag;
 			}
 
 			if (!X.RDB$COLLATION_ID.NULL)
 			{
-				field->fld_collation_id = X.RDB$COLLATION_ID;
+				field->fld_collation_id = CollId(X.RDB$COLLATION_ID);
 				field->fld_flags |= FLD_collate_flag;
 			}
 

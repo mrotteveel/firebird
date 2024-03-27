@@ -238,8 +238,8 @@ public:
 	USHORT segLength;					// Segment length for blobs
 	USHORT precision;					// Precision for exact numeric types
 	USHORT charLength;					// Length of field in characters
-	Nullable<SSHORT> charSetId;
-	SSHORT collationId;
+	Nullable<CSetId> charSetId;
+	CollId collationId;
 	SSHORT textType;
 	bool fullDomain;					// Domain name without TYPE OF prefix
 	bool notNull;						// NOT NULL was explicit specified
@@ -344,7 +344,7 @@ public:
 	SSHORT		udf_scale;
 	SSHORT		udf_sub_type;
 	USHORT		udf_length;
-	SSHORT		udf_character_set_id;
+	CSetId		udf_character_set_id;
 	//USHORT		udf_character_length;
     USHORT      udf_flags;
 	QualifiedName udf_name;
@@ -412,9 +412,9 @@ public:
 	MetaName intlsym_name;
 	USHORT		intlsym_type;		// what type of name
 	USHORT		intlsym_flags;
-	SSHORT		intlsym_ttype;		// id of implementation
-	SSHORT		intlsym_charset_id;
-	SSHORT		intlsym_collate_id;
+	TTypeId		intlsym_ttype;		// id of implementation
+	CSetId		intlsym_charset_id;
+	CollId		intlsym_collate_id;
 	USHORT		intlsym_bytes_per_char;
 };
 
@@ -763,7 +763,7 @@ struct SignatureParameter
 	MetaName charSetName;
 	MetaName collationName;
 	MetaName subTypeName;
-	Nullable<SSHORT> collationId;
+	Nullable<CollId> collationId;
 	Nullable<SSHORT> nullFlag;
 	SSHORT mechanism;
 	Nullable<SSHORT> fieldLength;
@@ -773,8 +773,8 @@ struct SignatureParameter
 	Nullable<SSHORT> fieldSegmentLength;
 	Nullable<SSHORT> fieldNullFlag;
 	Nullable<SSHORT> fieldCharLength;
-	Nullable<SSHORT> fieldCollationId;
-	Nullable<SSHORT> fieldCharSetId;
+	Nullable<CollId> fieldCollationId;
+	Nullable<CSetId> fieldCharSetId;
 	Nullable<SSHORT> fieldPrecision;
 
 	bool operator >(const SignatureParameter& o) const
@@ -805,7 +805,7 @@ struct SignatureParameter
 			charSetName == o.charSetName &&
 			collationName == o.collationName &&
 			subTypeName == o.subTypeName &&
-			fieldCollationId.orElse(0) == o.fieldCollationId.orElse(0) &&
+			fieldCollationId.orElse(CollId()) == o.fieldCollationId.orElse(CollId()) &&
 			fieldCharSetId == o.fieldCharSetId &&
 			fieldPrecision == o.fieldPrecision;
 	}

@@ -35,12 +35,10 @@ struct SubtypeInfo;
 
 namespace Jrd {
 
-typedef UCHAR CollId;
-
 class CharSetContainer : public Firebird::PermanentStorage
 {
 public:
-	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, /*const SubtypeInfo* info*/Lock* lock);
+	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, Lock* lock);
 
 	void destroy()
 	{
@@ -61,10 +59,9 @@ public:
 		return cs;
 	}
 
-	CsConvert lookupConverter(thread_db* tdbb, CHARSET_ID to_cs);
+	CsConvert lookupConverter(thread_db* tdbb, CSetId to_cs);
 
-	static CharSetContainer* lookupCharset(thread_db* tdbb, USHORT ttype);
-	static Lock* createCollationLock(thread_db* tdbb, USHORT ttype, void* object = NULL);
+	static CharSetContainer* lookupCharset(thread_db* tdbb, TTypeId ttype);
 
 	bool hasData() const
 	{
@@ -89,7 +86,7 @@ public:
 	}
 
 private:
-	static bool lookupInternalCharSet(USHORT id, SubtypeInfo* info);
+	static bool lookupInternalCharSet(CSetId id, SubtypeInfo* info);
 
 private:
 	CharSet* cs;
@@ -137,41 +134,13 @@ public:
 	void scan(thread_db* tdbb, ObjectBase::Flag flags);
 	static Lock* makeLock(thread_db*, MemoryPool&);
 
-	Collation* lookupCollation(thread_db* tdbb, MetaId tt_id);
-	Collation* lookupCollation(thread_db* tdbb, MetaName name);
-	Collation* getCollation(CollId collId);
+	Collation* getCollation(TTypeId tt_id);
+	Collation* getCollation(MetaName name);
 
 private:
 	CharSetContainer* perm;
 	Firebird::HalfStaticArray<Collation*, 16> charset_collations;
 };
-
-namespace Rsc
-{
-
-class Coll
-{
-public:
-	Coll(CSet* cs, CollId id)
-		: cSet(cs), collId(id)
-	{ }
-
-	Collation* operator()(const VersionedObjects* runTime) const
-	{
-		return (*cSet)(runTime)->getCollation(collId);
-	}
-
-	Collation* operator()(thread_db* tdbb) const
-	{
-		return (*cSet)(tdbb)->getCollation(collId);
-	}
-
-private:
-	CSet* cSet;
-	CollId collId;
-};
-
-} // namespace Rsc
 
 } // namespace Jrd
 

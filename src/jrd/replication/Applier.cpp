@@ -405,8 +405,8 @@ void Applier::process(thread_db* tdbb, ULONG length, const UCHAR* data)
 			case opExecuteSqlIntl:
 				{
 					const auto ownerName = reader.getMetaName();
-					const unsigned charset =
-						(op == opExecuteSql) ? CS_UTF8 : reader.getByte();
+					const auto charset =
+						(op == opExecuteSql) ? CS_UTF8 : CSetId(reader.getByte());
 					const string sql = reader.getString();
 					executeSql(tdbb, traNum, charset, sql, ownerName);
 				}
@@ -944,7 +944,7 @@ void Applier::storeBlob(thread_db* tdbb, TraNumber traNum, bid* blobId,
 
 void Applier::executeSql(thread_db* tdbb,
 						 TraNumber traNum,
-						 unsigned charset,
+						 CSetId charset,
 						 const string& sql,
 						 const MetaName& ownerName)
 {
@@ -960,7 +960,7 @@ void Applier::executeSql(thread_db* tdbb,
 	const auto dialect =
 		(dbb->dbb_flags & DBB_DB_SQL_dialect_3) ? SQL_DIALECT_V6 : SQL_DIALECT_V5;
 
-	AutoSetRestore<SSHORT> autoCharset(&attachment->att_charset, charset);
+	AutoSetRestore<CSetId> autoCharset(&attachment->att_charset, charset);
 
 	UserId* const owner = attachment->getUserId(ownerName);
 	AutoSetRestore<UserId*> autoOwner(&attachment->att_ss_user, owner);

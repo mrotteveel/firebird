@@ -256,7 +256,7 @@ USHORT PAR_datatype(BlrReader& blrReader, dsc* desc)
 	desc->clear();
 
 	const USHORT dtype = blrReader.getByte();
-	USHORT textType;
+	TTypeId textType;
 
 	switch (dtype)
 	{
@@ -278,18 +278,18 @@ USHORT PAR_datatype(BlrReader& blrReader, dsc* desc)
 			break;
 
 		case blr_text2:
-			textType = blrReader.getWord();
+			textType = TTypeId(blrReader.getWord());
 			desc->makeText(blrReader.getWord(), textType);
 			break;
 
 		case blr_cstring2:
 			desc->dsc_dtype = dtype_cstring;
-			desc->setTextType(blrReader.getWord());
+			desc->setTextType(TTypeId(blrReader.getWord()));
 			desc->dsc_length = blrReader.getWord();
 			break;
 
 		case blr_varying2:
-			textType = blrReader.getWord();
+			textType = TTypeId(blrReader.getWord());
 			desc->makeVarying(blrReader.getWord(), textType);
 			break;
 
@@ -383,7 +383,7 @@ USHORT PAR_datatype(BlrReader& blrReader, dsc* desc)
 			desc->dsc_dtype = dtype_blob;
 			desc->dsc_length = sizeof(ISC_QUAD);
 			desc->dsc_sub_type = blrReader.getWord();
-			textType = blrReader.getWord();
+			textType = TTypeId(blrReader.getWord());
 			desc->dsc_scale = textType & 0xFF;		// BLOB character set
 			desc->dsc_flags = textType & 0xFF00;	// BLOB collation
 			break;
@@ -453,19 +453,15 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 			if (dtype == blr_domain_name2)
 			{
-				const USHORT ttype = csb->csb_blr_reader.getWord();
+				const auto ttype = TTypeId(csb->csb_blr_reader.getWord());
 
 				switch (desc->dsc_dtype)
 				{
 					case dtype_cstring:
 					case dtype_text:
 					case dtype_varying:
-						desc->setTextType(ttype);
-						break;
-
 					case dtype_blob:
-						desc->dsc_scale = ttype & 0xFF;		// BLOB character set
-						desc->dsc_flags = ttype & 0xFF00;	// BLOB collation
+						desc->setTextType(ttype);
 						break;
 
 					default:
@@ -518,19 +514,15 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 			if (dtype == blr_column_name2)
 			{
-				const USHORT ttype = csb->csb_blr_reader.getWord();
+				const auto ttype = TTypeId(csb->csb_blr_reader.getWord());
 
 				switch (desc->dsc_dtype)
 				{
 					case dtype_cstring:
 					case dtype_text:
 					case dtype_varying:
-						desc->setTextType(ttype);
-						break;
-
 					case dtype_blob:
-						desc->dsc_scale = ttype & 0xFF;		// BLOB character set
-						desc->dsc_flags = ttype & 0xFF00;	// BLOB collation
+						desc->setTextType(ttype);
 						break;
 
 					default:
@@ -562,7 +554,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 	if (csb->collectingDependencies() && desc->getTextType() != CS_NONE)
 	{
 		Dependency dependency(obj_collation);
-		dependency.number = INTL_TEXT_TYPE(*desc);
+		dependency.number = INTL_GET_TTYPE(desc);
 		csb->addDependency(dependency);
 	}
 

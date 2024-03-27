@@ -695,7 +695,7 @@ static UCHAR* put_item(	UCHAR	item,
 // Return as UTF8
 string IntlString::toUtf8(jrd_tra* transaction) const
 {
-	CHARSET_ID id = CS_dynamic;
+	CSetId id = CS_dynamic;
 
 	if (charset.hasData())
 	{

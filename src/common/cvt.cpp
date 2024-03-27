@@ -276,7 +276,7 @@ static void float_to_text(const dsc* from, dsc* to, Callbacks* cb)
 
 	dsc intermediate;
 	intermediate.dsc_dtype = dtype_text;
-	intermediate.dsc_ttype() = ttype_ascii;
+	intermediate.setTextType(ttype_ascii);
 	// CVC: If you think this is dangerous, replace the "else" with a call to
 	// MEMMOVE(temp, temp + 1, chars_printed) or something cleverer.
 	// Paranoid assumption:
@@ -321,7 +321,7 @@ static void decimal_float_to_text(const dsc* from, dsc* to, DecimalStatus decSt,
 
 	dsc intermediate;
 	intermediate.dsc_dtype = dtype_text;
-	intermediate.dsc_ttype() = ttype_ascii;
+	intermediate.setTextType(ttype_ascii);
 	intermediate.dsc_address = reinterpret_cast<UCHAR*>(temp);
 	intermediate.dsc_length = strlen(temp);
 
@@ -349,7 +349,7 @@ static void int128_to_text(const dsc* from, dsc* to, Callbacks* cb)
 
 	dsc intermediate;
 	intermediate.dsc_dtype = dtype_text;
-	intermediate.dsc_ttype() = ttype_ascii;
+	intermediate.setTextType(ttype_ascii);
 	intermediate.dsc_address = reinterpret_cast<UCHAR*>(temp);
 	intermediate.dsc_length = strlen(temp);
 
@@ -492,7 +492,7 @@ static void integer_to_text(const dsc* from, dsc* to, Callbacks* cb)
 		ULONG trailing = ULONG(to->dsc_length) - length;
 		if (trailing > 0)
 		{
-			CHARSET_ID chid = cb->getChid(to); // : DSC_GET_CHARSET(to);
+			CSetId chid = cb->getChid(to); // : DSC_GET_CHARSET(to);
 
 			const char pad = chid == ttype_binary ? '\0' : ' ';
 			memset(q, pad, trailing);
@@ -1555,11 +1555,11 @@ void CVT_move_common(const dsc* from, dsc* to, DecimalStatus decSt, Callbacks* c
 
 	if ((from->dsc_dtype == dtype_text &&
 		 to->dsc_dtype == dtype_dbkey &&
-		 from->dsc_ttype() == ttype_binary &&
+		 from->getTextType() == ttype_binary &&
 		 from->dsc_length == to->dsc_length) ||
 		(to->dsc_dtype == dtype_text &&
 		 from->dsc_dtype == dtype_dbkey &&
-		 to->dsc_ttype() == ttype_binary &&
+		 to->getTextType() == ttype_binary &&
 		 from->dsc_length == to->dsc_length))
 	{
 		memcpy(p, q, length);
@@ -1853,12 +1853,12 @@ void CVT_move_common(const dsc* from, dsc* to, DecimalStatus decSt, Callbacks* c
 				 * unless really required is a good optimization.
 				 */
 
-				CHARSET_ID charset2;
+				CSetId charset2;
 				if (cb->transliterate(from, to, charset2))
 					return;
 
 				{ // scope
-					USHORT strtype_unused;
+					TTypeId strtype_unused;
 					UCHAR *ptr;
 					length = CVT_get_string_ptr_common(from, &strtype_unused, &ptr, NULL, 0, decSt, cb);
 					q = ptr;
@@ -1948,7 +1948,7 @@ void CVT_move_common(const dsc* from, dsc* to, DecimalStatus decSt, Callbacks* c
 
 				dsc intermediate;
 				intermediate.dsc_dtype = dtype_text;
-				intermediate.dsc_ttype() = ttype_ascii;
+				intermediate.setTextType(ttype_ascii);
 				intermediate.makeText(static_cast<USHORT>(strlen(text)), CS_ASCII,
 					reinterpret_cast<UCHAR*>(text));
 
@@ -2019,7 +2019,7 @@ void CVT_move_common(const dsc* from, dsc* to, DecimalStatus decSt, Callbacks* c
 	case dtype_dbkey:
 		if (from->isText())
 		{
-			USHORT strtype_unused;
+			TTypeId strtype_unused;
 			UCHAR* ptr;
 			USHORT len = CVT_get_string_ptr_common(from, &strtype_unused, &ptr, NULL, 0, decSt, cb);
 
@@ -2281,7 +2281,7 @@ static void datetime_to_text(const dsc* from, dsc* to, Callbacks* cb)
 	MOVE_CLEAR(&desc, sizeof(desc));
 	desc.dsc_address = (UCHAR*) temp;
 	desc.dsc_dtype = dtype_text;
-	desc.dsc_ttype() = ttype_ascii;
+	desc.setTextType(ttype_ascii);
 	desc.dsc_length = (p - temp);
 
 	if (from->isTimeStamp() && version4)
@@ -2301,7 +2301,7 @@ static void datetime_to_text(const dsc* from, dsc* to, Callbacks* cb)
 
 
 void CVT_make_null_string(const dsc*    desc,
-						  USHORT        to_interp,
+						  TTypeId       to_interp,
 						  const char**  address,
 						  vary*         temp,
 						  USHORT        length,
@@ -2343,7 +2343,7 @@ void CVT_make_null_string(const dsc*    desc,
 
 
 USHORT CVT_make_string(const dsc*    desc,
-					   USHORT        to_interp,
+					   TTypeId       to_interp,
 					   const char**  address,
 					   vary*         temp,
 					   USHORT        length,
@@ -2495,7 +2495,7 @@ static SSHORT cvt_decompose(const char*	string,
 	dsc errd;
 	MOVE_CLEAR(&errd, sizeof(errd));
 	errd.dsc_dtype = dtype_text;
-	errd.dsc_ttype() = ttype_ascii;
+	errd.setTextType(ttype_ascii);
 	errd.dsc_length = length;
 	errd.dsc_address = reinterpret_cast<UCHAR*>(const_cast<char*>(string));
 
@@ -2885,7 +2885,7 @@ Int128 CVT_hex_to_int128(const char* str, USHORT len)
 }
 
 
-USHORT CVT_get_string_ptr_common(const dsc* desc, USHORT* ttype, UCHAR** address,
+USHORT CVT_get_string_ptr_common(const dsc* desc, TTypeId* ttype, UCHAR** address,
 								 vary* temp, USHORT length, DecimalStatus decSt, Callbacks* cb)
 {
 /**************************************
@@ -3608,11 +3608,11 @@ namespace
 		}
 
 	public:
-		virtual bool transliterate(const dsc* from, dsc* to, CHARSET_ID&);
-		virtual CHARSET_ID getChid(const dsc* d);
-		virtual Jrd::CharSet* getToCharset(CHARSET_ID charset2);
+		virtual bool transliterate(const dsc* from, dsc* to, CSetId&);
+		virtual CSetId getChid(const dsc* d);
+		virtual Jrd::CharSet* getToCharset(CSetId charset2);
 		virtual void validateData(Jrd::CharSet* toCharset, SLONG length, const UCHAR* q);
-		virtual ULONG validateLength(Jrd::CharSet* charSet, CHARSET_ID charSetId, ULONG length, const UCHAR* start,
+		virtual ULONG validateLength(Jrd::CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 			const USHORT size);
 		virtual SLONG getLocalDate();
 		virtual ISC_TIMESTAMP getCurrentGmtTimeStamp();
@@ -3620,13 +3620,13 @@ namespace
 		virtual void isVersion4(bool& v4);
 	} commonCallbacks(status_exception::raise);
 
-	bool CommonCallbacks::transliterate(const dsc*, dsc* to, CHARSET_ID& charset2)
+	bool CommonCallbacks::transliterate(const dsc*, dsc* to, CSetId& charset2)
 	{
 		charset2 = INTL_TTYPE(to);
 		return false;
 	}
 
-	Jrd::CharSet* CommonCallbacks::getToCharset(CHARSET_ID)
+	Jrd::CharSet* CommonCallbacks::getToCharset(CSetId)
 	{
 		return NULL;
 	}
@@ -3635,7 +3635,7 @@ namespace
 	{
 	}
 
-	ULONG CommonCallbacks::validateLength(Jrd::CharSet* charSet, CHARSET_ID charSetId, ULONG length, const UCHAR* start,
+	ULONG CommonCallbacks::validateLength(Jrd::CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 		const USHORT size)
 	{
 		if (length > size)
@@ -3663,7 +3663,7 @@ namespace
 		return MIN(length, size);
 	}
 
-	CHARSET_ID CommonCallbacks::getChid(const dsc* d)
+	CSetId CommonCallbacks::getChid(const dsc* d)
 	{
 		return INTL_TTYPE(d);
 	}
@@ -3692,7 +3692,7 @@ namespace Firebird {
 	Callbacks* CVT_commonCallbacks  = &commonCallbacks;
 }
 
-USHORT CVT_get_string_ptr(const dsc* desc, USHORT* ttype, UCHAR** address,
+USHORT CVT_get_string_ptr(const dsc* desc, TTypeId* ttype, UCHAR** address,
 						  vary* temp, USHORT length, DecimalStatus decSt, ErrorFunction err)
 {
 /**************************************

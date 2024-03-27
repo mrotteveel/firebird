@@ -2142,7 +2142,7 @@ DmlNode* DeclareVariableNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerS
 	if (csb->collectingDependencies() && itemInfo.explicitCollation)
 	{
 		Dependency dependency(obj_collation);
-		dependency.number = INTL_TEXT_TYPE(node->varDesc);
+		dependency.number = node->varDesc.getTextType();
 		csb->addDependency(dependency);
 	}
 
@@ -3864,7 +3864,7 @@ void ExecStatementNode::getString(thread_db* tdbb, Request* request, const Value
 	if (dsc && !(request->req_flags & req_null))
 	{
 		const Jrd::Attachment* att = tdbb->getAttachment();
-		len = MOV_make_string2(tdbb, dsc, (useAttCS ? att->att_charset : dsc->getTextType()),
+		len = MOV_make_string2(tdbb, dsc, (useAttCS ? TTypeId(att->att_charset) : dsc->getTextType()),
 			&p, buffer, false);
 	}
 
@@ -8297,7 +8297,7 @@ void SelectNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 					paramContexts.put(parameter, context);
 
 					parameter->par_desc.dsc_dtype = dtype_text;
-					parameter->par_desc.dsc_ttype() = ttype_binary;
+					parameter->par_desc.setTextType(ttype_binary);
 					parameter->par_desc.dsc_length = relation->rel_dbkey_length;
 
 					// Set up record version.
@@ -8306,7 +8306,7 @@ void SelectNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 					paramContexts.put(parameter, context);
 
 					parameter->par_desc.dsc_dtype = dtype_text;
-					parameter->par_desc.dsc_ttype() = ttype_binary;
+					parameter->par_desc.setTextType(ttype_binary);
 					parameter->par_desc.dsc_length = sizeof(SINT64);
 				}
 			}

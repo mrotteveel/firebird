@@ -101,7 +101,7 @@ Format* Routine::createFormat(MemoryPool& pool, IMessageMetadata* params, bool a
 		status.check();
 		desc->dsc_sub_type = params->getSubType(&status, i);
 		status.check();
-		desc->setTextType(params->getCharSet(&status, i));
+		desc->setTextType(TTypeId(params->getCharSet(&status, i)));
 		status.check();
 		desc->dsc_address = (UCHAR*)(IPTR) descOffset;
 		desc->dsc_flags = (params->isNullable(&status, i) ? DSC_nullable : 0);

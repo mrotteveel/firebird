@@ -305,11 +305,11 @@ void ProcedureScan::assignParams(thread_db* tdbb,
 			/* YYY for text formats that don't have trailing spaces */
 			if (len)
 			{
-				const CHARSET_ID chid = DSC_GET_CHARSET(to_desc);
+				const CSetId chid = DSC_GET_CHARSET(to_desc);
 				/*
 				CVC: I don't know if we have to check for dynamic-127 charset here.
 				If that is needed, the line above should be replaced by the commented code here.
-				CHARSET_ID chid = INTL_TTYPE(to_desc);
+				CSetId chid = INTL_TTYPE(to_desc);
 				if (chid == ttype_dynamic)
 					chid = INTL_charset(tdbb, chid);
 				*/

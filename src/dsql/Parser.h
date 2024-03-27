@@ -34,6 +34,7 @@
 #include "../jrd/RecordSourceNodes.h"
 #include "../common/classes/Nullable.h"
 #include "../common/classes/stack.h"
+#include "../jrd/intl.h"
 
 #include "gen/parse.h"
 
@@ -99,7 +100,7 @@ private:
 		const TEXT* line_start;
 		const TEXT* last_token_bk;
 		const TEXT* line_start_bk;
-		SSHORT att_charset;
+		CSetId att_charset;
 		SLONG lines, lines_bk;
 		int prev_keyword;
 		USHORT param_number;
@@ -131,7 +132,7 @@ public:
 
 public:
 	Parser(thread_db* tdbb, MemoryPool& pool, MemoryPool* aStatementPool, DsqlCompilerScratch* aScratch,
-		USHORT aClientDialect, USHORT aDbDialect, const TEXT* string, size_t length, SSHORT characterSet);
+		USHORT aClientDialect, USHORT aDbDialect, const TEXT* string, size_t length, CSetId characterSet);
 	~Parser();
 
 public:

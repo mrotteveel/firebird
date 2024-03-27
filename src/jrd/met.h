@@ -295,7 +295,7 @@ public:
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags = 0);
 	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
-	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	//static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags = 0);
@@ -307,16 +307,30 @@ public:
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
     static jrd_rel* findRelation(thread_db* tdbb, MetaId id);
-	static bool get_char_coll_subtype(thread_db* tdbb, MetaId* id, const UCHAR* name, USHORT length);
-	bool resolve_charset_and_collation(thread_db* tdbb, MetaId* id,
+
+	template<typename ID>
+	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const UCHAR* name, USHORT length)
+	{
+		fb_assert(id);
+
+		TTypeId ttId;
+		bool rc = get_texttype(tdbb, &ttId, name, length);
+		*id = ttId;
+		return rc;
+	}
+
+private:
+	static bool get_texttype(thread_db* tdbb, TTypeId* id, const UCHAR* name, USHORT length);
+
+public:
+	bool resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 									   const UCHAR* charset, const UCHAR* collation);
 	static DSqlCacheItem* get_dsql_cache_item(thread_db* tdbb, sym_type type, const QualifiedName& name);
 	static void dsql_cache_release(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	// end of met_proto.h
 
-	static Cached::Charset* lookupCharset(thread_db* tdbb, MetaId id);
-	static CharSetVers* lookup_charset(thread_db* tdbb, MetaId id);
+	static CharSetVers* lookup_charset(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 
 	static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction);
 	static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number);

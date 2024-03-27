@@ -24,7 +24,53 @@
 #ifndef JRD_INTL_H
 #define JRD_INTL_H
 
-#include "../common/dsc.h"
+// Maps a Character_set_id & collation_id to a text_type (driver ID)
+
+struct TTypeId;
+struct CSetId;
+struct CollId;
+
+struct IdStorage
+{
+	constexpr explicit IdStorage(USHORT id) : val(id) { }
+
+	constexpr operator USHORT() const { return val; }
+	bool operator==(const IdStorage& id) const { return val == id.val; }
+	bool operator!=(const IdStorage& id) const { return val != id.val; }
+
+	USHORT val;
+};
+
+struct TTypeId : public IdStorage
+{
+	TTypeId() : IdStorage(0) { }
+	explicit TTypeId(USHORT id) : IdStorage(id & 0xFF) { }
+	constexpr TTypeId(CSetId id);
+	TTypeId(CSetId cs, CollId col);
+};
+
+struct CSetId : public IdStorage
+{
+	CSetId() : IdStorage(0) { }
+	constexpr explicit CSetId(USHORT id) : IdStorage(id & 0xFF) { }
+	constexpr CSetId(TTypeId tt) : IdStorage(tt.val & 0xFF) { }
+};
+
+struct CollId : public IdStorage
+{
+	CollId() : IdStorage(0) { }
+	constexpr explicit CollId(USHORT id) : IdStorage(id) { }
+	constexpr CollId(TTypeId tt) : IdStorage(tt.val >> 8) { }
+};
+
+inline TTypeId::TTypeId(CSetId cs, CollId col)
+	: IdStorage((col.val << 8) | (cs.val & 0xFF))
+{ }
+
+inline constexpr TTypeId::TTypeId(CSetId cs)
+	: IdStorage(cs.val & 0xFF)
+{ }
+
 #include "../intl/charsets.h"
 
 #define ASCII_SPACE     32		// ASCII code for space
@@ -49,13 +95,13 @@
 
 // text type definitions
 
-#define ttype_none				CS_NONE			// 0
-#define ttype_ascii				CS_ASCII		// 2
-#define ttype_binary			CS_BINARY		// 1
-#define ttype_utf8				CS_UTF8			// 4
-#define ttype_last_internal		CS_UTF8			// 4
+#define ttype_none				TTypeId(CS_NONE)		// 0
+#define ttype_binary			TTypeId(CS_BINARY)		// 1
+#define ttype_ascii				TTypeId(CS_ASCII)		// 2
+#define ttype_utf8				TTypeId(CS_UTF8)		// 4
+#define ttype_last_internal		ttype_utf8				// 4
 
-#define ttype_dynamic			CS_dynamic	// use att_charset
+#define ttype_dynamic			TTypeId(CS_dynamic)		// use att_charset
 
 #define ttype_sort_key			ttype_binary
 #define	ttype_metadata			ttype_utf8
@@ -68,41 +114,27 @@
 
 
 #define	COLLATE_NONE			0	// No special collation, use codepoint order
-
-#define INTL_ASSIGN_DSC(dsc, cs, coll)   \
-	{ (dsc)->dsc_sub_type = (SSHORT) ((coll) << 8 | (cs)); }
-
-#define INTL_GET_TTYPE(dsc)   \
-	  ((dsc)->dsc_sub_type)
-
-#define INTL_GET_CHARSET(dsc)	((UCHAR)((dsc)->dsc_sub_type & 0x00FF))
-#define INTL_GET_COLLATE(dsc)	((UCHAR)((dsc)->dsc_sub_type >> 8))
+/* ?????????????????
+inline void INTL_ASSIGN_DSC(dsc* desc, CSetId cs, CollId coll)
+{
+	desc->setTextType(TTypeId(cs, coll));
+}
+*/
+#define INTL_GET_TTYPE(dsc)		((dsc)->getTextType())
+#define INTL_GET_CHARSET(dsc)	((dsc)->getCharSet())
+#define INTL_GET_COLLATE(dsc)	((dsc)->getCollation())
 
 
 // Define tests for international data
 
-#define	INTL_TTYPE(desc)		((desc)->dsc_ttype())
+#define	INTL_TTYPE(desc)		((desc)->getTextType())
 
-#define INTERNAL_TTYPE(d)	(((USHORT)((d)->dsc_ttype())) <= ttype_last_internal)
+#define	INTL_SET_TTYPE(desc, a)	((desc)->setTextType((a)))
 
-#define IS_INTL_DATA(d)		((d)->dsc_dtype <= dtype_any_text &&    \
-				 (((USHORT)((d)->dsc_ttype())) > ttype_last_internal))
+#define INTERNAL_TTYPE(d)	(((USHORT)((d)->getTextType())) <= ttype_last_internal)
 
-inline USHORT INTL_TEXT_TYPE(const dsc& desc)
-{
-	if (DTYPE_IS_TEXT(desc.dsc_dtype))
-		return INTL_TTYPE(&desc);
-
-	if (desc.dsc_dtype == dtype_blob || desc.dsc_dtype == dtype_quad)
-	{
-		if (desc.dsc_sub_type == isc_blob_text)
-			return desc.dsc_blob_ttype();
-
-		return ttype_binary;
-	}
-
-	return ttype_ascii;
-}
+#define IS_INTL_DATA(d)		((d)->getTextType() <= dtype_any_text &&    \
+				 (((USHORT)((d)->getTextType())) > ttype_last_internal))
 
 #define INTL_DYNAMIC_CHARSET(desc)	(INTL_GET_CHARSET(desc) == CS_dynamic)
 
@@ -114,7 +146,7 @@ inline USHORT INTL_TEXT_TYPE(const dsc& desc)
  *  2) As a CHARACTER_SET_ID (when collation isn't relevent, like UDF parms)
  *  3) As an index type - (btr.h)
  *  4) As a driver ID (used to lookup the code which implements the locale)
- *     This is also known as dsc_ttype() (aka text subtype).
+ *     This is also known as dsc::getTextType() (aka text subtype).
  *
  * In Descriptors (DSC) the data is encoded as:
  *	dsc_charset	overloaded into dsc_scale
@@ -134,7 +166,7 @@ inline USHORT INTL_TEXT_TYPE(const dsc& desc)
  *	Index type, which is derived from the datatype of the target.
  *
  */
-#define INTL_INDEX_TO_TEXT(idxType) ((USHORT)((idxType) - idx_offset_intl_range))
+#define INTL_INDEX_TO_TEXT(idxType) TTypeId((USHORT)((idxType) - idx_offset_intl_range))
 
 // Maps a text_type to an index ID
 #define INTL_TEXT_TO_INDEX(tType)   ((USHORT)((tType)   + idx_offset_intl_range))
@@ -146,11 +178,5 @@ inline USHORT INTL_TEXT_TYPE(const dsc& desc)
 		 	INTL_GET_TTYPE (desc))
 
 #define INTL_INDEX_TYPE(desc)	INTL_TEXT_TO_INDEX (INTL_RES_TTYPE (desc))
-
-// Maps a Character_set_id & collation_id to a text_type (driver ID)
-#define INTL_CS_COLL_TO_TTYPE(cs, coll)	((TTYPE_ID) ((coll) << 8 | ((cs) & 0x00FF)))
-
-#define TTYPE_TO_CHARSET(tt)    ((USHORT)((tt) & 0x00FF))
-#define TTYPE_TO_COLLATION(tt)  ((USHORT)((tt) >> 8))
 
 #endif	// JRD_INTL_H

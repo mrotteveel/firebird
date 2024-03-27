@@ -99,7 +99,7 @@ namespace
 
 
 Parser::Parser(thread_db* tdbb, MemoryPool& pool, MemoryPool* aStatementPool, DsqlCompilerScratch* aScratch,
-			USHORT aClientDialect, USHORT aDbDialect, const TEXT* string, size_t length, SSHORT characterSet)
+			USHORT aClientDialect, USHORT aDbDialect, const TEXT* string, size_t length, CSetId characterSet)
 	: PermanentStorage(pool),
 	  statementPool(aStatementPool),
 	  scratch(aScratch),

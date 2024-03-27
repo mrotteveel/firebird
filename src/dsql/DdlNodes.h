@@ -885,8 +885,8 @@ public:
 private:
 	USHORT attributesOn;
 	USHORT attributesOff;
-	USHORT forCharSetId;
-	USHORT fromCollationId;
+	CSetId forCharSetId;
+	CollId fromCollationId;
 };
 
 
@@ -1211,7 +1211,7 @@ public:
 		MetaName fieldSource;
 		MetaName identitySequence;
 		Nullable<IdentityType> identityType;
-		Nullable<USHORT> collationId;
+		Nullable<CollId> collationId;
 		Nullable<bool> notNullFlag;	// true = NOT NULL / false = NULL
 		Nullable<USHORT> position;
 		Firebird::string defaultSource;

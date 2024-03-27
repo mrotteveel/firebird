@@ -135,11 +135,6 @@ typedef int (*lock_ast_t)(void*);
 /* Number of elements in an array */
 #define FB_NELEM(x)	((int)(sizeof(x) / sizeof(x[0])))
 
-// Intl types
-typedef SSHORT CHARSET_ID;
-typedef SSHORT COLLATE_ID;
-typedef USHORT TTYPE_ID;
-
 // Stream type, had to move it from dsql/Nodes.h due to circular dependencies.
 typedef ULONG StreamType;
 

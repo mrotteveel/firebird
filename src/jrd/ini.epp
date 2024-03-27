@@ -224,7 +224,7 @@ namespace
 		return formatNumber;
 	}
 
-	bool getCharsetByTextType(SSHORT& charSet, const USHORT subType)
+	bool getCharsetByTextType(CSetId& charSet, const USHORT subType)
 	{
 		switch (subType)
 		{
@@ -1076,8 +1076,9 @@ void INI_init(thread_db* tdbb)
 
 				if (desc->isText())
 				{
-					if (!getCharsetByTextType(desc->dsc_sub_type, gfield->gfld_sub_type))
-						desc->dsc_sub_type = CS_NONE;
+					CSetId cs = CS_NONE;
+					getCharsetByTextType(cs, gfield->gfld_sub_type);
+					desc->setTextType(cs);
 				}
 				else
 					desc->dsc_sub_type = gfield->gfld_sub_type;
@@ -1198,9 +1199,8 @@ void INI_init_dsql(thread_db* tdbb, dsql_dbb* database)
 		dsql_intlsym* csSymbol = FB_NEW_POOL(database->dbb_pool) dsql_intlsym(database->dbb_pool);
 		csSymbol->intlsym_name = csDef->name;
 		csSymbol->intlsym_charset_id = csDef->id;
-		csSymbol->intlsym_collate_id = 0;
-		csSymbol->intlsym_ttype =
-			INTL_CS_COLL_TO_TTYPE(csSymbol->intlsym_charset_id, csSymbol->intlsym_collate_id);
+		csSymbol->intlsym_collate_id = CollId(0);
+		csSymbol->intlsym_ttype = TTypeId(csSymbol->intlsym_charset_id, csSymbol->intlsym_collate_id);
 		csSymbol->intlsym_bytes_per_char = csDef->maxBytes;
 
 		// Mark the charset as invalid to reload it ASAP. This is done because we cannot know here
@@ -1222,8 +1222,7 @@ void INI_init_dsql(thread_db* tdbb, dsql_dbb* database)
 			colSymbol->intlsym_flags = 0;
 			colSymbol->intlsym_charset_id = csDef->id;
 			colSymbol->intlsym_collate_id = colDef->collationId;
-			colSymbol->intlsym_ttype =
-				INTL_CS_COLL_TO_TTYPE(colSymbol->intlsym_charset_id, colSymbol->intlsym_collate_id);
+			colSymbol->intlsym_ttype = TTypeId(colSymbol->intlsym_charset_id, colSymbol->intlsym_collate_id);
 			colSymbol->intlsym_bytes_per_char = csDef->maxBytes;
 
 			database->dbb_collations.put(colDef->name, colSymbol);

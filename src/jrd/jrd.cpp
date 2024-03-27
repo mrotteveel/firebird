@@ -1330,7 +1330,7 @@ static ISC_STATUS transliterateException(thread_db* tdbb, const Exception& ex, F
 void JRD_transliterate(thread_db* tdbb, Firebird::IStatus* vector) throw()
 {
 	Jrd::Attachment* attachment = tdbb->getAttachment();
-	USHORT charSet;
+	CSetId charSet;
 	if (!attachment || (charSet = attachment->att_client_charset) == CS_METADATA ||
 		charSet == CS_NONE)
 	{
@@ -1640,7 +1640,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 			tdbb->tdbb_status_vector = user_status;
 
 			attachment->att_crypt_callback = getDefCryptCallback(cryptCallback);
-			attachment->att_client_charset = attachment->att_charset = options.dpb_interp;
+			attachment->att_client_charset = attachment->att_charset = CSetId(options.dpb_interp);
 
 			if (existingId)
 				attachment->att_flags |= ATT_overwrite_check;
@@ -2842,7 +2842,7 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 				break;
 			}
 
-			attachment->att_client_charset = attachment->att_charset = options.dpb_interp;
+			attachment->att_client_charset = attachment->att_charset = CSetId(options.dpb_interp);
 
 			if (options.dpb_page_size <= 0) {
 				options.dpb_page_size = DEFAULT_PAGE_SIZE;
@@ -6709,19 +6709,19 @@ static void find_intl_charset(thread_db* tdbb, Jrd::Attachment* attachment, cons
 		return;
 	}
 
-	USHORT id;
+	TTypeId id;
 	const UCHAR* lc_ctype = reinterpret_cast<const UCHAR*>(options->dpb_lc_ctype.c_str());
 
 	if (MetadataCache::get_char_coll_subtype(tdbb, &id, lc_ctype, options->dpb_lc_ctype.length()) &&
-		INTL_defined_type(tdbb, id & 0xFF))
+		INTL_defined_type(tdbb, id))
 	{
-		if ((id & 0xFF) == CS_BINARY)
+		if (CSetId(id) == CS_BINARY)
 		{
 			ERR_post(Arg::Gds(isc_bad_dpb_content) <<
 					 Arg::Gds(isc_invalid_attachment_charset) << Arg::Str(options->dpb_lc_ctype));
 		}
 
-		attachment->att_client_charset = attachment->att_charset = id & 0xFF;
+		attachment->att_client_charset = attachment->att_charset = CSetId(id);
 	}
 	else
 	{
@@ -9019,9 +9019,9 @@ void thread_db::setRequest(Request* val)
 	reqStat = val ? &val->req_stats : RuntimeStatistics::getDummy();
 }
 
-SSHORT thread_db::getCharSet() const
+CSetId thread_db::getCharSet() const
 {
-	USHORT charSetId;
+	CSetId charSetId;
 
 	if (request && (charSetId = request->getStatement()->charSetId) != CS_dynamic)
 		return charSetId;

@@ -3396,7 +3396,7 @@ DmlNode* CastNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb
 	if (csb->collectingDependencies() && itemInfo.explicitCollation)
 	{
 		Dependency dependency(obj_collation);
-		dependency.number = INTL_TEXT_TYPE(node->castDesc);
+		dependency.number = node->castDesc.getTextType();
 		csb->addDependency(dependency);
 	}
 
@@ -3543,10 +3543,10 @@ ValueExprNode* CastNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 {
 	ValueExprNode::pass1(tdbb, csb);
 
-	const USHORT ttype = INTL_TEXT_TYPE(castDesc);
+	const auto ttype = castDesc.getTextType();
 
 	// Are we using a collation?
-	if (TTYPE_TO_COLLATION(ttype) != 0)
+	if (CollId(ttype) != CollId(0))
 		INTL_texttype_lookup(tdbb, ttype);
 
 	return this;
@@ -3827,15 +3827,10 @@ void CollateNode::assignFieldDtypeFromDsc(dsql_fld* field, const dsc* desc)
 	field->subType = desc->dsc_sub_type;
 	field->length = desc->dsc_length;
 
-	if (desc->dsc_dtype <= dtype_any_text)
+	if (desc->dsc_dtype <= dtype_any_text || desc->dsc_dtype == dtype_blob)
 	{
-		field->collationId = DSC_GET_COLLATE(desc);
-		field->charSetId = DSC_GET_CHARSET(desc);
-	}
-	else if (desc->dsc_dtype == dtype_blob)
-	{
-		field->charSetId = desc->dsc_scale;
-		field->collationId = desc->dsc_flags >> 8;
+		field->collationId = desc->getCollation();
+		field->charSetId = desc->getCharSet();
 	}
 
 	if (desc->dsc_flags & DSC_nullable)
@@ -4432,14 +4427,14 @@ void CurrentRoleNode::make(DsqlCompilerScratch* dsqlScratch, dsc* desc)
 	desc->dsc_dtype = dtype_varying;
 	desc->dsc_scale = 0;
 	desc->dsc_flags = 0;
-	desc->dsc_ttype() = ttype_metadata;
+	desc->setTextType(ttype_metadata);
 	desc->dsc_length = USERNAME_LENGTH + sizeof(USHORT);
 }
 
 void CurrentRoleNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, dsc* desc)
 {
 	desc->dsc_dtype = dtype_text;
-	desc->dsc_ttype() = ttype_metadata;
+	desc->setTextType(ttype_metadata);
 	desc->dsc_length = USERNAME_LENGTH;
 	desc->dsc_scale = 0;
 	desc->dsc_flags = 0;
@@ -4519,14 +4514,14 @@ void CurrentUserNode::make(DsqlCompilerScratch* dsqlScratch, dsc* desc)
 	desc->dsc_dtype = dtype_varying;
 	desc->dsc_scale = 0;
 	desc->dsc_flags = 0;
-	desc->dsc_ttype() = ttype_metadata;
+	desc->setTextType(ttype_metadata);
 	desc->dsc_length = USERNAME_LENGTH + sizeof(USHORT);
 }
 
 void CurrentUserNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, dsc* desc)
 {
 	desc->dsc_dtype = dtype_text;
-	desc->dsc_ttype() = ttype_metadata;
+	desc->setTextType(ttype_metadata);
 	desc->dsc_length = USERNAME_LENGTH;
 	desc->dsc_scale = 0;
 	desc->dsc_flags = 0;
@@ -6561,13 +6556,11 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 	dsc desc;
 	getDesc(tdbb, csb, &desc);
 
-	const USHORT ttype = INTL_TEXT_TYPE(desc);
+	const auto ttype = desc.getTextType();
 
 	// Are we using a collation?
-	if (TTYPE_TO_COLLATION(ttype) != 0)
+	if (CollId(ttype) != CollId(0))
 	{
-		Collation* collation = NULL;
-
 		try
 		{
 			ThreadStatusGuard local_status(tdbb);
@@ -9476,8 +9469,8 @@ bool ParameterNode::setParameterType(DsqlCompilerScratch* dsqlScratch,
 
 		if (tdbb->getCharSet() != CS_NONE && tdbb->getCharSet() != CS_BINARY)
 		{
-			const USHORT fromCharSet = dsqlParameter->par_desc.getCharSet();
-			const USHORT toCharSet = (fromCharSet == CS_NONE || fromCharSet == CS_BINARY) ?
+			const auto fromCharSet = dsqlParameter->par_desc.getCharSet();
+			const auto toCharSet = (fromCharSet == CS_NONE || fromCharSet == CS_BINARY) ?
 				fromCharSet : tdbb->getCharSet();
 
 			if (dsqlParameter->par_desc.dsc_dtype <= dtype_any_text)
@@ -9503,8 +9496,8 @@ bool ParameterNode::setParameterType(DsqlCompilerScratch* dsqlScratch,
 					const USHORT toCharSetBPC = METD_get_charset_bpc(
 						dsqlScratch->getTransaction(), toCharSet);
 
-					dsqlParameter->par_desc.setTextType(INTL_CS_COLL_TO_TTYPE(toCharSet,
-						(fromCharSet == toCharSet ? INTL_GET_COLLATE(&dsqlParameter->par_desc) : 0)));
+					dsqlParameter->par_desc.setTextType(TTypeId(toCharSet,
+						(fromCharSet == toCharSet ? INTL_GET_COLLATE(&dsqlParameter->par_desc) : CollId(0))));
 
 					dsqlParameter->par_desc.dsc_length = UTLD_char_length_to_byte_length(
 						dsqlParameter->par_desc.dsc_length / fromCharSetBPC, toCharSetBPC, diff);
@@ -10038,7 +10031,7 @@ void RecordKeyNode::make(DsqlCompilerScratch* /*dsqlScratch*/, dsc* desc)
 			desc->dsc_dtype = dtype_text;
 			desc->dsc_length = dbKeyLength;
 			desc->dsc_flags = DSC_nullable;
-			desc->dsc_ttype() = ttype_binary;
+			desc->setTextType(ttype_binary);
 		}
 		else	// blr_record_version2
 		{
@@ -10095,7 +10088,7 @@ void RecordKeyNode::getDesc(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, dsc* 
 
 		case blr_record_version:
 			desc->dsc_dtype = dtype_text;
-			desc->dsc_ttype() = ttype_binary;
+			desc->setTextType(ttype_binary);
 			desc->dsc_length = sizeof(SINT64);
 			desc->dsc_scale = 0;
 			desc->dsc_flags = 0;
@@ -10195,7 +10188,7 @@ ValueExprNode* RecordKeyNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 				LiteralNode* literal = FB_NEW_POOL(csb->csb_pool) LiteralNode(csb->csb_pool);
 				literal->litDesc.dsc_dtype = dtype_text;
-				literal->litDesc.dsc_ttype() = CS_BINARY;
+				literal->litDesc.setTextType(CS_BINARY);
 				literal->litDesc.dsc_scale = 0;
 				literal->litDesc.dsc_length = 8;
 				literal->litDesc.dsc_address = reinterpret_cast<UCHAR*>(
@@ -10233,7 +10226,7 @@ ValueExprNode* RecordKeyNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 
 			LiteralNode* literal = FB_NEW_POOL(csb->csb_pool) LiteralNode(csb->csb_pool);
 			literal->litDesc.dsc_dtype = dtype_text;
-			literal->litDesc.dsc_ttype() = CS_BINARY;
+			literal->litDesc.setTextType(CS_BINARY);
 			literal->litDesc.dsc_scale = 0;
 			literal->litDesc.dsc_length = 0;
 			literal->litDesc.dsc_address = reinterpret_cast<UCHAR*>(
@@ -10319,7 +10312,7 @@ dsc* RecordKeyNode::execute(thread_db* /*tdbb*/, Request* request) const
 		impure->vlu_desc.dsc_address = (UCHAR*) impure->vlu_misc.vlu_dbkey;
 		impure->vlu_desc.dsc_dtype = dtype_dbkey;
 		impure->vlu_desc.dsc_length = type_lengths[dtype_dbkey];
-		impure->vlu_desc.dsc_ttype() = ttype_binary;
+		impure->vlu_desc.setTextType(ttype_binary);
 	}
 	else if (blrOp == blr_record_version)
 	{
@@ -10352,7 +10345,7 @@ dsc* RecordKeyNode::execute(thread_db* /*tdbb*/, Request* request) const
 		impure->vlu_desc.dsc_address = (UCHAR*) &impure->vlu_misc.vlu_int64;
 		impure->vlu_desc.dsc_dtype = dtype_text;
 		impure->vlu_desc.dsc_length = sizeof(SINT64);
-		impure->vlu_desc.dsc_ttype() = ttype_binary;
+		impure->vlu_desc.setTextType(ttype_binary);
 	}
 	else if (blrOp == blr_record_version2)
 	{
@@ -10624,7 +10617,7 @@ void StrCaseNode::make(DsqlCompilerScratch* dsqlScratch, dsc* desc)
 		desc->dsc_length = static_cast<int>(sizeof(USHORT)) + DSC_string_length(desc);
 		desc->dsc_dtype = dtype_varying;
 		desc->dsc_scale = 0;
-		desc->dsc_ttype() = ttype_ascii;
+		desc->setTextType(ttype_ascii);
 		desc->dsc_flags = desc->dsc_flags & DSC_nullable;
 	}
 }
@@ -10637,7 +10630,7 @@ void StrCaseNode::getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc)
 	{
 		desc->dsc_length = DSC_convert_to_text_length(desc->dsc_dtype);
 		desc->dsc_dtype = dtype_text;
-		desc->dsc_ttype() = ttype_ascii;
+		desc->setTextType(ttype_ascii);
 		desc->dsc_scale = 0;
 		desc->dsc_flags = 0;
 	}
@@ -10739,7 +10732,7 @@ dsc* StrCaseNode::execute(thread_db* tdbb, Request* request) const
 	{
 		UCHAR* ptr;
 		VaryStr<TEMP_STR_LENGTH> temp;
-		USHORT ttype;
+		TTypeId ttype;
 		ULONG len = MOV_get_string_ptr(tdbb, value, &ttype, &ptr, &temp, sizeof(temp));
 
 		dsc desc;
@@ -10934,7 +10927,7 @@ dsc* StrLenNode::execute(thread_db* tdbb, Request* request) const
 
 			case blr_strlen_char:
 			{
-				CharSet* charSet = INTL_charset_lookup(tdbb, value->dsc_blob_ttype());
+				CharSet* charSet = INTL_charset_lookup(tdbb, value->getTextType());
 
 				if (charSet->isMultiByte())
 				{
@@ -10969,7 +10962,7 @@ dsc* StrLenNode::execute(thread_db* tdbb, Request* request) const
 	}
 
 	VaryStr<TEMP_STR_LENGTH> temp;
-	USHORT ttype;
+	TTypeId ttype;
 	UCHAR* p;
 
 	length = MOV_get_string_ptr(tdbb, value, &ttype, &p, &temp, sizeof(temp));
@@ -11800,7 +11793,7 @@ dsc* SubstringNode::perform(thread_db* tdbb, impure_value* impure, const dsc* va
 		//		routines because the "temp" is not enough are blob and array but at this time
 		//		they aren't accepted, so they will cause error() to be called anyway.
 		VaryStr<TEMP_STR_LENGTH> temp;
-		USHORT ttype;
+		TTypeId ttype;
 		desc.dsc_length = MOV_get_string_ptr(tdbb, valueDsc, &ttype, &desc.dsc_address,
 			&temp, sizeof(temp));
 		desc.setTextType(ttype);
@@ -12003,7 +11996,7 @@ dsc* SubstringSimilarNode::execute(thread_db* tdbb, Request* request) const
 	if (!exprDesc || !patternDesc || !escapeDesc)
 		return NULL;
 
-	USHORT textType = exprDesc->getTextType();
+	auto textType = exprDesc->getTextType();
 	Collation* collation = INTL_texttype_lookup(tdbb, textType);
 	CharSet* charSet = collation->getCharSet();
 
@@ -12477,7 +12470,7 @@ void TrimNode::make(DsqlCompilerScratch* dsqlScratch, dsc* desc)
 	{
 		desc->dsc_dtype = dtype_varying;
 		desc->dsc_scale = 0;
-		desc->dsc_ttype() = ttype_ascii;
+		desc->setTextType(ttype_ascii);
 		desc->dsc_length = static_cast<int>(sizeof(USHORT)) + DSC_string_length(&desc1);
 		desc->dsc_flags = (desc1.dsc_flags | desc2.dsc_flags) & DSC_nullable;
 	}
@@ -12500,7 +12493,7 @@ void TrimNode::getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc)
 
 		if (!DTYPE_IS_TEXT(desc->dsc_dtype))
 		{
-			desc->dsc_ttype() = ttype_ascii;
+			desc->setTextType(ttype_ascii);
 			desc->dsc_scale = 0;
 		}
 
@@ -12565,7 +12558,7 @@ dsc* TrimNode::execute(thread_db* tdbb, Request* request) const
 	if (request->req_flags & req_null)
 		return NULL;
 
-	USHORT ttype = INTL_TEXT_TYPE(*valueDesc);
+	auto ttype = INTL_GET_TTYPE(valueDesc);
 	Collation* tt = INTL_texttype_lookup(tdbb, ttype);
 	CharSet* cs = tt->getCharSet();
 
@@ -12860,9 +12853,9 @@ void UdfCallNode::make(DsqlCompilerScratch* /*dsqlScratch*/, dsc* desc)
 	desc->setNullable(true);
 
 	if (desc->dsc_dtype <= dtype_any_text)
-		desc->dsc_ttype() = dsqlFunction->udf_character_set_id;
+		desc->setTextType(dsqlFunction->udf_character_set_id);
 	else
-		desc->dsc_ttype() = dsqlFunction->udf_sub_type;
+		desc->dsc_sub_type = dsqlFunction->udf_sub_type;
 }
 
 void UdfCallNode::getDesc(thread_db* tdbb, CompilerScratch* /*csb*/, dsc* desc)

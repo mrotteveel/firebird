@@ -151,8 +151,8 @@ void MET_get_domain(thread_db* tdbb, MemoryPool& csbPool, const MetaName& name, 
 								FLD.RDB$FIELD_SCALE,
 								FLD.RDB$FIELD_LENGTH,
 								FLD.RDB$FIELD_SUB_TYPE,
-								FLD.RDB$CHARACTER_SET_ID,
-								FLD.RDB$COLLATION_ID))
+								CSetId(FLD.RDB$CHARACTER_SET_ID),
+								CollId(FLD.RDB$COLLATION_ID)))
 		{
 			found = true;
 
@@ -219,8 +219,8 @@ MetaName MET_get_relation_field(thread_db* tdbb, MemoryPool& csbPool, const Meta
 								FLD.RDB$FIELD_SCALE,
 								FLD.RDB$FIELD_LENGTH,
 								FLD.RDB$FIELD_SUB_TYPE,
-								FLD.RDB$CHARACTER_SET_ID,
-								(RFL.RDB$COLLATION_ID.NULL ? FLD.RDB$COLLATION_ID : RFL.RDB$COLLATION_ID)))
+								CSetId(FLD.RDB$CHARACTER_SET_ID),
+								CollId(RFL.RDB$COLLATION_ID.NULL ? FLD.RDB$COLLATION_ID : RFL.RDB$COLLATION_ID)))
 		{
 			found = true;
 			sourceName = RFL.RDB$FIELD_SOURCE;
@@ -1194,7 +1194,7 @@ Format* MET_format(thread_db* tdbb, RelationPermanent* relation, USHORT number)
 }
 
 
-bool MetadataCache::get_char_coll_subtype(thread_db* tdbb, USHORT* id, const UCHAR* name, USHORT length)
+bool MetadataCache::get_texttype(thread_db* tdbb, TTypeId* id, const UCHAR* name, USHORT length)
 {
 /**************************************
  *
@@ -2700,6 +2700,15 @@ jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, MetaId id, ObjectBas
 }
 
 
+CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+{
+	SET_TDBB(tdbb);
+	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+
+	return mdc->mdc_charsets.getObject(tdbb, id, flags);
+}
+
+
 DmlNode* MET_parse_blob(thread_db*					tdbb,
 				   Cached::Relation*				relation,
 				   bid*								blob_id,
@@ -2961,7 +2970,7 @@ void jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 					 PA.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
 			{
 				const SSHORT pa_collation_id_null = PA.RDB$COLLATION_ID.NULL;
-				const SSHORT pa_collation_id = PA.RDB$COLLATION_ID;
+				const CollId pa_collation_id(PA.RDB$COLLATION_ID);
 				const SSHORT pa_default_value_null = PA.RDB$DEFAULT_VALUE.NULL;
 				bid pa_default_value = pa_default_value_null ? F.RDB$DEFAULT_VALUE : PA.RDB$DEFAULT_VALUE;
 
@@ -2982,8 +2991,8 @@ void jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 
 				DSC_make_descriptor(&parameter->prm_desc, F.RDB$FIELD_TYPE,
 									F.RDB$FIELD_SCALE, F.RDB$FIELD_LENGTH,
-									F.RDB$FIELD_SUB_TYPE, F.RDB$CHARACTER_SET_ID,
-									(pa_collation_id_null ? F.RDB$COLLATION_ID : pa_collation_id));
+									F.RDB$FIELD_SUB_TYPE, CSetId(F.RDB$CHARACTER_SET_ID),
+									(pa_collation_id_null ? CollId(F.RDB$COLLATION_ID) : pa_collation_id));
 
 				if (parameter->prm_desc.isText() && parameter->prm_desc.getTextType() != CS_NONE)
 				{
@@ -4098,7 +4107,7 @@ static BoolExprNode* parse_field_validation_blr(thread_db* tdbb, bid* blob_id, c
 }
 
 
-bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, USHORT* id,
+bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 												  const UCHAR* charset, const UCHAR* collation)
 {
 /**************************************
@@ -4169,13 +4178,13 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, USHORT* id,
 
 		if (!collation)
 		{
-			*id = cs->getId();
+			*id = TTypeId(cs->getId());
 			return true;
 		}
 
 		if (!csVer)
 			csVer = cs->getObject(tdbb);
-		Collation* coll = csVer->lookupCollation(tdbb, (const char*)collation);
+		Collation* coll = csVer->getCollation((const char*)collation);
 
 		if (!coll)
 			return false;
@@ -4191,7 +4200,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, USHORT* id,
 				WITH COL.RDB$COLLATION_NAME EQ collation
 		{
 			found = true;
-			*id = COL.RDB$CHARACTER_SET_ID | (COL.RDB$COLLATION_ID << 8);
+			*id = TTypeId(CSetId(COL.RDB$CHARACTER_SET_ID), CollId(COL.RDB$COLLATION_ID));
 		}
 		END_FOR
 	}
@@ -4207,7 +4216,6 @@ void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Attachment* attachment = tdbb->getAttachment();
 
 	AutoRequest handle;
-	bool found = false;
 
 	FOR(REQUEST_HANDLE handle)
 		CS IN RDB$CHARACTER_SETS
@@ -4215,7 +4223,6 @@ void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		WITH CS.RDB$CHARACTER_SET_ID EQ getId()
 	{
 		fb_assert(getName() == CS.RDB$CHARACTER_SET_NAME);
-        found = true;
 
 		SubtypeInfo info;
 		info.charsetName = getName();
@@ -4229,7 +4236,8 @@ void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			info.baseCollationName = COL.RDB$BASE_COLLATION_NAME;
 
 		CharSet* charset = perm->getCharSet();
-		unsigned colId = COL.RDB$COLLATION_ID;
+		CollId colId(COL.RDB$COLLATION_ID);
+		CSetId id(getId());
 
 		if (COL.RDB$SPECIFIC_ATTRIBUTES.NULL)
 			info.specificAttributes.clear();
@@ -4241,12 +4249,12 @@ void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			// ASF: Here info.specificAttributes is in UNICODE_FSS charset.
 			blob->BLB_get_data(tdbb, info.specificAttributes.getBuffer(length), length);
 
-			if (getId() != CS_METADATA)
+			if (id != CS_METADATA)
 			{
 				Firebird::UCharBuffer specificAttributes;
 				ULONG size = info.specificAttributes.getCount() * charset->maxBytesPerChar();
 
-				size = INTL_convert_bytes(tdbb, getId(),
+				size = INTL_convert_bytes(tdbb, id,
 									  specificAttributes.getBuffer(size), size,
 									  CS_METADATA, info.specificAttributes.begin(),
 									  info.specificAttributes.getCount(), ERR_post);
@@ -4278,7 +4286,7 @@ void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		}
 
 		Collation* collation = Collation::createInstance(perm->getPool(),
-			INTL_CS_COLL_TO_TTYPE(getId(), colId), tt, info.attributes, charset);
+			TTypeId(id, colId), tt, info.attributes, charset);
 		collation->name = info.collationName;
 
 		tt.release();
@@ -5199,7 +5207,23 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const Qualifi
 	END_FOR
 
 	return rc;
+}
 
+Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
+{
+	SET_TDBB(tdbb);
+
+	Attachment* attachment = tdbb->getAttachment();
+	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+
+	// See if we already know the relation by name
+	auto* rc = mdc->mdc_functions.lookup([name](RoutinePermanent* func) { return func->name == name; });
+
+	if (rc || !(flags & CacheFlag::AUTOCREATE))
+		return rc;
+
+	auto* fun = Function::lookup(tdbb, name, flags);
+	return fun ? fun->getPermanent() : nullptr;
 }
 
 Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)

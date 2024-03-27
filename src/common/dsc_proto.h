@@ -25,12 +25,13 @@
 #define JRD_DSC_PROTO_H
 
 #include "../common/dsc.h"
+#include "../jrd/intl.h"
 
 int			DSC_string_length(const struct dsc*);
 const TEXT*	DSC_dtype_tostring(UCHAR);
 void		DSC_get_dtype_name(const dsc*, TEXT*, USHORT);
 bool		DSC_make_descriptor(dsc*, USHORT, SSHORT,
-										   USHORT, SSHORT, SSHORT, SSHORT);
+										   USHORT, SSHORT, CSetId, CollId);
 USHORT		DSC_convert_to_text_length(USHORT dsc_type);
 
 extern const BYTE DSC_add_result[DTYPE_TYPE_MAX][DTYPE_TYPE_MAX];

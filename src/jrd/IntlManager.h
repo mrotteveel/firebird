@@ -29,6 +29,7 @@
 
 #include "../common/classes/fb_string.h"
 #include "../common/config/config_file.h"
+#include "../jrd/intl.h"
 
 struct charset;
 struct texttype;
@@ -61,20 +62,20 @@ public:
 	struct CharSetDefinition
 	{
 		const char* name;
-		UCHAR id;
+		CSetId id;
 		USHORT maxBytes;
 	};
 
 	struct CharSetAliasDefinition
 	{
 		const char* name;
-		UCHAR charSetId;
+		CSetId charSetId;
 	};
 
 	struct CollationDefinition
 	{
-		UCHAR charSetId;
-		UCHAR collationId;
+		CSetId charSetId;
+		CollId collationId;
 		const char* name;
 		const char* baseName;
 		USHORT attributes;

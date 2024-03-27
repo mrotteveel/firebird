@@ -31,6 +31,7 @@
 #define JRD_TEXTTYPE_H
 
 #include "../common/classes/MetaString.h"
+#include "../jrd/intl.h"
 
 struct texttype;
 
@@ -41,7 +42,7 @@ class CharSet;
 class TextType
 {
 public:
-	TextType(TTYPE_ID _type, texttype* _tt, USHORT _attributes, CharSet* _cs);
+	TextType(TTypeId _type, texttype* _tt, USHORT _attributes, CharSet* _cs);
 
 private:
 	TextType(const TextType&);	// Not implemented
@@ -77,7 +78,7 @@ public:
 					ULONG dstLen,
 					UCHAR* dst);
 
-	USHORT getType() const
+	TTypeId getType() const
 	{
 		return type;
 	}
@@ -108,7 +109,7 @@ protected:
 	CharSet* cs;
 
 private:
-	TTYPE_ID type;
+	TTypeId type;
 	USHORT attributes;
 
 public:

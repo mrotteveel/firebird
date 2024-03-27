@@ -26,6 +26,7 @@
 #include "../jrd/req.h"
 #include "../jrd/EngineInterface.h"
 #include "../jrd/HazardPtr.h"
+#include "../jrd/intl.h"
 #include <functional>
 
 namespace Jrd {
@@ -122,7 +123,7 @@ public:
 	unsigned blrVersion;
 	ULONG impureSize;					// Size of impure area
 	mutable StmtNumber id;				// statement identifier
-	USHORT charSetId;					// client character set (CS_METADATA for internal statements)
+	CSetId charSetId;					// client character set (CS_METADATA for internal statements)
 	Firebird::Array<RecordParameter> rpbsSetup;
 
 private:

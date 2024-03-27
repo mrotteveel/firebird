@@ -32,6 +32,7 @@
 
 #include "CsConvert.h"
 #include "IntlUtil.h"
+#include "../jrd/intl.h"
 
 namespace Firebird {
 
@@ -89,7 +90,7 @@ private:
 public:
 	virtual ~CharSet() {}
 
-	USHORT getId() const { return id; }
+	CSetId getId() const { return id; }
 	const char* getName() const { return cs->charset_name; }
 	UCHAR minBytesPerChar() const { return cs->charset_min_bytes_per_char; }
 	UCHAR maxBytesPerChar() const { return cs->charset_max_bytes_per_char; }
@@ -138,7 +139,7 @@ public:
 							const ULONG startPos, const ULONG length) const = 0;
 
 private:
-	USHORT id;
+	CSetId id;
 	charset* cs;
 	UCHAR sqlMatchAny[sizeof(ULONG)];
 	UCHAR sqlMatchOne[sizeof(ULONG)];

@@ -1449,7 +1449,7 @@ SortedStream* Optimizer::generateSort(const StreamList& streams,
 
 		if (sort_key->skd_dtype == SKD_varying || sort_key->skd_dtype == SKD_cstring)
 		{
-			if (desc->dsc_ttype() == ttype_binary)
+			if (desc->getTextType() == ttype_binary)
 				sort_key->skd_flags |= SKD_binary;
 		}
 

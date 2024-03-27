@@ -43,11 +43,11 @@ class BaseSubstringSimilarMatcher;
 class Collation : public TextType
 {
 public:
-	static Collation* createInstance(MemoryPool& pool, TTYPE_ID id, texttype* tt, USHORT attributes, CharSet* cs);
+	static Collation* createInstance(MemoryPool& pool, TTypeId id, texttype* tt, USHORT attributes, CharSet* cs);
 	typedef const char* Key;
 
 protected:
-	Collation(TTYPE_ID id, texttype *a_tt, USHORT a_attributes, CharSet* a_cs)
+	Collation(TTypeId id, texttype *a_tt, USHORT a_attributes, CharSet* a_cs)
 		: TextType(id, a_tt, a_attributes, a_cs),
 		  existenceLock(NULL),
 		  obsolete(false)

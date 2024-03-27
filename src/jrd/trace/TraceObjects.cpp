@@ -321,7 +321,7 @@ const char* TraceSQLStatementImpl::DSQLParamsImpl::getTextUTF8(CheckStatusWrappe
 
 	try
 	{
-		if (!DataTypeUtil::convertToUTF8(src, temp_utf8_text, param->dsc_sub_type, status_exception::raise))
+		if (!DataTypeUtil::convertToUTF8(src, temp_utf8_text, param->getCharSet(), status_exception::raise))
 			temp_utf8_text = src;
 	}
 	catch (const Firebird::Exception&)
@@ -385,7 +385,7 @@ const char* TraceParamsImpl::getTextUTF8(CheckStatusWrapper* status, FB_SIZE_T i
 
 	try
 	{
-		if (!DataTypeUtil::convertToUTF8(src, temp_utf8_text, param->dsc_sub_type, status_exception::raise))
+		if (!DataTypeUtil::convertToUTF8(src, temp_utf8_text, param->getCharSet(), status_exception::raise))
 			temp_utf8_text = src;
 	}
 	catch (const Firebird::Exception&)

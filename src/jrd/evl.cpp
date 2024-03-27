@@ -565,7 +565,7 @@ void EVL_make_value(thread_db* tdbb, const dsc* desc, impure_value* value, Memor
 
 	VaryStr<TEMP_STR_LENGTH> temp;
 	UCHAR* address;
-	USHORT ttype;
+	TTypeId ttype;
 
 	// Get string.  If necessary, get_string will convert the string into a
 	// temporary buffer.  Since this will always be the result of a conversion,

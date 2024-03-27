@@ -990,7 +990,7 @@ template <
 class CollationImpl : public Collation
 {
 public:
-	CollationImpl(TTYPE_ID a_type, texttype* a_tt, USHORT a_attributes, CharSet* a_cs)
+	CollationImpl(TTypeId a_type, texttype* a_tt, USHORT a_attributes, CharSet* a_cs)
 		: Collation(a_type, a_tt, a_attributes, a_cs)
 	{
 	}
@@ -1068,7 +1068,7 @@ public:
 };
 
 template <typename T>
-Collation* newCollation(MemoryPool& pool, TTYPE_ID id, texttype* tt, USHORT attributes, CharSet* cs)
+Collation* newCollation(MemoryPool& pool, TTypeId id, texttype* tt, USHORT attributes, CharSet* cs)
 {
 	using namespace Firebird;
 
@@ -1107,7 +1107,7 @@ Collation* newCollation(MemoryPool& pool, TTYPE_ID id, texttype* tt, USHORT attr
 namespace Jrd {
 
 
-Collation* Collation::createInstance(MemoryPool& pool, TTYPE_ID id, texttype* tt, USHORT attributes, CharSet* cs)
+Collation* Collation::createInstance(MemoryPool& pool, TTypeId id, texttype* tt, USHORT attributes, CharSet* cs)
 {
 	switch (tt->texttype_canonical_width)
 	{

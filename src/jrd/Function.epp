@@ -224,7 +224,7 @@ void Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					prm_mech_normal : (prm_mech_t) Y.RDB$ARGUMENT_MECHANISM;
 
 				const SSHORT collation_id_null = Y.RDB$COLLATION_ID.NULL;
-				const SSHORT collation_id = Y.RDB$COLLATION_ID;
+				const CollId collation_id(Y.RDB$COLLATION_ID);
 
 				SSHORT default_value_null = Y.RDB$DEFAULT_VALUE.NULL;
 				bid default_value = Y.RDB$DEFAULT_VALUE;
@@ -241,8 +241,8 @@ void Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					{
 						DSC_make_descriptor(&parameter->prm_desc, F.RDB$FIELD_TYPE,
 											F.RDB$FIELD_SCALE, F.RDB$FIELD_LENGTH,
-											F.RDB$FIELD_SUB_TYPE, F.RDB$CHARACTER_SET_ID,
-											(collation_id_null ? F.RDB$COLLATION_ID : collation_id));
+											F.RDB$FIELD_SUB_TYPE, CSetId(F.RDB$CHARACTER_SET_ID),
+											(collation_id_null ? CollId(F.RDB$COLLATION_ID) : collation_id));
 
 						if (default_value_null && fb_utils::implicit_domain(F.RDB$FIELD_NAME))
 						{
@@ -256,8 +256,8 @@ void Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				{
 					DSC_make_descriptor(&parameter->prm_desc, Y.RDB$FIELD_TYPE,
 										Y.RDB$FIELD_SCALE, Y.RDB$FIELD_LENGTH,
-										Y.RDB$FIELD_SUB_TYPE, Y.RDB$CHARACTER_SET_ID,
-										(collation_id_null ? 0 : collation_id));
+										Y.RDB$FIELD_SUB_TYPE, CSetId(Y.RDB$CHARACTER_SET_ID),
+										(collation_id_null ? CollId(0) : collation_id));
 				}
 
 				if (parameter->prm_desc.isText() && parameter->prm_desc.getTextType() != CS_NONE)

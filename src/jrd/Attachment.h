@@ -545,8 +545,8 @@ public:
 	RuntimeStatistics	att_stats;
 	RuntimeStatistics	att_base_stats;
 	ULONG		att_flags;					// Flags describing the state of the attachment
-	SSHORT		att_client_charset;			// user's charset specified in dpb
-	SSHORT		att_charset;				// current (client or external) attachment charset
+	CSetId		att_client_charset;			// user's charset specified in dpb
+	CSetId		att_charset;				// current (client or external) attachment charset
 	bool 		att_in_system_routine = false;	// running a system routine
 	Lock*		att_long_locks;				// outstanding two phased locks
 #ifdef DEBUG_LCK_LIST

@@ -508,12 +508,12 @@ void Retrieval::analyzeNavigation(const InversionCandidateList& inversions)
 				dsc desc;
 				node->getDesc(tdbb, csb, &desc);
 
-				// ASF: "desc.dsc_ttype() > ttype_last_internal" is to avoid recursion
+				// ASF: "desc.getTextType() > ttype_last_internal" is to avoid recursion
 				// when looking for charsets/collations
 
-				if (DTYPE_IS_TEXT(desc.dsc_dtype) && desc.dsc_ttype() > ttype_last_internal)
+				if (DTYPE_IS_TEXT(desc.dsc_dtype) && desc.getTextType() > ttype_last_internal)
 				{
-					auto tt = INTL_texttype_lookup(tdbb, desc.dsc_ttype());
+					auto tt = INTL_texttype_lookup(tdbb, desc.getTextType());
 
 					if (idx->idx_flags & idx_unique)
 					{

@@ -3600,8 +3600,8 @@ static void processMap(thread_db* tdbb, CompilerScratch* csb, MapNode* map, Form
 			*desc = desc2;
 		else if (max == dtype_blob)
 		{
-			USHORT subtype = DataTypeUtil::getResultBlobSubType(desc, &desc2);
-			USHORT ttype = DataTypeUtil::getResultTextType(desc, &desc2);
+			auto subtype = DataTypeUtil::getResultBlobSubType(desc, &desc2);
+			auto ttype = DataTypeUtil::getResultTextType(desc, &desc2);
 			desc->makeBlob(subtype, ttype);
 		}
 		else if (min <= dtype_any_text)
@@ -3615,7 +3615,7 @@ static void processMap(thread_db* tdbb, CompilerScratch* csb, MapNode* map, Form
 			// pick the max text type, so any transparent casts from ints are
 			// not left in ASCII format, but converted to the richer text format
 
-			desc->setTextType(MAX(INTL_TEXT_TYPE(*desc), INTL_TEXT_TYPE(desc2)));
+			desc->setTextType(MAX(desc->getTextType(), desc2.getTextType()));
 			desc->dsc_scale = 0;
 			desc->dsc_flags = 0;
 		}
@@ -3623,7 +3623,7 @@ static void processMap(thread_db* tdbb, CompilerScratch* csb, MapNode* map, Form
 		{
 			desc->dsc_dtype = dtype_varying;
 			desc->dsc_length = DSC_convert_to_text_length(max) + sizeof(USHORT);
-			desc->dsc_ttype() = ttype_ascii;
+			desc->setTextType(ttype_ascii);
 			desc->dsc_scale = 0;
 			desc->dsc_flags = 0;
 		}

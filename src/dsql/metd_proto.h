@@ -52,9 +52,9 @@ void METD_drop_procedure(Jrd::jrd_tra*, const Jrd::QualifiedName&);
 void METD_drop_relation(Jrd::jrd_tra*, const Jrd::MetaName&);
 
 Jrd::dsql_intlsym* METD_get_charset(Jrd::jrd_tra*, USHORT, const char* name);
-USHORT METD_get_charset_bpc(Jrd::jrd_tra*, SSHORT);
-Jrd::MetaName METD_get_charset_name(Jrd::jrd_tra*, SSHORT);
-Jrd::dsql_intlsym* METD_get_collation(Jrd::jrd_tra*, const Jrd::MetaName&, USHORT charset_id);
+USHORT METD_get_charset_bpc(Jrd::jrd_tra*, CSetId);
+Jrd::MetaName METD_get_charset_name(Jrd::jrd_tra*, CSetId);
+Jrd::dsql_intlsym* METD_get_collation(Jrd::jrd_tra*, const Jrd::MetaName&, CSetId charset_id);
 Jrd::MetaName METD_get_default_charset(Jrd::jrd_tra*);
 bool METD_get_domain(Jrd::jrd_tra*, class Jrd::TypeClause*, const Jrd::MetaName& name);
 Jrd::dsql_udf* METD_get_function(Jrd::jrd_tra*, Jrd::DsqlCompilerScratch*,

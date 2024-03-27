@@ -181,7 +181,7 @@ namespace Jrd
 					   ULONG length, const UCHAR* data);
 
 		void executeSql(thread_db* tdbb, TraNumber traNum,
-						unsigned charset,
+						CSetId charset,
 						const Firebird::string& sql,
 						const MetaName& owner);
 

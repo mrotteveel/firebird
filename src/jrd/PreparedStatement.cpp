@@ -54,13 +54,13 @@ namespace
 		{
 			case dtype_text:
 				item.type = SQL_TEXT;
-				item.charSet = desc->dsc_ttype();
+				item.charSet = desc->getTextType();
 				item.length = desc->dsc_length;
 				break;
 
 			case dtype_varying:
 				item.type = SQL_VARYING;
-				item.charSet = desc->dsc_ttype();
+				item.charSet = desc->getTextType();
 				fb_assert(desc->dsc_length >= sizeof(USHORT));
 				item.length = desc->dsc_length - sizeof(USHORT);
 				break;
@@ -312,7 +312,7 @@ PreparedStatement::~PreparedStatement()
 void PreparedStatement::init(thread_db* tdbb, Attachment* attachment, jrd_tra* transaction,
 	const Firebird::string& text, bool isInternalRequest)
 {
-	AutoSetRestore<SSHORT> autoAttCharset(&attachment->att_charset,
+	AutoSetRestore<CSetId> autoAttCharset(&attachment->att_charset,
 		(isInternalRequest ? CS_METADATA : attachment->att_charset));
 
 	dsqlRequest = NULL;

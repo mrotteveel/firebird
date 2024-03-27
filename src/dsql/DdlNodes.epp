@@ -4004,7 +4004,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 		if (fromName.hasData())
 		{
 			if (MET_get_char_coll_subtype_info(tdbb,
-					INTL_CS_COLL_TO_TTYPE(forCharSetId, fromCollationId), &info) &&
+					TTypeId(forCharSetId, fromCollationId), &info) &&
 				forCharSetId != CS_METADATA &&
 				info.specificAttributes.hasData())
 			{
@@ -4927,8 +4927,8 @@ void AlterDomainNode::getDomainType(thread_db* tdbb, jrd_tra* transaction, dyn_f
 		WITH FLD.RDB$FIELD_NAME EQ dynFld.dyn_fld_source.c_str();
 	{
 		DSC_make_descriptor(&dynFld.dyn_dsc, FLD.RDB$FIELD_TYPE, FLD.RDB$FIELD_SCALE,
-			FLD.RDB$FIELD_LENGTH, FLD.RDB$FIELD_SUB_TYPE, FLD.RDB$CHARACTER_SET_ID,
-			FLD.RDB$COLLATION_ID);
+			FLD.RDB$FIELD_LENGTH, FLD.RDB$FIELD_SUB_TYPE, CSetId(FLD.RDB$CHARACTER_SET_ID),
+			CollId(FLD.RDB$COLLATION_ID));
 
 		dynFld.dyn_charbytelen = FLD.RDB$FIELD_LENGTH;
 		dynFld.dyn_dtype = FLD.RDB$FIELD_TYPE;
@@ -5145,8 +5145,8 @@ void AlterDomainNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 				dyn_fld origDom, newDom;
 
 				DSC_make_descriptor(&origDom.dyn_dsc, FLD.RDB$FIELD_TYPE, FLD.RDB$FIELD_SCALE,
-					FLD.RDB$FIELD_LENGTH, FLD.RDB$FIELD_SUB_TYPE, FLD.RDB$CHARACTER_SET_ID,
-					FLD.RDB$COLLATION_ID);
+					FLD.RDB$FIELD_LENGTH, FLD.RDB$FIELD_SUB_TYPE, CSetId(FLD.RDB$CHARACTER_SET_ID),
+					CollId(FLD.RDB$COLLATION_ID));
 
 				origDom.dyn_fld_name = name;
 				origDom.dyn_charbytelen = FLD.RDB$FIELD_LENGTH;
@@ -8018,8 +8018,8 @@ void AlterRelationNode::modifyField(thread_db* tdbb, DsqlCompilerScratch* dsqlSc
 			dyn_fld origDom;
 
 			DSC_make_descriptor(&origDom.dyn_dsc, FLD.RDB$FIELD_TYPE, FLD.RDB$FIELD_SCALE,
-				FLD.RDB$FIELD_LENGTH, FLD.RDB$FIELD_SUB_TYPE, FLD.RDB$CHARACTER_SET_ID,
-				FLD.RDB$COLLATION_ID);
+				FLD.RDB$FIELD_LENGTH, FLD.RDB$FIELD_SUB_TYPE, CSetId(FLD.RDB$CHARACTER_SET_ID),
+				CollId(FLD.RDB$COLLATION_ID));
 
 			origDom.dyn_fld_name = field->fld_name;
 			origDom.dyn_charbytelen = FLD.RDB$FIELD_LENGTH;
@@ -9595,15 +9595,15 @@ void CreateIndexNode::store(thread_db* tdbb, jrd_tra* transaction, MetaName& nam
 					if (!F.RDB$COLLATION_ID.NULL)
 					{
 						length = INTL_key_length(tdbb,
-							INTL_TEXT_TO_INDEX(INTL_CS_COLL_TO_TTYPE(
-								GF.RDB$CHARACTER_SET_ID, F.RDB$COLLATION_ID)),
+							INTL_TEXT_TO_INDEX(TTypeId(CSetId(GF.RDB$CHARACTER_SET_ID),
+								CollId(F.RDB$COLLATION_ID))),
 							GF.RDB$FIELD_LENGTH);
 					}
 					else if (!GF.RDB$COLLATION_ID.NULL)
 					{
 						length = INTL_key_length(tdbb,
-							INTL_TEXT_TO_INDEX(INTL_CS_COLL_TO_TTYPE(
-								GF.RDB$CHARACTER_SET_ID, GF.RDB$COLLATION_ID)),
+							INTL_TEXT_TO_INDEX(TTypeId(CSetId(GF.RDB$CHARACTER_SET_ID),
+								CollId(GF.RDB$COLLATION_ID))),
 							GF.RDB$FIELD_LENGTH);
 					}
 					else

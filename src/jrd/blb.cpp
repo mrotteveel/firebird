@@ -2559,12 +2559,12 @@ static void move_from_string(thread_db* tdbb, const dsc* from_desc, dsc* to_desc
  **************************************/
 	SET_TDBB (tdbb);
 
-	const UCHAR charSet = INTL_GET_CHARSET(from_desc);
+	const auto charSet = INTL_GET_CHARSET(from_desc);
 	UCHAR* fromstr = NULL;
 
 	MoveBuffer buffer;
 	const int length = MOV_make_string2(tdbb, from_desc, charSet, &fromstr, buffer);
-	const UCHAR toCharSet = to_desc->getCharSet();
+	const auto toCharSet = to_desc->getCharSet();
 
 	if ((charSet == CS_NONE || charSet == CS_BINARY || charSet == toCharSet) &&
 		toCharSet != CS_NONE && toCharSet != CS_BINARY)
@@ -2678,9 +2678,9 @@ static void move_to_string(thread_db* tdbb, dsc* fromDesc, dsc* toDesc)
 	blobAsText.dsc_dtype = dtype_text;
 
 	if (DTYPE_IS_TEXT(toDesc->dsc_dtype))
-		blobAsText.dsc_ttype() = toDesc->dsc_ttype();
+		blobAsText.setTextType(toDesc->getTextType());
 	else
-		blobAsText.dsc_ttype() = ttype_ascii;
+		blobAsText.setTextType(ttype_ascii);
 
 	Request* request = tdbb->getRequest();
 	jrd_tra* transaction = request ? request->req_transaction : tdbb->getTransaction();
@@ -2692,7 +2692,7 @@ static void move_to_string(thread_db* tdbb, dsc* fromDesc, dsc* toDesc)
 	blb* blob = blb::open2(tdbb, transaction,
 		(bid*) fromDesc->dsc_address, bpb.getCount(), bpb.begin());
 
-	const CharSet* fromCharSet = INTL_charset_lookup(tdbb, fromDesc->dsc_scale);
+	const CharSet* fromCharSet = INTL_charset_lookup(tdbb, fromDesc->getCharSet());
 	const CharSet* toCharSet = INTL_charset_lookup(tdbb, INTL_GET_CHARSET(&blobAsText));
 
 	HalfStaticArray<UCHAR, BUFFER_SMALL> buffer;
@@ -2811,7 +2811,7 @@ static void slice_callback(array_slice* arg, ULONG /*count*/, DSC* descriptors)
 			DynamicVaryStr<1024> tmp_buffer;
 			const USHORT tmp_len = array_desc->dsc_length;
 			const char* p;
-			const USHORT len = MOV_make_string(tdbb, slice_desc, INTL_TEXT_TYPE(*array_desc), &p,
+			const USHORT len = MOV_make_string(tdbb, slice_desc, INTL_GET_TTYPE(array_desc), &p,
 											   tmp_buffer.getBuffer(tmp_len), tmp_len);
 			memcpy(array_desc->dsc_address, &len, sizeof(USHORT));
 			memcpy(array_desc->dsc_address + sizeof(USHORT), p, (int) len);
@@ -2926,7 +2926,7 @@ void blb::fromPageHeader(const Ods::blh* header)
 	blb_max_segment = header->blh_max_segment;
 	blb_level = header->blh_level;
 	blb_sub_type = header->blh_sub_type;
-	blb_charset = header->blh_charset;
+	blb_charset = CSetId(header->blh_charset);
 #ifdef CHECK_BLOB_FIELD_ACCESS_FOR_SELECT
 	blb_fld_id = header->blh_fld_id;
 #endif

@@ -81,7 +81,7 @@ public:
 	USHORT blb_flags;				// Interesting stuff (see below)
 
 	SSHORT blb_sub_type;			// Blob's declared sub-type
-	UCHAR blb_charset;				// Blob's charset
+	CSetId blb_charset;				// Blob's charset
 
 	// inline functions
 	bool hasBuffer() const;
