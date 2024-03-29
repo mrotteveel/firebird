@@ -124,7 +124,7 @@ int Function::blockingAst(void* ast_object)
 	return 0;
 }
 
-void Function::scan(thread_db* tdbb, ObjectBase::Flag)
+bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* sysTransaction = attachment->getSysTransaction();
@@ -425,6 +425,8 @@ void Function::scan(thread_db* tdbb, ObjectBase::Flag)
 		}
 		END_FOR
 	}
+
+	return !(this->flags & FLAG_RELOAD);
 }
 
 bool Function::reload(thread_db* tdbb)

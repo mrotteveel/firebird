@@ -114,6 +114,9 @@ namespace Jrd
 		}
 
 	public:
+		static const USHORT FLAG_RELOAD             = 32;   // Recompile before execution
+
+	public:
 		static const USHORT MAX_ALTER_COUNT = 64;	// Number of times an in-cache routine can be altered ?????????
 
 		static Firebird::MsgMetadata* createMetadata(
@@ -139,7 +142,7 @@ namespace Jrd
 		bool isDefined() const { return defined; }
 		void setDefined(bool value) { defined = value; }
 
-		void checkReload(thread_db* tdbb);
+		void checkReload(thread_db* tdbb) const;
 
 		USHORT getDefaultCount() const { return defaultCount; }
 		void setDefaultCount(USHORT value) { defaultCount = value; }
@@ -175,8 +178,6 @@ namespace Jrd
 	public:
 		virtual int getObjectType() const = 0;
 		virtual SLONG getSclType() const = 0;
-
-	public:
 		virtual RoutinePermanent* getPermanent() const = 0;	// Permanent part of data
 
 	private:
@@ -188,9 +189,6 @@ namespace Jrd
 		const Format* outputFormat;			// output format
 		Firebird::Array<NestConst<Parameter> > inputFields;		// array of field blocks
 		Firebird::Array<NestConst<Parameter> > outputFields;	// array of field blocks
-
-	protected:
-		virtual bool reload(thread_db* tdbb) = 0;
 
 	public:
 		USHORT flags;
@@ -232,12 +230,23 @@ namespace Jrd
 		}
 
 		template <typename T>
-		R* operator()(T t) const
+		R* operator()(T t)
 		{
 			return isSubRoutine() ? subroutine : routine(t);
 		}
 
-		CacheElement<R, RoutinePermanent>* operator()() const
+		template <typename T>
+		const R* operator()(T t) const
+		{
+			return isSubRoutine() ? subroutine : routine(t);
+		}
+
+		CacheElement<R, RoutinePermanent>* operator()()
+		{
+			return isSubRoutine() ? subroutine->getPermanent() : routine();
+		}
+
+		const CacheElement<R, RoutinePermanent>* operator()() const
 		{
 			return isSubRoutine() ? subroutine->getPermanent() : routine();
 		}

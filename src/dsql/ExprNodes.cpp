@@ -12983,7 +12983,7 @@ ValueExprNode* UdfCallNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 
 dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 {
-	Function* f = function(request->getResources());
+	const Function* func = function(request->getResources());
 
 	UCHAR* impure = request->getImpure<UCHAR>(impureOffset);
 	Impure* impureArea = request->getImpure<Impure>(impureOffset);
@@ -13007,13 +13007,13 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 		}
 	}
 
-	if (!f->isImplemented())
+	if (!func->isImplemented())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_func_pack_not_implemented) <<
 				Arg::Str(function()->getName().identifier) << Arg::Str(function()->getName().package));
 	}
-	else if (!f->isDefined())
+	else if (!func->isDefined())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_funnotdef) << Arg::Str(function()->getName().toString()) <<
@@ -13026,9 +13026,9 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 
 	// Evaluate the function.
 
-	if (f->fun_entrypoint)
+	if (func->fun_entrypoint)
 	{
-		const Parameter* const returnParam = f->getOutputFields()[0];
+		const Parameter* const returnParam = func->getOutputFields()[0];
 		value->vlu_desc = returnParam->prm_desc;
 
 		// If the return data type is any of the string types, allocate space to hold value.
@@ -13062,22 +13062,21 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 				FB_NEW_POOL(*tdbb->getDefaultPool()) Array<UCHAR>(*tdbb->getDefaultPool());
 		}
 
-		FUN_evaluate(tdbb, f, args->items, value, *impureArea->temp);
+		FUN_evaluate(tdbb, func, args->items, value, *impureArea->temp);
 	}
 	else
 	{
-		//const_cast<Function*>(function.getObject())->checkReload(tdbb);
+		func->checkReload(tdbb);
 
 		Jrd::Attachment* attachment = tdbb->getAttachment();
-
-		const ULONG inMsgLength = f->getInputFormat() ? f->getInputFormat()->fmt_length : 0;
-		const ULONG outMsgLength = f->getOutputFormat()->fmt_length;
+		const ULONG inMsgLength = func->getInputFormat() ? func->getInputFormat()->fmt_length : 0;
+		const ULONG outMsgLength = func->getOutputFormat()->fmt_length;
 		UCHAR* const inMsg = FB_ALIGN(impure + sizeof(impure_value), FB_ALIGNMENT);
 		UCHAR* const outMsg = FB_ALIGN(inMsg + inMsgLength, FB_ALIGNMENT);
 
-		if (f->fun_inputs != 0)
+		if (func->fun_inputs != 0)
 		{
-			const dsc* fmtDesc = f->getInputFormat()->fmt_desc.begin();
+			const dsc* fmtDesc = func->getInputFormat()->fmt_desc.begin();
 
 			for (auto& source : args->items)
 			{
@@ -13107,7 +13106,7 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 		const SavNumber savNumber = transaction->tra_save_point ?
 			transaction->tra_save_point->getNumber() : 0;
 
-		Request* funcRequest = f->getStatement()->findRequest(tdbb);
+		Request* funcRequest = func->getStatement()->findRequest(tdbb);
 
 		// trace function execution start
 		TraceFuncExecute trace(tdbb, funcRequest, request, inMsg, inMsgLength);
@@ -13154,7 +13153,7 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 			throw;
 		}
 
-		const dsc* fmtDesc = f->getOutputFormat()->fmt_desc.begin();
+		const dsc* fmtDesc = func->getOutputFormat()->fmt_desc.begin();
 		const ULONG nullOffset = (IPTR) fmtDesc[1].dsc_address;
 		SSHORT* const nullPtr = reinterpret_cast<SSHORT*>(outMsg + nullOffset);
 

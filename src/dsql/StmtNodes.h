@@ -642,7 +642,7 @@ public:
 	NestConst<ValueListNode> outputSources;
 	NestConst<ValueListNode> outputTargets;
 	NestConst<MessageNode> outputMessage;
-	NestConst<jrd_prc> procedure;
+	SubRoutine<jrd_prc> procedure;		// NestConst ????????????????????
 };
 
 

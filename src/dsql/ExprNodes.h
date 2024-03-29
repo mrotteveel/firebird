@@ -2163,7 +2163,7 @@ public:
 public:
 	QualifiedName name;
 	NestConst<ValueListNode> args;
-	SubRoutine<Function> function;
+	SubRoutine<Function> function;		// NestConst ????????????????
 
 private:
 	dsql_udf* dsqlFunction;

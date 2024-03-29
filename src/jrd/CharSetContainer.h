@@ -131,7 +131,7 @@ public:
 
 	static void destroy(CharSetVers* csv);
 	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::Charset* perm);
-	void scan(thread_db* tdbb, ObjectBase::Flag flags);
+	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
 	static Lock* makeLock(thread_db*, MemoryPool&);
 
 	Collation* getCollation(TTypeId tt_id);

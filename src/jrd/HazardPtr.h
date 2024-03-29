@@ -400,6 +400,7 @@ public:
 	typedef unsigned Flag;
 	virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
 	virtual const char* c_name() const = 0;
+	virtual bool reload(thread_db* tdbb);
 };
 
 
@@ -464,13 +465,13 @@ public:
 	}
 
 
-	void pass(std::function<void()> scan)
+	void scanPass(std::function<bool(bool)> objScan)
 	{
 		// no need opening barrier twice
 		if (flg == READY)
 			return;
 
-		// enable recursive pass by scanning thread
+		// enable recursive no-action pass by scanning thread
 		// if thd is current thread flg is not going to be changed - current thread holds mutex
 		if ((thd == Thread::getId()) && (flg == SCANNING))
 			return;
@@ -478,28 +479,39 @@ public:
 		std::unique_lock<std::mutex> g(mtx);
 		for(;;)
 		{
+			bool reason = true;
 			switch (flg)
 			{
-			case INITIAL: 		// out thread becomes scanning thread
+			case INITIAL: 		// Our thread becomes scanning thread
+				reason = false;
+				// fall through...
+			case RELOAD: 		// may be because object body reload required.
 				thd = Thread::getId();
 				flg = SCANNING;
 
 				try
 				{
-					scan();
+					if (!objScan(reason))
+					{
+						// scan complete but reload was requested
+						flg = RELOAD;
+						thd = 0;
+						cond.notify_all();		// avoid deadlock in other threads
+
+						return;
+					}
 				}
 				catch(...)		// scan failed - give up
 				{
 					flg = INITIAL;
 					thd = 0;
-
 					cond.notify_all();		// avoid deadlock in other threads
 
 					throw;
 				}
 
 				flg = READY;
-				cond.notify_all();
+				cond.notify_all();			// other threads may proceed successfully
 				return;
 
 			case SCANNING:		// somebody is already scanning object
@@ -516,7 +528,9 @@ private:
 	std::condition_variable cond;
 	std::mutex mtx;
 	ThreadId thd;
-	enum { INITIAL, SCANNING, READY } flg;
+
+public:
+	enum { INITIAL, RELOAD, SCANNING, READY } flg;
 };
 
 template <class OBJ>
@@ -668,10 +682,10 @@ public:
 		fb_assert(cacheFlags & CacheFlag::COMMITTED);
 	}
 
-	void scan(std::function<void()> objScan, ObjectBase::Flag flags)
+	void scan(std::function<bool(bool)> objScan, ObjectBase::Flag flags)
 	{
 		if (!(flags & CacheFlag::NOSCAN))
-			bar.pass(objScan);
+			bar.scanPass(objScan);
 	}
 
 	bool scanInProgress() const
@@ -731,6 +745,23 @@ public:
 		cleanup();
 	}
 
+	bool rescan(thread_db* tdbb, Versioned* obj, bool rld, ObjectBase::Flag flags)
+	{
+		return rld ? obj->reload(tdbb) : obj->scan(tdbb, flags);
+	}
+
+	Versioned* reload(thread_db* tdbb)
+	{
+		HazardPtr<ListEntry<Versioned>> listEntry(list);
+		TraNumber cur = TransactionNumber::current(tdbb);
+		if (listEntry)
+		{
+			Versioned* obj = ListEntry<Versioned>::getObject(listEntry, cur, 0);
+			if (obj)
+				listEntry->scan([&](bool rld){ return rescan(tdbb, obj, rld, flags); }, flags);
+		}
+	}
+
 	Versioned* getObject(thread_db* tdbb, ObjectBase::Flag flags = 0)
 	{
 		TraNumber cur = TransactionNumber::current(tdbb);
@@ -749,7 +780,7 @@ public:
 
 			if (ListEntry<Versioned>::replace(list, newEntry, nullptr))
 			{
-				newEntry->scan([&](){ obj->scan(tdbb, flags); }, flags);
+				newEntry->scan([&](bool rld){ return rescan(tdbb, obj, rld, flags); }, flags);
 				return obj;
 			}
 
@@ -791,7 +822,14 @@ public:
 		{
 			setNewResetAt(oldResetAt, current);
 			if (obj)
-				newEntry->scan([&](){ obj->scan(tdbb, flags); }, flags);
+			{
+				newEntry->scan(
+					[&](bool rld)
+					{
+						return rescan(tdbb, obj, rld, flags);
+					},
+				flags);
+			}
 		}
 		else
 			delete newEntry;

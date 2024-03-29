@@ -3175,10 +3175,10 @@ void ExecProcedureNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 
 ExecProcedureNode* ExecProcedureNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 {
-	if (!procedure->getPermanent()->isSubRoutine())
+	if (!procedure()->isSubRoutine())
 	{
 		// Post access to procedure.
-		CMP_post_procedure_access(tdbb, csb, procedure->getPermanent());
+		CMP_post_procedure_access(tdbb, csb, procedure());
 	}
 
 	doPass1(tdbb, csb, inputSources.getAddress());
@@ -3228,22 +3228,25 @@ const StmtNode* ExecProcedureNode::execute(thread_db* tdbb, Request* request, Ex
 // End by assigning the output parameters.
 void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) const
 {
-	if (!procedure->isImplemented())
+	const jrd_prc* proc = procedure(request->getResources());
+
+	if (!proc->isImplemented())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_proc_pack_not_implemented) <<
-				Arg::Str(procedure->getName().identifier) << Arg::Str(procedure->getName().package));
+				Arg::Str(proc->getName().identifier) << Arg::Str(proc->getName().package));
 	}
-	else if (!procedure->isDefined())
+	else if (!proc->isDefined())
 	{
 		status_exception::raise(
-			Arg::Gds(isc_prcnotdef) << Arg::Str(procedure->getName().toString()) <<
+			Arg::Gds(isc_prcnotdef) << Arg::Str(proc->getName().toString()) <<
 			Arg::Gds(isc_modnotfound));
 	}
 
-	const_cast<jrd_prc*>(procedure.getObject())->checkReload(tdbb);
+	//const_cast<jrd_prc*>
+	proc->checkReload(tdbb);
 
-	UserId* invoker = procedure->invoker ? procedure->invoker : tdbb->getAttachment()->att_ss_user;
+	UserId* invoker = proc->invoker ? proc->invoker : tdbb->getAttachment()->att_ss_user;
 	AutoSetRestore<UserId*> userIdHolder(&tdbb->getAttachment()->att_ss_user, invoker);
 
 	ULONG inMsgLength = 0;
@@ -3268,7 +3271,7 @@ void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) cons
 	}
 	else
 	{
-		format = procedure->getOutputFormat();
+		format = proc->getOutputFormat();
 		outMsgLength = format->fmt_length;
 		outMsg = tempBuffer.getBuffer(outMsgLength + FB_DOUBLE_ALIGN - 1);
 		outMsg = FB_ALIGN(outMsg, FB_DOUBLE_ALIGN);
@@ -3289,7 +3292,7 @@ void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) cons
 	const SavNumber savNumber = transaction->tra_save_point ?
 		transaction->tra_save_point->getNumber() : 0;
 
-	Request* procRequest = procedure->getStatement()->findRequest(tdbb);
+	Request* procRequest = proc->getStatement()->findRequest(tdbb);
 
 	// trace procedure execution start
 	TraceProcExecute trace(tdbb, procRequest, request, inputTargets);

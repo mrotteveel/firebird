@@ -86,3 +86,10 @@ MemoryPool& CachePool::get(thread_db* tdbb)
 	fatal_exception::raiseFmt("%s %s%sid=%d busy in another thread - operation failed\n",
 		family, name ? name : "", name ? " " : "", id);
 }
+
+bool ObjectBase::reload(thread_db* tdbb)
+{
+	// default implementation for missing reload call
+	fatal_exception::raise("Unable to recompile this type of cached object");
+}
+

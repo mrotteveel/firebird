@@ -1545,7 +1545,7 @@ void MET_get_shadow_files(thread_db* tdbb, bool delete_files)
 }
 
 
-void DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
+bool DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 /********************************************
  *
@@ -1583,6 +1583,8 @@ void DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		}
 		END_FOR
 	}
+
+	return true;
 }
 
 
@@ -2538,7 +2540,7 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 }
 
 
-jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& name)
+jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 /**************************************
  *
@@ -2564,6 +2566,9 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 		}
 	}
 
+	if (!(flags & CacheFlag::AUTOCREATE))
+		return nullptr;
+
 	// We need to look up the procedure name in RDB$PROCEDURES
 
 	jrd_prc* procedure = nullptr;
@@ -2575,7 +2580,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 		WITH P.RDB$PROCEDURE_NAME EQ name.identifier.c_str() AND
 			 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
-		procedure = mdc->mdc_procedures.getObject(tdbb, P.RDB$PROCEDURE_ID, CacheFlag::AUTOCREATE);
+		procedure = mdc->mdc_procedures.getObject(tdbb, P.RDB$PROCEDURE_ID, flags);
 	}
 	END_FOR
 
@@ -2584,7 +2589,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 }
 
 
-jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT flags)
+jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
 /**************************************
  *
@@ -2600,7 +2605,7 @@ jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, USHORT f
 	Attachment* attachment = tdbb->getAttachment();
 	MetadataCache* mdc = attachment->att_database->dbb_mdc;
 
-	return mdc->mdc_procedures.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+	return mdc->mdc_procedures.getObject(tdbb, id, flags);
 }
 
 
@@ -2895,7 +2900,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
 	return FB_NEW_POOL(perm->getPool()) jrd_prc(perm);
 }
 
-void jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
+bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
@@ -3152,10 +3157,14 @@ void jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 		}
 		END_FOR
 	}
+
+	return !(this->flags & FLAG_RELOAD);
 }
 
 bool jrd_prc::reload(thread_db* tdbb)
 {
+	fb_assert(this->flags & Routine::FLAG_RELOAD);
+
 	Attachment* attachment = tdbb->getAttachment();
 	AutoCacheRequest request(tdbb, irq_r_proc_blr, IRQ_REQUESTS);
 
@@ -3173,6 +3182,8 @@ bool jrd_prc::reload(thread_db* tdbb)
 			{
 				this->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 					P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
+
+				return !(this->flags & Routine::FLAG_RELOAD);
 			}
 			catch (const Exception& ex)
 			{
@@ -3291,7 +3302,7 @@ void MET_scan_partners(thread_db* tdbb, RelationPermanent* relation)
 }
 
 
-void jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
+bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 /**************************************
  *
@@ -3624,6 +3635,8 @@ void jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 		throw;
 	}
+
+	return true;
 }
 
 
@@ -4209,7 +4222,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 }
 
 
-void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
+bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	fb_assert(perm->hasData());		// character set to be filled earlier
 
@@ -4293,6 +4306,8 @@ void CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		charset_collations[colId] = collation;
 	}
 	END_FOR
+
+	return true;
 }
 
 

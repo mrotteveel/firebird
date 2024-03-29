@@ -233,7 +233,7 @@ public:
 	}
 
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	void scan(thread_db* tdbb, ObjectBase::Flag flags);
+	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
 
 	const char* c_name() const override
 	{
@@ -492,7 +492,7 @@ public:
 	bool isSystem() const;
 	bool isReplicating(thread_db* tdbb);
 
-	void scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
+	bool scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;

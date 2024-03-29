@@ -173,7 +173,8 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid*
 	PAR_blr(tdbb, nullptr, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
 	setStatement(statement);
 
-	// reload?????????????????????
+	if (csb->csb_g_flags & csb_reload)
+		flags |= FLAG_RELOAD;
 
 	if (!blob_id)
 		setImplemented(false);
@@ -306,6 +307,14 @@ void RoutinePermanent::releaseLocks(thread_db* tdbb)
 {
 	if (existenceLock)
 		LCK_release(tdbb, existenceLock);
+}
+
+void Routine::checkReload(thread_db* tdbb) const
+{
+	if (!(flags & FLAG_RELOAD))
+		return;
+
+	const_cast<Routine*>(this)->reload(tdbb);
 }
 
 }	// namespace Jrd

@@ -58,22 +58,25 @@ ProcedureScan::ProcedureScan(thread_db* tdbb, CompilerScratch* csb, const string
 
 void ProcedureScan::internalOpen(thread_db* tdbb) const
 {
-	if (!m_procedure(tdbb)->isImplemented())
+	Request* const request = tdbb->getRequest();
+
+	const jrd_prc* proc = m_procedure(request->getResources());
+
+	if (!proc->isImplemented())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_proc_pack_not_implemented) <<
 				Arg::Str(m_procedure()->getName().identifier) << Arg::Str(m_procedure()->getName().package));
 	}
-	else if (!m_procedure(tdbb)->isDefined())
+	else if (!proc->isDefined())
 	{
 		status_exception::raise(
 			Arg::Gds(isc_prcnotdef) << Arg::Str(m_procedure()->getName().toString()) <<
 			Arg::Gds(isc_modnotfound));
 	}
 
-//	????????????? const_cast<jrd_prc*>(m_procedure)->checkReload(tdbb);
+	proc->checkReload(tdbb);
 
-	Request* const request = tdbb->getRequest();
 	Impure* const impure = request->getImpure<Impure>(m_impure);
 
 	impure->irsb_flags = irsb_open;
@@ -107,7 +110,7 @@ void ProcedureScan::internalOpen(thread_db* tdbb) const
 		im = NULL;
 	}
 
-	Request* const proc_request = m_procedure(request->getResources())->getStatement()->findRequest(tdbb);
+	Request* const proc_request = proc->getStatement()->findRequest(tdbb);
 	impure->irsb_req_handle = proc_request;
 
 	// req_proc_fetch flag used only when fetching rows, so
@@ -174,7 +177,7 @@ bool ProcedureScan::internalGetRecord(thread_db* tdbb) const
 	JRD_reschedule(tdbb);
 
 	Request* const request = tdbb->getRequest();
-	jrd_prc* proc = m_procedure(request->getResources());
+	const jrd_prc* proc = m_procedure(request->getResources());
 
 	UserId* invoker = proc->invoker ? proc->invoker : tdbb->getAttachment()->att_ss_user;
 	AutoSetRestore<UserId*> userIdHolder(&tdbb->getAttachment()->att_ss_user, invoker);
