@@ -35,14 +35,14 @@ using namespace Firebird;
 
 namespace Jrd {
 
-RoutinePermanent::RoutinePermanent(thread_db*, MemoryPool& p, MetaId metaId, Lock* existence)
+RoutinePermanent::RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, MakeLock* makeLock)
 	: PermanentStorage(p),
 	  id(metaId),
 	  name(p),
 	  securityName(p),
 	  subRoutine(false),
 	  flags(0),
-	  existenceLock(existence)
+	  existenceLock(makeLock(tdbb, p))
 {
 	existenceLock->setKey(metaId);
 	existenceLock->lck_object = this;

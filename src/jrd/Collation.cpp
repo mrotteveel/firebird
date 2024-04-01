@@ -1125,17 +1125,7 @@ Collation* Collation::createInstance(MemoryPool& pool, TTypeId id, texttype* tt,
 	return NULL;	// compiler silencer
 }
 
-void Collation::release(thread_db* tdbb)
-{
-	if (existenceLock)
-	{
-		if (!tdbb)
-			tdbb = JRD_get_thread_data();
-		LCK_release(tdbb, existenceLock);
-	}
-}
-
-void Collation::destroy(thread_db* tdbb, int xxx)
+void Collation::destroy(thread_db* tdbb)
 {
 	fprintf(stderr, "Collation::destroy(%p) tt=%p\n", this, tt);
 
@@ -1143,11 +1133,6 @@ void Collation::destroy(thread_db* tdbb, int xxx)
 		tt->texttype_fn_destroy(tt);
 
 	delete tt;
-
-	release(tdbb);
-
-	delete existenceLock;
-	existenceLock = NULL;
 
 	delete this;
 }

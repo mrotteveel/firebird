@@ -138,7 +138,7 @@ jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	  rel_triggers(p)
 { }
 
-RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* /*lock*/)
+RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* /*makeLock*/)
 	: PermanentStorage(p),
 	  rel_existence_lock(nullptr),
 	  rel_partners_lock(nullptr),
@@ -996,3 +996,40 @@ void Trigger::free(thread_db* tdbb)
 	statement = nullptr;
 }
 
+
+// class DbTriggers
+
+DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, MakeLock* makeLock)
+	: Firebird::PermanentStorage(p),
+	  type(t),
+	  lock(nullptr)
+{
+	lock = makeLock(tdbb, p);
+	lock->setKey(type);
+	lock->lck_object = this;
+}
+
+
+int DbTriggersHeader::blockingAst(void* ast_object)
+{
+	auto* const trigs = static_cast<Cached::Triggers*>(ast_object);
+
+	try
+	{
+		Database* const dbb = trigs->lock->lck_dbb;
+
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION, trigs->lock);
+
+		LCK_release(tdbb, trigs->lock);
+		trigs->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
+	}
+	catch (const Firebird::Exception&)
+	{} // no-op
+
+	return 0;
+}
+
+Lock* DbTriggers::makeLock(thread_db* tdbb, MemoryPool& p)
+{
+	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_dbwide_triggers, nullptr, DbTriggersHeader::blockingAst);
+}

@@ -49,7 +49,6 @@ public:
 protected:
 	Collation(TTypeId id, texttype *a_tt, USHORT a_attributes, CharSet* a_cs)
 		: TextType(id, a_tt, a_attributes, a_cs),
-		  existenceLock(NULL),
 		  obsolete(false)
 	{
 	}
@@ -79,24 +78,11 @@ public:
 	virtual bool contains(MemoryPool& pool, const UCHAR* s, SLONG sl, const UCHAR* p, SLONG pl) = 0;
 	virtual PatternMatcher* createContainsMatcher(MemoryPool& pool, const UCHAR* p, SLONG pl) = 0;
 
-	void release(thread_db* tdbb);
-	void destroy(thread_db* tdbb,  int);
+	void destroy(thread_db* tdbb);
 	void incUseCount(thread_db* tdbb);
 	void decUseCount(thread_db* tdbb);
 
-	bool hasData()
-	{
-		return true;
-	}
-/* ???????????????//
-	const char* c_name() const override
-	{
-		return name.c_str();
-	}
- */
-
 public:
-	Lock* existenceLock;
 	bool obsolete;
 };
 

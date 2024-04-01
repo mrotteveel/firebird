@@ -562,15 +562,15 @@ static lck_owner_t get_owner_type(enum lck_t lock_type)
 	case LCK_repl_state:
 
 	case LCK_rel_exist:
-	case LCK_idx_exist:
-	case LCK_prc_exist:
-	case LCK_fun_exist:
-	case LCK_tt_exist:
-
 	case LCK_rel_gc:
 	case LCK_rel_partners:
 	case LCK_rel_rescan:
+	case LCK_idx_exist:
 	case LCK_expression:
+	case LCK_prc_exist:
+	case LCK_fun_exist:
+	case LCK_cs_exist:
+	case LCK_dbwide_triggers:
 		owner_type = LCK_OWNER_database;
 		break;
 

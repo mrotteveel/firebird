@@ -25,6 +25,7 @@
 
 #include "firebird.h"
 #include "../jrd/CharSetContainer.h"
+#include "../jrd/jrd.h"
 
 using namespace Jrd;
 
@@ -43,6 +44,27 @@ MetaId CharSetContainer::getId()
 	return cs->getId();
 }
 
-//	static Lock* makeLock(thread_db*, MemoryPool&);
+Lock* CharSetVers::makeLock(thread_db* tdbb, MemoryPool& p)
+{
+	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_cs_exist, nullptr, CharSetContainer::blockingAst);
+}
 
+int CharSetContainer::blockingAst(void* ast_object)
+{
+	auto* const charSet = static_cast<Cached::Charset*>(ast_object);
+
+	try
+	{
+		Database* const dbb = charSet->cs_lock->lck_dbb;
+
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION, charSet->cs_lock);
+
+		LCK_release(tdbb, charSet->cs_lock);
+		charSet->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
+	}
+	catch (const Firebird::Exception&)
+	{} // no-op
+
+	return 0;
+}
 

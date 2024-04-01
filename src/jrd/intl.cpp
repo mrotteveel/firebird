@@ -138,38 +138,6 @@ static void pad_spaces(thread_db*, CSetId, BYTE *, ULONG);
 
 static GlobalPtr<Mutex> createCollationMtx;
 
-static int blocking_ast_charset(void* ast_object)
-{
-/***************************************************
- *
- *      b l o c k i n g _ a s t _ c h a r s e t
- *
- ***************************************************
- *
- * Functional description
- *      Someone is trying to modify collation(s) in charset.
- *
- **************************************/
-	auto* const ce = static_cast<Cached::Charset*>(ast_object);
-
-	try
-	{
-		Lock* l = ce->getLock();
-		Database* const dbb = l->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, l);
-
-		ce->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-		LCK_release(tdbb, l);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-
-	return 0;
-}
-
-
 // Classes and structures used internally to this file and intl implementation
 CharSetContainer* CharSetContainer::lookupCharset(thread_db* tdbb, TTypeId ttype)
 {
@@ -247,39 +215,10 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 	return false;
 }
 
-/*
-Lock* CharSetContainer::createCollationLock(thread_db* tdbb, USHORT ttype, void* object)
-{
- **************************************
- *
- *      c r e a t e C o l l a t i o n L o c k
- *
- **************************************
- *
- * Functional description
- *      Create a collation lock.
- *
- **************************************
-	// Could we have an AST on this lock? If yes, it will fail if we don't
-	// have lck_object to it, so set ast routine to NULL for safety.
-
-	Lock* lock = FB_NEW_RPT(*tdbb->getAttachment()->att_pool, 0)
-		Lock(tdbb, sizeof(SLONG), LCK_tt_exist, object, (object ? blocking_ast_collation : NULL));
-	lock->setKey(ttype);
-
-	return lock;
-}
-*/
-
-Lock* CharSetContainer::makeLock(thread_db* tdbb, MemoryPool& p)
-{
-	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_tt_exist, nullptr, blocking_ast_charset);
-}
-
-CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* lock)
+CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock)
 	: PermanentStorage(p),
 	  cs(NULL),
-	  cs_lock(lock)
+	  cs_lock(nullptr)
 {
 	SubtypeInfo info;
 	CSetId cs_id(id);
@@ -301,6 +240,7 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, Lo
 		ERR_post(Arg::Gds(isc_charset_not_installed) << Arg::Str(info.charsetName));
 	}
 
+	cs_lock = makeLock(tdbb, p);
 	cs_lock->setKey(cs_id);
 	cs_lock->lck_object = this;
 }

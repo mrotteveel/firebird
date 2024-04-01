@@ -1613,7 +1613,7 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 		{
 			// actual type will be taken into an account in DbTriggers::scan
 			auto* newCacheElement = FB_NEW_POOL(getPool())
-				Cached::Triggers(tdbb, getPool(), type, DbTriggers::makeLock(tdbb, getPool()));
+				Cached::Triggers(tdbb, getPool(), type, DbTriggers::makeLock);
 			if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{

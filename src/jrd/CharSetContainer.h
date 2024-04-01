@@ -38,7 +38,7 @@ namespace Jrd {
 class CharSetContainer : public Firebird::PermanentStorage
 {
 public:
-	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, Lock* lock);
+	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, MakeLock* makeLock);
 
 	void destroy()
 	{
@@ -52,7 +52,7 @@ public:
 	}
 
 	static CharSetContainer* create(thread_db* tdbb, MetaId id);
-	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
+	static int blockingAst(void* ast_object);
 
 	CharSet* getCharSet()
 	{
@@ -110,15 +110,6 @@ public:
 		return "character set";
 	}
 
-	void release(thread_db* tdbb)
-	{
-		for (auto coll : charset_collations)
-		{
-			if (coll)
-				coll->release(tdbb);
-		}
-	}
-
 	MetaId getId()
 	{
 		return perm->getId();
@@ -131,8 +122,8 @@ public:
 
 	static void destroy(CharSetVers* csv);
 	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::Charset* perm);
+	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
-	static Lock* makeLock(thread_db*, MemoryPool&);
 
 	Collation* getCollation(TTypeId tt_id);
 	Collation* getCollation(MetaName name);

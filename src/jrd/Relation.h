@@ -202,20 +202,20 @@ private:
 class DbTriggersHeader : public Firebird::PermanentStorage
 {
 public:
-	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, Lock* /*!!!!!!! dbtriggers lock needed*/)
-		: Firebird::PermanentStorage(p),
-		  type(t)
-	{ }
+	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, MakeLock* makeLock);
 
 	MetaId getId()
 	{
 		return type;
 	}
 
+	static int blockingAst(void* ast_object);
+
 	const char* c_name() const;
 
 private:
 	MetaId type;
+	Lock* lock;
 };
 
 class DbTriggers final : public Triggers, public ObjectBase
@@ -638,7 +638,7 @@ class RelationPermanent : public Firebird::PermanentStorage
 	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
 
 public:
-	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, Lock*);
+	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock);
 
 	~RelationPermanent();
 

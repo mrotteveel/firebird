@@ -62,7 +62,7 @@ enum lck_t {
 	LCK_page_space,				// Page space ID lock
 	LCK_dsql_cache,				// DSQL cache lock
 	LCK_monitor,				// Lock to dump the monitoring data
-	LCK_tt_exist,				// TextType existence lock
+	LCK_cs_exist,				// Charset existence lock
 	LCK_cancel,					// Cancellation lock
 	LCK_btr_dont_gc,			// Prevent removal of b-tree page from index
 	LCK_rel_gc,					// Allow garbage collection for relation

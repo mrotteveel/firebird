@@ -722,7 +722,7 @@ public:
 };
 
 
-class Lock;
+typedef class Lock* MakeLock(thread_db*, MemoryPool&);
 
 template <class V, class P>
 class CacheElement : public ElementBase, public P
@@ -731,8 +731,8 @@ public:
 	typedef V Versioned;
 	typedef P Permanent;
 
-	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, Lock* lock) :
-		Permanent(tdbb, p, id, lock), list(nullptr), resetAt(0), myId(id)
+	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock) :
+		Permanent(tdbb, p, id, makeLock), list(nullptr), resetAt(0), myId(id)
 	{ }
 
 	CacheElement(MemoryPool& p) :
@@ -1048,7 +1048,7 @@ private:
 		if (!data)
 		{
 			StoredElement* newData = FB_NEW_POOL(getPool())
-				StoredElement(tdbb, getPool(), id, Versioned::makeLock(tdbb, getPool()));
+				StoredElement(tdbb, getPool(), id, Versioned::makeLock);
 			if (!data.replace2(*ptr, newData))
 				delete newData;
 		}
