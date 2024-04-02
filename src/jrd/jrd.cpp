@@ -7564,20 +7564,6 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 
 	Monitoring::cleanupAttachment(tdbb);
 
-	// release the system requests
-
-	for (auto* itr : attachment->att_internal)
-	{
-		if (itr)
-			itr->release(tdbb);
-	}
-
-	for (auto* itr : attachment->att_dyn_req)
-	{
-		if (itr)
-			itr->release(tdbb);
-	}
-
 	dbb->dbb_extManager->closeAttachment(tdbb, attachment);
 
 	if (dbb->dbb_config->getServerMode() == MODE_SUPER)
@@ -7819,6 +7805,21 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 		SyncLockGuard dsGuard(&dbb->dbb_sync, SYNC_EXCLUSIVE, FB_FUNCTION);
 		if (dbb->dbb_attachments)
 			return false;
+	}
+
+	// Release the system requests
+	for (auto& itr : dbb->dbb_internal)
+	{
+		auto* stmt = itr.load(std::memory_order_relaxed);
+		if (stmt)
+			stmt->release(tdbb);
+	}
+
+	for (auto& itr : dbb->dbb_dyn_req)
+	{
+		auto* stmt = itr.load(std::memory_order_relaxed);
+		if (stmt)
+			stmt->release(tdbb);
 	}
 
 	// Database linger

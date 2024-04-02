@@ -31,12 +31,7 @@ namespace Jrd {
 	class jrd_tra;
 	class AssignmentNode;
 
-	//
-	// Flags to indicate normal internal requests vs. dyn internal requests
-	//
-	enum InternalRequest : USHORT {
-		NOT_REQUEST, IRQ_REQUESTS, DYN_REQUESTS
-	};
+	enum InternalRequest : USHORT;
 }
 
 void EXE_assignment(Jrd::thread_db*, const Jrd::AssignmentNode*);
@@ -71,7 +66,7 @@ namespace Jrd
 		AutoCacheRequest(thread_db* tdbb, USHORT aId, InternalRequest aWhich)
 			: id(aId),
 			  which(aWhich),
-			  request(tdbb->getAttachment()->findSystemRequest(tdbb, id, which))
+			  request(tdbb->getDatabase()->findSystemRequest(tdbb, id, which))
 		{
 		}
 
@@ -94,7 +89,7 @@ namespace Jrd
 
 			id = aId;
 			which = aWhich;
-			request = tdbb->getAttachment()->findSystemRequest(tdbb, id, which);
+			request = tdbb->getDatabase()->findSystemRequest(tdbb, id, which);
 		}
 
 		void compile(thread_db* tdbb, const UCHAR* blr, ULONG blrLength)

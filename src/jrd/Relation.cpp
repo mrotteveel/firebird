@@ -165,13 +165,13 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	rel_rescan_lock = FB_NEW_RPT(getPool(), 0)
 		Lock(tdbb, sizeof(SLONG), LCK_rel_rescan, this, rescan_ast_relation);
 	rel_rescan_lock->setKey(rel_id);
-
+/*
 	if (rel_id >= rel_MAX)
 	{
 		rel_existence_lock = FB_NEW_RPT(getPool(), 0)
 			Lock(tdbb, sizeof(SLONG), LCK_rel_exist, this, blocking_ast_relation);
 		rel_existence_lock->setKey(rel_id);
-	}
+	} */
 }
 
 RelationPermanent::~RelationPermanent()

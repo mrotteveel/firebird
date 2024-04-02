@@ -740,7 +740,7 @@ public:
 
 	static int partners_ast_relation(void* ast_object);
 	static int rescan_ast_relation(void* ast_object);
-	static int blocking_ast_relation(void* ast_object);
+//	static int blocking_ast_relation(void* ast_object);
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	IndexLocks		rel_index_locks;	// index existence locks

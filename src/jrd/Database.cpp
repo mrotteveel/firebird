@@ -41,6 +41,7 @@
 #include "../jrd/os/pio_proto.h"
 #include "../common/os/os_utils.h"
 #include "../jrd/met.h"
+#include "../jrd/Statement.h"
 
 // Thread data block
 #include "../common/ThreadData.h"
@@ -469,6 +470,49 @@ namespace Jrd
 			dbb_filename, dbb_config));
 	}
 
+	// Find an inactive incarnation of a system request.
+	Request* Database::findSystemRequest(thread_db* tdbb, USHORT id, InternalRequest which)
+	{
+		fb_assert(which == IRQ_REQUESTS || which == DYN_REQUESTS);
+
+		//Database::CheckoutLockGuard guard(this, dbb_cmp_clone_mutex);
+
+		// If the request hasn't been compiled or isn't active, there're nothing to do.
+		auto* stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
+		Statement* statement = stPtr->load(std::memory_order_relaxed);
+		if (!statement)
+			return NULL;
+
+		return statement->findRequest(tdbb);
+	}
+
+	// Store newly compiled request in the cache
+	Request* Database::cacheRequest(InternalRequest which, USHORT id, Request* req)
+	{
+		auto* const stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
+
+		Statement* existingStmt = stPtr->load(std::memory_order_acquire);
+		Statement* const compiledStmt = req->getStatement();
+
+		if (!existingStmt)
+		{
+			if (stPtr->compare_exchange_strong(existingStmt, compiledStmt,
+				std::memory_order_release, std::memory_order_acquire))
+			{
+				return req;
+			}
+		}
+
+		// Someone else already stored system request in the cache
+		// Let's use it
+		fb_assert(existingStmt);
+
+		thread_db* tdbb = JRD_get_thread_data();
+		compiledStmt->release(tdbb);
+
+		return existingStmt->findRequest(tdbb);
+	}
+
 	// Database::Linger class implementation
 
 	void Database::Linger::handler()
@@ -598,6 +642,8 @@ namespace Jrd
 		dbb_page_manager(this, *p),
 		dbb_file_id(*p),
 		dbb_modules(*p),
+		dbb_internal(*p),
+		dbb_dyn_req(*p),
 		dbb_extManager(nullptr),
 		dbb_flags(shared ? DBB_shared : 0),
 		dbb_filename(*p),
@@ -625,6 +671,9 @@ namespace Jrd
 		dbb_mdc(FB_NEW_POOL(*p) MetadataCache(*p))
 	{
 		dbb_pools.add(p);
+
+		dbb_internal.grow(irq_MAX);
+		dbb_dyn_req.grow(drq_MAX);
 	}
 
 

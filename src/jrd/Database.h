@@ -103,6 +103,10 @@ public:
 	static void destroy(KeywordsMap* inst);
 };
 
+// Flags to indicate normal internal requests vs. dyn internal requests
+enum InternalRequest : USHORT {
+	NOT_REQUEST, IRQ_REQUESTS, DYN_REQUESTS
+};
 
 //
 // bit values for dbb_flags
@@ -357,6 +361,9 @@ private:
 	DatabaseModules	dbb_modules;		// external function/filter modules
 
 public:
+	Firebird::Array<std::atomic<Statement*>> dbb_internal; // internal statements
+	Firebird::Array<std::atomic<Statement*>> dbb_dyn_req; // internal dyn statements
+
 	Firebird::AutoPtr<ExtEngineManager>	dbb_extManager;	// external engine manager
 
 	Firebird::SyncObject	dbb_flush_count_mutex;
@@ -553,6 +560,9 @@ public:
 	{
 		return dbb_gblobj_holder->getReplConfig();
 	}
+
+	Request* findSystemRequest(thread_db* tdbb, USHORT id, InternalRequest which);
+	Request* cacheRequest(InternalRequest which, USHORT id, Request* req);
 
 private:
 	//static int blockingAstSharedCounter(void*);

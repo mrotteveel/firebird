@@ -1684,8 +1684,8 @@ static void trigger_failure(thread_db* tdbb, Request* trigger)
 
 void AutoCacheRequest::cacheRequest()
 {
-	Jrd::Attachment* att = JRD_get_thread_data()->getAttachment();
-	att->cacheRequest(which, id, request->getStatement());
+	Jrd::Database* dbb = JRD_get_thread_data()->getDatabase();
+	request = dbb->cacheRequest(which, id, request);
 }
 
 void AutoCacheRequest::release()
