@@ -814,7 +814,7 @@ void TRA_init(Jrd::Attachment* attachment)
 	CHECK_DBB(dbb);
 
 	MemoryPool* const pool = dbb->dbb_permanent;
-	jrd_tra* const trans = FB_NEW_POOL(*pool) jrd_tra(pool, &dbb->dbb_memory_stats, NULL, NULL);
+	jrd_tra* const trans = FB_NEW_POOL(*pool) jrd_tra(pool, &dbb->dbb_memory_stats, attachment, NULL);
 	trans->tra_attachment = attachment;
 	attachment->setSysTransaction(trans);
 	trans->tra_flags |= TRA_system | TRA_ignore_limbo;
@@ -4002,8 +4002,8 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 		!tra_fetched_blobs.locate(*blob_id))
 	{
 		MetadataCache* mdc = tra_attachment->att_database->dbb_mdc;
-		auto* blobRelation = mdc->lookupRelation(tdbb, rel_id);
-
+		auto* blobRelation = mdc->lookupRelationNoChecks(rel_id);	// optimization with NoChecks
+																	// correct rel definitely present
 		if (blobRelation)
 		{
 			const MetaName security_name = (fld && fld->fld_security_name.hasData()) ?
@@ -4073,6 +4073,11 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 			default:
 				fb_assert(false);
 			}
+		}
+		else if (punt)
+		{
+			fatal_exception::raiseFmt("Invalid blob ID %x:%x",
+				blob_id->bid_quad.bid_quad_high, blob_id->bid_quad.bid_quad_low);
 		}
 	}
 }

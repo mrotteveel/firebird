@@ -217,6 +217,7 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 
 CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock)
 	: PermanentStorage(p),
+	  names(p),
 	  cs(NULL),
 	  cs_lock(nullptr)
 {
@@ -317,28 +318,6 @@ void INTL_lookup_texttype(texttype* tt, const SubtypeInfo* info)
 	IntlManager::lookupCollation(info->baseCollationName.c_str(), info->charsetName.c_str(),
 		info->attributes, info->specificAttributes.begin(),
 		info->specificAttributes.getCount(), info->ignoreAttributes, tt);
-}
-
-
-void Jrd::MetadataCache::releaseIntlObjects(thread_db* tdbb)
-{
-	mdc_charsets.cleanup();
-}
-
-
-void Jrd::MetadataCache::destroyIntlObjects(thread_db* tdbb)
-{
-	mdc_charsets.cleanup();
-/*
-	for (FB_SIZE_T i = 0; i < mdc_charsets.getCount(tdbb); i++)
-	{
-		HazardPtr<CharSetContainer> cs;
-		if (mdc_charsets.load(tdbb, i, cs))
-		{
-			cs->destroy(tdbb);
-			mdc_charsets.store(tdbb, i, nullptr);
-		}
-	} */
 }
 
 

@@ -129,7 +129,6 @@ jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	: rel_pool(&p),
 	  rel_perm(r),
 	  rel_current_fmt(0),
-	  rel_flags(0),
 	  rel_current_format(nullptr),
 	  rel_fields(nullptr),
 	  rel_view_rse(nullptr),
@@ -477,7 +476,7 @@ bool jrd_rel::hasTriggers() const
 
 void jrd_rel::releaseTriggers(thread_db* tdbb, bool destroy)
 {
-	for (int n = 0; n < TRIGGER_MAX; ++n)
+	for (int n = 1; n < TRIGGER_MAX; ++n)
 		rel_triggers[n].release(tdbb, destroy);
 }
 
@@ -820,7 +819,7 @@ IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, USHORT id)
 
 	MutexLockGuard g(index_locks_mutex, FB_FUNCTION);
 
-	rel_index_locks.grow(id + 1);
+	rel_index_locks.grow(id + 1, false);
 	auto wa = rel_index_locks.writeAccessor();
 	while (auto* dp = wa->addStart())
 	{

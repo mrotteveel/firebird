@@ -4843,7 +4843,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	if (csb->collectingDependencies())
 	{
 		Dependency dependency(obj_relation);
-		dependency.relation = MetadataCache::lookupRelation(tdbb, relationName);
+		dependency.relation = MetadataCache::lookupRelation(tdbb, relationName, CacheFlag::AUTOCREATE);
 		dependency.subName = FB_NEW_POOL(pool) MetaName(fieldName);
 		csb->addDependency(dependency);
 	}
@@ -5826,7 +5826,7 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 				}
 				else
 				{
-					if (relation->rel_flags & REL_system)
+					if (relation->isSystem())
 						return NullNode::instance();
 
  					if (tdbb->getAttachment()->isGbak())
@@ -5869,7 +5869,7 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 			if (!temp_rel->rel_fields || id >= (int) temp_rel->rel_fields->count() ||
 				!(*temp_rel->rel_fields)[id])
 			{
-				if (temp_rel->rel_flags & REL_system)
+				if (temp_rel->isSystem())
 					return NullNode::instance();
 			}
 		}
@@ -6499,7 +6499,7 @@ void FieldNode::getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc)
 		// Fix UNICODE_FSS wrong length used in system tables.
 		jrd_rel* relation = csb->csb_rpt[fieldStream].csb_relation(tdbb);
 
-		if (relation && (relation->rel_flags & REL_system) &&
+		if (relation && relation->isSystem() &&
 			desc->isText() && desc->getCharSet() == CS_UNICODE_FSS)
 		{
 			USHORT adjust = 0;

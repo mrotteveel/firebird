@@ -248,9 +248,6 @@ public:
 */
 
 
-	void releaseIntlObjects(thread_db* tdbb);			// defined in intl.cpp
-	void destroyIntlObjects(thread_db* tdbb);			// defined in intl.cpp
-
 	void releaseRelations(thread_db* tdbb);
 	void releaseLocks(thread_db* tdbb);
 	void releaseGTTs(thread_db* tdbb);
@@ -297,9 +294,10 @@ public:
 	//static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags = 0);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags = 0);
-	Cached::Relation* lookupRelation(MetaId id);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id);
+	Cached::Relation* lookupRelationNoChecks(MetaId id);
 	static void lookup_index(thread_db* tdbb, MetaName& index_name, const MetaName& relation_name, USHORT number);
 	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
 													 MetaId* relation_id, IndexStatus* status);
@@ -422,7 +420,7 @@ private:
 	CacheVector<Cached::Relation>		mdc_relations;
 	CacheVector<Cached::Procedure>		mdc_procedures;
 	CacheVector<Cached::Function>		mdc_functions;	// User defined functions
-	CacheVector<Cached::Charset>		mdc_charsets;	// intl character set descriptions
+	CacheVector<Cached::CharSet>		mdc_charsets;	// intl character set descriptions
 	TriggersSet							mdc_triggers[DB_TRIGGER_MAX];
 	TriggersSet							mdc_ddl_triggers;
 

@@ -435,7 +435,7 @@ public:
 		mainCsb(aMainCsb),
 		csb_external(p),
 		csb_access(p),
-		csb_resources(nullptr),
+		csb_resources(FB_NEW_POOL(p) Resources(p)),
 		csb_dependencies(p),
 		csb_fors(p),
 		csb_localTables(p),

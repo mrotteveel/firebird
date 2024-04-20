@@ -70,7 +70,7 @@ protected:
 
 // Dynamic array of simple types
 template <typename T, typename Storage = EmptyStorage<T> >
-class Array : protected Storage
+class Array : public Storage
 {
 // !!!!! temp commemnted out - FastLoadLevel failure	static_assert(std::is_trivially_copyable<T>(), "Only simple (trivially copyable) types supported in array");
 

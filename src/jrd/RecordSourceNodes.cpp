@@ -587,7 +587,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookupRelation(tdbb, id);
+			rel = MetadataCache::lookupRelation(tdbb, id, CacheFlag::AUTOCREATE);
 			if (!rel)
 				name.printf("id %d", id);
 			break;
@@ -604,7 +604,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookupRelation(tdbb, name);
+			rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
 			break;
 		}
 
@@ -624,13 +624,15 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 	if (aliasString)
 		node->alias = *aliasString;
 
-	// Scan the relation if it hasn't already been scanned for meta data
+	// Load latest relation version
 
-	jrd_rel* latestVersion = rel->getObject(tdbb);
-//	if (!(csb->csb_g_flags & csb_internal))
-//		latestVersion->scan(tdbb); ???????????????
-	if (latestVersion->rel_flags & REL_sys_triggers)
+	if (rel->rel_flags & REL_sys_triggers)		// should not happen...
+	{
+		fprintf(stderr, "REL_sys_triggers\n");
+		fb_assert(false);
+		jrd_rel* latestVersion = rel->getObject(tdbb, CacheFlag::AUTOCREATE);
 		MET_parse_sys_trigger(tdbb, latestVersion);
+	}
 
 	// generate a stream for the relation reference, assuming it is a real reference
 
@@ -761,7 +763,6 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 	const StreamType viewStream = csb->csb_view_stream;
 
 	Rsc::Rel relationView = relation;
-	//csb->csb_resources.postResource(tdbb, Resource::rsc_relation, relationView, relationView->getId());
 	view = parentView;
 
 	CompilerScratch::csb_repeat* const element = CMP_csb_element(csb, stream);
@@ -1174,8 +1175,6 @@ ProcedureSourceNode* ProcedureSourceNode::copy(thread_db* tdbb, NodeCopier& copi
 
 	ProcedureSourceNode* newSource = FB_NEW_POOL(*tdbb->getDefaultPool())
 		ProcedureSourceNode(*tdbb->getDefaultPool());
-
-	// is it really needed with new MDC ?????????????????
 
 	if (procedure.isSubRoutine())
 		newSource->procedure = procedure;

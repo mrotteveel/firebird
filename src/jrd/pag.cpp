@@ -1122,7 +1122,7 @@ void PAG_header(thread_db* tdbb, bool info)
 	if (header->hdr_flags & hdr_SQL_dialect_3)
 		dbb->dbb_flags |= DBB_DB_SQL_dialect_3;
 
-	auto* relation = MetadataCache::lookupRelation(tdbb, 0);
+	auto* relation = MetadataCache::lookupRelation(tdbb, 0, CacheFlag::AUTOCREATE | CacheFlag:: NOSCAN);
 	RelationPages* relPages = relation->getBasePages();
 	if (!relPages->rel_pages)
 	{

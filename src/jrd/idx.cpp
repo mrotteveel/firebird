@@ -965,7 +965,7 @@ void IDX_create_index(thread_db* tdbb,
 		context.raise(tdbb, idx_e_duplicate, error_record);
 	}
 
-	if ((relation->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0))
+	if ((relation->rel_perm->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0))
 	{
 		IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, idx->idx_id);
 		if (idx_lock)
@@ -1033,7 +1033,7 @@ void IDX_delete_index(thread_db* tdbb, jrd_rel* relation, USHORT id)
 
 	const bool tree_exists = BTR_delete_index(tdbb, &window, id);
 
-	if ((relation->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
+	if ((relation->rel_perm->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
 		tree_exists)
 	{
 		IndexLock* idx_lock = relation->rel_perm->getIndexLock(tdbb, id);
@@ -1333,7 +1333,7 @@ void IDX_modify_check_constraints(thread_db* tdbb,
 	// If relation's primary/unique keys have no dependencies by other
 	// relations' foreign keys then don't bother cycling thru all index descriptions.
 
-	if (!(org_rpb->rpb_relation->rel_flags & REL_check_partners) &&
+	if (!(org_rpb->rpb_relation->rel_perm->rel_flags & REL_check_partners) &&
 		!(org_rpb->rpb_relation->rel_perm->rel_primary_dpnds))
 	{
 		return;
@@ -1747,7 +1747,8 @@ static idx_e check_foreign_key(thread_db* tdbb,
 			partner_relation = MetadataCache::findRelation(tdbb, frgn.dep_relation);
 			index_id = frgn.dep_index;
 
-			if ((relation->rel_flags & REL_temp_conn) && (partner_relation->rel_flags & REL_temp_tran))
+			if ((relation->rel_perm->rel_flags & REL_temp_conn) &&
+				(partner_relation->rel_perm->rel_flags & REL_temp_tran))
 			{
 				RelationPermanent::RelPagesSnapshot pagesSnapshot(tdbb, partner_relation->rel_perm);
 				partner_relation->rel_perm->fillPagesSnapshot(pagesSnapshot, true);

@@ -534,7 +534,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 			if (csb->collectingDependencies())
 			{
 				Dependency dependency(obj_relation);
-				auto* rel = MetadataCache::lookupRelation(tdbb, *relationName);
+				auto* rel = MetadataCache::lookupRelation(tdbb, *relationName, CacheFlag::AUTOCREATE);
 				if (!rel)
 					fatal_exception::raiseFmt("Unexpectedly lost relation %s\n", relationName->c_str());
 				dependency.relation = rel;

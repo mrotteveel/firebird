@@ -232,23 +232,23 @@ namespace Jrd
 		template <typename T>
 		R* operator()(T t)
 		{
-			return isSubRoutine() ? subroutine : routine(t);
+			return isSubRoutine() ? subroutine : routine.isSet() ? routine(t) : nullptr;
 		}
 
 		template <typename T>
 		const R* operator()(T t) const
 		{
-			return isSubRoutine() ? subroutine : routine(t);
+			return isSubRoutine() ? subroutine : routine.isSet() ? routine(t) : nullptr;
 		}
 
 		CacheElement<R, RoutinePermanent>* operator()()
 		{
-			return isSubRoutine() ? subroutine->getPermanent() : routine();
+			return isSubRoutine() ? subroutine->getPermanent() : routine.isSet() ? routine() : nullptr;
 		}
 
 		const CacheElement<R, RoutinePermanent>* operator()() const
 		{
-			return isSubRoutine() ? subroutine->getPermanent() : routine();
+			return isSubRoutine() ? subroutine->getPermanent() : routine.isSet() ? routine() : nullptr;
 		}
 
 		bool isSubRoutine() const

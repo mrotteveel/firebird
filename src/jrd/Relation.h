@@ -468,7 +468,6 @@ public:
 	MemoryPool*		rel_pool;
 	Cached::Relation*	rel_perm;
 	USHORT			rel_current_fmt;	// Current format number
-	ULONG			rel_flags;
 	Format*			rel_current_format;	// Current record format
 
 	vec<jrd_fld*>*	rel_fields;			// vector of field blocks
@@ -478,7 +477,7 @@ public:
 
 	Nullable<bool>	rel_ss_definer;
 
-	Firebird::Mutex rel_trig_load_mutex;
+//	Firebird::Mutex rel_trig_load_mutex;
 
 	TrigArray rel_triggers;
 
@@ -517,26 +516,16 @@ public:
 
 // rel_flags
 
-//const ULONG REL_scanned					= 0x0001;	// Field expressions scanned (or being scanned)
 const ULONG REL_system					= 0x0002;
-//const ULONG REL_deleted					= 0x0004;	// Relation known gonzo
 const ULONG REL_get_dependencies		= 0x0008;	// New relation needs dependencies during scan
-//const ULONG REL_check_existence			= 0x0010;	// Existence lock released pending drop of relation
-//const ULONG REL_blocking				= 0x0020;	// Blocking someone from dropping relation
 const ULONG REL_sys_triggers			= 0x0040;	// The relation has system triggers to compile
 const ULONG REL_sql_relation			= 0x0080;	// Relation defined as sql table
 const ULONG REL_check_partners			= 0x0100;	// Rescan primary dependencies and foreign references
-//const ULONG REL_being_scanned			= 0x0200;	// relation scan in progress
 const ULONG REL_sys_trigs_being_loaded	= 0x0400;	// System triggers being loaded
-//const ULONG REL_deleting				= 0x0800;	// relation delete in progress
 const ULONG REL_temp_tran				= 0x1000;	// relation is a GTT delete rows
 const ULONG REL_temp_conn				= 0x2000;	// relation is a GTT preserve rows
 const ULONG REL_virtual					= 0x4000;	// relation is virtual
 const ULONG REL_jrd_view				= 0x8000;	// relation is VIEW
-
-const ULONG REL_perm_flags				= REL_check_partners | REL_temp_tran | REL_temp_conn |
-										  REL_virtual | REL_jrd_view | REL_system | REL_sql_relation;
-const ULONG REL_version_flags			= (~REL_perm_flags) & 0x7FFFF;
 
 class GCLock
 {
@@ -756,8 +745,8 @@ public:
 
 	TriState		rel_repl_state;		// replication state
 
-	PrimaryDeps*	rel_primary_dpnds;	// foreign dependencies on this relation's primary key
-	ForeignDeps*	rel_foreign_refs;	// foreign references to other relations' primary keys
+	PrimaryDeps*	rel_primary_dpnds = nullptr;	// foreign dependencies on this relation's primary key
+	ForeignDeps*	rel_foreign_refs = nullptr;		// foreign references to other relations' primary keys
 
 private:
 	Firebird::Mutex			rel_pages_mutex;

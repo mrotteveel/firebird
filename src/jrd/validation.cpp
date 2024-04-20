@@ -1666,7 +1666,7 @@ void Validation::walk_database()
 			output("%s\n", relName.c_str());
 
 			int errs = vdr_errors;
-			walk_relation(relation->getObject(vdr_tdbb));
+			walk_relation(relation->getObject(vdr_tdbb, CacheFlag::AUTOCREATE));
 			errs = vdr_errors - errs;
 
 			if (!errs)

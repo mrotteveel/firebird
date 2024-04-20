@@ -552,6 +552,17 @@ void ExternalFile::traDetach() noexcept
 	if (--ext_tra_cnt == 0)
 	{
 		fb_assert(ext_ifi);
+		if (ext_ifi)
+			fclose(ext_ifi);
+		ext_ifi = NULL;
+	}
+}
+
+void ExternalFile::release()
+{
+	// lock not needed, database is closing
+	if (ext_ifi)
+	{
 		fclose(ext_ifi);
 		ext_ifi = NULL;
 	}

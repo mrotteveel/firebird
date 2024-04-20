@@ -29,7 +29,7 @@
 
 using namespace Jrd;
 
-CharSetVers* CharSetVers::create(thread_db* tdbb, MemoryPool& pool, Cached::Charset* csp)
+CharSetVers* CharSetVers::create(thread_db* tdbb, MemoryPool& pool, Cached::CharSet* csp)
 {
 	return FB_NEW_POOL(pool) CharSetVers(csp);
 }
@@ -51,7 +51,7 @@ Lock* CharSetVers::makeLock(thread_db* tdbb, MemoryPool& p)
 
 int CharSetContainer::blockingAst(void* ast_object)
 {
-	auto* const charSet = static_cast<Cached::Charset*>(ast_object);
+	auto* const charSet = static_cast<Cached::CharSet*>(ast_object);
 
 	try
 	{
@@ -66,5 +66,10 @@ int CharSetContainer::blockingAst(void* ast_object)
 	{} // no-op
 
 	return 0;
+}
+
+void CharSetContainer::releaseLocks(thread_db* tdbb)
+{
+	LCK_release(tdbb, cs_lock);
 }
 

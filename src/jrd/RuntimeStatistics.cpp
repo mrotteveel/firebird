@@ -112,7 +112,7 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 				TraceCounts traceCounts;
 				traceCounts.trc_relation_id = rel_id;
 				traceCounts.trc_counters = base_cnts->getCounterVector();
-				auto relation = att->att_database->dbb_mdc->lookupRelation(rel_id);
+				auto relation = att->att_database->dbb_mdc->lookupRelationNoChecks(rel_id);
 				traceCounts.trc_relation_name = relation ? relation->c_name() : NULL;
 				temp.add(traceCounts);
 			}
@@ -126,7 +126,7 @@ PerformanceInfo* RuntimeStatistics::computeDifference(Attachment* att,
 			TraceCounts traceCounts;
 			traceCounts.trc_relation_id = rel_id;
 			traceCounts.trc_counters = new_cnts->getCounterVector();
-			auto relation = att->att_database->dbb_mdc->lookupRelation(rel_id);
+			auto relation = att->att_database->dbb_mdc->lookupRelationNoChecks(rel_id);
 			traceCounts.trc_relation_name = relation ? relation->c_name() : NULL;
 			temp.add(traceCounts);
 		}

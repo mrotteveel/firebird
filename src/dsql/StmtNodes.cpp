@@ -10688,15 +10688,18 @@ static RelationSourceNode* pass1Update(thread_db* tdbb, CompilerScratch* csb, jr
 	// ensure that the view is set for the input streams,
 	// so that access to views can be checked at the field level
 
-	fb_assert(viewStream <= MAX_STREAMS);
-	CMP_csb_element(csb, stream)->csb_view = csb->csb_resources->relations.registerResource(view->rel_perm);
-	CMP_csb_element(csb, stream)->csb_view_stream = viewStream;
-
-	if (stream != updateStream)
+	if (view)
 	{
-		fb_assert(viewUpdateStream <= MAX_STREAMS);
-		CMP_csb_element(csb, updateStream)->csb_view = csb->csb_resources->relations.registerResource(view->rel_perm);
-		CMP_csb_element(csb, updateStream)->csb_view_stream = viewUpdateStream;
+		fb_assert(viewStream <= MAX_STREAMS);
+		CMP_csb_element(csb, stream)->csb_view = csb->csb_resources->relations.registerResource(view->rel_perm);
+		CMP_csb_element(csb, stream)->csb_view_stream = viewStream;
+
+		if (stream != updateStream)
+		{
+			fb_assert(viewUpdateStream <= MAX_STREAMS);
+			CMP_csb_element(csb, updateStream)->csb_view = csb->csb_resources->relations.registerResource(view->rel_perm);
+			CMP_csb_element(csb, updateStream)->csb_view_stream = viewUpdateStream;
+		}
 	}
 
 	// if we're not a view, everything's cool

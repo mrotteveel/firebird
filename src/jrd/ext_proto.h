@@ -77,6 +77,7 @@ public:
 	bool get(thread_db* tdbb, record_param* rpb, FB_UINT64& position);
 	void modify(record_param*, record_param*, jrd_tra*);
 	void store(thread_db*, record_param*);
+	void release();
 
 private:
 	Firebird::Mutex	ext_sync;

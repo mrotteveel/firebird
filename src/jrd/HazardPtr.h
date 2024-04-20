@@ -293,7 +293,6 @@ public:
 		T& value(FB_SIZE_T i)
 		{
 			fb_assert(i < count);
-			fb_assert(!data[i]);
 			return data[i];
 		}
 
@@ -329,6 +328,14 @@ public:
 				count--;
 		}
 
+		void grow(const FB_SIZE_T newCount)
+		{
+			fb_assert(newCount >= count);
+			fb_assert(newCount <= capacity);
+			memset(data + count, 0, sizeof(T) * (newCount - count));
+			count = newCount;
+		}
+
 		static void destroy(Generation* gen)
 		{
 			// delay delete - someone else may access it
@@ -354,32 +361,33 @@ public:
 		return HazardPtr<Generation>(currentData);
 	}
 
-	void grow(FB_SIZE_T newSize = 0)
+	void grow(FB_SIZE_T const newSize, bool arrGrow)
 	{
-		for(;;)
+		// decide how much vector grows
+		Generation* const oldGeneration = writeAccessor();
+		FB_SIZE_T cap = oldGeneration->getCapacity();
+		FB_SIZE_T doubleSize = oldGeneration->getCapacity() * 2;
+		if (newSize > doubleSize)
+			doubleSize = newSize;
+		FB_SIZE_T singleSize = newSize ? newSize : doubleSize;
+
+		if (cap >= singleSize)
 		{
-			HazardPtr<Generation> current(currentData);
-			if (newSize && (current->getCapacity() >= newSize))
-				return;
-
-			FB_SIZE_T doubleSize = current->getCapacity() * 2;
-			if (newSize > doubleSize)
-				doubleSize = newSize;
-
-			Generation* newGeneration = Generation::create(getPool(), doubleSize);
-			Generation* oldGeneration = current.getPointer();
-			newGeneration->add(oldGeneration);
-			if (current.replace2(currentData, newGeneration))
-			{
-				Generation::destroy(oldGeneration);
-				break;
-			}
-			else
-			{
-				// Use plain delete - this instance is not known to anybody else
-				delete newGeneration;
-			}
+			// grow old generation inplace
+			if (arrGrow)
+				oldGeneration->grow(singleSize);
+			return;
 		}
+
+		// create new generation and store it in the vector
+		Generation* const newGeneration = Generation::create(getPool(), doubleSize);
+		newGeneration->add(oldGeneration);
+		if (arrGrow)
+			newGeneration->grow(singleSize);
+		currentData.store(newGeneration, std::memory_order_release);
+
+		// cleanup
+		Generation::destroy(oldGeneration);
 	}
 
 	~SharedReadVector()
@@ -428,7 +436,7 @@ namespace CacheFlag
 	static const ObjectBase::Flag ERASED =		0x02;
 	static const ObjectBase::Flag NOSCAN =		0x04;
 	static const ObjectBase::Flag AUTOCREATE =	0x08;
-	static const ObjectBase::Flag INIT =		0x10;
+	static const ObjectBase::Flag NOCOMMIT =	0x10;
 
 	static const ObjectBase::Flag IGNORE_MASK = COMMITTED | ERASED;
 }
@@ -538,7 +546,7 @@ class ListEntry : public HazardObject
 {
 public:
 	ListEntry(OBJ* obj, TraNumber currentTrans, ObjectBase::Flag fl)
-		: object(obj), next(nullptr), traNumber(currentTrans), cacheFlags(fl)
+		: object(obj), traNumber(currentTrans), cacheFlags(fl)
 	{ }
 
 	~ListEntry()
@@ -548,15 +556,15 @@ public:
 	}
 
 	// find appropriate object in cache
-	static OBJ* getObject(HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag flags)
+	static OBJ* getObject(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag fl)
 	{
 		for (; listEntry; listEntry.set(listEntry->next))
 		{
-			ObjectBase::Flag f(listEntry->cacheFlags.load());
+			ObjectBase::Flag f(listEntry->getFlags());
 
 			if ((f & CacheFlag::COMMITTED) ||
 					// committed (i.e. confirmed) objects are freely available
-				(currentTrans && (listEntry->traNumber == currentTrans)))
+				(listEntry->traNumber == currentTrans))
 					// transaction that created an object can always access it
 			{
 				if (f & CacheFlag::ERASED)
@@ -564,14 +572,24 @@ public:
 					// object does not exist
 					fb_assert(!listEntry->object);
 
-					if (flags & CacheFlag::ERASED)
+					if (fl & CacheFlag::ERASED)
 						continue;
 
 					return nullptr;
 				}
 
 				// required entry found in the list
-				return listEntry->object;
+				auto* obj = listEntry->object;
+				if (obj)
+				{
+					listEntry->scan(
+						[&](bool rld)
+						{
+							return scanCallback(tdbb, obj, rld, fl);
+						},
+					fl);
+				}
+				return obj;
 			}
 		}
 
@@ -580,7 +598,7 @@ public:
 
 	bool isBusy(TraNumber currentTrans) const
 	{
-		return traNumber != currentTrans && !(cacheFlags & CacheFlag::COMMITTED);
+		return traNumber != currentTrans && !(getFlags() & CacheFlag::COMMITTED);
 	}
 
 	ObjectBase::Flag getFlags() const
@@ -619,7 +637,7 @@ public:
 		TraNumber rc = 0;
 		for (HazardPtr<ListEntry> entry(list); entry; entry.set(entry->next))
 		{
-			if ((entry->cacheFlags & CacheFlag::COMMITTED) && entry->traNumber < oldest)
+			if ((entry->getFlags() & CacheFlag::COMMITTED) && entry->traNumber < oldest)
 			{
 				if (entry->cacheFlags.fetch_or(CacheFlag::ERASED) & CacheFlag::ERASED)
 					break;	// someone else also performs cleanup
@@ -647,11 +665,12 @@ public:
 	// created earlier object is OK and should become visible to the world
 	void commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
 	{
-		fb_assert(cacheFlags == 0);
+		fb_assert((getFlags() & CacheFlag::IGNORE_MASK) == 0);
 		fb_assert(traNumber == currentTrans);
 		traNumber = nextTrans;
-		cacheFlags |= CacheFlag::COMMITTED;
 		version = VersionSupport::next(tdbb);
+
+		cacheFlags |= CacheFlag::COMMITTED;
 	}
 
 	// created earlier object is bad and should be destroyed
@@ -664,7 +683,7 @@ public:
 		HazardPtr<ListEntry> entry(list);
 		while (entry)
 		{
-			if (entry->cacheFlags & CacheFlag::COMMITTED)
+			if (entry->getFlags() & CacheFlag::COMMITTED)
 				break;
 			fb_assert(entry->traNumber == currentTran);
 
@@ -679,13 +698,19 @@ public:
 
 	void assertCommitted()
 	{
-		fb_assert(cacheFlags & CacheFlag::COMMITTED);
+		fb_assert(getFlags() & CacheFlag::COMMITTED);
 	}
 
-	void scan(std::function<bool(bool)> objScan, ObjectBase::Flag flags)
+	void scan(std::function<bool(bool)> objScan, ObjectBase::Flag fl)
 	{
-		if (!(flags & CacheFlag::NOSCAN))
+		if (!(fl & CacheFlag::NOSCAN))
 			bar.scanPass(objScan);
+	}
+
+	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
+	{
+		fb_assert(obj);
+		return rld ? obj->reload(tdbb) : obj->scan(tdbb, fl);
 	}
 
 	bool scanInProgress() const
@@ -704,11 +729,11 @@ private:
 
 	StartupBarrier bar;
 	OBJ* object;
-	atomics::atomic<ListEntry*> next;
-	TraNumber traNumber;	// when COMMITTED not set - stores transaction that created this list element
-							// when COMMITTED is set - stores transaction after which older elements are not needed
-							// traNumber to be changed BEFORE setting COMMITTED
-	MdcVersion version;		// version of metadata cache when object was added
+	atomics::atomic<ListEntry*> next = nullptr;
+	TraNumber traNumber;		// when COMMITTED not set - stores transaction that created this list element
+								// when COMMITTED is set - stores transaction after which older elements are not needed
+								// traNumber to be changed BEFORE setting COMMITTED
+	MdcVersion version = 0;		// version of metadata cache when object was added
 	atomics::atomic<ObjectBase::Flag> cacheFlags;
 };
 
@@ -721,6 +746,17 @@ public:
 	static TraNumber next(thread_db* tdbb);
 };
 
+
+template <typename T>
+class Destroy
+{
+public:
+	static void clear(T* v)
+	{
+		if (v)
+			T::destroy(v);
+	}
+};
 
 typedef class Lock* MakeLock(thread_db*, MemoryPool&);
 
@@ -742,102 +778,107 @@ public:
 	~CacheElement()
 	{
 		delete list.load();
-		cleanup();
 	}
 
-	bool rescan(thread_db* tdbb, Versioned* obj, bool rld, ObjectBase::Flag flags)
-	{
-		return rld ? obj->reload(tdbb) : obj->scan(tdbb, flags);
-	}
-
-	Versioned* reload(thread_db* tdbb)
+	void reload(thread_db* tdbb)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		TraNumber cur = TransactionNumber::current(tdbb);
 		if (listEntry)
 		{
-			Versioned* obj = ListEntry<Versioned>::getObject(listEntry, cur, 0);
+			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, 0);
 			if (obj)
-				listEntry->scan([&](bool rld){ return rescan(tdbb, obj, rld, flags); }, flags);
+			{
+				listEntry->scan(
+					[&](bool rld)
+					{
+						return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, 0);
+					},
+				0);
+			}
 		}
 	}
 
-	Versioned* getObject(thread_db* tdbb, ObjectBase::Flag flags = 0)
+	Versioned* getObject(thread_db* tdbb, ObjectBase::Flag fl)
 	{
 		TraNumber cur = TransactionNumber::current(tdbb);
 
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		if (!listEntry)
 		{
-			if (!(flags & CacheFlag::AUTOCREATE))
+			if (!(fl & CacheFlag::AUTOCREATE))
 				return nullptr;
 
 			fb_assert(tdbb);
 
-			Versioned* obj = Versioned::create(tdbb, this->getPool(), this);		// creates almost empty object
-			ListEntry<Versioned>* newEntry = FB_NEW_POOL(CachePool::get(tdbb))
-				ListEntry<Versioned>(obj, cur, flags | CacheFlag::INIT);
+			// create almost empty object
+			Firebird::AutoPtr<Versioned, Destroy> obj = Versioned::create(tdbb, this->getPool(), this);
+			// and new entry to store it in cache
+			Firebird::AutoPtr<ListEntry<Versioned>> newEntry = FB_NEW_POOL(CachePool::get(tdbb))
+				ListEntry<Versioned>(obj, cur, fl);
+			obj.release();
 
 			if (ListEntry<Versioned>::replace(list, newEntry, nullptr))
 			{
-				newEntry->scan([&](bool rld){ return rescan(tdbb, obj, rld, flags); }, flags);
+				auto* e = newEntry.release();
+
+				e->scan(
+					[&](bool rld)
+					{
+						return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl);
+					},
+				fl);
+				if (! (fl & CacheFlag::NOCOMMIT))
+					e->commit(tdbb, cur, TransactionNumber::next(tdbb));
 				return obj;
 			}
-
-			delete newEntry;
-			if (obj)
-				Versioned::destroy(obj);
 
 			listEntry.set(list);
 			fb_assert(listEntry);
 		}
-		return ListEntry<Versioned>::getObject(listEntry, cur, flags);
+		return ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl);
 	}
 
 	// return latest committed version or nullptr when does not exist
-	Versioned* getLatestObject() const
+	Versioned* getLatestObject(thread_db* tdbb) const
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		if (!listEntry)
 			return nullptr;
 
-		return ListEntry<Versioned>::getObject(listEntry, MAX_TRA_NUMBER, 0);
+		return ListEntry<Versioned>::getObject(tdbb, listEntry, MAX_TRA_NUMBER, 0);
 	}
 
-public:
-	bool storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl = 0)
+	bool storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl)
 	{
 		TraNumber oldest = TransactionNumber::oldestActive(tdbb);
 		TraNumber oldResetAt = resetAt.load(atomics::memory_order_acquire);
 		if (oldResetAt && oldResetAt < oldest)
 			setNewResetAt(oldResetAt, ListEntry<Versioned>::cleanup(list, oldest));
 
-		TraNumber current = TransactionNumber::current(tdbb);
-		ListEntry<Versioned>* newEntry = FB_NEW_POOL(CachePool::get(tdbb))
-			ListEntry<Versioned>(obj, current, fl & ((~CacheFlag::IGNORE_MASK) | CacheFlag::INIT));
+		TraNumber cur = TransactionNumber::current(tdbb);
+		Firebird::AutoPtr<ListEntry<Versioned>> newEntry = FB_NEW_POOL(CachePool::get(tdbb))
+			ListEntry<Versioned>(obj, cur, fl);
 
-		bool stored = fl & CacheFlag::INIT ? ListEntry<Versioned>::replace(list, newEntry, nullptr)
-										   : ListEntry<Versioned>::add(list, newEntry);
-		if (stored)
+		if (!ListEntry<Versioned>::add(list, newEntry))
+			return false;
+		auto* e = newEntry.release();
+
+		setNewResetAt(oldResetAt, cur);
+		if (obj)
 		{
-			setNewResetAt(oldResetAt, current);
-			if (obj)
-			{
-				newEntry->scan(
-					[&](bool rld)
-					{
-						return rescan(tdbb, obj, rld, flags);
-					},
-				flags);
-			}
+			e->scan(
+				[&](bool rld)
+				{
+					return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl);
+				},
+			fl);
 		}
-		else
-			delete newEntry;
+		if (! (fl & CacheFlag::NOCOMMIT))
+			e->commit(tdbb, cur, TransactionNumber::next(tdbb));
 
-		return stored;
+		return true;
 	}
-
-	void storeObjectWithTimeout(thread_db* tdbb, Versioned* obj, std::function<void()> error);
 
 	void commit(thread_db* tdbb)
 	{
@@ -897,7 +938,7 @@ public:
 
 		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED))
 		{
-			Versioned* oldObj = getObject(tdbb);
+			Versioned* oldObj = getObject(tdbb, 0);
 			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
 		}
 	}
@@ -935,7 +976,7 @@ private:
 	atomics::atomic<TraNumber> resetAt;
 
 public:
-	atomics::atomic<ULONG> flags;				// control non-versioned features (like foreign keys)
+	//atomics::atomic<ULONG> flags;				// control non-versioned features (like foreign keys)
 	const MetaId myId;
 };
 
@@ -982,7 +1023,7 @@ private:
 
 		Firebird::MutexLockGuard g(objectsGrowMutex, FB_FUNCTION);
 
-		m_objects.grow(reqSize);
+		m_objects.grow(reqSize, false);
 		auto wa = m_objects.writeAccessor();
 		fb_assert(wa->getCapacity() >= reqSize);
 		while (wa->getCount() < reqSize)
@@ -995,13 +1036,35 @@ private:
 	}
 
 public:
-	StoredElement* getData(MetaId id) const
+	StoredElement* getDataNoChecks(MetaId id) const
 	{
 		SubArrayData* ptr = getDataPointer(id);
 		return ptr ? ptr->load(atomics::memory_order_relaxed) : nullptr;
 	}
 
-	Versioned* getObject(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+	StoredElement* getData(thread_db* tdbb, MetaId id, ObjectBase::Flag fl) const
+	{
+		SubArrayData* ptr = getDataPointer(id);
+
+		if (ptr)
+		{
+			StoredElement* rc = ptr->load(atomics::memory_order_relaxed);
+			if (rc)
+			{
+				rc->getObject(tdbb, fl);
+				return rc;
+			}
+		}
+
+		return nullptr;
+	}
+
+	FB_SIZE_T getCount() const
+	{
+		return getCount(m_objects.readAccessor());
+	}
+
+	Versioned* getObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 //		In theory that should be endless cycle - object may arrive/disappear again and again.
 //		But in order to faster find devel problems we run it very limited number of times.
@@ -1017,16 +1080,16 @@ public:
 				HazardPtr<StoredElement> data(*ptr);
 				if (data)
 				{
-					auto rc = data->getObject(tdbb, flags);
+					auto rc = data->getObject(tdbb, fl);
 					if (rc)
 						return rc;
 				}
 			}
 
-			if (!(flags & CacheFlag::AUTOCREATE))
+			if (!(fl & CacheFlag::AUTOCREATE))
 				return nullptr;
 
-			auto val = makeObject(tdbb, id);
+			auto val = makeObject(tdbb, id, fl);
 			if (val)
 				return val;
 		}
@@ -1036,7 +1099,7 @@ public:
 	}
 
 private:
-	Versioned* makeObject(thread_db* tdbb, MetaId id)
+	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 		if (id >= getCount())
 			grow(id + 1);
@@ -1049,7 +1112,9 @@ private:
 		{
 			StoredElement* newData = FB_NEW_POOL(getPool())
 				StoredElement(tdbb, getPool(), id, Versioned::makeLock);
-			if (!data.replace2(*ptr, newData))
+			if (data.replace2(*ptr, newData))
+				data.set(*ptr);
+			else
 				delete newData;
 		}
 
@@ -1057,7 +1122,7 @@ private:
 		if (!obj)
 			(Firebird::Arg::Gds(isc_random) << "Object create failed in makeObject()").raise();
 
-		if (data->storeObject(tdbb, obj, 0))
+		if (data->storeObject(tdbb, obj, fl))
 			return obj;
 
 		Versioned::destroy(obj);
@@ -1065,7 +1130,7 @@ private:
 	}
 
 public:
-	StoredElement* lookup(std::function<bool(Permanent* val)> cmp, MetaId* foundId = nullptr) const
+	StoredElement* lookup(thread_db*tdbb, std::function<bool(Permanent* val)> cmp) const
 	{
 		auto a = m_objects.readAccessor();
 		for (FB_SIZE_T i = 0; i < a->getCount(); ++i)
@@ -1079,8 +1144,7 @@ public:
 				StoredElement* ptr = end->load(atomics::memory_order_relaxed);
 				if (ptr && cmp(ptr))
 				{
-					if (foundId)
-						*foundId = (i << SUBARRAY_SHIFT) + (end - sub);
+					ptr->reload(tdbb);
 					return ptr;
 				}
 			}
@@ -1110,14 +1174,9 @@ public:
 		}
 
 		m_objects.clear();
-		//delete a;
 	}
 
-	FB_SIZE_T getCount() const
-	{
-		return m_objects.readAccessor()->getCount() << SUBARRAY_SHIFT;
-	}
-
+/*
 	bool replace2(MetaId id, HazardPtr<Versioned>& oldVal, Versioned* const newVal)
 	{
 		if (id >= getCount())
@@ -1130,7 +1189,7 @@ public:
 
 		return oldVal.replace2(sub, newVal);
 	}
-
+ */
 	bool clear(MetaId id)
 	{
 		if (id >= getCount())
@@ -1177,6 +1236,8 @@ public:
 
 	class Iterator
 	{
+		static const FB_SIZE_T eof = ~0u;
+
 	public:
 		StoredElement* operator*()
 		{
@@ -1197,41 +1258,49 @@ public:
 		bool operator==(const Iterator& itr) const
 		{
 			fb_assert(data == itr.data);
-			return index == itr.index;
+			return index == itr.index || index == eof || itr.index == eof;
 		}
 
 		bool operator!=(const Iterator& itr) const
 		{
 			fb_assert(data == itr.data);
-			return index != itr.index;
+			return !operator==(itr);
 		}
 
 	private:
-		void* operator new(size_t);
-		void* operator new[](size_t);
+		void* operator new(size_t) = delete;
+		void* operator new[](size_t) = delete;
 
 	public:
 		enum class Location {Begin, End};
 		Iterator(const CacheVector* v, Location loc)
 			: data(v),
-			  index(loc == Location::Begin ? locateData(0) : data->getCount())
+			  index(loc == Location::Begin ? locateData(0) : eof)
 		{ }
 
 		StoredElement* get()
 		{
-			StoredElement* ptr = data->getData(index);
+			fb_assert(index != eof);
+			if (index == eof)
+				return nullptr;
+			StoredElement* ptr = data->getDataNoChecks(index);
 			fb_assert(ptr);
 			return ptr;
 		}
 
+	private:
 		FB_SIZE_T locateData(FB_SIZE_T i)
 		{
-			while (!data->getData(i))
+			while (i < data->getCount())
+			{
+				if (data->getDataNoChecks(i))
+					return i;
 				++i;
-			return i;
+			}
+
+			return eof;
 		}
 
-	private:
 		const CacheVector* data;
 		FB_SIZE_T index;		// should be able to store MAX_METAID + 1 value
 	};

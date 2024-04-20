@@ -210,7 +210,7 @@ namespace
 
 	unsigned getLatestFormat(thread_db* tdbb, int relId, int maxFieldId)
 	{
-		const auto* relation = MetadataCache::lookupRelation(tdbb, relId);
+		const auto* relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		fb_assert(relation && relation->rel_formats);
 		fb_assert(relation->rel_formats->count());
 
@@ -767,7 +767,10 @@ void INI_format(thread_db* tdbb, const string& charset)
 		for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent)
-				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID], 0));
+			{
+				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
+					CacheFlag::AUTOCREATE | CacheFlag::NOSCAN));
+			}
 
 			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
 				;
@@ -984,7 +987,10 @@ void INI_init(thread_db* tdbb)
 	{
 		const bool isPersistent = (relfld[RFLD_R_TYPE] == rel_persistent);
 
-		auto* relation = MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID]);
+		jrd_rel* relVers = MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
+            CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		auto* relation = relVers->rel_perm;
+
 		relation->rel_flags |= REL_system;
 		relation->rel_flags |= MET_get_rel_flags_from_TYPE(relfld[RFLD_R_TYPE]);
 		relation->rel_name = names[relfld[RFLD_R_NAME]];
@@ -999,8 +1005,6 @@ void INI_init(thread_db* tdbb)
 				break;
 			}
 		}
-
-		jrd_rel* relVers = FB_NEW_POOL(relation->getPool()) jrd_rel(relation->getPool(), relation);
 
 		HalfStaticArray<const char*, 64> fieldNames;
 		for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
@@ -1296,7 +1300,10 @@ void INI_upgrade(thread_db* tdbb)
 		for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent && relfld[RFLD_R_ODS] > odsVersion)
-				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID], 0));
+			{
+				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
+					CacheFlag::AUTOCREATE | CacheFlag::NOSCAN));
+			}
 
 			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
 				;
@@ -1436,7 +1443,7 @@ void INI_upgrade(thread_db* tdbb)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent && relfld[RFLD_R_ODS] > odsVersion)
 			{
-				const auto relation = MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID]);
+				const auto relation = MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID], CacheFlag::NOSCAN);
 				if (relation && relation->getBasePages()->rel_pages)
 					DPM_delete_relation(tdbb, relation);
 			}
@@ -1781,7 +1788,8 @@ static void store_indices(thread_db* tdbb, USHORT odsVersion)
 	for (int n = 0; n < SYSTEM_INDEX_COUNT; n++)
 	{
 		const ini_idx_t* index = &indices[n];
-		auto* relVers = MetadataCache::lookup_relation_id(tdbb, index->ini_idx_relid, 0);
+		auto* relVers = MetadataCache::lookup_relation_id(tdbb, index->ini_idx_relid,
+			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		auto* relation = relVers->rel_perm;
 
 		if (odsVersion && index->ini_idx_ods <= odsVersion)

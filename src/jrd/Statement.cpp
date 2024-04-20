@@ -76,8 +76,14 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	  invariants(*p),
 	  blr(*p),
 	  mapFieldInfo(*p),
-	  resources(csb->csb_resources)
+	  resources(nullptr)
 {
+	if (csb->csb_resources)
+	{
+		fb_assert(csb->csb_resources->getPool() == pool);
+		resources = csb->csb_resources;
+	}
+
 	try
 	{
 		makeSubRoutines(tdbb, this, csb, csb->subProcedures);
@@ -195,9 +201,13 @@ void Statement::loadResources(thread_db* tdbb, Request* req)
 		req->setResources(latestVersion);
 
 		// setup correct jrd_rel pointers in rpbs
+		req->req_rpb.grow(rpbsSetup.getCount());
 		fb_assert(req->req_rpb.getCount() == rpbsSetup.getCount());
 		for (FB_SIZE_T n = 0; n < rpbsSetup.getCount(); ++n)
+		{
+			req->req_rpb[n] = rpbsSetup[n];
 			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latestVersion);
+		}
 	}
 }
 
@@ -489,7 +499,7 @@ Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g,
 
 		if (level >= g->getCount() || !g->value(level))
 		{
-			requests.grow(level + 1);
+			requests.grow(level + 1, true);
 
 			g = requests.writeAccessor();
 			g->value(level) = request;
@@ -560,7 +570,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 			MetaName userName = item->user;
 			if (item->exa_view_id)
 			{
-				auto view = MetadataCache::lookupRelation(tdbb, item->exa_view_id);
+				auto view = MetadataCache::lookupRelation(tdbb, item->exa_view_id, CacheFlag::AUTOCREATE);
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
@@ -596,7 +606,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 			if (access.acc_ss_rel_id)
 			{
-				auto view = MetadataCache::lookupRelation(tdbb, access.acc_ss_rel_id);
+				auto view = MetadataCache::lookupRelation(tdbb, access.acc_ss_rel_id, CacheFlag::AUTOCREATE);
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
@@ -664,7 +674,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 		if (access->acc_ss_rel_id)
 		{
-			auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id);
+			auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id, CacheFlag::AUTOCREATE);
 			if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 				userName = view->rel_owner_name;
 		}
@@ -765,7 +775,7 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 			//   trigger can be owned by only one table for now, we know for sure that
 			//   it's a trigger defined on our target table.
 
-			if (!(ownerRelation->rel_flags & REL_system))
+			if (!ownerRelation->isSystem())
 			{
 				if (access->acc_type == obj_relations &&
 					(ownerRelation->getName() == access->acc_name))
@@ -782,7 +792,7 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 			// a direct access to an object from this trigger
 			if (access->acc_ss_rel_id)
 			{
-				auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id);
+				auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id, CacheFlag::AUTOCREATE);
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}

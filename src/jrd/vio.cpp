@@ -2122,7 +2122,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			{
 				MetaName relation_name;
 				MOV_get_metaname(tdbb, &desc, relation_name);
-				r2 = MetadataCache::lookupRelation(tdbb, relation_name);
+				r2 = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
 				fb_assert(r2);
 
 				DSC idx_name;
@@ -2174,7 +2174,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 			EVL_field(0, rpb->rpb_record, f_rfr_fname, &desc2);
 			MOV_get_metaname(tdbb, &desc, object_name);
-			if ( (r2 = MetadataCache::lookupRelation(tdbb, object_name)) )
+			if ( (r2 = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE)) )
 				DFW_post_work(transaction, dfw_delete_rfr, &desc2, r2->getId());
 
 			EVL_field(0, rpb->rpb_record, f_rfr_sname, &desc2);

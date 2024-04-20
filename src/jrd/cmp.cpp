@@ -217,6 +217,10 @@ Request* CMP_compile_request(thread_db* tdbb, const UCHAR* blr, ULONG blrLength,
 	auto statement = CMP_compile(tdbb, blr, blrLength, internalFlag, 0, nullptr);
 	auto request = statement->makeRootRequest(tdbb);
 
+	request->setAttachment(tdbb->getAttachment());
+	request->req_stats.reset();
+	request->req_base_stats.reset();
+
 	return request;
 }
 

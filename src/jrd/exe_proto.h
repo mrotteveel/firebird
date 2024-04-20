@@ -97,8 +97,7 @@ namespace Jrd
 			if (request)
 				return;
 
-			request = CMP_compile_request(tdbb, blr, blrLength, true);
-			cacheRequest();
+			cacheRequest(CMP_compile_request(tdbb, blr, blrLength, true));
 		}
 
 		Request* operator ->()
@@ -118,7 +117,7 @@ namespace Jrd
 
 	private:
 		void release();
-		void cacheRequest();
+		void cacheRequest(Request* req);
 
 	private:
 		USHORT id;
@@ -151,6 +150,7 @@ namespace Jrd
 				return;
 
 			request = CMP_compile_request(tdbb, blr, blrLength, true);
+			request->setUsed();
 		}
 
 		Request* operator ->()

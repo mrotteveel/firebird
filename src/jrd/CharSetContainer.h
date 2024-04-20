@@ -26,6 +26,7 @@
 #ifndef JRD_CHARSETCONTAINER_H
 #define JRD_CHARSETCONTAINER_H
 
+#include "../jrd/MetaName.h"
 #include "../jrd/HazardPtr.h"
 #include "../jrd/Collation.h"
 #include "../jrd/Resources.h"
@@ -85,8 +86,13 @@ public:
 		return cs_lock;
 	}
 
+	void releaseLocks(thread_db* tdbb);
+
 private:
 	static bool lookupInternalCharSet(CSetId id, SubtypeInfo* info);
+
+public:
+	Firebird::HalfStaticArray<MetaName, 4> names;
 
 private:
 	CharSet* cs;
@@ -96,7 +102,7 @@ private:
 class CharSetVers final : public ObjectBase
 {
 public:
-	CharSetVers(CharSetContainer* parent)
+	CharSetVers(Cached::CharSet* parent)
 		: perm(parent), charset_collations(perm->getPool())
 	{ }
 
@@ -121,15 +127,19 @@ public:
 	}
 
 	static void destroy(CharSetVers* csv);
-	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::Charset* perm);
+	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::CharSet* perm);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
 
 	Collation* getCollation(TTypeId tt_id);
 	Collation* getCollation(MetaName name);
+	Cached::CharSet* getContainer() const
+	{
+		return perm;
+	}
 
 private:
-	CharSetContainer* perm;
+	Cached::CharSet* perm;
 	Firebird::HalfStaticArray<Collation*, 16> charset_collations;
 };
 

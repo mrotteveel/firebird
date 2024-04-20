@@ -46,7 +46,7 @@ namespace Cached
 	// DB objects stored in cache vector
 	typedef CacheElement<jrd_rel, RelationPermanent> Relation;
 	typedef CacheElement<jrd_prc, RoutinePermanent> Procedure;
-	typedef CacheElement<CharSetVers, CharSetContainer> Charset;
+	typedef CacheElement<CharSetVers, CharSetContainer> CharSet;
 	typedef CacheElement<Function, RoutinePermanent> Function;
 	typedef CacheElement<DbTriggers, DbTriggersHeader> Triggers;
 }
@@ -132,17 +132,17 @@ public:
 
 	OBJ* operator()(const VersionedObjects* runTime) const
 	{
-		return runTime->get<OBJ>(versionOffset);
+		return cacheElement ? runTime->get<OBJ>(versionOffset) : nullptr;
 	}
 
 	OBJ* operator()(const VersionedObjects& runTime) const
 	{
-		return runTime.get<OBJ>(versionOffset);
+		return cacheElement ? runTime.get<OBJ>(versionOffset) : nullptr;
 	}
 
 	OBJ* operator()(thread_db* tdbb) const
 	{
-		return cacheElement->getObject(tdbb);
+		return cacheElement ? cacheElement->getObject(tdbb, CacheFlag::AUTOCREATE) : nullptr;
 	}
 
 	CacheElement<OBJ, PERM>* operator()() const
@@ -213,7 +213,7 @@ public:
 		void transfer(thread_db* tdbb, VersionedObjects* to)
 		{
 			for (auto& resource : *this)
-				to->put(resource.getOffset(), resource()->getObject(tdbb));
+				to->put(resource.getOffset(), resource()->getObject(tdbb, CacheFlag::AUTOCREATE));
 		}
 
 	private:
@@ -223,6 +223,13 @@ public:
 	void transfer(thread_db* tdbb, VersionedObjects* to);
 	void postIndex(thread_db* tdbb, RelationPermanent* relation, USHORT index);
 	void release(thread_db* tdbb);
+
+#ifdef DEV_BUILD
+	MemoryPool* getPool() const
+	{
+		return &indexLocks.getPool();
+	}
+#endif
 
 private:
 	FB_SIZE_T versionCurrentPosition;

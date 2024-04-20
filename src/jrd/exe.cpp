@@ -776,7 +776,8 @@ void EXE_release(thread_db* tdbb, Request* request)
 		request->req_attachment = NULL;
 	}
 
-	request->setUnused();
+	if (request->isUsed())
+		request->setUnused();
 }
 
 
@@ -1682,10 +1683,10 @@ static void trigger_failure(thread_db* tdbb, Request* trigger)
 	}
 }
 
-void AutoCacheRequest::cacheRequest()
+void AutoCacheRequest::cacheRequest(Request* req)
 {
 	Jrd::Database* dbb = JRD_get_thread_data()->getDatabase();
-	request = dbb->cacheRequest(which, id, request);
+	request = dbb->cacheRequest(which, id, req);
 }
 
 void AutoCacheRequest::release()
@@ -1693,6 +1694,7 @@ void AutoCacheRequest::release()
 	if (request)
 	{
 		EXE_unwind(JRD_get_thread_data(), request);
+		request->setUnused();
 		request = NULL;
 	}
 }
@@ -1701,6 +1703,7 @@ void AutoRequest::release()
 {
 	if (request)
 	{
+		request->setUnused();
 		CMP_release(JRD_get_thread_data(), request);
 		request = NULL;
 	}

@@ -489,11 +489,13 @@ namespace Jrd
 	// Store newly compiled request in the cache
 	Request* Database::cacheRequest(InternalRequest which, USHORT id, Request* req)
 	{
+		bool ok = req->setUsed();
+		fb_assert(ok);
+
 		auto* const stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
 
 		Statement* existingStmt = stPtr->load(std::memory_order_acquire);
 		Statement* const compiledStmt = req->getStatement();
-
 		if (!existingStmt)
 		{
 			if (stPtr->compare_exchange_strong(existingStmt, compiledStmt,
@@ -508,6 +510,7 @@ namespace Jrd
 		fb_assert(existingStmt);
 
 		thread_db* tdbb = JRD_get_thread_data();
+		req->setUnused();
 		compiledStmt->release(tdbb);
 
 		return existingStmt->findRequest(tdbb);
