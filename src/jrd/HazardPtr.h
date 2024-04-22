@@ -1237,6 +1237,7 @@ public:
 	class Iterator
 	{
 		static const FB_SIZE_T eof = ~0u;
+		static const FB_SIZE_T endloop = ~0u;
 
 	public:
 		StoredElement* operator*()
@@ -1258,7 +1259,9 @@ public:
 		bool operator==(const Iterator& itr) const
 		{
 			fb_assert(data == itr.data);
-			return index == itr.index || index == eof || itr.index == eof;
+			return index == itr.index ||
+				(index == endloop && itr.index == eof) ||
+				(itr.index == endloop && index == eof);
 		}
 
 		bool operator!=(const Iterator& itr) const
@@ -1275,7 +1278,7 @@ public:
 		enum class Location {Begin, End};
 		Iterator(const CacheVector* v, Location loc)
 			: data(v),
-			  index(loc == Location::Begin ? locateData(0) : eof)
+			  index(loc == Location::Begin ? locateData(0) : endloop)
 		{ }
 
 		StoredElement* get()

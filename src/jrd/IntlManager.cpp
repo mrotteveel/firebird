@@ -640,63 +640,77 @@ bool IntlManager::lookupCharSet(const string& charSetName, charset* cs)
 
 
 void IntlManager::lookupCollation(const string& collationName,
-								  const string& charSetName,
+								  const Jrd::CharsetVariants& charsetVariants,
 								  USHORT attributes, const UCHAR* specificAttributes,
 								  ULONG specificAttributesLen, bool ignoreAttributes,
 								  texttype* tt)
 {
 	ExternalInfo charSetExternalInfo;
 	ExternalInfo collationExternalInfo;
-	char statusBuffer[BUFFER_LARGE] = "";
+	char statusBufferBig[BUFFER_LARGE] = "";
+	char statusBufferTiny[BUFFER_TINY];
+	char *statusBuffer = statusBufferBig;
+	ULONG bufferLength = sizeof(statusBufferBig);
 
-	if (charSetCollations->get(charSetName + ":" + charSetName, charSetExternalInfo) &&
-		charSetCollations->get(charSetName + ":" + collationName, collationExternalInfo))
+	for(const auto& charSetMetaName : charsetVariants)
 	{
-		ModuleLoader::Module* module = nullptr;
-
-		if (collationExternalInfo.moduleName.hasData())
-			modules->get(collationExternalInfo.moduleName, module);
-
-		pfn_INTL_lookup_texttype_with_status lookupStatusFunction = nullptr;
-
-		if (collationExternalInfo.moduleName.isEmpty())
-			lookupStatusFunction = INTL_builtin_lookup_texttype_status;
-		else if (module)
-			module->findSymbol(nullptr, STRINGIZE(TEXTTYPE_WITH_STATUS_ENTRYPOINT), lookupStatusFunction);
-
-		if (lookupStatusFunction)
+		string charSetName(charSetMetaName);
+		if (charSetCollations->get(charSetName + ":" + charSetName, charSetExternalInfo) &&
+			charSetCollations->get(charSetName + ":" + collationName, collationExternalInfo))
 		{
-			if ((*lookupStatusFunction)(statusBuffer, sizeof(statusBuffer),
-					tt, collationExternalInfo.name.c_str(), charSetExternalInfo.name.c_str(),
-					attributes, specificAttributes, specificAttributesLen, ignoreAttributes,
-					collationExternalInfo.configInfo.c_str()))
+			ModuleLoader::Module* module = nullptr;
+
+			if (collationExternalInfo.moduleName.hasData())
+				modules->get(collationExternalInfo.moduleName, module);
+
+			pfn_INTL_lookup_texttype_with_status lookupStatusFunction = nullptr;
+
+			if (collationExternalInfo.moduleName.isEmpty())
+				lookupStatusFunction = INTL_builtin_lookup_texttype_status;
+			else if (module)
+				module->findSymbol(nullptr, STRINGIZE(TEXTTYPE_WITH_STATUS_ENTRYPOINT), lookupStatusFunction);
+
+			if (lookupStatusFunction)
 			{
-				return;
+				if ((*lookupStatusFunction)(statusBuffer, bufferLength,
+						tt, collationExternalInfo.name.c_str(), charSetExternalInfo.name.c_str(),
+						attributes, specificAttributes, specificAttributesLen, ignoreAttributes,
+						collationExternalInfo.configInfo.c_str()))
+				{
+					return;
+				}
+
+				if (statusBuffer[0])
+				{
+					statusBuffer = statusBufferTiny;
+					bufferLength = sizeof(statusBufferTiny);
+					statusBuffer[0] = '\0';
+				}
 			}
-		}
-		else if (module)
-		{
-			pfn_INTL_lookup_texttype lookupFunction = nullptr;
-			module->findSymbol(nullptr, STRINGIZE(TEXTTYPE_ENTRYPOINT), lookupFunction);
-
-			if (lookupFunction &&
-				(*lookupFunction)(tt, collationExternalInfo.name.c_str(), charSetExternalInfo.name.c_str(),
-								attributes, specificAttributes, specificAttributesLen, ignoreAttributes,
-								collationExternalInfo.configInfo.c_str()))
+			else if (module)
 			{
-				return;
+				pfn_INTL_lookup_texttype lookupFunction = nullptr;
+				module->findSymbol(nullptr, STRINGIZE(TEXTTYPE_ENTRYPOINT), lookupFunction);
+
+				if (lookupFunction &&
+					(*lookupFunction)(tt, collationExternalInfo.name.c_str(), charSetExternalInfo.name.c_str(),
+									attributes, specificAttributes, specificAttributesLen, ignoreAttributes,
+									collationExternalInfo.configInfo.c_str()))
+				{
+					return;
+				}
 			}
 		}
 	}
 
-	if (statusBuffer[0])
+	if (statusBufferBig[0])
 	{
-		(Arg::Gds(isc_collation_not_installed) << collationName << charSetName <<
-			Arg::Gds(isc_random) << statusBuffer
+		(Arg::Gds(isc_collation_not_installed) << collationName << charsetVariants[0] <<
+			Arg::Gds(isc_random) << statusBufferBig
 		).raise();
 	}
 	else
-		(Arg::Gds(isc_collation_not_installed) << collationName << charSetName).raise();
+		(Arg::Gds(isc_collation_not_installed) << collationName << charsetVariants[0]).raise();
 }
 
 

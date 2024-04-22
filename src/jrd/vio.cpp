@@ -5258,7 +5258,6 @@ void Database::garbage_collector(Database* dbb)
 		try
 		{
 			LCK_init(tdbb, LCK_OWNER_attachment);
-			INI_init(tdbb);
 			PAG_header(tdbb, true);
 			PAG_attachment_id(tdbb);
 			TRA_init(attachment);

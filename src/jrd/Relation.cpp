@@ -170,7 +170,8 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 		rel_existence_lock = FB_NEW_RPT(getPool(), 0)
 			Lock(tdbb, sizeof(SLONG), LCK_rel_exist, this, blocking_ast_relation);
 		rel_existence_lock->setKey(rel_id);
-	} */
+	}
+ */
 }
 
 RelationPermanent::~RelationPermanent()
@@ -751,7 +752,8 @@ void GCLock::ensureReleased(thread_db* tdbb)
 void GCLock::forcedRelease(thread_db* tdbb)
 {
 	flags.fetch_and(~GC_locked);
-	LCK_release(tdbb, lck);
+	if (lck)
+		LCK_release(tdbb, lck);
 }
 
 void GCLock::enable(thread_db* tdbb, Lock* tempLock)
@@ -933,18 +935,17 @@ void IndexLock::recreate(thread_db*)
 
 void jrd_rel::destroy(jrd_rel* rel)
 {
-/*
 	thread_db* tdbb = JRD_get_thread_data();
 
-	LCK_release(tdbb, rel->rel_existence_lock);
-	if (rel->rel_partners_lock)
+	LCK_release(tdbb, rel->rel_perm->rel_existence_lock);
+	if (rel->rel_perm->rel_partners_lock)
 	{
-		rel->rel_flags |= REL_check_partners;
-		LCK_release(tdbb, rel->rel_partners_lock);
-		rel->rel_flags &= ~REL_check_partners;
+		rel->rel_perm->rel_flags |= REL_check_partners;
+		LCK_release(tdbb, rel->rel_perm->rel_partners_lock);
+		rel->rel_perm->rel_flags &= ~REL_check_partners;
 	}
-	LCK_release(tdbb, rel->rel_rescan_lock);
- */
+	LCK_release(tdbb, rel->rel_perm->rel_rescan_lock);
+
 	// A lot more things to do !!!!!!!!!!!!!!!!
 
 	delete rel;

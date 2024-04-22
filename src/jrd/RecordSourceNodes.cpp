@@ -624,15 +624,9 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 	if (aliasString)
 		node->alias = *aliasString;
 
-	// Load latest relation version
+	// Latest relation version should be here
 
-	if (rel->rel_flags & REL_sys_triggers)		// should not happen...
-	{
-		fprintf(stderr, "REL_sys_triggers\n");
-		fb_assert(false);
-		jrd_rel* latestVersion = rel->getObject(tdbb, CacheFlag::AUTOCREATE);
-		MET_parse_sys_trigger(tdbb, latestVersion);
-	}
+	fb_assert(!(rel->rel_flags & REL_sys_triggers));
 
 	// generate a stream for the relation reference, assuming it is a real reference
 

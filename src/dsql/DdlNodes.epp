@@ -4039,7 +4039,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 			specificAttributes = temp;
 		}
 
-		info.charsetName = forCharSet.c_str();
+		info.charsetName.push(forCharSet.c_str());
 		info.collationName = name;
 		if (X.RDB$BASE_COLLATION_NAME.NULL)
 			info.baseCollationName = info.collationName;
@@ -4048,11 +4048,11 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 		info.ignoreAttributes = false;
 
 		if (!IntlManager::collationInstalled(info.baseCollationName.c_str(),
-				info.charsetName.c_str()))
+				info.charsetName[0].c_str()))
 		{
 			// msg: 223: "Collation @1 not installed for character set @2"
 			status_exception::raise(
-				Arg::PrivateDyn(223) << info.baseCollationName << info.charsetName);
+				Arg::PrivateDyn(223) << info.baseCollationName << info.charsetName[0]);
 		}
 
 		IntlUtil::SpecificAttributesMap map;
@@ -4070,7 +4070,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 		string newSpecificAttributes;
 
 		if (!IntlManager::setupCollationAttributes(
-				info.baseCollationName.c_str(), info.charsetName.c_str(), s,
+				info.baseCollationName.c_str(), info.charsetName[0].c_str(), s,
 				newSpecificAttributes))
 		{
 			// msg: 222: "Invalid collation attributes"

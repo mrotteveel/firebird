@@ -32,10 +32,10 @@ namespace Jrd {
 	class thread_db;
 	class Lock;
 	class Collation;
+	struct SubtypeInfo;
 }
 
 struct dsc;
-struct SubtypeInfo;
 struct texttype;
 
 void		INTL_adjust_text_descriptor(Jrd::thread_db* tdbb, dsc* desc);
@@ -52,10 +52,10 @@ USHORT		INTL_key_length(Jrd::thread_db*, USHORT, USHORT);
 Jrd::CharSet*	INTL_charset_lookup(Jrd::thread_db* tdbb, CSetId parm1);
 Jrd::Collation*	INTL_texttype_lookup(Jrd::thread_db* tdbb, TTypeId parm1);
 //void		INTL_texttype_unload(Jrd::thread_db*, USHORT);
-bool		INTL_texttype_validate(Jrd::thread_db*, const SubtypeInfo*);
+bool		INTL_texttype_validate(Jrd::thread_db*, const Jrd::SubtypeInfo*);
 void		INTL_pad_spaces(Jrd::thread_db*, dsc*, UCHAR*, ULONG);
 USHORT		INTL_string_to_key(Jrd::thread_db*, USHORT, const dsc*, dsc*, USHORT);
-void		INTL_lookup_texttype(texttype* tt, const SubtypeInfo* info);
+void		INTL_lookup_texttype(texttype* tt, const Jrd::SubtypeInfo* info);
 
 // Built-in charsets/texttypes interface
 INTL_BOOL INTL_builtin_lookup_charset(charset* cs, const ASCII* charset_name, const ASCII* config_info);

@@ -176,7 +176,8 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 {
 	if (id == CS_UTF16)
 	{
-		info->charsetName = "UTF16";
+		info->charsetName.clear();
+		info->charsetName.push("UTF16");
 		return true;
 	}
 
@@ -196,7 +197,8 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 		{
 			if (colDef->charSetId == id && colDef->collationId == 0)
 			{
-				info->charsetName = csDef->name;
+				info->charsetName.clear();
+				info->charsetName.push(csDef->name);
 				info->collationName = colDef->name;
 				info->attributes = colDef->attributes;
 				info->ignoreAttributes = false;
@@ -228,22 +230,27 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, Ma
 		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(cs_id));
 
 	charset* csL = FB_NEW_POOL(p) charset;
-	memset(csL, 0, sizeof(charset));
 
-	if (IntlManager::lookupCharSet(info.charsetName.c_str(), csL) &&
-		(csL->charset_flags & CHARSET_ASCII_BASED))
+	for (auto& csName : info.charsetName)
 	{
-		cs = CharSet::createInstance(p, cs_id, csL);
-	}
-	else
-	{
-		delete csL;
-		ERR_post(Arg::Gds(isc_charset_not_installed) << Arg::Str(info.charsetName));
+		memset(csL, 0, sizeof(charset));
+
+		if (IntlManager::lookupCharSet(csName.c_str(), csL) &&
+			(csL->charset_flags & CHARSET_ASCII_BASED))
+		{
+			cs = CharSet::createInstance(p, cs_id, csL);
+
+			cs_lock = makeLock(tdbb, p);
+			cs_lock->setKey(cs_id);
+			cs_lock->lck_object = this;
+
+			return;
+		}
 	}
 
-	cs_lock = makeLock(tdbb, p);
-	cs_lock->setKey(cs_id);
-	cs_lock->lck_object = this;
+	delete csL;
+	ERR_post(Arg::Gds(isc_charset_not_installed) <<
+		(info.charsetName.hasData() ? Arg::Str(info.charsetName[0]) : Arg::Str("<Unknown character set>")));
 }
 
 CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CSetId toCsId)
@@ -315,7 +322,7 @@ void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
 
 void INTL_lookup_texttype(texttype* tt, const SubtypeInfo* info)
 {
-	IntlManager::lookupCollation(info->baseCollationName.c_str(), info->charsetName.c_str(),
+	IntlManager::lookupCollation(info->baseCollationName.c_str(), info->charsetName,
 		info->attributes, info->specificAttributes.begin(),
 		info->specificAttributes.getCount(), info->ignoreAttributes, tt);
 }

@@ -57,23 +57,25 @@ namespace Jrd
 	class RelationPermanent;
 	class Triggers;
 	class TrigArray;
-}
 
-struct SubtypeInfo
-{
-	SubtypeInfo()
-		: attributes(0),
-		  ignoreAttributes(true)
+	typedef Firebird::HalfStaticArray<Jrd::MetaName, 4> CharsetVariants;
+
+	struct SubtypeInfo
 	{
-	}
+		SubtypeInfo()
+			: attributes(0),
+			  ignoreAttributes(true)
+		{
+		}
 
-	Jrd::MetaName charsetName;
-	Jrd::MetaName collationName;
-	Jrd::MetaName baseCollationName;
-	USHORT attributes;
-	bool ignoreAttributes;
-	Firebird::UCharBuffer specificAttributes;
-};
+		CharsetVariants charsetName;
+		MetaName collationName;
+		MetaName baseCollationName;
+		USHORT attributes;
+		bool ignoreAttributes;
+		Firebird::UCharBuffer specificAttributes;
+	};
+}
 
 void		MET_activate_shadow(Jrd::thread_db*);
 ULONG		MET_align(const dsc*, ULONG);
@@ -83,7 +85,7 @@ void		MET_delete_dependencies(Jrd::thread_db*, const Jrd::MetaName&, int, Jrd::j
 void		MET_delete_shadow(Jrd::thread_db*, USHORT);
 void		MET_error(const TEXT*, ...);
 Jrd::Format*	MET_format(Jrd::thread_db*, Jrd::RelationPermanent*, USHORT);
-bool		MET_get_char_coll_subtype_info(Jrd::thread_db*, USHORT, SubtypeInfo* info);
+bool		MET_get_char_coll_subtype_info(Jrd::thread_db*, USHORT, Jrd::SubtypeInfo* info);
 Jrd::DmlNode*	MET_get_dependencies(Jrd::thread_db*, Jrd::jrd_rel*, const UCHAR*, const ULONG,
 								Jrd::CompilerScratch*, Jrd::bid*, Jrd::Statement**,
 								Jrd::CompilerScratch**, const Jrd::MetaName&, int, USHORT,

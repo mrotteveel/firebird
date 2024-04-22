@@ -1285,6 +1285,7 @@ bool MET_get_char_coll_subtype_info(thread_db* tdbb, USHORT id, SubtypeInfo* inf
 
 	AutoCacheRequest request(tdbb, irq_l_subtype, IRQ_REQUESTS);
 	bool found = false;
+	info->charsetName.clear();
 
 	FOR(REQUEST_HANDLE request) FIRST 1
 		CL IN RDB$COLLATIONS CROSS
@@ -1295,7 +1296,7 @@ bool MET_get_char_coll_subtype_info(thread_db* tdbb, USHORT id, SubtypeInfo* inf
 	{
 		found = true;
 
-		info->charsetName = CS.RDB$CHARACTER_SET_NAME;
+		info->charsetName.push(CS.RDB$CHARACTER_SET_NAME);
 		info->collationName = CL.RDB$COLLATION_NAME;
 
 		if (CL.RDB$BASE_COLLATION_NAME.NULL)
@@ -3325,7 +3326,6 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (sys_triggers)
 	{
-		fprintf(stderr, "SCAN %s: REL_sys_triggers\n", c_name());
 		MET_parse_sys_trigger(tdbb, this);
 		return true;
 	}
@@ -3621,8 +3621,11 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	rel_current_format = NULL;
 
 	}	// try
-	catch (const Exception&)
+	catch (const Exception& ex)
 	{
+		if (sys_triggers)
+			iscLogException("!!!!!!!!!!!!!!!!!!!!", ex);
+
 		if (dependencies) {
 			rel_perm->rel_flags |= REL_get_dependencies;
 		}
@@ -4239,12 +4242,15 @@ bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (perm->names.getCount() == 0)
 	{
+		perm->names.push(getName());
+
 		FOR(REQUEST_HANDLE handle)
 			T IN RDB$TYPES
 			WITH T.RDB$FIELD_NAME EQ "RDB$CHARACTER_SET_NAME"
 			 AND T.RDB$TYPE EQ getId()
 		{
-			perm->names.push(T.RDB$TYPE_NAME);
+			if (getName() != T.RDB$TYPE_NAME)
+				perm->names.push(T.RDB$TYPE_NAME);
 		}
 		END_FOR
 
@@ -4259,7 +4265,7 @@ bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		fb_assert(perm->names.exist(CS.RDB$CHARACTER_SET_NAME));
 
 		SubtypeInfo info;
-		info.charsetName = getName();
+		info.charsetName = perm->names;
 		info.collationName = COL.RDB$COLLATION_NAME;
 		info.attributes = (USHORT)COL.RDB$COLLATION_ATTRIBUTES;
 		info.ignoreAttributes = COL.RDB$COLLATION_ATTRIBUTES.NULL;

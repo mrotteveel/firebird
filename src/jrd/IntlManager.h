@@ -30,6 +30,7 @@
 #include "../common/classes/fb_string.h"
 #include "../common/config/config_file.h"
 #include "../jrd/intl.h"
+#include "../jrd/met_proto.h"
 
 struct charset;
 struct texttype;
@@ -49,7 +50,7 @@ public:
 	static bool lookupCharSet(const Firebird::string& charSetName, charset* cs);
 
 	static void lookupCollation(const Firebird::string& collationName,
-								const Firebird::string& charSetName,
+								const Jrd::CharsetVariants& charsetVariants,
 								USHORT attributes, const UCHAR* specificAttributes,
 								ULONG specificAttributesLen, bool ignoreAttributes,
 								texttype* tt);

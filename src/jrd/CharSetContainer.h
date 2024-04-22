@@ -30,11 +30,13 @@
 #include "../jrd/HazardPtr.h"
 #include "../jrd/Collation.h"
 #include "../jrd/Resources.h"
+#include "../jrd/met_proto.h"
 #include "../common/classes/alloc.h"
 
-struct SubtypeInfo;
 
 namespace Jrd {
+
+struct SubtypeInfo;
 
 class CharSetContainer : public Firebird::PermanentStorage
 {
@@ -92,7 +94,7 @@ private:
 	static bool lookupInternalCharSet(CSetId id, SubtypeInfo* info);
 
 public:
-	Firebird::HalfStaticArray<MetaName, 4> names;
+	CharsetVariants names;
 
 private:
 	CharSet* cs;
