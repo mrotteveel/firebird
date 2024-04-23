@@ -41,7 +41,6 @@ RoutinePermanent::RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId
 	  name(p),
 	  securityName(p),
 	  subRoutine(false),
-	  flags(0),
 	  existenceLock(makeLock(tdbb, p))
 {
 	existenceLock->setKey(metaId);
@@ -174,7 +173,7 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid*
 	setStatement(statement);
 
 	if (csb->csb_g_flags & csb_reload)
-		flags |= FLAG_RELOAD;
+		flReload = true;
 
 	if (!blob_id)
 		setImplemented(false);
@@ -311,10 +310,8 @@ void RoutinePermanent::releaseLocks(thread_db* tdbb)
 
 void Routine::checkReload(thread_db* tdbb) const
 {
-	if (!(flags & FLAG_RELOAD))
-		return;
-
-	const_cast<Routine*>(this)->reload(tdbb);
+	if (flReload)
+		const_cast<Routine*>(this)->reload(tdbb);
 }
 
 }	// namespace Jrd

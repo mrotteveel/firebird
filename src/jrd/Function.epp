@@ -426,7 +426,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 		END_FOR
 	}
 
-	return !(this->flags & FLAG_RELOAD);
+	return !(this->flReload);
 }
 
 bool Function::reload(thread_db* tdbb)

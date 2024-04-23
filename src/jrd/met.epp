@@ -3146,12 +3146,12 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 		END_FOR
 	}
 
-	return !(this->flags & FLAG_RELOAD);
+	return !flReload;
 }
 
 bool jrd_prc::reload(thread_db* tdbb)
 {
-	fb_assert(this->flags & Routine::FLAG_RELOAD);
+	fb_assert(flReload);
 
 	Attachment* attachment = tdbb->getAttachment();
 	AutoCacheRequest request(tdbb, irq_r_proc_blr, IRQ_REQUESTS);
@@ -3171,7 +3171,7 @@ bool jrd_prc::reload(thread_db* tdbb)
 				this->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 					P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
 
-				return !(this->flags & Routine::FLAG_RELOAD);
+				return !flReload;
 			}
 			catch (const Exception& ex)
 			{

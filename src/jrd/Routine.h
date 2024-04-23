@@ -55,7 +55,6 @@ namespace Jrd
 			  name(p),
 			  securityName(p),
 			  subRoutine(true),
-			  flags(0),
 			  existenceLock(NULL)
 		{ }
 
@@ -86,7 +85,6 @@ namespace Jrd
 		QualifiedName name;					// routine name
 		MetaName securityName;				// security class name
 		bool subRoutine;                    // Is this a subroutine?
-		USHORT flags;
 		Lock* existenceLock;				// existence lock, if any
 		MetaName owner;
 	};
@@ -103,7 +101,7 @@ namespace Jrd
 			  outputFormat(NULL),
 			  inputFields(p),
 			  outputFields(p),
-			  flags(0),
+			  flReload(false),
 			  invoker(NULL)
 		{
 		}
@@ -112,9 +110,6 @@ namespace Jrd
 		virtual ~Routine()
 		{
 		}
-
-	public:
-		static const USHORT FLAG_RELOAD             = 32;   // Recompile before execution
 
 	public:
 		static const USHORT MAX_ALTER_COUNT = 64;	// Number of times an in-cache routine can be altered ?????????
@@ -191,7 +186,7 @@ namespace Jrd
 		Firebird::Array<NestConst<Parameter> > outputFields;	// array of field blocks
 
 	public:
-		USHORT flags;
+		bool flReload;
 		StartupBarrier startup;
 
 	public:

@@ -3243,7 +3243,6 @@ void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) cons
 			Arg::Gds(isc_modnotfound));
 	}
 
-	//const_cast<jrd_prc*>
 	proc->checkReload(tdbb);
 
 	UserId* invoker = proc->invoker ? proc->invoker : tdbb->getAttachment()->att_ss_user;
