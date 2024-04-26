@@ -149,7 +149,7 @@ public:
 
 private:
 	Resources* resources;				// Resources (relations, routines, etc.)
-	Firebird::RefPtr<VersionedObjects> latestVersion;		// want std::atomic<std::shared_ptr> or mutex is needed
+	Firebird::RefPtr<VersionedObjects> latest;		// want std::atomic<std::shared_ptr> or mutex is needed
 };
 
 

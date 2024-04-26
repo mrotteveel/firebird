@@ -181,24 +181,24 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 void Statement::loadResources(thread_db* tdbb, Request* req)
 {
 	const MdcVersion currentMdcVersion = tdbb->getDatabase()->dbb_mdc->getVersion();
-	if ((!latestVersion) || (latestVersion->version != currentMdcVersion))
+	if ((!latest) || (latest->version != currentMdcVersion))
 	{
 		// Also check for changed streams from known sources
 		if (!streamsFormatCompare(tdbb))
 			ERR_post(Arg::Gds(isc_random) << "Statement format outdated, need to be reprepared");
 
 		// OK, format of data sources remained the same, we can update version of cached objects in current request
-		const FB_SIZE_T resourceCount = latestVersion ? latestVersion->getCapacity() :
+		const FB_SIZE_T resourceCount = latest ? latest->getCapacity() :
 			resources->charSets.getCount() + resources->relations.getCount() + resources->procedures.getCount() +
 			resources->functions.getCount() + resources->triggers.getCount();
 
-		latestVersion = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
-		resources->transfer(tdbb, latestVersion);
+		latest = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
+		resources->transfer(tdbb, latest);
 	}
 
-	if (req && req->getResources() != latestVersion)
+	if (req && req->getResources() != latest)
 	{
-		req->setResources(latestVersion);
+		req->setResources(latest);
 
 		// setup correct jrd_rel pointers in rpbs
 		req->req_rpb.grow(rpbsSetup.getCount());
@@ -206,7 +206,7 @@ void Statement::loadResources(thread_db* tdbb, Request* req)
 		for (FB_SIZE_T n = 0; n < rpbsSetup.getCount(); ++n)
 		{
 			req->req_rpb[n] = rpbsSetup[n];
-			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latestVersion);
+			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latest);
 		}
 	}
 }

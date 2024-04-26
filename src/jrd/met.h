@@ -230,7 +230,8 @@ public:
 		  mdc_procedures(getPool()),
 		  mdc_functions(getPool()),
 		  mdc_charsets(getPool()),
-		  mdc_ddl_triggers(nullptr)
+		  mdc_ddl_triggers(nullptr),
+		  mdc_version(0)
 	{
 		memset(mdc_triggers, 0, sizeof(mdc_triggers));
 	}
@@ -424,11 +425,7 @@ private:
 	TriggersSet							mdc_triggers[DB_TRIGGER_MAX];
 	TriggersSet							mdc_ddl_triggers;
 
-	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums!!!!!!!!!!!)
-
-public:
-	Firebird::Mutex
-					mdc_charset_mutex;						// Protects mdc_charset_ids
+	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums???????????????)
 };
 
 } // namespace Jrd

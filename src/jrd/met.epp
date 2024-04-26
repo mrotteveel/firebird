@@ -1241,7 +1241,6 @@ bool MetadataCache::get_texttype(thread_db* tdbb, TTypeId* id, const UCHAR* name
 	*p = 0;
 
 	auto mdc = tdbb->getDatabase()->dbb_mdc;
-	MutexLockGuard g(mdc->mdc_charset_mutex, FB_FUNCTION);
 
 	// Is there a period, separating collation name from character set?
 	if (period)
