@@ -64,6 +64,8 @@ namespace Jrd
 			return id;
 		}
 
+		static bool destroy(thread_db* tdbb, RoutinePermanent* routine);
+
 		const QualifiedName& getName() const { return name; }
 		void setName(const QualifiedName& value) { name = value; }
 		const char* c_name() const { return name.c_str(); }
@@ -119,7 +121,7 @@ namespace Jrd
 		static Format* createFormat(MemoryPool& pool, Firebird::IMessageMetadata* params, bool addEof);
 
 	public:
-		static void destroy(Routine* routine)
+		static void destroy(thread_db* tdbb, Routine* routine)
 		{
 			delete routine;
 		}

@@ -131,7 +131,7 @@ public:
 	bool isActive() const;
 
 	void compile(thread_db*);				// Ensure that trigger is compiled
-	void free(thread_db*);					// Try to free trigger request
+	void free(thread_db*, bool force);		// Try to free trigger request
 
 	explicit Trigger(MemoryPool& p)
 		: blr(p),
@@ -193,7 +193,7 @@ public:
 
 	void release(thread_db* tdbb, bool destroy);
 
-	static void destroy(Triggers* trigs);
+	static void destroy(thread_db* tdbb, Triggers* trigs);
 
 private:
 	Firebird::HalfStaticArray<Trigger*, 8> triggers;
@@ -210,6 +210,7 @@ public:
 	}
 
 	static int blockingAst(void* ast_object);
+	static bool destroy(thread_db* tdbb, DbTriggersHeader* trigs);
 
 	const char* c_name() const;
 
@@ -230,6 +231,12 @@ public:
 	static DbTriggers* create(thread_db*, MemoryPool&, DbTriggersHeader* hdr)
 	{
 		return FB_NEW_POOL(hdr->getPool()) DbTriggers(hdr);
+	}
+
+	static void destroy(thread_db* tdbb, DbTriggers* trigs)
+	{
+		Triggers::destroy(tdbb, trigs);
+		delete trigs;
 	}
 
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
@@ -498,7 +505,7 @@ public:
 	MetaName getOwnerName() const;
 	ExternalFile* getExtFile() const;
 
-	static void destroy(jrd_rel *rel);
+	static void destroy(thread_db* tdbb, jrd_rel *rel);
 	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, Cached::Relation* perm);
 
 	static Lock* makeLock(thread_db*, MemoryPool&)
@@ -628,8 +635,8 @@ class RelationPermanent : public Firebird::PermanentStorage
 
 public:
 	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock);
-
 	~RelationPermanent();
+	static bool destroy(thread_db* tdbb, RelationPermanent* rel);
 
 	void makeLocks(thread_db* tdbb, Cached::Relation* relation);
 	static constexpr USHORT getRelLockKeyLength();
@@ -729,7 +736,7 @@ public:
 
 	static int partners_ast_relation(void* ast_object);
 	static int rescan_ast_relation(void* ast_object);
-//	static int blocking_ast_relation(void* ast_object);
+	static int blocking_ast_relation(void* ast_object);
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	IndexLocks		rel_index_locks;	// index existence locks

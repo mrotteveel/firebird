@@ -34,7 +34,7 @@ CharSetVers* CharSetVers::create(thread_db* tdbb, MemoryPool& pool, Cached::Char
 	return FB_NEW_POOL(pool) CharSetVers(csp);
 }
 
-void CharSetVers::destroy(CharSetVers* csv)
+void CharSetVers::destroy(thread_db*, CharSetVers* csv)
 {
 	delete csv;
 }

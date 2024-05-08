@@ -152,6 +152,589 @@ DATABASE DB = FILENAME "ODS.RDB";
 using namespace Jrd;
 using namespace Firebird;
 
+namespace Jrd {
+
+typedef HashTable<
+	DeferredWork,
+	DEFAULT_HASH_SIZE,
+	DeferredWork,
+	DefaultKeyValue<DeferredWork>,
+	DeferredWork
+> DfwHash;
+
+// NS: This needs careful refactoring.
+//
+// Deferred work item:
+// * Encapsulates deferred invocation of the task routine with a given set of
+//   arguments.
+// * Has code to maintain a doubly linked list of itself.
+//
+// These two functions need to be split, and linked list of custom entries can
+// become generic.
+//
+
+class DeferredWork : public pool_alloc<type_dfw>,
+					 public DfwHash::Entry
+{
+private:
+	DeferredWork(const DeferredWork&);
+
+public:
+	enum dfw_t 		dfw_type;		// type of work deferred
+
+private:
+	DeferredWork***	dfw_end;
+	DeferredWork**	dfw_prev;
+	DeferredWork*	dfw_next;
+
+public:
+	Lock*			dfw_lock;		// relation creation lock
+	Array<DeferredWork*>  dfw_args;	// arguments
+	SavNumber		dfw_sav_number;	// save point number
+	USHORT			dfw_id;			// object id, if appropriate
+	USHORT			dfw_count;		// count of block posts
+	string			dfw_name;		// name of object
+	MetaName		dfw_package;	// package name
+	SortedArray<int> dfw_ids;		// list of identifiers (or any numbers) needed by an action
+
+public:
+	DeferredWork(MemoryPool& p, DeferredWork*** end,
+				 enum dfw_t t, USHORT id, SavNumber sn, const string& name,
+				 const MetaName& package)
+	  : dfw_type(t), dfw_end(end), dfw_prev(dfw_end ? *dfw_end : NULL),
+		dfw_next(dfw_prev ? *dfw_prev : NULL), dfw_lock(NULL), dfw_args(p),
+		dfw_sav_number(sn), dfw_id(id), dfw_count(1), dfw_name(p, name),
+		dfw_package(p, package), dfw_ids(p)
+	{
+		// make previous element point to us
+		if (dfw_prev)
+		{
+			*dfw_prev = this;
+			// make next element (if present) to point to us
+			if (dfw_next)
+			{
+				dfw_next->dfw_prev = &dfw_next;
+			}
+		}
+	}
+
+	~DeferredWork()
+	{
+		// if we are linked
+		if (dfw_prev)
+		{
+			if (dfw_next)
+			{
+				// adjust previous pointer in next element ...
+				dfw_next->dfw_prev = dfw_prev;
+			}
+			// adjust next pointer in previous element
+			*dfw_prev = dfw_next;
+
+			// Adjust end marker of the list
+			if (*dfw_end == &dfw_next)
+			{
+				*dfw_end = dfw_prev;
+			}
+		}
+
+		for (DeferredWork** itr = dfw_args.begin(); itr < dfw_args.end(); ++itr)
+		{
+			delete *itr;
+		}
+
+		if (dfw_lock)
+		{
+			LCK_release(JRD_get_thread_data(), dfw_lock);
+			delete dfw_lock;
+		}
+	}
+
+	DeferredWork* findArg(dfw_t type) const
+	{
+		for (DeferredWork* const* itr = dfw_args.begin(); itr < dfw_args.end(); ++itr)
+		{
+			DeferredWork* const arg = *itr;
+
+			if (arg->dfw_type == type)
+			{
+				return arg;
+			}
+		}
+
+		return NULL;
+	}
+
+	DeferredWork** getNextPtr()
+	{
+		return &dfw_next;
+	}
+
+	DeferredWork* getNext() const
+	{
+		return dfw_next;
+	}
+
+	// hash interface
+	bool isEqual(const DeferredWork& work) const
+	{
+		if (dfw_type == work.dfw_type &&
+			dfw_id == work.dfw_id &&
+			dfw_name == work.dfw_name &&
+			dfw_package == work.dfw_package &&
+			dfw_sav_number == work.dfw_sav_number)
+		{
+			return true;
+		}
+		return false;
+	}
+
+	DeferredWork* get() { return this; }
+
+	static FB_SIZE_T hash(const DeferredWork& work, FB_SIZE_T hashSize)
+	{
+		const int nameLimit = 32;
+		char key[sizeof work.dfw_type + sizeof work.dfw_id + nameLimit];
+		memset(key, 0, sizeof key);
+		char* place = key;
+
+		memcpy(place, &work.dfw_type, sizeof work.dfw_type);
+		place += sizeof work.dfw_type;
+
+		memcpy(place, &work.dfw_id, sizeof work.dfw_id);
+		place += sizeof work.dfw_id;
+
+		work.dfw_name.copyTo(place, nameLimit);	// It's good enough to have first 32 bytes
+
+		return DefaultHash<DeferredWork>::hash(key, sizeof key, hashSize);
+	}
+};
+
+class DfwSavePoint;
+
+typedef HashTable<
+	DfwSavePoint,
+	DEFAULT_HASH_SIZE,
+	SavNumber,
+	DfwSavePoint
+> DfwSavePointHash;
+
+class DfwSavePoint : public DfwSavePointHash::Entry
+{
+	SavNumber dfw_sav_number;
+
+public:
+	DfwHash hash; // Deferred work items posted under this savepoint
+
+	explicit DfwSavePoint(SavNumber number) : dfw_sav_number(number) { }
+
+	// hash interface
+	bool isEqual(const SavNumber& number) const
+	{
+		return dfw_sav_number == number;
+	}
+
+	DfwSavePoint* get() { return this; }
+
+	static SavNumber generate(const DfwSavePoint& item)
+	{
+		return item.dfw_sav_number;
+	}
+};
+
+// List of deferred work items (with per-savepoint break-down)
+class DeferredJob
+{
+public:
+	DfwSavePointHash hash; // Hash set of savepoints, that posted work
+	DeferredWork* work;
+	DeferredWork** end;
+
+	DeferredJob() : work(NULL), end(&work) { }
+};
+
+
+// Lock relation with protected_read level or raise existing relation lock
+// to this level to ensure nobody can write to this relation.
+// Used when new index is built.
+// releaseLock set to true if there was no existing lock before
+class ProtectRelations
+{
+public:
+	ProtectRelations(thread_db* tdbb, jrd_tra* transaction) :
+		m_tdbb(tdbb),
+		m_transaction(transaction),
+		m_locks()
+	{
+	}
+
+	ProtectRelations(thread_db* tdbb, jrd_tra* transaction, Cached::Relation* relation) :
+		m_tdbb(tdbb),
+		m_transaction(transaction),
+		m_locks()
+	{
+		addRelation(relation);
+		lock();
+	}
+
+	~ProtectRelations()
+	{
+		unlock();
+	}
+
+	void addRelation(Cached::Relation* relation)
+	{
+		FB_SIZE_T pos;
+		if (!m_locks.find(relation->getId(), pos))
+			m_locks.insert(pos, relLock(relation));
+	}
+
+	bool exists(USHORT rel_id) const
+	{
+		FB_SIZE_T pos;
+		return m_locks.find(rel_id, pos);
+	}
+
+	void lock()
+	{
+		for (auto& item : m_locks)
+			item.takeLock(m_tdbb, m_transaction);
+	}
+
+	void unlock()
+	{
+		for (auto& item : m_locks)
+			item.releaseLock(m_tdbb, m_transaction);
+	}
+
+private:
+	struct relLock
+	{
+		relLock(Cached::Relation* relation = nullptr) :
+			m_relation(relation),
+			m_lock(NULL),
+			m_release(false)
+		{
+		}
+
+		relLock(MemoryPool&, const Jrd::ProtectRelations::relLock& l) :
+			m_relation(l.m_relation),
+			m_lock(l.m_lock),
+			m_release(l.m_release)
+		{
+			fb_assert(!m_lock);
+		}
+
+		void takeLock(thread_db* tdbb, jrd_tra* transaction);
+		void releaseLock(thread_db* tdbb, jrd_tra* transaction);
+
+		static const USHORT generate(const relLock& item)
+		{
+			return item.m_relation->getId();
+		}
+
+		Cached::Relation* m_relation;
+		Lock* m_lock;
+		bool m_release;
+	};
+
+	thread_db* m_tdbb;
+	jrd_tra* m_transaction;
+	SortedArray<relLock, InlineStorage<relLock, 2>, USHORT, relLock> m_locks;
+};
+
+} // namespace Jrd
+
+/*==================================================================
+ *
+ * NOTE:
+ *
+ *	The following functions required the same number of
+ *	parameters to be passed.
+ *
+ *==================================================================
+ */
+static bool add_file(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool add_shadow(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_shadow(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool compute_security(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool modify_index(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool create_index(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_index(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool create_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool scan_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool create_trigger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_trigger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool modify_trigger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool create_collation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_collation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_exception(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool set_generator(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_generator(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool create_field(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_field(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool modify_field(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_global(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_parameter(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_rfr(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool make_version(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool add_difference(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool delete_difference(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool begin_backup(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool end_backup(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool check_not_null(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool store_view_context_type(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool user_management(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool drop_package_header(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool modify_package_header(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool drop_package_body(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool grant_privileges(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool db_crypt(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool set_linger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool clear_cache(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool change_repl_state(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static string remove_icu_info_from_attributes(const string&, const string&);
+
+// ----------------------------------------------------------------
+
+static bool create_expression_index(thread_db* tdbb, SSHORT phase, DeferredWork* work,
+	jrd_tra* transaction);
+static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
+	const MetaName& fieldName);
+static void check_dependencies(thread_db*, const TEXT*, const TEXT*, const TEXT*, int, jrd_tra*);
+static void check_filename(const Firebird::string&, bool);
+static void cleanup_index_creation(thread_db*, DeferredWork*, jrd_tra*);
+static bool formatsAreEqual(const Format*, const Format*);
+static bool	find_depend_in_dfw(thread_db*, TEXT*, USHORT, USHORT, jrd_tra*);
+static void get_array_desc(thread_db*, const TEXT*, Ods::InternalArrayDesc*);
+static void get_trigger_dependencies(DeferredWork*, bool, jrd_tra*);
+static Format*	make_format(thread_db*, jrd_rel*, USHORT *, TemporaryField*);
+static void put_summary_blob(thread_db* tdbb, blb*, enum rsr_t, bid*, jrd_tra*);
+static void put_summary_record(thread_db* tdbb, blb*, enum rsr_t, const UCHAR*, ULONG);
+static void	setup_array(thread_db*, blb*, const TEXT*, USHORT, TemporaryField*);
+//static blb*	setup_triggers(thread_db*, jrd_rel*, bool, TrigVectorPtr*, blb*);
+//static void	setup_trigger_details(thread_db*, jrd_rel*, blb*, TrigVectorPtr*, const TEXT*, bool);
+static bool validate_text_type (thread_db*, const TemporaryField*);
+
+static void check_partners(thread_db*, const USHORT);
+static string get_string(const dsc* desc);
+static void setupSpecificCollationAttributes(thread_db*, jrd_tra*, const USHORT, const char*, bool);
+
+static ISC_STATUS getErrorCodeByObjectType(int obj_type)
+{
+	ISC_STATUS err_code = 0;
+
+	switch (obj_type)
+	{
+	case obj_relation:
+		err_code = isc_table_name;
+		break;
+	case obj_view:
+		err_code = isc_view_name;
+		break;
+	case obj_procedure:
+		err_code = isc_proc_name;
+		break;
+	case obj_collation:
+		err_code = isc_collation_name;
+		break;
+	case obj_exception:
+		err_code = isc_exception_name;
+		break;
+	case obj_field:
+		err_code = isc_domain_name;
+		break;
+	case obj_generator:
+		err_code = isc_generator_name;
+		break;
+	case obj_udf:
+		err_code = isc_udf_name;
+		break;
+	case obj_index:
+		err_code = isc_index_name;
+		break;
+	case obj_package_header:
+	case obj_package_body:
+		err_code = isc_package_name;
+		break;
+	default:
+		fb_assert(false);
+	}
+
+	return err_code;
+}
+
+static void raiseDatabaseInUseError(bool timeout)
+{
+	if (timeout)
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_lock_timeout) <<
+				 Arg::Gds(isc_obj_in_use) << Arg::Str("DATABASE"));
+	}
+
+	ERR_post(Arg::Gds(isc_no_meta_update) <<
+			 Arg::Gds(isc_obj_in_use) << Arg::Str("DATABASE"));
+}
+
+static void raiseObjectInUseError(const string& obj_type, const string& obj_name)
+{
+	string name;
+	name.printf("%s \"%s\"", obj_type.c_str(), obj_name.c_str());
+
+	ERR_post(Arg::Gds(isc_no_meta_update) <<
+			 Arg::Gds(isc_obj_in_use) << Arg::Str(name));
+}
+
+static void raiseRelationInUseError(const Cached::Relation* relation)
+{
+	const string obj_type =
+		relation->isView() ? "VIEW" : "TABLE";
+	const string obj_name = relation->c_name();
+
+	raiseObjectInUseError(obj_type, obj_name);
+}
+
+/*
+static void raiseRoutineInUseError(const RoutinePermanent* routine, const QualifiedName& name)
+{
+	const string obj_type =
+		(routine->getObjectType() == obj_udf) ? "FUNCTION" : "PROCEDURE";
+	const string obj_name = routine->getName().toString();
+
+	raiseObjectInUseError(obj_type, obj_name.hasData() ? obj_name : name.toString());
+}
+*/
+
+static void raiseTooManyVersionsError(const int obj_type, const string& obj_name)
+{
+	ERR_post(Arg::Gds(isc_no_meta_update) <<
+			 Arg::Gds(getErrorCodeByObjectType(obj_type)) << Arg::Str(obj_name) <<
+			 Arg::Gds(isc_version_err));
+}
+
+void Jrd::ProtectRelations::relLock::takeLock(thread_db* tdbb, jrd_tra* transaction)
+{
+	m_lock = RLCK_transaction_relation_lock(tdbb, transaction, m_relation);
+
+	m_release = (m_lock->lck_logical == LCK_none);
+
+	bool inUse = false;
+
+	if (!m_release)
+	{
+		if ((m_lock->lck_logical < LCK_PR) &&
+			!LCK_convert(tdbb, m_lock, LCK_PR, transaction->getLockWait()))
+		{
+			inUse = true;
+		}
+	}
+	else
+	{
+		if (!LCK_lock(tdbb, m_lock, LCK_PR, transaction->getLockWait()))
+			inUse = true;
+	}
+
+	if (inUse)
+		raiseRelationInUseError(m_relation);
+}
+
+
+void Jrd::ProtectRelations::relLock::releaseLock(thread_db* tdbb, jrd_tra* transaction)
+{
+	if (!m_release)
+		return;
+
+	vec<Lock*>* vector = transaction->tra_relation_locks;
+	if (vector)
+	{
+		vec<Lock*>::iterator lock = vector->begin();
+		for (ULONG i = 0; i < vector->count(); ++i, ++lock)
+		{
+			if (*lock == m_lock)
+			{
+				LCK_release(tdbb, m_lock);
+				*lock = NULL;
+				break;
+			}
+		}
+	}
+}
+
+static const UCHAR nonnull_validation_blr[] =
+{
+	blr_version5,
+	blr_not,
+	blr_missing,
+	blr_fid, 0, 0, 0,
+	blr_eoc
+};
+
+typedef bool (*dfw_task_routine) (thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+struct deferred_task
+{
+	enum dfw_t task_type;
+	dfw_task_routine task_routine;
+};
+
+static const deferred_task task_table[] =
+{
+/*
+	{ dfw_add_file, add_file },
+	{ dfw_add_shadow, add_shadow },
+	{ dfw_delete_index, modify_index },
+	{ dfw_delete_rfr, delete_rfr },
+	{ dfw_delete_relation, delete_relation },
+	{ dfw_delete_shadow, delete_shadow },
+	{ dfw_delete_shadow_nodelete, delete_shadow },
+*/
+	{ dfw_create_field, create_field },
+	{ dfw_delete_field, delete_field },
+	{ dfw_modify_field, modify_field },
+/*
+	{ dfw_delete_global, delete_global },
+	{ dfw_create_relation, create_relation },
+	{ dfw_update_format, make_version },
+	{ dfw_scan_relation, scan_relation },
+	{ dfw_compute_security, compute_security },
+	{ dfw_create_index, modify_index },
+	{ dfw_create_expression_index, modify_index },
+	{ dfw_grant, grant_privileges },
+	{ dfw_create_trigger, create_trigger },
+	{ dfw_delete_trigger, delete_trigger },
+	{ dfw_modify_trigger, modify_trigger },
+	{ dfw_drop_package_header, drop_package_header },	// packages should be before procedures
+	{ dfw_modify_package_header, modify_package_header },	// packages should be before procedures
+	{ dfw_drop_package_body, drop_package_body },		// packages should be before procedures
+	{ dfw_create_procedure, ProcedureManager::createRoutine },
+	{ dfw_create_function, FunctionManager::createRoutine },
+	{ dfw_delete_procedure, ProcedureManager::deleteRoutine },
+	{ dfw_delete_function, FunctionManager::deleteRoutine },
+	{ dfw_modify_procedure, ProcedureManager::modifyRoutine },
+	{ dfw_modify_function, FunctionManager::modifyRoutine },
+	{ dfw_delete_prm, delete_parameter },
+	{ dfw_create_collation, create_collation },
+	{ dfw_delete_collation, delete_collation },
+	{ dfw_delete_exception, delete_exception },
+	{ dfw_set_generator, set_generator },
+	{ dfw_delete_generator, delete_generator },
+	{ dfw_add_difference, add_difference },
+	{ dfw_delete_difference, delete_difference },
+	{ dfw_begin_backup, begin_backup },
+	{ dfw_end_backup, end_backup },
+	{ dfw_user_management, user_management },
+	{ dfw_check_not_null, check_not_null },
+	{ dfw_store_view_context_type, store_view_context_type },
+	{ dfw_db_crypt, db_crypt },
+	{ dfw_set_linger, set_linger },
+	{ dfw_clear_cache, clear_cache },
+	{ dfw_change_repl_state, change_repl_state },
+*/
+	{ dfw_null, NULL }
+};
+
+
 USHORT DFW_assign_index_type(thread_db* tdbb, const MetaName& name, SSHORT field_type,
 	TTypeId ttype)
 {
@@ -225,26 +808,307 @@ USHORT DFW_assign_index_type(thread_db* tdbb, const MetaName& name, SSHORT field
 
 
 void DFW_delete_deferred( jrd_tra* transaction, SavNumber sav_number)
-{ }
+{
+/**************************************
+ *
+ *	D F W _ d e l e t e _ d e f e r r e d
+ *
+ **************************************
+ *
+ * Functional description
+ *	Get rid of work deferred that was to be done at
+ *	COMMIT time as the statement has been rolled back.
+ *
+ *	if (sav_number == -1), then  remove all entries.
+ *
+ **************************************/
+
+	// If there is no deferred work, just return
+
+	if (!transaction->tra_deferred_job) {
+		return;
+	}
+
+	// Remove deferred work and events which are to be rolled back
+
+	if (sav_number == -1)
+	{
+		DeferredWork* work;
+		while ((work = transaction->tra_deferred_job->work))
+		{
+			delete work;
+		}
+		transaction->tra_flags &= ~TRA_deferred_meta;
+		return;
+	}
+
+	DfwSavePoint* h = transaction->tra_deferred_job->hash.lookup(sav_number);
+	if (!h)
+	{
+		return;
+	}
+
+	for (DfwHash::iterator i(h->hash); i.hasData();)
+	{
+		DeferredWork* work(i);
+		++i;
+		delete work;
+	}
+}
+
 
 // Get (by reference) the array of IDs present in a DeferredWork.
 SortedArray<int>& DFW_get_ids(DeferredWork* work)
 {
-	static SortedArray<int> d;
-	return d;
+	return work->dfw_ids;
 }
 
 
 void DFW_merge_work(jrd_tra* transaction, SavNumber old_sav_number, SavNumber new_sav_number)
-{ }
+{
+/**************************************
+ *
+ *	D F W _ m e r g e _ w o r k
+ *
+ **************************************
+ *
+ * Functional description
+ *	Merge the deferred work with the previous level.  This will
+ *	be called only if there is a previous level.
+ *
+ **************************************/
+
+	// If there is no deferred work, just return
+
+	DeferredJob *job = transaction->tra_deferred_job;
+	if (! job)
+		return;
+
+	// Check to see if work is already posted
+
+	DfwSavePoint* oldSp = job->hash.lookup(old_sav_number);
+	if (!oldSp)
+		return;
+
+	DfwSavePoint* newSp = job->hash.lookup(new_sav_number);
+
+	// Decrement the save point number in the deferred block
+	// i.e. merge with the previous level.
+
+	for (DfwHash::iterator itr(oldSp->hash); itr.hasData();)
+	{
+		if (! newSp)
+		{
+			newSp = FB_NEW_POOL(*transaction->tra_pool) DfwSavePoint(new_sav_number);
+			job->hash.add(newSp);
+		}
+
+		DeferredWork* work(itr);
+		++itr;
+		oldSp->hash.remove(*work); // After ++itr
+		work->dfw_sav_number = new_sav_number;
+
+		DeferredWork* newWork = newSp->hash.lookup(*work);
+
+		if (!newWork)
+			newSp->hash.add(work);
+		else
+		{
+			SortedArray<int>& workIds = work->dfw_ids;
+
+			for (SortedArray<int>::iterator itr2(workIds.begin()); itr2 != workIds.end(); ++itr2)
+			{
+				int n = *itr2;
+				if (!newWork->dfw_ids.exist(n))
+					newWork->dfw_ids.add(n);
+			}
+
+			newWork->dfw_count += work->dfw_count;
+			delete work;
+		}
+	}
+
+	job->hash.remove(old_sav_number);
+	delete oldSp;
+}
+
 
 void DFW_perform_work(thread_db* tdbb, jrd_tra* transaction)
 {
+/**************************************
+ *
+ *	D F W _ p e r f o r m _ w o r k
+ *
+ **************************************
+ *
+ * Functional description
+ *	Do work deferred to COMMIT time 'cause that time has
+ *	come.
+ *
+ **************************************/
+
+	// If no deferred work or it's all deferred event posting don't bother
+
+	if (!transaction->tra_deferred_job || !(transaction->tra_flags & TRA_deferred_meta))
+	{
+		return;
+	}
+
+	SET_TDBB(tdbb);
+
+	tdbb->getAttachment()->att_dsql_instance->dbb_statement_cache->purgeAllAttachments(tdbb);
+
+	Jrd::ContextPoolHolder context(tdbb, transaction->tra_pool);
+
+	/* Loop for as long as any of the deferred work routines says that it has
+	more to do.  A deferred work routine should be able to deal with any
+	value of phase, either to say that it wants to be called again in the
+	next phase (by returning true) or that it has nothing more to do in this
+	or later phases (by returning false). By convention, phase 0 has been
+	designated as the cleanup phase. If any non-zero phase punts, then phase 0
+	is executed for all deferred work blocks to cleanup work-in-progress. */
+
+	bool dump_shadow = false;
+	SSHORT phase = 1;
+	bool more;
+	FbLocalStatus err_status;
+
+	do
+	{
+		more = false;
+		try {
+			const auto flags = (TDBB_dont_post_dfw | TDBB_use_db_page_space |
+				(phase == 0 ? TDBB_dfw_cleanup : 0));
+			AutoSetRestoreFlag<ULONG> dfwFlags(&tdbb->tdbb_flags, flags, true);
+
+			for (const deferred_task* task = task_table; task->task_type != dfw_null; ++task)
+			{
+				for (DeferredWork* work = transaction->tra_deferred_job->work;
+					work; work = work->getNext())
+				{
+					if (work->dfw_type == task->task_type)
+					{
+						if (work->dfw_type == dfw_add_shadow)
+						{
+							dump_shadow = true;
+						}
+						if ((*task->task_routine)(tdbb, phase, work, transaction))
+						{
+							more = true;
+						}
+					}
+				}
+			}
+
+			if (!phase)
+			{
+				fb_utils::copyStatus(tdbb->tdbb_status_vector, &err_status);
+				ERR_punt();
+			}
+
+			++phase;
+		}
+		catch (const Firebird::Exception& ex)
+		{
+			// Do any necessary cleanup
+			if (!phase)
+			{
+				ex.stuffException(tdbb->tdbb_status_vector);
+				ERR_punt();
+			}
+			else
+				ex.stuffException(&err_status);
+
+			phase = 0;
+			more = true;
+		}
+
+	} while (more);
+
+	// Remove deferred work blocks so that system transaction and
+	// commit retaining transactions don't re-execute them. Leave
+	// events to be posted after commit
+
+	for (DeferredWork* itr = transaction->tra_deferred_job->work; itr;)
+	{
+		DeferredWork* work = itr;
+		itr = itr->getNext();
+
+		switch (work->dfw_type)
+		{
+		case dfw_post_event:
+		case dfw_delete_shadow:
+			break;
+
+		default:
+			delete work;
+			break;
+		}
+	}
+
+	transaction->tra_flags &= ~TRA_deferred_meta;
+
+	if (dump_shadow) {
+		SDW_dump_pages(tdbb);
+	}
 }
 
 
 void DFW_perform_post_commit_work(jrd_tra* transaction)
 {
+/**************************************
+ *
+ *	D F W _ p e r f o r m _ p o s t _ c o m m i t _ w o r k
+ *
+ **************************************
+ *
+ * Functional description
+ *	Perform any post commit work
+ *	1. Post any pending events.
+ *	2. Unlink shadow files for dropped shadows
+ *
+ *	Then, delete it from chain of pending work.
+ *
+ **************************************/
+
+	if (!transaction->tra_deferred_job)
+		return;
+
+	bool pending_events = false;
+
+	Database* dbb = GET_DBB();
+
+	for (DeferredWork* itr = transaction->tra_deferred_job->work; itr;)
+	{
+		DeferredWork* work = itr;
+		itr = itr->getNext();
+
+		switch (work->dfw_type)
+		{
+		case dfw_post_event:
+			EventManager::init(transaction->tra_attachment);
+
+			dbb->eventManager()->postEvent(work->dfw_name.length(),
+										   work->dfw_name.c_str(),
+										   work->dfw_count);
+
+			delete work;
+			pending_events = true;
+			break;
+		case dfw_delete_shadow:
+			if (work->dfw_name.hasData())
+				unlink(work->dfw_name.c_str());
+			delete work;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (pending_events)
+	{
+		dbb->eventManager()->deliverEvents();
+	}
 }
 
 
@@ -262,15 +1126,78 @@ DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const dsc* de
  *
  **************************************/
 
-	return DFW_post_work(transaction, type, "", id, package);
+	return DFW_post_work(transaction, type, get_string(desc), id, package);
 }
 
 
 DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const string& name, USHORT id,
 	const MetaName& package)
 {
+/**************************************
+ *
+ *	D F W _ p o s t _ w o r k
+ *
+ **************************************
+ *
+ * Functional description
+ *	Post work to be deferred to commit time.
+ *
+ **************************************/
 
-	return NULL;
+	// get the current save point number
+
+	const SavNumber sav_number = transaction->tra_save_point ?
+		transaction->tra_save_point->getNumber() : 0;
+
+	// initialize transaction if needed
+
+	DeferredJob *job = transaction->tra_deferred_job;
+	if (! job)
+	{
+		transaction->tra_deferred_job = job = FB_NEW_POOL(*transaction->tra_pool) DeferredJob;
+	}
+
+	// Check to see if work is already posted
+
+	DfwSavePoint* sp = job->hash.lookup(sav_number);
+	if (! sp)
+	{
+		sp = FB_NEW_POOL(*transaction->tra_pool) DfwSavePoint(sav_number);
+		job->hash.add(sp);
+	}
+
+	DeferredWork tmp(AutoStorage::getAutoMemoryPool(), 0, type, id, sav_number, name, package);
+	DeferredWork* work = sp->hash.lookup(tmp);
+	if (work)
+	{
+		work->dfw_count++;
+		return work;
+	}
+
+	// Not already posted, so do so now.
+
+	work = FB_NEW_POOL(*transaction->tra_pool)
+		DeferredWork(*transaction->tra_pool, &(job->end), type, id, sav_number, name, package);
+	job->end = work->getNextPtr();
+	fb_assert(!(*job->end));
+	sp->hash.add(work);
+
+	switch (type)
+	{
+	case dfw_user_management:
+	case dfw_set_generator:
+		transaction->tra_flags |= TRA_deferred_meta;
+		// fall down ...
+	case dfw_post_event:
+		if (transaction->tra_save_point)
+			transaction->tra_save_point->forceDeferredWork();
+		break;
+	default:
+		transaction->tra_flags |= TRA_deferred_meta;
+		break;
+	}
+
+	return work;
 }
 
 
@@ -287,20 +1214,230 @@ DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const
  *	Post an argument for work to be deferred to commit time.
  *
  **************************************/
-	return NULL;
+	return DFW_post_work_arg(transaction, work, desc, id, work->dfw_type);
 }
 
 
 DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const dsc* desc,
 	USHORT id, Jrd::dfw_t type)
 {
-	return NULL;
+/**************************************
+ *
+ *	D F W _ p o s t _ w o r k _ a r g
+ *
+ **************************************
+ *
+ * Functional description
+ *	Post an argument for work to be deferred to commit time.
+ *
+ **************************************/
+	const Firebird::string name = get_string(desc);
+
+	DeferredWork* arg = work->findArg(type);
+
+	if (! arg)
+	{
+		arg = FB_NEW_POOL(*transaction->tra_pool)
+			DeferredWork(*transaction->tra_pool, 0, type, id, 0, name, "");
+		work->dfw_args.add(arg);
+	}
+
+	return arg;
 }
 
 
 void DFW_update_index(const TEXT* name, USHORT id, const SelectivityList& selectivity,
 	jrd_tra* transaction)
 {
+/**************************************
+ *
+ *	D F W _ u p d a t e _ i n d e x
+ *
+ **************************************
+ *
+ * Functional description
+ *	Update information in the index relation after creation
+ *	of the index.
+ *
+ **************************************/
+	thread_db* tdbb = JRD_get_thread_data();
+
+	AutoCacheRequest request(tdbb, irq_m_index_seg, IRQ_REQUESTS);
+
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+		SEG IN RDB$INDEX_SEGMENTS WITH SEG.RDB$INDEX_NAME EQ name
+			SORTED BY SEG.RDB$FIELD_POSITION
+	{
+		MODIFY SEG USING
+			SEG.RDB$STATISTICS = selectivity[SEG.RDB$FIELD_POSITION];
+		END_MODIFY
+	}
+	END_FOR
+
+	request.reset(tdbb, irq_m_index, IRQ_REQUESTS);
+
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+		IDX IN RDB$INDICES WITH IDX.RDB$INDEX_NAME EQ name
+	{
+		MODIFY IDX USING
+			IDX.RDB$INDEX_ID = id + 1;
+			IDX.RDB$STATISTICS = selectivity.back();
+		END_MODIFY
+	}
+	END_FOR
+}
+
+
+//#define DEBUG_REBUILD_INTL
+
+namespace DbgRebuildIntl {
+
+#ifdef DEBUG_REBUILD_INTL
+static int ind = 0;
+#endif
+
+void out(const char* format, ...)
+{
+#ifdef DEBUG_REBUILD_INTL
+	for (int n = 0; n < ind; ++n)
+		putc(' ', stderr);
+
+	va_list params;
+	va_start(params, format);
+	vfprintf(stderr, format, params);
+	va_end(params);
+#endif
+}
+
+class Lvl
+{
+public:
+	Lvl()
+	{
+#ifdef DEBUG_REBUILD_INTL
+		ind += 2;
+#endif
+	}
+
+	~Lvl()
+	{
+#ifdef DEBUG_REBUILD_INTL
+		ind -= 2;
+#endif
+	}
+};
+
+} // namespace DbgRebuildIntl
+
+
+static string remove_icu_info_from_attributes(const string& charsetName, const string& specificAttributes)
+{
+	DbgRebuildIntl::Lvl debLevel;
+
+	Firebird::AutoPtr<charset> cs(FB_NEW charset);
+	memset(cs, 0, sizeof(*cs));
+
+	if (IntlManager::lookupCharSet(charsetName, cs))
+	{
+		DbgRebuildIntl::out("Remove_icu_info_from_attributes for charset '%s'\n", charsetName.c_str());
+
+		AutoPtr<Jrd::CharSet> charSet(Jrd::CharSet::createInstance(*getDefaultMemoryPool(), 0, cs));
+		IntlUtil::SpecificAttributesMap map;
+		if (IntlUtil::parseSpecificAttributes(charSet, specificAttributes.length(),
+			(const UCHAR*) specificAttributes.begin(), &map))
+		{
+			if (!map.get("ICU-VERSION"))
+				abort();
+			map.remove("ICU-VERSION");
+			if (map.get("ICU-VERSION"))
+				abort();
+
+			map.remove("COLL-VERSION");
+			return IntlUtil::generateSpecificAttributes(charSet, map);
+		}
+	}
+	else
+		DbgRebuildIntl::out("Remove_icu_info_from_attributes - NO CHARSET '%s'\n", charsetName.c_str());
+
+	return specificAttributes;
+}
+
+
+static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transaction,
+	const USHORT charSetId, const char* collationName, bool dropIcuInfo)
+{
+/**************************************
+ *
+ *	setupSpecificCollationAttributes
+ *
+ **************************************
+ *
+ * Functional description
+ *
+ **************************************/
+	DbgRebuildIntl::Lvl debLevel;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* const attachment = tdbb->getAttachment();
+	AutoCacheRequest handle(tdbb, drq_m_coll_attrs, DYN_REQUESTS);
+
+	DbgRebuildIntl::out("setupSpecificCollationAttributes: dropIcuInfo=%d\n", dropIcuInfo);
+
+	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+		COLL IN RDB$COLLATIONS
+		CROSS CS IN RDB$CHARACTER_SETS
+			OVER RDB$CHARACTER_SET_ID
+		WITH COLL.RDB$COLLATION_NAME EQ collationName AND
+			 COLL.RDB$CHARACTER_SET_ID EQ charSetId
+	{
+		SLONG length = 0;
+		HalfStaticArray<UCHAR, BUFFER_SMALL> buffer;
+
+		if (!COLL.RDB$SPECIFIC_ATTRIBUTES.NULL)
+		{
+			blb* blob = blb::open(tdbb, transaction, &COLL.RDB$SPECIFIC_ATTRIBUTES);
+			length = blob->blb_length + 10;
+			length = blob->BLB_get_data(tdbb, buffer.getBuffer(length), length);
+		}
+
+		const string specificAttributes((const char*) buffer.begin(), length);
+		DbgRebuildIntl::out("Try collation %s with %s\n", collationName, specificAttributes.c_str());
+
+		MetaName charsetName(CS.RDB$CHARACTER_SET_NAME);
+		string icuLessAttributes = dropIcuInfo ?
+			remove_icu_info_from_attributes(charsetName.c_str(), specificAttributes) : specificAttributes;
+		DbgRebuildIntl::out("dropIcuInfo %d icuLessAttributes %s\n", dropIcuInfo, icuLessAttributes.c_str());
+		string newSpecificAttributes;
+
+		// ASF: If setupCollationAttributes fail we store the original
+		// attributes. This should be what we want for new databases
+		// and restores. CREATE COLLATION will fail in DYN.
+		if (IntlManager::setupCollationAttributes(
+				fb_utils::exact_name(COLL.RDB$BASE_COLLATION_NAME.NULL ?
+					COLL.RDB$COLLATION_NAME : COLL.RDB$BASE_COLLATION_NAME),
+				fb_utils::exact_name(CS.RDB$CHARACTER_SET_NAME),
+				icuLessAttributes, newSpecificAttributes) &&
+			newSpecificAttributes != specificAttributes) // if nothing changed, we do nothing
+		{
+			DbgRebuildIntl::out("  Recreate collation %s\n", collationName);
+
+			MODIFY COLL USING
+				if (newSpecificAttributes.isEmpty())
+					COLL.RDB$SPECIFIC_ATTRIBUTES.NULL = TRUE;
+				else
+				{
+					COLL.RDB$SPECIFIC_ATTRIBUTES.NULL = FALSE;
+					attachment->storeMetaDataBlob(tdbb, transaction,
+						&COLL.RDB$SPECIFIC_ATTRIBUTES, newSpecificAttributes);
+				}
+			END_MODIFY
+		}
+		else if (newSpecificAttributes == specificAttributes)
+			DbgRebuildIntl::out("  nothing changed\n");
+		else
+			DbgRebuildIntl::out("  setupCollationAttributes() failed\n");
+	}
+	END_FOR
 }
 
 
@@ -319,4 +1456,714 @@ void DFW_reset_icu(thread_db* tdbb)
  *	Next, it's using some DFW code.
  *
  **************************************/
+	SET_TDBB(tdbb);
+
+	jrd_tra* transaction = NULL;
+	jrd_tra* oldTransaction = tdbb->getTransaction();
+
+	try
+	{
+		Attachment* attachment = tdbb->getAttachment();
+		transaction = TRA_start(tdbb, 0, 0);
+		tdbb->setTransaction(transaction);
+
+		SortedArray<MetaName> indices;
+		ProtectRelations tables(tdbb, transaction);
+
+		// Get list of affected indices & tables
+		const char* indSql =
+			"select ind.RDB$INDEX_NAME, rel.RDB$RELATION_ID,"
+			" coalesce(coll.RDB$BASE_COLLATION_NAME, coll.RDB$COLLATION_NAME), cs.RDB$CHARACTER_SET_NAME, "
+			" coll.RDB$SPECIFIC_ATTRIBUTES "
+			"from RDB$INDICES ind "
+			"join RDB$RELATIONS rel on ind.RDB$RELATION_NAME = rel.RDB$RELATION_NAME "
+			"join RDB$INDEX_SEGMENTS seg on ind.RDB$INDEX_NAME = seg.RDB$INDEX_NAME "
+			"join RDB$RELATION_FIELDS rfl on rfl.RDB$RELATION_NAME = ind.RDB$RELATION_NAME "
+			" and rfl.RDB$FIELD_NAME = seg.RDB$FIELD_NAME "
+			"join RDB$FIELDS fld on rfl.RDB$FIELD_SOURCE = fld.RDB$FIELD_NAME "
+			"join RDB$COLLATIONS coll on fld.RDB$CHARACTER_SET_ID = coll.RDB$CHARACTER_SET_ID "
+			" and coalesce(rfl.RDB$COLLATION_ID, fld.RDB$COLLATION_ID) = coll.RDB$COLLATION_ID "
+			"join RDB$CHARACTER_SETS cs on coll.RDB$CHARACTER_SET_ID = cs.RDB$CHARACTER_SET_ID "
+			"where coll.RDB$SPECIFIC_ATTRIBUTES like '%COLL-VERSION=%' "
+			" and coalesce(ind.RDB$INDEX_INACTIVE, 0) = 0 "
+			" and coalesce(rel.RDB$RELATION_TYPE, 0) = 0 "		// rel_persistent
+			"group by ind.RDB$INDEX_NAME, rel.RDB$RELATION_ID, coll.RDB$BASE_COLLATION_NAME, "
+			" coll.RDB$COLLATION_NAME, cs.RDB$CHARACTER_SET_NAME, coll.RDB$SPECIFIC_ATTRIBUTES";
+
+		{	// scope
+			AutoPreparedStatement ps(attachment->prepareStatement(tdbb, transaction, indSql));
+			AutoResultSet rs(ps->executeQuery(tdbb, transaction));
+			while(rs->fetch(tdbb))
+			{
+				MetaName t(rs->getMetaName(tdbb, 1));
+
+				const MetaName collationName(rs->getMetaName(tdbb, 3));
+				const MetaName charsetName(rs->getMetaName(tdbb, 4));
+				const string specificAttributes(rs->getString(tdbb, 5));
+				string icuLessAttributes = remove_icu_info_from_attributes(charsetName.c_str(), specificAttributes);
+				DbgRebuildIntl::out("check index %s SA:'%s' ILA:'%s'\n",
+					t.c_str(), specificAttributes.c_str(), icuLessAttributes.c_str());
+				string newSpecificAttributes;
+				if (!IntlManager::setupCollationAttributes(collationName.c_str(),
+						charsetName.c_str(), icuLessAttributes, newSpecificAttributes))
+				{
+					DbgRebuildIntl::out("setupCollationAttributes failed for %s\n", collationName.c_str());
+					continue;
+				}
+				DbgRebuildIntl::out("newSpecificAttributes '%s'\n", newSpecificAttributes.c_str());
+				if (newSpecificAttributes == specificAttributes)
+					continue;
+
+				DbgRebuildIntl::out("Add index\n");
+				if (!indices.exist(t))
+					indices.add(rs->getMetaName(tdbb, 1));
+
+				USHORT rel_id = rs->getInt(tdbb, 2);
+				if (!tables.exists(rel_id))
+				{
+					auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE);
+					if (relation)
+						tables.addRelation(relation);
+				}
+			}
+		}
+
+		DbgRebuildIntl::out("locking tables\n");
+
+		// Lock the tables
+		tables.lock();
+
+		// Change collation's attributes
+		const char* collSql =
+			"select coll.RDB$COLLATION_NAME, coll.RDB$CHARACTER_SET_ID from RDB$COLLATIONS coll "
+			"where coll.RDB$SPECIFIC_ATTRIBUTES like '%COLL-VERSION=%'";
+		{	// scope
+			AutoPreparedStatement ps(attachment->prepareStatement(tdbb, transaction, collSql));
+			AutoResultSet rs(ps->executeQuery(tdbb, transaction));
+			while(rs->fetch(tdbb))
+			{
+				MetaName collName(rs->getMetaName(tdbb, 1));
+				const USHORT charSetId(rs->getSmallInt(tdbb, 2));
+
+				setupSpecificCollationAttributes(tdbb, transaction, charSetId, collName.c_str(), true);
+			}
+		}
+
+		// Reactivate indices
+		{	// scope
+			for (MetaName* idx = indices.begin(); idx != indices.end(); ++idx)
+			{
+				AutoRequest request;
+
+				FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+					IDX IN RDB$INDICES
+					WITH IDX.RDB$INDEX_NAME EQ idx->c_str()
+				{
+					MODIFY IDX
+						DbgRebuildIntl::out("Re-activate index %s\n", idx->c_str());
+						IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
+						IDX.RDB$INDEX_INACTIVE = FALSE;
+					END_MODIFY
+				}
+				END_FOR
+			}
+		}
+
+		// Commit
+		TRA_commit(tdbb, transaction, false);
+		transaction = NULL;
+		tdbb->setTransaction(oldTransaction);
+	}
+	catch (const Firebird::Exception&)
+	{
+		if (transaction)
+		{
+			TRA_rollback(tdbb, transaction, false, true);
+		}
+		tdbb->setTransaction(oldTransaction);
+
+		throw;
+	}
 }
+
+
+static string get_string(const dsc* desc)
+{
+/**************************************
+ *
+ *  g e t _ s t r i n g
+ *
+ **************************************
+ *
+ * Get string for a given descriptor.
+ *
+ **************************************/
+	const char* str;
+	VaryStr<MAXPATHLEN> temp;// Must hold largest metadata field or filename
+
+	if (!desc)
+	{
+		return string();
+	}
+
+	// Find the actual length of the string, searching until the claimed
+	// end of the string, or the terminating \0, whichever comes first.
+
+	USHORT length = MOV_make_string(JRD_get_thread_data(), desc, ttype_metadata, &str, &temp, sizeof(temp));
+
+	const char* p = str;
+	const char* const q = str + length;
+	while (p < q && *p)
+	{
+		++p;
+	}
+
+	// Trim trailing blanks (bug 3355)
+
+	while (--p >= str && *p == ' ')
+		;
+	length = (p + 1) - str;
+
+	return string(str, length);
+}
+
+
+static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
+	const MetaName& fieldName)
+{
+/**************************************
+ *
+ *	c h e c k _ c o m p u t e d _ d e p e n d e n c i e s
+ *
+ **************************************
+ *
+ * Functional description
+ *	Checks if a computed field has circular dependencies.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+
+	bool err = false;
+	Firebird::SortedObjectsArray<MetaName> sortedNames(*tdbb->getDefaultPool());
+	Firebird::ObjectsArray<MetaName> names;
+
+	sortedNames.add(fieldName);
+	names.add(fieldName);
+
+	for (FB_SIZE_T pos = 0; !err && pos < names.getCount(); ++pos)
+	{
+		AutoCacheRequest request(tdbb, irq_comp_circ_dpd, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			DEP IN RDB$DEPENDENCIES CROSS
+			RFL IN RDB$RELATION_FIELDS WITH
+				DEP.RDB$DEPENDENT_NAME EQ names[pos].c_str() AND
+				DEP.RDB$DEPENDENT_TYPE EQ obj_computed AND
+				DEP.RDB$DEPENDED_ON_TYPE = obj_relation AND
+				RFL.RDB$RELATION_NAME = DEP.RDB$DEPENDED_ON_NAME AND
+				RFL.RDB$FIELD_NAME = DEP.RDB$FIELD_NAME
+		{
+			MetaName fieldSource(RFL.RDB$FIELD_SOURCE);
+
+			if (fieldName == fieldSource)
+			{
+				err = true;
+				break;
+			}
+
+			if (!sortedNames.exist(fieldSource))
+			{
+				sortedNames.add(fieldSource);
+				names.add(fieldSource);
+			}
+		}
+		END_FOR
+	}
+
+	if (err)
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_circular_computed));
+	}
+}
+
+
+static void check_dependencies(thread_db* tdbb,
+							   const TEXT* dpdo_name,
+							   const TEXT* field_name,
+							   const TEXT* package_name,
+							   int dpdo_type,
+							   jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c h e c k _ d e p e n d e n c i e s
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check the dependency list for relation or relation.field
+ *	before deleting such.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	const MetaName packageName(package_name);
+
+	SLONG dep_counts[obj_type_MAX];
+	for (int i = 0; i < obj_type_MAX; i++)
+		dep_counts[i] = 0;
+
+	if (field_name)
+	{
+		AutoCacheRequest request(tdbb, irq_ch_f_dpd, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request)
+			DEP IN RDB$DEPENDENCIES
+				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
+				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
+				AND DEP.RDB$FIELD_NAME EQ field_name
+				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
+				REDUCED TO DEP.RDB$DEPENDENT_NAME
+		{
+			// If the found object is also being deleted, there's no dependency
+
+			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
+									0, transaction))
+			{
+				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
+			}
+		}
+		END_FOR
+	}
+	else
+	{
+		AutoCacheRequest request(tdbb, irq_ch_dpd, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request)
+			DEP IN RDB$DEPENDENCIES
+				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
+				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
+				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
+				REDUCED TO DEP.RDB$DEPENDENT_NAME
+		{
+			// If the found object is also being deleted, there's no dependency
+
+			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
+									0, transaction))
+			{
+				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
+			}
+		}
+		END_FOR
+	}
+
+	SLONG total = 0;
+	for (int i = 0; i < obj_type_MAX; i++)
+		total += dep_counts[i];
+
+	if (!total)
+		return;
+
+	if (field_name)
+	{
+		string fld_name(dpdo_name);
+		fld_name.append(".");
+		fld_name.append(field_name);
+
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_no_delete) <<						// Msg353: can not delete
+				 Arg::Gds(isc_field_name) << Arg::Str(fld_name) <<
+				 Arg::Gds(isc_dependency) << Arg::Num(total));	// Msg310: there are %ld dependencies
+	}
+	else
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_no_delete) <<						// can not delete
+				 Arg::Gds(getErrorCodeByObjectType(dpdo_type)) <<
+				 	Arg::Str(QualifiedName(dpdo_name, packageName).toString()) <<
+				 Arg::Gds(isc_dependency) << Arg::Num(total));	// there are %ld dependencies
+	}
+}
+
+
+static bool find_depend_in_dfw(thread_db*	tdbb,
+							   TEXT*	object_name,
+							   USHORT	dep_type,
+							   USHORT	rel_id,
+							   jrd_tra*		transaction)
+{
+/**************************************
+ *
+ *	f i n d _ d e p e n d _ i n _ d f w
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check the object to see if it is being
+ *	deleted as part of the deferred work.
+ *	Return true if it is, false otherwise.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	fb_utils::exact_name(object_name);
+	enum dfw_t dfw_type;
+	switch (dep_type)
+	{
+	case obj_view:
+		dfw_type = dfw_delete_relation;
+		break;
+	case obj_trigger:
+		dfw_type = dfw_delete_trigger;
+		break;
+	case obj_computed:
+		dfw_type = rel_id ? dfw_delete_rfr : dfw_delete_global;
+		break;
+	case obj_validation:
+		dfw_type = dfw_delete_global;
+		break;
+	case obj_procedure:
+		dfw_type = dfw_delete_procedure;
+		break;
+	case obj_index_expression:
+	case obj_index_condition:
+		dfw_type = dfw_delete_index;
+		break;
+	case obj_package_header:
+		dfw_type = dfw_drop_package_header;
+		break;
+	case obj_package_body:
+		dfw_type = dfw_drop_package_body;
+		break;
+	case obj_udf:
+		dfw_type = dfw_delete_function;
+		break;
+	default:
+		fb_assert(false);
+		break;
+	}
+
+	// Look to see if an object of the desired type is being deleted or modified.
+	// For an object being modified we verify dependencies separately when we parse its BLR.
+	for (const DeferredWork* work = transaction->tra_deferred_job->work; work; work = work->getNext())
+	{
+		if ((work->dfw_type == dfw_type ||
+			(work->dfw_type == dfw_modify_procedure && dfw_type == dfw_delete_procedure) ||
+			(work->dfw_type == dfw_modify_field && dfw_type == dfw_delete_global) ||
+			(work->dfw_type == dfw_modify_trigger && dfw_type == dfw_delete_trigger) ||
+			(work->dfw_type == dfw_modify_function && dfw_type == dfw_delete_function)) &&
+			work->dfw_name == object_name && work->dfw_package.isEmpty() &&
+			(!rel_id || rel_id == work->dfw_id))
+		{
+			if (work->dfw_type == dfw_modify_procedure || work->dfw_type == dfw_modify_function)
+			{
+				// Don't consider that routine is in DFW if we are only checking the BLR
+				if (!work->findArg(dfw_arg_check_blr))
+					return true;
+			}
+			else
+			{
+				return true;
+			}
+		}
+
+		if (work->dfw_type == dfw_type && dfw_type == dfw_delete_index)
+		{
+			for (FB_SIZE_T i = 0; i < work->dfw_args.getCount(); ++i)
+			{
+				const DeferredWork* arg = work->dfw_args[i];
+				if (arg->dfw_type == dfw_arg_index_name &&
+					arg->dfw_name == object_name)
+				{
+					return true;
+				}
+			}
+		}
+	}
+
+	if (dfw_type == dfw_delete_global)
+	{
+		if (dep_type == obj_computed)
+		{
+			// Computed fields are more complicated.  If the global field isn't being
+			// deleted, see if all of the fields it is the source for, are.
+
+			AutoCacheRequest request(tdbb, irq_ch_cmp_dpd, IRQ_REQUESTS);
+
+			FOR(REQUEST_HANDLE request)
+				FLD IN RDB$FIELDS CROSS
+					RFR IN RDB$RELATION_FIELDS CROSS
+					REL IN RDB$RELATIONS
+					WITH FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
+					AND FLD.RDB$FIELD_NAME EQ object_name
+					AND REL.RDB$RELATION_NAME EQ RFR.RDB$RELATION_NAME
+			{
+				if (!find_depend_in_dfw(tdbb, RFR.RDB$FIELD_NAME, obj_computed,
+										REL.RDB$RELATION_ID, transaction))
+				{
+					return false;
+				}
+			}
+			END_FOR
+
+			return true;
+		}
+
+		if (dep_type == obj_validation)
+		{
+			// Maybe it's worth caching in the future?
+			AutoRequest request;
+
+			FOR(REQUEST_HANDLE request)
+				FLD IN RDB$FIELDS WITH
+					FLD.RDB$FIELD_NAME EQ object_name
+			{
+				if (!FLD.RDB$VALIDATION_BLR.NULL)
+					return false;
+			}
+			END_FOR
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+
+
+//
+// Per-type create/alter/drop support.
+//
+
+
+static bool create_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c r e a t e _ f i e l d
+ *
+ **************************************
+ *
+ * Functional description
+ *	Store dependencies of a field.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+		{
+			const MetaName depName(work->dfw_name);
+			AutoRequest handle;
+			bid validation;
+			validation.clear();
+
+			FOR(REQUEST_HANDLE handle)
+				FLD IN RDB$FIELDS WITH
+					FLD.RDB$FIELD_NAME EQ depName.c_str()
+			{
+				if (!FLD.RDB$VALIDATION_BLR.NULL)
+					validation = FLD.RDB$VALIDATION_BLR;
+			}
+			END_FOR
+
+			if (!validation.isEmpty())
+			{
+				Jrd::Database* dbb = tdbb->getDatabase();
+				MemoryPool* new_pool = dbb->createPool();
+				Jrd::ContextPoolHolder context(tdbb, new_pool);
+
+				MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &validation,
+					NULL, NULL, depName, obj_validation, 0, transaction, depName);
+
+				dbb->deletePool(new_pool);
+			}
+		}
+		// fall through
+
+	case 2:
+	case 3:
+		return true;
+
+	case 4:	// after scan_relation (phase 3)
+		check_computed_dependencies(tdbb, transaction, work->dfw_name);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool delete_field(thread_db*	tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ f i e l d
+ *
+ **************************************
+ *
+ * Functional description
+ *	This whole routine exists just to
+ *	return an error if someone attempts to
+ *	delete a global field that is in use
+ *
+ **************************************/
+
+	int field_count;
+	AutoRequest handle;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* const attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+		// Look up the field in RFR.  If we can't find the field, go ahead with the delete.
+
+		handle.reset();
+		field_count = 0;
+
+		FOR(REQUEST_HANDLE handle)
+			RFR IN RDB$RELATION_FIELDS CROSS
+				REL IN RDB$RELATIONS
+				OVER RDB$RELATION_NAME
+				WITH RFR.RDB$FIELD_SOURCE EQ work->dfw_name.c_str()
+		{
+			// If the rfr field is also being deleted, there's no dependency
+			if (!find_depend_in_dfw(tdbb, RFR.RDB$FIELD_NAME, obj_computed, REL.RDB$RELATION_ID,
+									transaction))
+			{
+				field_count++;
+			}
+		}
+		END_FOR
+
+		if (field_count)
+		{
+			ERR_post(Arg::Gds(isc_no_meta_update) <<
+					 Arg::Gds(isc_no_delete) <<								// Msg353: can not delete
+					 Arg::Gds(isc_domain_name) << Arg::Str(work->dfw_name) <<
+					 Arg::Gds(isc_dependency) << Arg::Num(field_count)); 	// Msg310: there are %ld dependencies
+		}
+
+		check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_field, transaction);
+
+	case 2:
+		return true;
+
+	case 3:
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_computed, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_validation, transaction);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	m o d i f y _ f i e l d
+ *
+ **************************************
+ *
+ * Functional description
+ *	Handle constraint dependencies of a field.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+		{
+			const MetaName depName(work->dfw_name);
+			AutoRequest handle;
+
+			// If a domain is being changed to NOT NULL, schedule validation of involved relations.
+			if (work->findArg(dfw_arg_field_not_null))
+			{
+				FOR(REQUEST_HANDLE handle)
+					RFL IN RDB$RELATION_FIELDS CROSS
+					REL IN RDB$RELATIONS
+					WITH REL.RDB$RELATION_NAME EQ RFL.RDB$RELATION_NAME AND
+						 RFL.RDB$FIELD_SOURCE EQ depName.c_str() AND
+						 (RFL.RDB$NULL_FLAG MISSING OR RFL.RDB$NULL_FLAG = FALSE) AND
+						 REL.RDB$VIEW_BLR MISSING
+					REDUCED TO RFL.RDB$RELATION_NAME, RFL.RDB$FIELD_ID
+				{
+					dsc desc;
+					desc.makeText(static_cast<USHORT>(strlen(RFL.RDB$RELATION_NAME)), CS_METADATA,
+						(UCHAR*) RFL.RDB$RELATION_NAME);
+
+					DeferredWork* work = DFW_post_work(transaction, dfw_check_not_null, &desc, 0);
+					SortedArray<int>& ids = DFW_get_ids(work);
+
+					FB_SIZE_T pos;
+					if (!ids.find(RFL.RDB$FIELD_ID, pos))
+						ids.insert(pos, RFL.RDB$FIELD_ID);
+				}
+				END_FOR
+			}
+
+			bid validation;
+			validation.clear();
+
+			handle.reset();
+
+			FOR(REQUEST_HANDLE handle)
+				FLD IN RDB$FIELDS WITH
+					FLD.RDB$FIELD_NAME EQ depName.c_str()
+			{
+				if (!FLD.RDB$VALIDATION_BLR.NULL)
+					validation = FLD.RDB$VALIDATION_BLR;
+			}
+			END_FOR
+
+			const DeferredWork* const arg = work->findArg(dfw_arg_new_name);
+
+			// ASF: If there are procedures depending on the domain, it can't be renamed.
+			if (arg && depName != arg->dfw_name.c_str())
+				check_dependencies(tdbb, depName.c_str(), NULL, NULL, obj_field, transaction);
+
+			MET_delete_dependencies(tdbb, depName, obj_validation, transaction);
+
+			if (!validation.isEmpty())
+			{
+				Jrd::Database* dbb = tdbb->getDatabase();
+				MemoryPool* new_pool = dbb->createPool();
+				Jrd::ContextPoolHolder context(tdbb, new_pool);
+
+				MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &validation,
+					NULL, NULL, depName, obj_validation, 0, transaction, depName);
+
+				dbb->deletePool(new_pool);
+			}
+		}
+		// fall through
+
+	case 2:
+	case 3:
+		return true;
+
+	case 4:	// after scan_relation (phase 3)
+		check_computed_dependencies(tdbb, transaction, work->dfw_name);
+		break;
+	}
+
+	return false;
+}
+
+

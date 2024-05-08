@@ -43,15 +43,10 @@ class CharSetContainer : public Firebird::PermanentStorage
 public:
 	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, MakeLock* makeLock);
 
-	void destroy()
+	static bool destroy(thread_db* tdbb, CharSetContainer* container)
 	{
-		cs->destroy();
-	}
-
-	static void destroy(CharSetContainer* container)
-	{
-		container->destroy();
-		delete container;
+		container->cs->destroy();
+		return false;
 	}
 
 	static CharSetContainer* create(thread_db* tdbb, MetaId id);
@@ -128,7 +123,7 @@ public:
 		return perm->getName();
 	}
 
-	static void destroy(CharSetVers* csv);
+	static void destroy(thread_db* tdbb, CharSetVers* csv);
 	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::CharSet* perm);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);

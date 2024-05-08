@@ -2595,6 +2595,8 @@ JRequest* JAttachment::compileRequest(CheckStatusWrapper* user_status,
 			const auto rootRequest = stmt->makeRootRequest(tdbb);
 			rootRequest->setAttachment(attachment);
 			attachment->att_requests.add(rootRequest);
+			bool rt = rootRequest->setUsed();
+			fb_assert(rt);
 
 			trace.finish(stmt, ITracePlugin::RESULT_SUCCESS);
 		}
@@ -3892,6 +3894,7 @@ void JRequest::freeEngineData(CheckStatusWrapper* user_status)
 
 		try
 		{
+			getHandle()->getUserRequest(tdbb, 0)->setUnused();
 			getHandle()->release(tdbb);
 			rq = NULL;
 		}
@@ -4381,7 +4384,7 @@ void JRequest::startAndSend(CheckStatusWrapper* user_status, ITransaction* tra, 
 		validateHandle(tdbb, transaction);
 		check_database(tdbb);
 
-		Request* request = getHandle()->getRequest(tdbb, level);
+		Request* request = getHandle()->getUserRequest(tdbb, level);
 
 		try
 		{
@@ -4439,7 +4442,7 @@ void JRequest::start(CheckStatusWrapper* user_status, ITransaction* tra, int lev
 		validateHandle(tdbb, transaction);
 		check_database(tdbb);
 
-		Request* request = getHandle()->getRequest(tdbb, level);
+		Request* request = getHandle()->getUserRequest(tdbb, level);
 
 		try
 		{
@@ -7574,7 +7577,11 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 
     // CMP_release() changes att_requests.
 	while (attachment->att_requests.hasData())
-		CMP_release(tdbb, attachment->att_requests.back());
+	{
+		auto* req = attachment->att_requests.back();
+		req->setUnused();
+		CMP_release(tdbb, req);
+	}
 
 	attachment->releaseLocks(tdbb);
 
@@ -7935,6 +7942,8 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 			}
 		}
 	}
+
+	dbb->dbb_mdc->cleanup(tdbb);
 
 	if (flags & SHUT_DBB_RELEASE_POOLS)
 	{
@@ -9661,43 +9670,4 @@ void JRD_cancel_operation(thread_db* /*tdbb*/, Jrd::Attachment* attachment, int 
 		fb_assert(false);
 	}
 }
-
-/* ????????????
-bool TrigVector::hasActive() const
-{
-	for (auto t : snapshot())
-	{
-		if (t && t->isActive())
-			return true;
-	}
-
-	return false;
-}
-
-
-void TrigVector::decompile(thread_db* tdbb)
-{
-	for (auto t : snapshot())
-	{
-		if (t)
-			t->release(tdbb);
-	}
-}
-
-
-void TrigVector::release()
-{
-	release(JRD_get_thread_data());
-}
-
-
-void TrigVector::release(thread_db* tdbb)
-{
-	if (--useCount == 0)
-	{
-		decompile(tdbb);
-		delete this;
-	}
-}
-*/
 

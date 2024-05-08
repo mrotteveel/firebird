@@ -275,6 +275,8 @@ public:
 
 	static CharSetContainer* getCharSet(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 
+	void cleanup(Jrd::thread_db*);
+
 	// former met_proto.h
 #ifdef DEV_BUILD
 	static void verify_cache(thread_db* tdbb);

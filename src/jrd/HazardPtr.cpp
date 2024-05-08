@@ -37,6 +37,9 @@
 using namespace Jrd;
 using namespace Firebird;
 
+ElementBase::~ElementBase()
+{ }
+
 HazardObject::~HazardObject()
 { }
 

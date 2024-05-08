@@ -84,12 +84,12 @@ namespace Jrd
 
 
 	public:
-		virtual int getObjectType() const
+		int getObjectType() const override
 		{
 			return obj_udf;
 		}
 
-		virtual SLONG getSclType() const
+		SLONG getSclType() const override
 		{
 			return obj_functions;
 		}
@@ -101,7 +101,7 @@ namespace Jrd
 		}
 
 	public:
-		virtual void releaseExternal()
+		void releaseExternal() override
 		{
 			delete fun_external;
 			fun_external = NULL;

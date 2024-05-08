@@ -88,7 +88,7 @@ public:
 	//bool isActive() const;
 
 	Request* findRequest(thread_db* tdbb, bool unique = false);
-	Request* getRequest(thread_db* tdbb, USHORT level);
+	Request* getUserRequest(thread_db* tdbb, USHORT level);
 
 	Request* rootRequest()
 	{

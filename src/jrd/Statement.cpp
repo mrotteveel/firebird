@@ -64,7 +64,7 @@ ULONG CompilerScratch::allocImpure(ULONG align, ULONG size)
 Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	: pool(p),
 	  rpbsSetup(*p),
-	  requests(*p),
+	  requests(),
 	  externalList(*p),
 	  accessList(*p),
 	  triggerName(*p),
@@ -513,7 +513,8 @@ Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g,
 	return arrivedRq;
 }
 
-Request* Statement::getRequest(thread_db* tdbb, USHORT level)
+// Invoke request obtained earlier using compileRequest() API call
+Request* Statement::getUserRequest(thread_db* tdbb, USHORT level)
 {
 	return getRequest(tdbb, requests.readAccessor(), level);
 }

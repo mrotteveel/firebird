@@ -150,19 +150,27 @@ namespace Jrd
 				delete[] dbb_sort_buffers.pop();
 		}
 
-		{ // scope
-			SyncLockGuard guard(&dbb_pools_sync, SYNC_EXCLUSIVE, "Database::~Database");
-
-			fb_assert(dbb_pools[0] == dbb_permanent);
-
-			for (FB_SIZE_T i = 1; i < dbb_pools.getCount(); ++i)
-				MemoryPool::deletePool(dbb_pools[i]);
-		}
-
 		delete dbb_tip_cache;
 		delete dbb_monitoring_data;
 		delete dbb_backup_manager;
 		delete dbb_crypto_manager;
+		delete dbb_mdc;
+
+		fb_assert(dbb_pools[0] == dbb_permanent);
+
+		for (FB_SIZE_T i = 1; i < dbb_pools.getCount(); ++i)
+		{
+			MemoryPool::deletePool(dbb_pools[i]);
+		}
+	}
+
+	MemoryPool* Database::createPool()
+	{
+		MemoryPool* const pool = MemoryPool::createPool(dbb_permanent, dbb_memory_stats);
+
+		Firebird::SyncLockGuard guard(&dbb_pools_sync, Firebird::SYNC_EXCLUSIVE, "Database::createPool");
+		dbb_pools.add(pool);
+		return pool;
 	}
 
 	void Database::deletePool(MemoryPool* pool)

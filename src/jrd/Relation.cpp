@@ -147,7 +147,7 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_sweep_count(0),
 	  rel_scan_count(0),
 	  rel_formats(nullptr),
-	  rel_index_locks(getPool()),
+	  rel_index_locks(),
 	  rel_name(p),
 	  rel_id(id),
 	  rel_flags(0u),
@@ -164,19 +164,49 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	rel_rescan_lock = FB_NEW_RPT(getPool(), 0)
 		Lock(tdbb, sizeof(SLONG), LCK_rel_rescan, this, rescan_ast_relation);
 	rel_rescan_lock->setKey(rel_id);
-/*
+
 	if (rel_id >= rel_MAX)
 	{
 		rel_existence_lock = FB_NEW_RPT(getPool(), 0)
 			Lock(tdbb, sizeof(SLONG), LCK_rel_exist, this, blocking_ast_relation);
 		rel_existence_lock->setKey(rel_id);
 	}
- */
+
 }
 
 RelationPermanent::~RelationPermanent()
 {
-	delete rel_file;
+	fb_assert(!(rel_existence_lock || rel_partners_lock || rel_rescan_lock));
+}
+
+bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
+{
+	if (rel->rel_existence_lock)
+	{
+		LCK_release(tdbb, rel->rel_existence_lock);
+		rel->rel_existence_lock = nullptr;
+	}
+
+	if (rel->rel_partners_lock)
+	{
+		LCK_release(tdbb, rel->rel_partners_lock);
+		rel->rel_partners_lock = nullptr;
+	}
+
+	if (rel->rel_rescan_lock)
+	{
+		LCK_release(tdbb, rel->rel_rescan_lock);
+		rel->rel_rescan_lock = nullptr;
+	}
+
+	delete rel->rel_file;
+/*
+	// delete by pool
+	auto& pool = rel->getPool();
+	tdbb->getDatabase()->deletePool(&pool);
+
+	return true;*/
+	return false;
 }
 
 bool RelationPermanent::isReplicating(thread_db* tdbb)
@@ -478,7 +508,9 @@ bool jrd_rel::hasTriggers() const
 void jrd_rel::releaseTriggers(thread_db* tdbb, bool destroy)
 {
 	for (int n = 1; n < TRIGGER_MAX; ++n)
+	{
 		rel_triggers[n].release(tdbb, destroy);
+	}
 }
 
 void Triggers::release(thread_db* tdbb, bool destroy)
@@ -495,6 +527,12 @@ void Triggers::release(thread_db* tdbb, bool destroy)
  *      else do the work.
  *
  **************************************/
+	if (destroy)
+	{
+		Triggers::destroy(tdbb, this);
+		return;
+	}
+
 /*	TrigVector* vector = vector_ptr->load(); !!!!!!!!!!!!!!!!!!!!!!!!!
 
 	if (!vector)
@@ -933,18 +971,9 @@ void IndexLock::recreate(thread_db*)
 }
 
 
-void jrd_rel::destroy(jrd_rel* rel)
+void jrd_rel::destroy(thread_db* tdbb, jrd_rel* rel)
 {
-	thread_db* tdbb = JRD_get_thread_data();
-
-	LCK_release(tdbb, rel->rel_perm->rel_existence_lock);
-	if (rel->rel_perm->rel_partners_lock)
-	{
-		rel->rel_perm->rel_flags |= REL_check_partners;
-		LCK_release(tdbb, rel->rel_perm->rel_partners_lock);
-		rel->rel_perm->rel_flags &= ~REL_check_partners;
-	}
-	LCK_release(tdbb, rel->rel_perm->rel_rescan_lock);
+    rel->releaseTriggers(tdbb, true);
 
 	// A lot more things to do !!!!!!!!!!!!!!!!
 
@@ -961,17 +990,17 @@ const char* jrd_rel::objectFamily(RelationPermanent* perm)
 	return perm->isView() ? "view" : "table";
 }
 
-void Triggers::destroy(Triggers* trigs)
+void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 {
-	auto tdbb = JRD_get_thread_data();
 	for (auto t : trigs->triggers)
 	{
-		t->free(tdbb);
+		t->free(tdbb, true);
 		delete t;
 	}
+	trigs->triggers.clear();
 }
 
-void Trigger::free(thread_db* tdbb)
+void Trigger::free(thread_db* tdbb, bool force)
 {
 	if (extTrigger)
 	{
@@ -987,7 +1016,7 @@ void Trigger::free(thread_db* tdbb)
 
 	const bool sysTableTrigger = (blr.isEmpty() && engine.isEmpty());
 
-	if (sysTableTrigger || !statement || releaseInProgress)
+	if ((sysTableTrigger && !force) || !statement || releaseInProgress)
 		return;
 
 	AutoSetRestore<bool> autoProgressFlag(&releaseInProgress, true);
@@ -1009,6 +1038,16 @@ DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, Ma
 	lock->lck_object = this;
 }
 
+bool DbTriggersHeader::destroy(thread_db* tdbb, DbTriggersHeader* trigs)
+{
+	if (trigs->lock)
+	{
+		LCK_release(tdbb, trigs->lock);
+		trigs->lock = nullptr;
+	}
+
+	return false;
+}
 
 int DbTriggersHeader::blockingAst(void* ast_object)
 {

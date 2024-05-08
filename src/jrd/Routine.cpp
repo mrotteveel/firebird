@@ -308,6 +308,12 @@ void RoutinePermanent::releaseLocks(thread_db* tdbb)
 		LCK_release(tdbb, existenceLock);
 }
 
+bool RoutinePermanent::destroy(thread_db* tdbb, RoutinePermanent* routine)
+{
+	routine->releaseLocks(tdbb);
+	return false;
+}
+
 void Routine::checkReload(thread_db* tdbb) const
 {
 	if (flReload)

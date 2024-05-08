@@ -470,6 +470,30 @@ void MetadataCache::verify_cache(thread_db* tdbb)
 #endif
 
 
+// Done before MDC is deleted
+void MetadataCache::cleanup(thread_db* tdbb)
+{
+	mdc_relations.cleanup(tdbb);
+	mdc_procedures.cleanup(tdbb);
+	mdc_functions.cleanup(tdbb);
+	mdc_charsets.cleanup(tdbb);
+
+	auto cleanSet = [tdbb](TriggersSet& set)
+	{
+		auto* ptr = set.load(atomics::memory_order_relaxed);
+		if (ptr)
+		{
+			Cached::Triggers::cleanup(tdbb, ptr);
+			set.store(nullptr, atomics::memory_order_relaxed);
+		}
+	};
+
+	for (int i = 1; i < DB_TRIGGER_MAX; ++i)
+		cleanSet(mdc_triggers[i]);
+	cleanSet(mdc_ddl_triggers);
+}
+
+
 void MetadataCache::clear(thread_db* tdbb)
 {
 /**************************************
@@ -1626,9 +1650,16 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 			}
 		}
 
-		AutoPtr<DbTriggers, Destroy> triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
-		if (cacheElement->storeObject(tdbb, triggers, 0))
-			triggers.release();
+		DbTriggers* triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
+		try
+		{
+			if (!cacheElement->storeObject(tdbb, triggers, 0))
+				DbTriggers::destroy(tdbb, triggers);
+		}
+		catch(const Exception&)
+		{
+			DbTriggers::destroy(tdbb, triggers);
+		}
 	}
 }
 
@@ -3817,7 +3848,7 @@ DSqlCacheItem* MetadataCache::get_dsql_cache_item(thread_db* tdbb, sym_type type
 
 int RelationPermanent::partners_ast_relation(void* ast_object)
 {
-	auto* const relation = static_cast<RelationPermanent*>(ast_object);
+	auto* const relation = static_cast<Cached::Relation*>(ast_object);
 
 	try
 	{
@@ -3840,7 +3871,7 @@ int RelationPermanent::partners_ast_relation(void* ast_object)
 
 int RelationPermanent::rescan_ast_relation(void* ast_object)
 {
-	auto* const relation = static_cast<RelationPermanent*>(ast_object);
+	auto* const relation = static_cast<Cached::Relation*>(ast_object);
 
 	try
 	{
@@ -3848,13 +3879,28 @@ int RelationPermanent::rescan_ast_relation(void* ast_object)
 
 		AsyncContextHolder tdbb(dbb, FB_FUNCTION, relation->rel_rescan_lock);
 
-		auto* const cacheElement = dbb->dbb_mdc->lookupRelation(tdbb, relation->getId());
-		fb_assert(cacheElement);
-		if (cacheElement)
-		{
-			cacheElement->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-			LCK_release(tdbb, relation->rel_rescan_lock);
-		}
+		relation->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
+		LCK_release(tdbb, relation->rel_rescan_lock);
+	}
+	catch (const Firebird::Exception&)
+	{} // no-op
+
+	return 0;
+}
+
+
+int RelationPermanent::blocking_ast_relation(void* ast_object)
+{
+	auto* const relation = static_cast<Cached::Relation*>(ast_object);
+
+	try
+	{
+		Database* const dbb = relation->rel_existence_lock->lck_dbb;
+
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION, relation->rel_existence_lock);
+
+// ???????????????????????????????		cacheElement->resetDependentObject(tdbb, ElementBase::ResetType::Drop);
+		LCK_release(tdbb, relation->rel_existence_lock);
 	}
 	catch (const Firebird::Exception&)
 	{} // no-op
@@ -4933,6 +4979,8 @@ void MetadataCache::releaseRelations(thread_db* tdbb)
 			auto* ext = relation->getExtFile();
 			if (ext)
 				ext->release();
+
+			
 		}
 	}
 }
@@ -5013,13 +5061,13 @@ const Triggers* MetadataCache::getTriggers(thread_db* tdbb, MetaId triggerId)
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DB)
 	{
 		unsigned triggerKind = triggerId & ~TRIGGER_TYPE_DB;
-		HazardPtr<Cached::Triggers> element(mdc_triggers[triggerKind]);
+		auto* element = mdc_triggers[triggerKind].load(atomics::memory_order_acquire);
 		return element->getObject(tdbb, CacheFlag::AUTOCREATE);
 	}
 
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DDL)
 	{
-		HazardPtr<Cached::Triggers> element(mdc_ddl_triggers);
+		auto* element = mdc_ddl_triggers.load(atomics::memory_order_acquire);
 		return element->getObject(tdbb, CacheFlag::AUTOCREATE);
 	}
 
