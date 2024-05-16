@@ -41,6 +41,7 @@
 
 #include <type_traits>
 #include <condition_variable>
+#include <utility>
 
 #include "../jrd/tdbb.h"
 #include "../jrd/Database.h"
@@ -486,8 +487,8 @@ public:
 		return false;
 	}
 
-
-	void scanPass(std::function<bool(bool)> objScan)
+	template <typename F>
+	void scanPass(F&& objScan)
 	{
 		// no need opening barrier twice
 		if (flg == READY)
@@ -729,10 +730,11 @@ public:
 		fb_assert(getFlags() & CacheFlag::COMMITTED);
 	}
 
-	void scan(std::function<bool(bool)> objScan, ObjectBase::Flag fl)
+	template <typename F>
+	void scan(F&& objScan, ObjectBase::Flag fl)
 	{
 		if (!(fl & CacheFlag::NOSCAN))
-			bar.scanPass(objScan);
+			bar.scanPass(std::forward<F>(objScan));
 	}
 
 	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
