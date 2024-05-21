@@ -519,7 +519,7 @@ static bool validate_text_type (thread_db*, const TemporaryField*);
 
 static void check_partners(thread_db*, const USHORT);
 static string get_string(const dsc* desc);
-static void setupSpecificCollationAttributes(thread_db*, jrd_tra*, const USHORT, const char*, bool);
+static void setupSpecificCollationAttributes(thread_db*, jrd_tra*, const CSetId, const char*, bool);
 
 static ISC_STATUS getErrorCodeByObjectType(int obj_type)
 {
@@ -700,7 +700,9 @@ static const deferred_task task_table[] =
 	{ dfw_compute_security, compute_security },
 	{ dfw_create_index, modify_index },
 	{ dfw_create_expression_index, modify_index },
+*/
 	{ dfw_grant, grant_privileges },
+/*
 	{ dfw_create_trigger, create_trigger },
 	{ dfw_delete_trigger, delete_trigger },
 	{ dfw_modify_trigger, modify_trigger },
@@ -714,8 +716,10 @@ static const deferred_task task_table[] =
 	{ dfw_modify_procedure, ProcedureManager::modifyRoutine },
 	{ dfw_modify_function, FunctionManager::modifyRoutine },
 	{ dfw_delete_prm, delete_parameter },
+*/
 	{ dfw_create_collation, create_collation },
 	{ dfw_delete_collation, delete_collation },
+/*
 	{ dfw_delete_exception, delete_exception },
 	{ dfw_set_generator, set_generator },
 	{ dfw_delete_generator, delete_generator },
@@ -1364,7 +1368,7 @@ static string remove_icu_info_from_attributes(const string& charsetName, const s
 
 
 static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transaction,
-	const USHORT charSetId, const char* collationName, bool dropIcuInfo)
+	const CSetId charSetId, const char* collationName, bool dropIcuInfo)
 {
 /**************************************
  *
@@ -1543,7 +1547,7 @@ void DFW_reset_icu(thread_db* tdbb)
 			while(rs->fetch(tdbb))
 			{
 				MetaName collName(rs->getMetaName(tdbb, 1));
-				const USHORT charSetId(rs->getSmallInt(tdbb, 2));
+				const CSetId charSetId(rs->getSmallInt(tdbb, 2));
 
 				setupSpecificCollationAttributes(tdbb, transaction, charSetId, collName.c_str(), true);
 			}
@@ -2160,6 +2164,131 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 	case 4:	// after scan_relation (phase 3)
 		check_computed_dependencies(tdbb, transaction, work->dfw_name);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool grant_privileges(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	g r a n t _ p r i v i l e g e s
+ *
+ **************************************
+ *
+ * Functional description
+ *	Compute access control list from SQL privileges.
+ *
+ **************************************/
+	switch (phase)
+	{
+	case 1:
+		return true;
+
+	case 2:
+		GRANT_privileges(tdbb, work->dfw_name, work->dfw_id, transaction);
+		break;
+
+	default:
+		break;
+	}
+
+	return false;
+}
+
+
+static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c r e a t e _ c o l l a t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Get collation id or setup specific attributes.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		setupSpecificCollationAttributes(tdbb, transaction, TTypeId(work->dfw_id),
+			work->dfw_name.c_str(), false);
+		return true;
+
+	case 2:
+		return true;
+
+	case 3:
+		{
+			auto* cs = MetadataCache::getCharSet(tdbb, TTypeId(work->dfw_id), CacheFlag::NOCOMMIT);
+			if (!cs)
+			{
+				ERR_post(Arg::Gds(isc_no_meta_update) <<
+						 Arg::Gds(isc_charset_not_found) << Arg::Num(CSetId(TTypeId(work->dfw_id))));
+			}
+			cs->resetDependentObject(tdbb, ElementBase::ResetType::Recompile);
+		}
+		return true;
+
+	case 4:
+		{
+			auto* cs = MetadataCache::getCharSet(tdbb, TTypeId(work->dfw_id), 0);
+			if (!cs)
+			{
+				ERR_post(Arg::Gds(isc_no_meta_update) <<
+						 Arg::Gds(isc_charset_not_found) << Arg::Num(CSetId(TTypeId(work->dfw_id))));
+			}
+			cs->commit(tdbb);
+		}
+		return false;
+
+	case 0:
+		{
+			auto* cs = MetadataCache::getCharSet(tdbb, TTypeId(work->dfw_id), 0);
+			if (cs)
+				cs->rollback(tdbb);
+		}
+		return false;
+	}
+
+	return false;
+}
+
+
+static bool delete_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ c o l l a t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check if it is allowable to delete
+ *	a collation, and if so, clean up after it.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_collation, transaction);
+		return true;
+
+	case 2:
+		return true;
+
+	case 3:
+		//full reload instead INTL_texttype_unload(tdbb, work->dfw_id);
 		break;
 	}
 

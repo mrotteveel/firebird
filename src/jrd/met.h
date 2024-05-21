@@ -273,7 +273,7 @@ public:
 		return mdc_procedures.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 	}
 
-	static CharSetContainer* getCharSet(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	static Cached::CharSet* getCharSet(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
 
 	void cleanup(Jrd::thread_db*);
 
@@ -291,9 +291,9 @@ public:
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name);
 	static Function* lookup_function(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
+	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags = 0);
-	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
+	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	//static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);

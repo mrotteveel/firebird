@@ -320,4 +320,10 @@ void Routine::checkReload(thread_db* tdbb) const
 		const_cast<Routine*>(this)->reload(tdbb);
 }
 
+void Routine::destroy(thread_db* tdbb, Routine* routine)
+{
+	routine->statement->release(tdbb);
+	delete routine;
+}
+
 }	// namespace Jrd

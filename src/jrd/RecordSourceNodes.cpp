@@ -919,7 +919,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			proc = MetadataCache::lookupProcedure(tdbb, pid);
+			proc = MetadataCache::lookupProcedure(tdbb, pid, CacheFlag::AUTOCREATE);
 			if (!proc)
 				name.identifier.printf("id %d", pid);
 			break;
@@ -958,7 +958,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 				}
 			}
 			else
-				proc = MetadataCache::lookupProcedure(tdbb, name);
+				proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
 
 			break;
 
@@ -1174,7 +1174,7 @@ ProcedureSourceNode* ProcedureSourceNode::copy(thread_db* tdbb, NodeCopier& copi
 		newSource->procedure = procedure;
 	else
 	{
-		auto proc = MetadataCache::lookupProcedure(tdbb, procedureId);
+		auto proc = MetadataCache::lookupProcedure(tdbb, procedureId, CacheFlag::AUTOCREATE);
 		if (!proc)
 		{
 			string name;

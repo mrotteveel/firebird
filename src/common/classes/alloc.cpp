@@ -1845,7 +1845,7 @@ public:
 	bool validate(char* buf, FB_SIZE_T size);
 
 	// Create memory pool instance
-	static MemPool* createPool(MemPool* parent, MemoryStats& stats);
+	// static MemPool* createPool(MemPool* parent, MemoryStats& stats ALLOC_PARAMS);
 
 	MemoryStats& getStatsGroup() noexcept
 	{
@@ -2185,6 +2185,11 @@ MemPool::~MemPool(void)
 	}
 
 #ifdef MEM_DEBUG
+#ifdef DEBUG_LOST_POOLS
+	if (child)
+		fprintf(stderr, "child = %p\n", child);
+#endif
+
 	fb_assert(!child);
 
 	if (parent)
@@ -2241,12 +2246,12 @@ void MemPool::newExtent(size_t& size, Extent** linkedList)
 	size = extent->spaceRemaining;
 }
 
-MemoryPool* MemoryPool::createPool(MemoryPool* parentPool, MemoryStats& stats)
+MemoryPool* MemoryPool::createPool(ALLOC_PARAMS1 MemoryPool* parentPool, MemoryStats& stats)
 {
 	if (!parentPool)
 		parentPool = getDefaultMemoryPool();
 
-	MemPool* p = FB_NEW_POOL(*parentPool) MemPool(*(parentPool->pool), stats, &defaultExtentsCache);
+	MemPool* p = new(*parentPool ALLOC_PASS_ARGS) MemPool(*(parentPool->pool), stats, &defaultExtentsCache);
 	return FB_NEW_POOL(*parentPool) MemoryPool(p);
 }
 

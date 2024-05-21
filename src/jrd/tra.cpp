@@ -3811,7 +3811,7 @@ MemoryPool* jrd_tra::getAutonomousPool()
 			pool = outer->tra_pool;
 			outer = outer->tra_outer;
 		}
-		tra_autonomous_pool = MemoryPool::createPool(pool, tra_memory_stats);
+		tra_autonomous_pool = MemoryPool::createPool(ALLOC_ARGS1 pool, tra_memory_stats);
 		tra_autonomous_cnt = 0;
 	}
 

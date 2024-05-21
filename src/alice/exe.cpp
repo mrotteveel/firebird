@@ -71,7 +71,7 @@ static const TEXT val_errors[] =
 int EXE_action(const TEXT* database, const SINT64 switches)
 {
 	bool error = false;
-	Firebird::AutoMemoryPool newPool(MemoryPool::createPool());
+	Firebird::AutoMemoryPool newPool(MemoryPool::createPool(ALLOC_ARGS0));
 	{
 		AliceGlobals* tdgbl = AliceGlobals::getSpecific();
 		AliceContextPoolHolder context(tdgbl, newPool);
@@ -141,7 +141,7 @@ int EXE_action(const TEXT* database, const SINT64 switches)
 int EXE_two_phase(const TEXT* database, const SINT64 switches)
 {
 	bool error = false;
-	Firebird::AutoMemoryPool newPool(MemoryPool::createPool());
+	Firebird::AutoMemoryPool newPool(MemoryPool::createPool(ALLOC_ARGS0));
 	{
 		AliceGlobals* tdgbl = AliceGlobals::getSpecific();
 		AliceContextPoolHolder context(tdgbl, newPool);

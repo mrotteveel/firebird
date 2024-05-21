@@ -5283,7 +5283,7 @@ int jrd_prc::blockingAst(void* ast_object)
 	return 0;
 }
 
-CharSetContainer* MetadataCache::getCharSet(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
 

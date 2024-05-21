@@ -811,9 +811,6 @@ public:
 		}
 	}
 
-/*	~CacheElement()
-	{ }
- */
 	void reload(thread_db* tdbb)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
@@ -947,7 +944,7 @@ public:
 		case ElementBase::ResetType::Recompile:
 			{
 				Versioned* newObj = Versioned::create(tdbb, CachePool::get(tdbb), this);
-				if (!storeObject(tdbb, newObj, 0))
+				if (!storeObject(tdbb, newObj, CacheFlag::NOCOMMIT))
 				{
 					Versioned::destroy(tdbb, newObj);
 					busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));

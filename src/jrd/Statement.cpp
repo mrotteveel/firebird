@@ -487,7 +487,10 @@ Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g,
 		return g->value(level);
 
 	// Create the request.
-	AutoMemoryPool reqPool(MemoryPool::createPool(pool));
+	AutoMemoryPool reqPool(MemoryPool::createPool(ALLOC_ARGS1 pool));
+#ifdef DEBUG_LOST_POOLS
+	fprintf(stderr, "%p %s\n", reqPool->mp(), sqlText ? sqlText->c_str() : "<nullptr>");
+#endif
 	auto request = FB_NEW_POOL(*reqPool) Request(reqPool, dbb, this);
 	loadResources(tdbb, request);
 

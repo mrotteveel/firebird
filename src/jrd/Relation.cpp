@@ -879,7 +879,8 @@ IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, USHORT id)
 
 IndexLock::IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id)
 	: idl_relation(rel),
-	  idl_lock(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_idx_exist))
+	  idl_lock(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_idx_exist)),
+	  idl_count(0)
 {
 	idl_lock->setKey((idl_relation->rel_id << 16) | id);
 }

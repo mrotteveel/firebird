@@ -121,10 +121,7 @@ namespace Jrd
 		static Format* createFormat(MemoryPool& pool, Firebird::IMessageMetadata* params, bool addEof);
 
 	public:
-		static void destroy(thread_db* tdbb, Routine* routine)
-		{
-			delete routine;
-		}
+		static void destroy(thread_db* tdbb, Routine* routine);
 
 		const QualifiedName& getName() const { return getPermanent()->getName(); }
 		MetaId getId() const { return getPermanent()->getId(); }

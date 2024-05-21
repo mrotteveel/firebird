@@ -12881,7 +12881,7 @@ ValueExprNode* UdfCallNode::copy(thread_db* tdbb, NodeCopier& copier) const
 		node->function = function;
 	else
 	{
-		auto* func = MetadataCache::lookupFunction(tdbb, name);
+		auto* func = MetadataCache::lookupFunction(tdbb, name, 0);
 		node->function = copier.csb->csb_resources->functions.registerResource(func);
 	}
 	return node;

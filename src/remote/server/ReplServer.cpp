@@ -993,7 +993,7 @@ namespace
 
 		while (!shutdownFlag)
 		{
-			AutoMemoryPool workingPool(MemoryPool::createPool());
+			AutoMemoryPool workingPool(MemoryPool::createPool(ALLOC_ARGS0));
 			ContextPoolHolder threadContext(workingPool);
 
 			const ProcessStatus ret = process_archive(*workingPool, target);

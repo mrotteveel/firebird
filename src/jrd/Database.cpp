@@ -166,7 +166,7 @@ namespace Jrd
 
 	MemoryPool* Database::createPool()
 	{
-		MemoryPool* const pool = MemoryPool::createPool(dbb_permanent, dbb_memory_stats);
+		MemoryPool* const pool = MemoryPool::createPool(ALLOC_ARGS1 dbb_permanent, dbb_memory_stats);
 
 		Firebird::SyncLockGuard guard(&dbb_pools_sync, Firebird::SYNC_EXCLUSIVE, "Database::createPool");
 		dbb_pools.add(pool);

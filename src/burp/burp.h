@@ -943,7 +943,7 @@ public:
 	}
 
 	explicit GblPool(bool ownPool)
-		: gbl_pool(ownPool ? MemoryPool::createPool(getDefaultMemoryPool()) : getDefaultMemoryPool())
+		: gbl_pool(ownPool ? MemoryPool::createPool(ALLOC_ARGS1 getDefaultMemoryPool()) : getDefaultMemoryPool())
 	{ }
 
 	~GblPool()
