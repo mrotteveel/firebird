@@ -409,11 +409,11 @@ struct Dependency
 		Cached::Relation* relation;
 		Cached::Function* function;
 		Cached::Procedure* procedure;
-		MetaName* name;
+		MetaName name;
 		SLONG number;
 	};
 
-	const MetaName* subName;
+	MetaName subName;
 	SLONG subNumber;
 };
 

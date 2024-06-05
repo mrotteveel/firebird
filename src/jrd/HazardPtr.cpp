@@ -33,6 +33,7 @@
 #include "../jrd/Database.h"
 #include "../jrd/tra.h"
 #include "../jrd/met.h"
+#include "../jrd/tpc_proto.h"
 
 using namespace Jrd;
 using namespace Firebird;
@@ -62,6 +63,11 @@ TraNumber TransactionNumber::oldestActive(thread_db* tdbb)
 TraNumber TransactionNumber::next(thread_db* tdbb)
 {
 	return tdbb->getDatabase()->dbb_next_transaction;
+}
+
+bool TransactionNumber::isDead(thread_db* tdbb, TraNumber traNumber)
+{
+	return TPC_cache_state(tdbb, traNumber) == tra_dead;
 }
 
 

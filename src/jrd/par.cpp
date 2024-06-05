@@ -69,6 +69,7 @@
 #include "../dsql/BoolNodes.h"
 #include "../dsql/ExprNodes.h"
 #include "../dsql/StmtNodes.h"
+#include "../jrd/intl_proto.h"
 
 
 using namespace Jrd;
@@ -163,6 +164,27 @@ namespace
 		AutoPtr<CompilerScratch> m_csb;
 		CompilerScratch** const m_csbPtr;
 	};
+
+	class VldTTypeId : public TTypeId
+	{
+	public:
+		VldTTypeId(thread_db* tdbb, USHORT a_id) : TTypeId(a_id)
+		{
+			TTypeId parm1(a_id);
+			if (parm1 == ttype_dynamic)
+				parm1 = tdbb->getCharSet();
+
+			auto* vers = MetadataCache::lookup_charset(tdbb, parm1, CacheFlag::AUTOCREATE);
+			if (vers)
+			{
+				CollId coll(parm1);
+				if (USHORT(coll) == 0 || vers->getCollation(coll))
+					return;
+			}
+
+			ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(parm1));
+		}
+	};
 }	// namespace
 
 
@@ -251,7 +273,7 @@ BoolExprNode* PAR_validation_blr(thread_db* tdbb, Cached::Relation* relation, co
 
 
 // Parse a BLR datatype. Return the alignment requirements of the datatype.
-USHORT PAR_datatype(BlrReader& blrReader, dsc* desc)
+USHORT PAR_datatype(thread_db* tdbb, BlrReader& blrReader, dsc* desc)
 {
 	desc->clear();
 
@@ -278,18 +300,18 @@ USHORT PAR_datatype(BlrReader& blrReader, dsc* desc)
 			break;
 
 		case blr_text2:
-			textType = TTypeId(blrReader.getWord());
+			textType = VldTTypeId(tdbb, blrReader.getWord());
 			desc->makeText(blrReader.getWord(), textType);
 			break;
 
 		case blr_cstring2:
 			desc->dsc_dtype = dtype_cstring;
-			desc->setTextType(TTypeId(blrReader.getWord()));
+			desc->setTextType(VldTTypeId(tdbb, blrReader.getWord()));
 			desc->dsc_length = blrReader.getWord();
 			break;
 
 		case blr_varying2:
-			textType = TTypeId(blrReader.getWord());
+			textType = VldTTypeId(tdbb, blrReader.getWord());
 			desc->makeVarying(blrReader.getWord(), textType);
 			break;
 
@@ -383,7 +405,7 @@ USHORT PAR_datatype(BlrReader& blrReader, dsc* desc)
 			desc->dsc_dtype = dtype_blob;
 			desc->dsc_length = sizeof(ISC_QUAD);
 			desc->dsc_sub_type = blrReader.getWord();
-			textType = TTypeId(blrReader.getWord());
+			textType = VldTTypeId(tdbb, blrReader.getWord());
 			desc->dsc_scale = textType & 0xFF;		// BLOB character set
 			desc->dsc_flags = textType & 0xFF00;	// BLOB collation
 			break;
@@ -426,14 +448,14 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 		case blr_domain_name2:
 		{
 			const bool fullDomain = (csb->csb_blr_reader.getByte() == blr_domain_full);
-			MetaName* name = FB_NEW_POOL(csb->csb_pool) MetaName(csb->csb_pool);
-			csb->csb_blr_reader.getMetaName(*name);
+			MetaName name;
+			csb->csb_blr_reader.getMetaName(name);
 
-			MetaNamePair namePair(*name, "");
+			MetaNamePair namePair(name, "");
 
 			FieldInfo fieldInfo;
 			bool exist = csb->csb_map_field_info.get(namePair, fieldInfo);
-			MET_get_domain(tdbb, csb->csb_pool, *name, desc, (exist ? NULL : &fieldInfo));
+			MET_get_domain(tdbb, csb->csb_pool, name, desc, (exist ? NULL : &fieldInfo));
 
 			if (!exist)
 				csb->csb_map_field_info.put(namePair, fieldInfo);
@@ -453,7 +475,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 			if (dtype == blr_domain_name2)
 			{
-				const auto ttype = TTypeId(csb->csb_blr_reader.getWord());
+				const auto ttype = VldTTypeId(tdbb, csb->csb_blr_reader.getWord());
 
 				switch (desc->dsc_dtype)
 				{
@@ -486,14 +508,14 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 			const bool fullDomain = (csb->csb_blr_reader.getByte() == blr_domain_full);
 			MetaName* relationName = FB_NEW_POOL(csb->csb_pool) MetaName(csb->csb_pool);
 			csb->csb_blr_reader.getMetaName(*relationName);
-			MetaName* fieldName = FB_NEW_POOL(csb->csb_pool) MetaName(csb->csb_pool);
-			csb->csb_blr_reader.getMetaName(*fieldName);
+			MetaName fieldName;
+			csb->csb_blr_reader.getMetaName(fieldName);
 
-			MetaNamePair namePair(*relationName, *fieldName);
+			MetaNamePair namePair(*relationName, fieldName);
 
 			FieldInfo fieldInfo;
 			bool exist = csb->csb_map_field_info.get(namePair, fieldInfo);
-			MET_get_relation_field(tdbb, csb->csb_pool, *relationName, *fieldName, desc,
+			MET_get_relation_field(tdbb, csb->csb_pool, *relationName, fieldName, desc,
 				(exist ? NULL : &fieldInfo));
 
 			if (!exist)
@@ -514,7 +536,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 			if (dtype == blr_column_name2)
 			{
-				const auto ttype = TTypeId(csb->csb_blr_reader.getWord());
+				const auto ttype = VldTTypeId(tdbb, csb->csb_blr_reader.getWord());
 
 				switch (desc->dsc_dtype)
 				{
@@ -547,7 +569,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 
 		default:
 			csb->csb_blr_reader.seekBackward(1);
-			PAR_datatype(csb->csb_blr_reader, desc);
+			PAR_datatype(tdbb, csb->csb_blr_reader, desc);
 			break;
 	}
 
@@ -906,7 +928,7 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 	}
 
 	if (field_name.length() > 0)
-		dependency.subName = FB_NEW_POOL(*tdbb->getDefaultPool()) MetaName(*tdbb->getDefaultPool(), field_name);
+		dependency.subName = field_name;
 	else if (id >= 0)
 		dependency.subNumber = id;
 
@@ -1076,7 +1098,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				if (csb->collectingDependencies())
 				{
 					Dependency dependency(obj_index);
-					dependency.name = &item.indexName;
+					dependency.name = item.indexName;
 					csb->addDependency(dependency);
 	            }
 
@@ -1146,7 +1168,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					if (csb->collectingDependencies())
 					{
 						Dependency dependency(obj_index);
-						dependency.name = &item.indexName;
+						dependency.name = item.indexName;
 						csb->addDependency(dependency);
 		            }
 				}

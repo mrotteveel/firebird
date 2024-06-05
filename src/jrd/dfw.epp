@@ -678,6 +678,480 @@ struct deferred_task
 	dfw_task_routine task_routine;
 };
 
+
+namespace
+{
+	template <typename Self, typename T, int objType,
+		T* (*lookupById)(thread_db*, MetaId, ObjectBase::Flag),
+		T* (*lookupByName)(Jrd::thread_db*, const QualifiedName&, ObjectBase::Flag)
+	>
+	class RoutineManager
+	{
+	public:
+		// Create a new routine.
+		static bool createRoutine(thread_db* tdbb, SSHORT phase, DeferredWork* work,
+			jrd_tra* transaction)
+		{
+			SET_TDBB(tdbb);
+
+			switch (phase)
+			{
+				case 1:
+				case 2:
+				case 3:
+				case 4:
+					return true;
+
+				case 5:
+				{
+					const bool compile = !work->findArg(dfw_arg_check_blr);
+					getDependencies(work, compile, transaction);
+
+					T* routine = lookupByName(tdbb,
+						QualifiedName(work->dfw_name, work->dfw_package), compile ? CacheFlag::NOSCAN : 0);
+
+					if (!routine)
+						return false;
+
+					break;
+				}
+			}
+
+			return false;
+		}
+
+		// Perform required actions when modifying a routine.
+		static bool modifyRoutine(thread_db* tdbb, SSHORT phase, DeferredWork* work,
+			jrd_tra* transaction)
+		{
+			SET_TDBB(tdbb);
+			const QualifiedName name(work->dfw_name, work->dfw_package);
+			Routine* routine;
+
+			fprintf(stderr, "routine %d %s ph %d\n", work->dfw_id, name.c_str(), phase);
+
+			switch (phase)
+			{
+				case 0:
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					if (routine && routine->getPermanent()->existenceLock)
+						LCK_release(tdbb, routine->getPermanent()->existenceLock);
+
+					return false;
+
+				case 1:
+				case 2:
+					return true;
+
+				case 3:
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					if (!routine)
+						return false;
+
+					if (routine->getPermanent()->existenceLock)
+					{
+						// Let routine be deleted if only this transaction is using it
+
+						//if (!routine->getPermanent()->existenceLock->exclLock(tdbb))
+						// !!!!!!!!!!!!!!!!!!!!!!!!!!!	raiseRoutineInUseError(routine, name);
+					}
+
+					// If we are in a multi-client server, someone else may have marked
+					// routine obsolete. Unmark and we will remark it later.
+
+					//routine->flags &= ~Routine::FLAG_OBSOLETE;
+					return true;
+
+				case 4:
+				{
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					if (!routine)
+						return false;
+
+					if (routine->getStatement())
+					{
+						//if (routine->getStatement()->isActive())
+						//	raiseRoutineInUseError(routine, name);
+
+						// release the request
+
+						routine->releaseStatement(tdbb);
+					}
+
+					// delete dependency lists
+
+					if (work->dfw_package.isEmpty())
+						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
+
+					/* the routine has just been scanned by lookupById
+					   and its Routine::FLAG_SCANNED flag is set. We are going to reread it
+					   from file (create all new dependencies) and do not want this
+					   flag to be set. That is why we do not add Routine::FLAG_OBSOLETE and
+					   Routine::FLAG_BEING_ALTERED flags, we set only these two flags
+					 */
+					// routine->flags = (Routine::FLAG_OBSOLETE | Routine::FLAG_BEING_ALTERED);
+
+					if (routine->getPermanent()->existenceLock)
+						LCK_release(tdbb, routine->getPermanent()->existenceLock);
+
+					// Now handle the new definition
+					bool compile = !work->findArg(dfw_arg_check_blr);
+					getDependencies(work, compile, transaction);
+
+					// routine->flags &= ~(Routine::FLAG_OBSOLETE | Routine::FLAG_BEING_ALTERED);
+
+					return true;
+				}
+
+				case 5:
+					if (work->findArg(dfw_arg_check_blr))
+					{
+						SSHORT validBlr = FALSE;
+
+						Jrd::Database* dbb = tdbb->getDatabase();
+						MemoryPool* newPool = dbb->createPool();
+						try
+						{
+							Jrd::ContextPoolHolder context(tdbb, newPool);
+
+							// compile the routine to know if the BLR is still valid
+							if (lookupById(tdbb, work->dfw_id, CacheFlag::AUTOCREATE))
+								validBlr = TRUE;
+						}
+						catch (const Firebird::Exception&)
+						{
+							fb_utils::init_status(tdbb->tdbb_status_vector);
+						}
+
+						dbb->deletePool(newPool);
+
+						Self::validate(tdbb, transaction, work, validBlr);
+					}
+					return true;
+
+				case 6:
+					Self::checkOutParamDependencies(tdbb, work, transaction);
+					break;
+			}
+
+			return false;
+		}
+
+		// Check if it is allowed to delete a routine, and if so, clean up after it.
+		static bool deleteRoutine(thread_db* tdbb, SSHORT phase, DeferredWork* work,
+			jrd_tra* transaction)
+		{
+			SET_TDBB(tdbb);
+			const QualifiedName name(work->dfw_name, work->dfw_package);
+			T* routine;
+
+			switch (phase)
+			{
+				case 0:
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					if (!routine)
+						return false;
+
+					if (routine->getPermanent()->existenceLock)
+						LCK_release(tdbb, routine->getPermanent()->existenceLock);
+
+					return false;
+
+				case 1:
+					check_dependencies(tdbb, work->dfw_name.c_str(), NULL, work->dfw_package.c_str(),
+						objType, transaction);
+					return true;
+
+				case 2:
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					if (!routine)
+						return false;
+
+					return true;
+
+				case 3:
+					return true;
+
+				case 4:
+				{
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::RET_ERASED | CacheFlag::NOSCAN);
+					if (!routine)
+						return false;
+
+					if (routine->getStatement())
+					{
+						routine->releaseStatement(tdbb);
+					}
+
+					// delete dependency lists
+
+					if (work->dfw_package.isEmpty())
+						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
+
+					//if (routine->getPermanent()->existenceLock)
+					//	routine->getPermanent()->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
+
+					break;
+				}
+			}	// switch
+
+			return false;
+		}
+
+	private:
+		// Get relations and fields on which this routine depends, either when it's being
+		// created or when it's modified.
+		static void getDependencies(DeferredWork* work, bool compile, jrd_tra* transaction)
+		{
+			thread_db* tdbb = JRD_get_thread_data();
+			Jrd::Database* dbb = tdbb->getDatabase();
+
+			if (compile)
+				compile = !tdbb->getAttachment()->isGbak();
+
+			bid blobId;
+			blobId.clear();
+			Routine* routine = Self::lookupBlobId(tdbb, work, blobId, compile);
+
+			MetadataCache::verify_cache(tdbb);
+
+			// get any dependencies now by parsing the blr
+
+			if (!routine)
+				return;
+
+			const MetaName depName(work->dfw_package.isEmpty() ?
+				MetaName(work->dfw_name) : work->dfw_package);
+
+			if (!blobId.isEmpty())
+			{
+				Statement* statement = NULL;
+				// Nickolay Samofatov: allocate statement memory pool...
+				MemoryPool* new_pool = dbb->createPool();
+				// block is used to ensure verify_cache()
+				// works in not deleted context
+				{
+					Jrd::ContextPoolHolder context(tdbb, new_pool);
+					MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &blobId,
+						(compile ? &statement : NULL),
+						NULL, depName,
+						(work->dfw_package.isEmpty() ? objType : obj_package_body),
+						0, transaction);
+
+					if (statement)
+						statement->release(tdbb);
+					else
+						dbb->deletePool(new_pool);
+				}
+			}
+			else
+			{
+				Array<Dependency> dependencies;
+
+				const auto allParameters = {&routine->getInputFields(), &routine->getOutputFields()};
+
+				for (const auto parameters : allParameters)
+				{
+					for (const auto parameter : *parameters)
+					{
+						if (parameter->prm_type_of_table.hasData())
+						{
+							Dependency dependency(obj_relation);
+							dependency.relation = MetadataCache::lookupRelation(tdbb,
+								parameter->prm_type_of_table, CacheFlag::AUTOCREATE);
+							dependency.subName = parameter->prm_type_of_column;
+							dependencies.push(dependency);
+						}
+						else if (!fb_utils::implicit_domain(parameter->prm_field_source.c_str()))
+						{
+							Dependency dependency(obj_field);
+							dependency.name = parameter->prm_field_source;
+							dependencies.push(dependency);
+						}
+
+						if (parameter->prm_text_type.isAssigned())
+						{
+							Dependency dependency(obj_collation);
+							dependency.number = parameter->prm_text_type.value;
+							dependencies.push(dependency);
+						}
+					}
+				}
+
+				MET_store_dependencies(tdbb, dependencies, nullptr, depName,
+					(work->dfw_package.isEmpty() ? objType : obj_package_header),
+					transaction);
+			}
+
+			MetadataCache::verify_cache(tdbb);
+		}
+	};
+
+	class FunctionManager : public RoutineManager<FunctionManager, Function, obj_udf,
+		Function::lookup, Function::lookup>
+	{
+	public:
+		static const char* const getTypeStr()
+		{
+			return "function";
+		}
+
+		static Routine* lookupBlobId(thread_db* tdbb, DeferredWork* work, bid& blobId, bool compile);
+		static void validate(thread_db* tdbb, jrd_tra* transaction, DeferredWork* work,
+			SSHORT validBlr);
+		static void checkOutParamDependencies(thread_db* tdbb, DeferredWork* work, jrd_tra* transaction);
+	};
+
+	class ProcedureManager : public RoutineManager<ProcedureManager, jrd_prc, obj_procedure,
+		MetadataCache::lookup_procedure_id, MetadataCache::lookup_procedure>
+	{
+	public:
+		static const char* const getTypeStr()
+		{
+			return "procedure";
+		}
+
+		static Routine* lookupBlobId(thread_db* tdbb, DeferredWork* work, bid& blobId, bool compile);
+		static void validate(thread_db* tdbb, jrd_tra* transaction, DeferredWork* work,
+			SSHORT validBlr);
+		static void checkOutParamDependencies(thread_db* tdbb, DeferredWork* work, jrd_tra* transaction);
+	};
+
+	// These methods cannot be defined inline, because GPRE generates wrong code.
+
+	Routine* FunctionManager::lookupBlobId(thread_db* tdbb, DeferredWork* work, bid& blobId,
+		bool compile)
+	{
+		Jrd::Attachment* attachment = tdbb->getAttachment();
+		AutoCacheRequest handle(tdbb, irq_c_fun_dpd, IRQ_REQUESTS);
+		Routine* routine = nullptr;
+
+		FOR(REQUEST_HANDLE handle)
+			X IN RDB$FUNCTIONS WITH
+				X.RDB$FUNCTION_NAME EQ work->dfw_name.c_str() AND
+				X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
+		{
+			blobId = X.RDB$FUNCTION_BLR;
+			routine = Function::lookup(tdbb,
+				QualifiedName(work->dfw_name, work->dfw_package), !compile);
+		}
+		END_FOR
+
+		return routine;
+	}
+
+	void FunctionManager::validate(thread_db* tdbb, jrd_tra* transaction, DeferredWork* work,
+		SSHORT validBlr)
+	{
+		Jrd::Attachment* attachment = tdbb->getAttachment();
+		AutoCacheRequest request(tdbb, irq_fun_validate, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			FUN IN RDB$FUNCTIONS
+			WITH FUN.RDB$FUNCTION_ID EQ work->dfw_id AND
+				 FUN.RDB$FUNCTION_BLR NOT MISSING
+		{
+			MODIFY FUN USING
+				FUN.RDB$VALID_BLR = validBlr;
+				FUN.RDB$VALID_BLR.NULL = FALSE;
+			END_MODIFY
+		}
+		END_FOR
+	}
+
+	void FunctionManager::checkOutParamDependencies(thread_db* tdbb, DeferredWork* work, jrd_tra* transaction)
+	{
+		// Do nothing, as function output is unnamed.
+	}
+
+	Routine* ProcedureManager::lookupBlobId(thread_db* tdbb, DeferredWork* work, bid& blobId,
+		bool compile)
+	{
+		Attachment* attachment = tdbb->getAttachment();
+		AutoCacheRequest handle(tdbb, irq_c_prc_dpd, IRQ_REQUESTS);
+		Routine* routine = nullptr;
+
+		FOR(REQUEST_HANDLE handle)
+			X IN RDB$PROCEDURES WITH
+				X.RDB$PROCEDURE_NAME EQ work->dfw_name.c_str() AND
+				X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
+		{
+			blobId = X.RDB$PROCEDURE_BLR;
+			routine = MetadataCache::lookup_procedure(tdbb,
+				QualifiedName(work->dfw_name, work->dfw_package), !compile);
+		}
+		END_FOR
+
+		return routine;
+	}
+
+	void ProcedureManager::validate(thread_db* tdbb, jrd_tra* transaction, DeferredWork* work,
+		SSHORT validBlr)
+	{
+		Jrd::Attachment* attachment = tdbb->getAttachment();
+		AutoCacheRequest request(tdbb, irq_prc_validate, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			PRC IN RDB$PROCEDURES
+			WITH PRC.RDB$PROCEDURE_ID EQ work->dfw_id AND
+				 PRC.RDB$PROCEDURE_BLR NOT MISSING
+		{
+			MODIFY PRC USING
+				PRC.RDB$VALID_BLR = validBlr;
+				PRC.RDB$VALID_BLR.NULL = FALSE;
+			END_MODIFY
+		}
+		END_FOR
+	}
+
+	void ProcedureManager::checkOutParamDependencies(thread_db* tdbb, DeferredWork* work, jrd_tra* transaction)
+	{
+		Jrd::Attachment* attachment = tdbb->getAttachment();
+		AutoCacheRequest handle(tdbb, irq_out_proc_param_dep, IRQ_REQUESTS);
+		ObjectsArray<string> names;
+		int depCount = 0;
+
+		FOR (REQUEST_HANDLE handle)
+			DEP IN RDB$DEPENDENCIES
+			WITH DEP.RDB$DEPENDED_ON_NAME EQ work->dfw_name.c_str() AND
+				 DEP.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '') AND
+				 DEP.RDB$DEPENDED_ON_TYPE = obj_procedure AND
+				 NOT DEP.RDB$FIELD_NAME MISSING AND
+				 NOT ANY PP IN RDB$PROCEDURE_PARAMETERS
+						 WITH PP.RDB$PROCEDURE_NAME EQ DEP.RDB$DEPENDED_ON_NAME AND
+							  PP.RDB$PACKAGE_NAME EQUIV DEP.RDB$PACKAGE_NAME AND
+							  PP.RDB$PARAMETER_NAME EQ DEP.RDB$FIELD_NAME AND
+							  PP.RDB$PARAMETER_TYPE EQ 1
+		{
+			// If the found object is also being deleted, there's no dependency
+
+			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE, 0, transaction))
+			{
+				string& name = names.add();
+				name.printf("%s.%s", work->dfw_name.c_str(), DEP.RDB$FIELD_NAME);
+
+				++depCount;
+			}
+		}
+		END_FOR
+
+		if (names.hasData())
+		{
+			Arg::StatusVector status;
+			status << Arg::Gds(isc_no_meta_update) << Arg::Gds(isc_no_delete);
+
+			for (auto& name : names)
+				status << Arg::Gds(isc_parameter_name) << Arg::Str(name);
+
+			status << Arg::Gds(isc_dependency) << Arg::Num(depCount);
+
+			ERR_post(status);
+		}
+	}
+} // namespace
+
+
+
 static const deferred_task task_table[] =
 {
 /*
@@ -709,6 +1183,7 @@ static const deferred_task task_table[] =
 	{ dfw_drop_package_header, drop_package_header },	// packages should be before procedures
 	{ dfw_modify_package_header, modify_package_header },	// packages should be before procedures
 	{ dfw_drop_package_body, drop_package_body },		// packages should be before procedures
+*/
 	{ dfw_create_procedure, ProcedureManager::createRoutine },
 	{ dfw_create_function, FunctionManager::createRoutine },
 	{ dfw_delete_procedure, ProcedureManager::deleteRoutine },
@@ -716,7 +1191,7 @@ static const deferred_task task_table[] =
 	{ dfw_modify_procedure, ProcedureManager::modifyRoutine },
 	{ dfw_modify_function, FunctionManager::modifyRoutine },
 	{ dfw_delete_prm, delete_parameter },
-*/
+
 	{ dfw_create_collation, create_collation },
 	{ dfw_delete_collation, delete_collation },
 /*
@@ -2223,18 +2698,7 @@ static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 		return true;
 
 	case 2:
-		return true;
-
 	case 3:
-		{
-			auto* cs = MetadataCache::getCharSet(tdbb, TTypeId(work->dfw_id), CacheFlag::NOCOMMIT);
-			if (!cs)
-			{
-				ERR_post(Arg::Gds(isc_no_meta_update) <<
-						 Arg::Gds(isc_charset_not_found) << Arg::Num(CSetId(TTypeId(work->dfw_id))));
-			}
-			cs->resetDependentObject(tdbb, ElementBase::ResetType::Recompile);
-		}
 		return true;
 
 	case 4:
@@ -2289,6 +2753,47 @@ static bool delete_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 
 	case 3:
 		//full reload instead INTL_texttype_unload(tdbb, work->dfw_id);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool delete_parameter(thread_db* tdbb, SSHORT phase, DeferredWork*, jrd_tra*)
+{
+/**************************************
+ *
+ *	d e l e t e _ p a r a m e t e r
+ *
+ **************************************
+ *
+ * Functional description
+ *	Return an error if someone attempts to
+ *	delete a field from a procedure and it is
+ *	used by a view or procedure.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		/* hvlad: temporary disable procedure parameters dependency check
+		  until proper solution (something like dyn_mod_parameter)
+		  will be implemented. This check never worked properly
+		  so no harm is done
+
+		if (MetadataCache::lookup_procedure_id(tdbb, work->dfw_id, CacheFlag::NOSCAN))
+		{
+			const DeferredWork* arg = work->dfw_args;
+			fb_assert(arg && (arg->dfw_type == dfw_arg_proc_name));
+
+			check_dependencies(tdbb, arg->dfw_name.c_str(), work->dfw_name.c_str(),
+							   obj_procedure, transaction);
+		}
+		*/
 		break;
 	}
 

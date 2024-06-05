@@ -2813,6 +2813,8 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 		METD_drop_procedure(transaction, QualifiedName(name, package));
 		MetadataCache::dsql_cache_release(tdbb, SYM_procedure, name, package);
 	}
+
+	
 }
 
 void CreateAlterProcedureNode::executeCreate(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
@@ -4129,6 +4131,14 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	END_STORE
 
 	storePrivileges(tdbb, transaction, name, obj_collation, USAGE_PRIVILEGES);
+
+	auto* cs = MetadataCache::getCharSet(tdbb, forCharSetId, CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
+	if (!cs)
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_charset_not_found) << Arg::Num(forCharSetId));
+	}
+	cs->resetDependentObject(tdbb, ElementBase::ResetType::Recompile);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);

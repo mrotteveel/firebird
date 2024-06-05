@@ -128,7 +128,7 @@ public:
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
 
-	Collation* getCollation(TTypeId tt_id);
+	Collation* getCollation(CollId id);
 	Collation* getCollation(MetaName name);
 	Cached::CharSet* getContainer() const
 	{

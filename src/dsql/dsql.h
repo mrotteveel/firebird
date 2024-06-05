@@ -240,7 +240,7 @@ public:
 	USHORT charLength;					// Length of field in characters
 	Nullable<CSetId> charSetId;
 	CollId collationId;
-	SSHORT textType;
+	TTypeId textType;
 	bool fullDomain;					// Domain name without TYPE OF prefix
 	bool notNull;						// NOT NULL was explicit specified
 	MetaName fieldSource;

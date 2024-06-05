@@ -125,7 +125,7 @@ public:
 
 	// atomically replaces 'where' with 'newVal', using *this as old value for comparison
 	// sets *this to actual data from 'where' if replace failed
-	bool replace2(atomics::atomic<T*>& where, T* newVal)
+	bool replace(atomics::atomic<T*>& where, T* newVal)
 	{
 		T* val = get<T>();
 		bool rc = where.compare_exchange_strong(val, newVal,
@@ -452,6 +452,7 @@ namespace CacheFlag
 	static const ObjectBase::Flag NOSCAN =		0x04;
 	static const ObjectBase::Flag AUTOCREATE =	0x08;
 	static const ObjectBase::Flag NOCOMMIT =	0x10;
+	static const ObjectBase::Flag RET_ERASED =	0x20;
 
 	static const ObjectBase::Flag IGNORE_MASK = COMMITTED | ERASED;
 }
@@ -468,6 +469,16 @@ class CachePool
 public:
 	static MemoryPool& get(thread_db* tdbb);
 };
+
+class TransactionNumber
+{
+public:
+	static TraNumber current(thread_db* tdbb);
+	static TraNumber oldestActive(thread_db* tdbb);
+	static TraNumber next(thread_db* tdbb);
+	static bool isDead(thread_db* tdbb, TraNumber traNumber);
+};
+
 
 class StartupBarrier
 {
@@ -562,7 +573,9 @@ class ListEntry : public HazardObject
 public:
 	ListEntry(OBJ* obj, TraNumber currentTrans, ObjectBase::Flag fl)
 		: object(obj), traNumber(currentTrans), cacheFlags(fl)
-	{ }
+	{
+		//printf("%s %lld\n", object->c_name(), traNumber);
+	}
 
 	~ListEntry()
 	{
@@ -591,6 +604,10 @@ public:
 		{
 			ObjectBase::Flag f(listEntry->getFlags());
 
+			//printf("gO %s %02x %lld  (%lld)\n", listEntry->object->c_name(), f, listEntry->traNumber, currentTrans);
+			if ((!(f & CacheFlag::COMMITTED)) && (listEntry->traNumber != currentTrans))
+				printf("Oblom\n");
+
 			if ((f & CacheFlag::COMMITTED) ||
 					// committed (i.e. confirmed) objects are freely available
 				(listEntry->traNumber == currentTrans))
@@ -609,6 +626,7 @@ public:
 
 				// required entry found in the list
 				auto* obj = listEntry->object;
+				//printf("found\n");
 				if (obj)
 				{
 					listEntry->scan(
@@ -627,7 +645,7 @@ public:
 
 	bool isBusy(TraNumber currentTrans) const noexcept
 	{
-		return traNumber != currentTrans && !(getFlags() & CacheFlag::COMMITTED);
+		return !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
 	}
 
 	ObjectBase::Flag getFlags() const noexcept
@@ -636,16 +654,26 @@ public:
 	}
 
 	// add new entry to the list
-	static bool add(atomics::atomic<ListEntry*>& list, ListEntry* newVal)
+	static bool add(thread_db* tdbb, atomics::atomic<ListEntry*>& list, ListEntry* newVal)
 	{
 		HazardPtr<ListEntry> oldVal(list);
 
 		do
 		{
-			if (oldVal && oldVal->isBusy(newVal->traNumber))	// modified in other transaction
-				return false;
-			newVal->next.store(oldVal.getPointer(), atomics::memory_order_acquire);
-		} while (! oldVal.replace2(list, newVal));
+			while(oldVal && oldVal->isBusy(oldVal->traNumber))
+			{
+				// modified in transaction oldVal->traNumber
+				if (TransactionNumber::isDead(tdbb, oldVal->traNumber))
+				{
+					rollback(tdbb, list, oldVal->traNumber);
+					oldVal.set(list);
+				}
+				else
+					return false;
+			}
+
+			newVal->next.store(oldVal.getPointer());
+		} while (!oldVal.replace(list, newVal));
 
 		return true;
 	}
@@ -672,7 +700,7 @@ public:
 					break;	// someone else also performs GC
 
 				// split remaining list off
-				if (entry.replace2(list, nullptr))
+				if (entry.replace(list, nullptr))
 				{
 					while (entry && !(entry->cacheFlags.fetch_or(CacheFlag::ERASED) & CacheFlag::ERASED))
 					{
@@ -696,6 +724,7 @@ public:
 	{
 		fb_assert((getFlags() & CacheFlag::IGNORE_MASK) == 0);
 		fb_assert(traNumber == currentTrans);
+			printf("commit %s %lld=>%lld\n", object->c_name(), traNumber, nextTrans);
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
 
@@ -716,7 +745,7 @@ public:
 				break;
 			fb_assert(entry->traNumber == currentTran);
 
-			if (entry.replace2(list, entry->next))
+			if (entry.replace(list, entry->next))
 			{
 				entry->retire();
 				OBJ::destroy(tdbb, entry->object);
@@ -768,15 +797,6 @@ private:
 };
 
 
-class TransactionNumber
-{
-public:
-	static TraNumber current(thread_db* tdbb);
-	static TraNumber oldestActive(thread_db* tdbb);
-	static TraNumber next(thread_db* tdbb);
-};
-
-
 typedef class Lock* MakeLock(thread_db*, MemoryPool&);
 
 template <class V, class P>
@@ -787,11 +807,11 @@ public:
 	typedef P Permanent;
 
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock) :
-		Permanent(tdbb, p, id, makeLock), list(nullptr), resetAt(0), myId(id)
+		Permanent(tdbb, p, id, makeLock), list(nullptr), resetAt(0)
 	{ }
 
 	CacheElement(MemoryPool& p) :
-		Permanent(p), list(nullptr), resetAt(0), myId(0)
+		Permanent(p), list(nullptr), resetAt(0)
 	{ }
 
 	static void cleanup(thread_db* tdbb, CacheElement* element)
@@ -896,7 +916,7 @@ public:
 
 		TraNumber cur = TransactionNumber::current(tdbb);
 		ListEntry<Versioned>* newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, cur, fl);
-		if (!ListEntry<Versioned>::add(list, newEntry))
+		if (!ListEntry<Versioned>::add(tdbb, list, newEntry))
 		{
 			newEntry->cleanup(tdbb);
 			delete newEntry;
@@ -1013,10 +1033,6 @@ private:
 private:
 	atomics::atomic<ListEntry<Versioned>*> list;
 	atomics::atomic<TraNumber> resetAt;
-
-public:
-	//atomics::atomic<ULONG> flags;				// control non-versioned features (like foreign keys)
-	const MetaId myId;
 };
 
 
@@ -1226,20 +1242,6 @@ public:
 		m_objects.clear();
 	}
 
-/*
-	bool replace2(MetaId id, HazardPtr<Versioned>& oldVal, Versioned* const newVal)
-	{
-		if (id >= getCount())
-			grow(id + 1);
-
-		auto a = m_objects.readAccessor();
-		SubArrayData* sub = a->value(id >> SUBARRAY_SHIFT).load(atomics::memory_order_acquire);
-		fb_assert(sub);
-		sub = &sub[id & SUBARRAY_MASK];
-
-		return oldVal.replace2(sub, newVal);
-	}
- */
 	bool clear(MetaId id)
 	{
 		if (id >= getCount())
@@ -1253,32 +1255,7 @@ public:
 		sub->store(nullptr, atomics::memory_order_release);
 		return true;
 	}
-/*
-	bool load(MetaId id, HazardPtr<Versioned>& val) const
-	{
-		auto a = m_objects.readAccessor();
-		if (id < getCount(a))
-		{
-			SubArrayData* sub = a->value(id >> SUBARRAY_SHIFT).load(atomics::memory_order_acquire);
-			if (sub)
-			{
-				val.set(sub[id & SUBARRAY_MASK]);
-				if (val && val->hasData())
-					return true;
-			}
-		}
 
-		return false;
-	}
-
-	HazardPtr<Versioned> load(MetaId id) const
-	{
-		HazardPtr<Versioned> val;
-		if (!load(id, val))
-			val.clear();
-		return val;
-	}
- */
 	HazardPtr<typename Storage::Generation> readAccessor() const
 	{
 		return m_objects.readAccessor();
@@ -1295,11 +1272,6 @@ public:
 			return get();
 		}
 
-/*		StoredElement& operator->()
-		{
-			return get();
-		}
- */
 		Iterator& operator++()
 		{
 			index = locateData(index + 1);

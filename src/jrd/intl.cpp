@@ -223,6 +223,8 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, Ma
 	  cs(NULL),
 	  cs_lock(nullptr)
 {
+	printf("CharSetContainer::CharSetContainer(..., %04x)\n", id);
+
 	SubtypeInfo info;
 	CSetId cs_id(id);
 
@@ -265,11 +267,10 @@ CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CSetId toCsId)
 	return CsConvert(cs->getStruct(), toCs->getStruct());
 }
 
-Collation* CharSetVers::getCollation(TTypeId tt_id)
+Collation* CharSetVers::getCollation(CollId id)
 {
-	const auto id = CollId(tt_id);
-	if (!charset_collations[id])
-		ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(tt_id));
+	if (USHORT(id) >= charset_collations.getCount() || !charset_collations[id])
+		return nullptr;
 
 	return charset_collations[id];
 }
@@ -879,7 +880,14 @@ Collation* INTL_texttype_lookup(thread_db* tdbb, TTypeId parm1)
 
 	auto* vers = MetadataCache::lookup_charset(tdbb, parm1, CacheFlag::AUTOCREATE);
 
-	return vers ? vers->getCollation(parm1) : nullptr;
+	if (vers)
+	{
+		auto* coll = vers->getCollation(parm1);
+		if (coll)
+			return coll;
+	}
+
+	ERR_post(Arg::Gds(isc_text_subtype) << Arg::Num(parm1));
 }
 
 

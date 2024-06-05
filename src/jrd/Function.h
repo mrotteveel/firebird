@@ -44,7 +44,7 @@ namespace Jrd
 		static int blockingAst(void* ast_object);
 
 		static Function* lookup(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-		static Function* lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = 0);
+		static Function* lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 
 	private:
 		explicit Function(Cached::Function* perm)

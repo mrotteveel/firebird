@@ -4844,7 +4844,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	{
 		Dependency dependency(obj_relation);
 		dependency.relation = MetadataCache::lookupRelation(tdbb, relationName, CacheFlag::AUTOCREATE);
-		dependency.subName = FB_NEW_POOL(pool) MetaName(fieldName);
+		dependency.subName = fieldName;
 		csb->addDependency(dependency);
 	}
 

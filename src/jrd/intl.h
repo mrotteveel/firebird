@@ -44,7 +44,7 @@ struct IdStorage
 struct TTypeId : public IdStorage
 {
 	TTypeId() : IdStorage(0) { }
-	explicit TTypeId(USHORT id) : IdStorage(id & 0xFF) { }
+	explicit TTypeId(USHORT id) : IdStorage(id) { }
 	constexpr TTypeId(CSetId id);
 	TTypeId(CSetId cs, CollId col);
 };

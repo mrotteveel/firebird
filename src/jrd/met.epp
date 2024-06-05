@@ -295,9 +295,11 @@ void MetadataCache::update_partners(thread_db* tdbb)
 }
 
 
-#ifdef NEVERDEF //DEV_BUILD
 void MetadataCache::verify_cache(thread_db* tdbb)
 {
+#ifndef NEVERDEF //DEV_BUILD
+}
+#else // NEVERDEF
 /**************************************
  *
  *      M E T _ v e r i f y _ c a c h e
@@ -467,7 +469,7 @@ void MetadataCache::verify_cache(thread_db* tdbb)
 			routine->intUseCount = 0;
 	}
 }
-#endif
+#endif // NEVERDEF
 
 
 // Done before MDC is deleted
@@ -4592,7 +4594,7 @@ void MET_store_dependencies(thread_db* tdbb,
 		Dependency dependency = dependencies.pop();
 
 		if (!dependency.relation && !dependency.function && !dependency.procedure &&
-			!dependency.name && !dependency.number)
+			!dependency.name.hasData() && !dependency.number)
 		{
 			continue;
 		}
@@ -4662,7 +4664,7 @@ void MET_store_dependencies(thread_db* tdbb,
 			break;
 
 		case obj_field:
-			dpdo_name = *(dependency.name);
+			dpdo_name = dependency.name;
 			break;
 
 		case obj_generator:
@@ -4686,14 +4688,14 @@ void MET_store_dependencies(thread_db* tdbb,
 			break;
 
 		case obj_index:
-			name = *dependency.name;
+			name = dependency.name;
 			dpdo_name = name;
 			break;
 		}
 
 		MetaName field_name;
 
-		if (dependency.subNumber || dependency.subName)
+		if (dependency.subNumber || dependency.subName.hasData())
 		{
 			if (dependency.subNumber)
 			{
@@ -4715,7 +4717,7 @@ void MET_store_dependencies(thread_db* tdbb,
 				}
 			}
 			else
-				field_name = *dependency.subName;
+				field_name = dependency.subName;
 		}
 
 		if (field_name.hasData())
