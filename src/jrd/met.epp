@@ -490,7 +490,7 @@ void MetadataCache::cleanup(thread_db* tdbb)
 		}
 	};
 
-	for (int i = 1; i < DB_TRIGGER_MAX; ++i)
+	for (unsigned i = 1; i < DB_TRIGGER_MAX; ++i)
 		cleanSet(mdc_triggers[i]);
 	cleanSet(mdc_ddl_triggers);
 }
@@ -2731,7 +2731,7 @@ jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, MetaId id, ObjectBas
 }
 
 
-CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
@@ -5215,7 +5215,6 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, const Qualified
 {
 	SET_TDBB(tdbb);
 
-	Attachment* attachment = tdbb->getAttachment();
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
 	// See if we already know the relation by name
@@ -5228,12 +5227,27 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, const Qualified
 	return fun ? fun->getPermanent() : nullptr;
 }
 
+Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+{
+	SET_TDBB(tdbb);
+
+	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	auto* rc = mdc->mdc_functions.getData(tdbb, id, flags);
+	if (rc || !(flags & CacheFlag::AUTOCREATE))
+		return rc;
+
+	if (auto* fun = mdc->mdc_functions.getObject(tdbb, id, flags))
+		rc = fun->getPermanent();
+
+	return rc;
+}
+
 Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
 
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
-	auto rc = mdc->mdc_procedures.getData(tdbb, id, flags);
+	auto* rc = mdc->mdc_procedures.getData(tdbb, id, flags);
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
 
@@ -5299,4 +5313,29 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 
 	return rc;
 }
+
+void MetadataCache::changeVersion(thread_db* tdbb, bool loadOld, ObjectType objType, MetaId id)
+{
+	auto* mdc = tdbb->getDatabase()->dbb_mdc;
+	switch(objType)
+	{
+	case obj_procedure:
+		changeVersion(tdbb, loadOld, mdc->mdc_procedures, id);
+		break;
+
+	case obj_charset:
+		changeVersion(tdbb, loadOld, mdc->mdc_charsets, id);
+		break;
+
+/*
+	case :
+	changeVersion(tdbb, loadOld, mdc->, id);
+		break;
+*/
+	default:
+		fb_assert(!"object in changeVersion");
+		break;
+	}
+}
+
 

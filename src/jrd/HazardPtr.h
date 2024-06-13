@@ -605,8 +605,6 @@ public:
 			ObjectBase::Flag f(listEntry->getFlags());
 
 			//printf("gO %s %02x %lld  (%lld)\n", listEntry->object->c_name(), f, listEntry->traNumber, currentTrans);
-			if ((!(f & CacheFlag::COMMITTED)) && (listEntry->traNumber != currentTrans))
-				printf("Oblom\n");
 
 			if ((f & CacheFlag::COMMITTED) ||
 					// committed (i.e. confirmed) objects are freely available
@@ -621,7 +619,7 @@ public:
 					if (fl & CacheFlag::ERASED)
 						continue;
 
-					return nullptr;
+					return nullptr;		// object dropped
 				}
 
 				// required entry found in the list
@@ -638,6 +636,8 @@ public:
 				}
 				return obj;
 			}
+			else
+				printf("Oblom\n");
 		}
 
 		return nullptr;	// object created (not by us) and not committed yet
@@ -660,7 +660,7 @@ public:
 
 		do
 		{
-			while(oldVal && oldVal->isBusy(oldVal->traNumber))
+			while(oldVal && oldVal->isBusy(newVal->traNumber))
 			{
 				// modified in transaction oldVal->traNumber
 				if (TransactionNumber::isDead(tdbb, oldVal->traNumber))
@@ -725,6 +725,8 @@ public:
 		fb_assert((getFlags() & CacheFlag::IGNORE_MASK) == 0);
 		fb_assert(traNumber == currentTrans);
 			printf("commit %s %lld=>%lld\n", object->c_name(), traNumber, nextTrans);
+			if (strcmp(object->c_name(), "ISO88591") == 0)
+				printf("ISO");
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
 
@@ -747,8 +749,11 @@ public:
 
 			if (entry.replace(list, entry->next))
 			{
-				entry->retire();
+				entry->next = nullptr;
 				OBJ::destroy(tdbb, entry->object);
+				entry->object = nullptr;
+				entry->retire();
+
 				entry = list;
 			}
 		}
@@ -1136,7 +1141,7 @@ public:
 				if (data)
 				{
 					auto rc = data->getObject(tdbb, fl);
-					if (rc)
+					//if (rc)
 						return rc;
 				}
 			}
@@ -1153,7 +1158,6 @@ public:
 #endif
 	}
 
-private:
 	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 		if (id >= getCount())
@@ -1187,7 +1191,6 @@ private:
 		return nullptr;
 	}
 
-public:
 	StoredElement* lookup(thread_db*tdbb, std::function<bool(Permanent* val)> cmp) const
 	{
 		auto a = m_objects.readAccessor();

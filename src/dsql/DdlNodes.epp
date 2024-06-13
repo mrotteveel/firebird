@@ -2813,8 +2813,6 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 		METD_drop_procedure(transaction, QualifiedName(name, package));
 		MetadataCache::dsql_cache_release(tdbb, SYM_procedure, name, package);
 	}
-
-	
 }
 
 void CreateAlterProcedureNode::executeCreate(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
@@ -2898,6 +2896,7 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 	Attachment* const attachment = transaction->getAttachment();
 	AutoCacheRequest requestHandle(tdbb, drq_m_prcs2, DYN_REQUESTS);
 	bool modified = false;
+	MetaId id;
 
 	DsqlStatement* statement = dsqlScratch->getDsqlStatement();
 
@@ -2913,10 +2912,17 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 				MetaName(P.RDB$PROCEDURE_NAME));
 		}
 
-		if (!secondPass && runTriggers && package.isEmpty())
+		id = P.RDB$PROCEDURE_ID;
+
+		if (!secondPass && runTriggers)
 		{
-			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
-				DDL_TRIGGER_ALTER_PROCEDURE, name, NULL);
+			if (package.isEmpty())
+			{
+				executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
+					DDL_TRIGGER_ALTER_PROCEDURE, name, NULL);
+			}
+
+			MetadataCache::oldVersion(tdbb, obj_procedure, id);
 		}
 
 		MODIFY P
@@ -3059,6 +3065,9 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 		}
 		END_FOR
 	}
+
+	if (secondPass && modified)
+		MetadataCache::newVersion(tdbb, obj_procedure, id);
 
 	return modified;
 }
@@ -3985,6 +3994,8 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);
 
+	MetadataCache::oldVersion(tdbb, obj_charset, forCharSetId);
+
 	AutoCacheRequest request(tdbb, drq_s_colls, DYN_REQUESTS);
 
 	STORE(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
@@ -4132,13 +4143,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	storePrivileges(tdbb, transaction, name, obj_collation, USAGE_PRIVILEGES);
 
-	auto* cs = MetadataCache::getCharSet(tdbb, forCharSetId, CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
-	if (!cs)
-	{
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_charset_not_found) << Arg::Num(forCharSetId));
-	}
-	cs->resetDependentObject(tdbb, ElementBase::ResetType::Recompile);
+	MetadataCache::newVersion(tdbb, obj_charset, forCharSetId);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);

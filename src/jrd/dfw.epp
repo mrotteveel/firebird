@@ -696,13 +696,20 @@ namespace
 
 			switch (phase)
 			{
+				case 0:
+				{
+					T* routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					if (routine)
+						routine->rollback(tdbb);
+
+					return false;
+				}
+
 				case 1:
 				case 2:
-				case 3:
-				case 4:
 					return true;
 
-				case 5:
+				case 3:
 				{
 					const bool compile = !work->findArg(dfw_arg_check_blr);
 					getDependencies(work, compile, transaction);
@@ -726,7 +733,7 @@ namespace
 		{
 			SET_TDBB(tdbb);
 			const QualifiedName name(work->dfw_name, work->dfw_package);
-			Routine* routine;
+			T* routine;
 
 			fprintf(stderr, "routine %d %s ph %d\n", work->dfw_id, name.c_str(), phase);
 
@@ -734,8 +741,12 @@ namespace
 			{
 				case 0:
 					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
-					if (routine && routine->getPermanent()->existenceLock)
-						LCK_release(tdbb, routine->getPermanent()->existenceLock);
+					if (routine)
+					{
+						if (routine->existenceLock)
+							LCK_release(tdbb, routine->existenceLock);
+						routine->rollback(tdbb);
+					}
 
 					return false;
 
@@ -748,11 +759,11 @@ namespace
 					if (!routine)
 						return false;
 
-					if (routine->getPermanent()->existenceLock)
+					if (routine->existenceLock)
 					{
 						// Let routine be deleted if only this transaction is using it
 
-						//if (!routine->getPermanent()->existenceLock->exclLock(tdbb))
+						//if (!routine->existenceLock->exclLock(tdbb))
 						// !!!!!!!!!!!!!!!!!!!!!!!!!!!	raiseRoutineInUseError(routine, name);
 					}
 
@@ -767,7 +778,7 @@ namespace
 					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
 					if (!routine)
 						return false;
-
+/*
 					if (routine->getStatement())
 					{
 						//if (routine->getStatement()->isActive())
@@ -777,7 +788,7 @@ namespace
 
 						routine->releaseStatement(tdbb);
 					}
-
+ */
 					// delete dependency lists
 
 					if (work->dfw_package.isEmpty())
@@ -791,8 +802,8 @@ namespace
 					 */
 					// routine->flags = (Routine::FLAG_OBSOLETE | Routine::FLAG_BEING_ALTERED);
 
-					if (routine->getPermanent()->existenceLock)
-						LCK_release(tdbb, routine->getPermanent()->existenceLock);
+					if (routine->existenceLock)
+						LCK_release(tdbb, routine->existenceLock);
 
 					// Now handle the new definition
 					bool compile = !work->findArg(dfw_arg_check_blr);
@@ -852,8 +863,8 @@ namespace
 					if (!routine)
 						return false;
 
-					if (routine->getPermanent()->existenceLock)
-						LCK_release(tdbb, routine->getPermanent()->existenceLock);
+					if (routine->existenceLock)
+						LCK_release(tdbb, routine->existenceLock);
 
 					return false;
 
@@ -878,18 +889,19 @@ namespace
 					if (!routine)
 						return false;
 
+					/*
 					if (routine->getStatement())
 					{
 						routine->releaseStatement(tdbb);
-					}
+					}*/
 
 					// delete dependency lists
 
 					if (work->dfw_package.isEmpty())
 						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
 
-					//if (routine->getPermanent()->existenceLock)
-					//	routine->getPermanent()->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
+					//if (routine->existenceLock)
+					//	routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
 					break;
 				}
@@ -987,8 +999,9 @@ namespace
 		}
 	};
 
-	class FunctionManager : public RoutineManager<FunctionManager, Function, obj_udf,
-		Function::lookup, Function::lookup>
+	class FunctionManager : public RoutineManager<FunctionManager, Cached::Function, obj_udf,
+//		Function::lookup, Function::lookup>
+		MetadataCache::lookupFunction, MetadataCache::lookupFunction>
 	{
 	public:
 		static const char* const getTypeStr()
@@ -1002,8 +1015,9 @@ namespace
 		static void checkOutParamDependencies(thread_db* tdbb, DeferredWork* work, jrd_tra* transaction);
 	};
 
-	class ProcedureManager : public RoutineManager<ProcedureManager, jrd_prc, obj_procedure,
-		MetadataCache::lookup_procedure_id, MetadataCache::lookup_procedure>
+	class ProcedureManager : public RoutineManager<ProcedureManager, Cached::Procedure, obj_procedure,
+//		MetadataCache::lookup_procedure_id, MetadataCache::lookup_procedure>
+		MetadataCache::lookupProcedure, MetadataCache::lookupProcedure>
 	{
 	public:
 		static const char* const getTypeStr()

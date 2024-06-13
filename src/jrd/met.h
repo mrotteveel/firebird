@@ -294,7 +294,7 @@ public:
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
-	//static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags);
@@ -330,7 +330,7 @@ public:
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	// end of met_proto.h
 
-	static CharSetVers* lookup_charset(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	static CharSetVers* lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
 
 	static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction);
 	static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number);
@@ -360,7 +360,27 @@ public:
 		return mdc_generators.lookup(id, name);
 	}
 
+	static void oldVersion(thread_db* tdbb, ObjectType objType, MetaId id)
+	{
+		changeVersion(tdbb, true, objType, id);
+	}
+
+	static void newVersion(thread_db* tdbb, ObjectType objType, MetaId id)
+	{
+		changeVersion(tdbb, false, objType, id);
+	}
+
 private:
+	static void changeVersion(thread_db* tdbb, bool loadOld, ObjectType objType, MetaId id);
+
+	template <typename C>
+	static void changeVersion(thread_db* tdbb, bool loadOld, CacheVector<C>& vector, MetaId id)
+	{
+		auto* ver = loadOld ? vector.getObject(tdbb, id, CacheFlag::AUTOCREATE) :
+			vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
+		fb_assert(ver);
+	}
+
 	class GeneratorFinder
 	{
 		typedef Firebird::MutexLockGuard Guard;
