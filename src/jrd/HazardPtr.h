@@ -573,9 +573,7 @@ class ListEntry : public HazardObject
 public:
 	ListEntry(OBJ* obj, TraNumber currentTrans, ObjectBase::Flag fl)
 		: object(obj), traNumber(currentTrans), cacheFlags(fl)
-	{
-		//printf("%s %lld\n", object->c_name(), traNumber);
-	}
+	{ }
 
 	~ListEntry()
 	{
@@ -604,8 +602,6 @@ public:
 		{
 			ObjectBase::Flag f(listEntry->getFlags());
 
-			//printf("gO %s %02x %lld  (%lld)\n", listEntry->object->c_name(), f, listEntry->traNumber, currentTrans);
-
 			if ((f & CacheFlag::COMMITTED) ||
 					// committed (i.e. confirmed) objects are freely available
 				(listEntry->traNumber == currentTrans))
@@ -624,7 +620,6 @@ public:
 
 				// required entry found in the list
 				auto* obj = listEntry->object;
-				//printf("found\n");
 				if (obj)
 				{
 					listEntry->scan(
@@ -636,8 +631,6 @@ public:
 				}
 				return obj;
 			}
-			else
-				printf("Oblom\n");
 		}
 
 		return nullptr;	// object created (not by us) and not committed yet
@@ -724,12 +717,9 @@ public:
 	{
 		fb_assert((getFlags() & CacheFlag::IGNORE_MASK) == 0);
 		fb_assert(traNumber == currentTrans);
-			printf("commit %s %lld=>%lld\n", object->c_name(), traNumber, nextTrans);
-			if (strcmp(object->c_name(), "ISO88591") == 0)
-				printf("ISO");
+
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
-
 		cacheFlags |= CacheFlag::COMMITTED;
 	}
 

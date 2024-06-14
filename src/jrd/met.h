@@ -373,14 +373,6 @@ public:
 private:
 	static void changeVersion(thread_db* tdbb, bool loadOld, ObjectType objType, MetaId id);
 
-	template <typename C>
-	static void changeVersion(thread_db* tdbb, bool loadOld, CacheVector<C>& vector, MetaId id)
-	{
-		auto* ver = loadOld ? vector.getObject(tdbb, id, CacheFlag::AUTOCREATE) :
-			vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
-		fb_assert(ver);
-	}
-
 	class GeneratorFinder
 	{
 		typedef Firebird::MutexLockGuard Guard;

@@ -5314,22 +5314,33 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 	return rc;
 }
 
+
+namespace {
+	template <typename C>
+	void changeVers(thread_db* tdbb, bool loadOld, CacheVector<C>& vector, MetaId id)
+	{
+		auto* ver = loadOld ? vector.getObject(tdbb, id, CacheFlag::AUTOCREATE) :
+			vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
+		fb_assert(ver);
+	}
+}
+
 void MetadataCache::changeVersion(thread_db* tdbb, bool loadOld, ObjectType objType, MetaId id)
 {
 	auto* mdc = tdbb->getDatabase()->dbb_mdc;
 	switch(objType)
 	{
 	case obj_procedure:
-		changeVersion(tdbb, loadOld, mdc->mdc_procedures, id);
+		changeVers(tdbb, loadOld, mdc->mdc_procedures, id);
 		break;
 
 	case obj_charset:
-		changeVersion(tdbb, loadOld, mdc->mdc_charsets, id);
+		changeVers(tdbb, loadOld, mdc->mdc_charsets, id);
 		break;
 
 /*
 	case :
-	changeVersion(tdbb, loadOld, mdc->, id);
+	changeVers(tdbb, loadOld, mdc->, id);
 		break;
 */
 	default:

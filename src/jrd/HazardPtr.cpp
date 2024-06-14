@@ -79,10 +79,21 @@ MdcVersion VersionSupport::next(thread_db* tdbb)
 }
 
 
+// class ObjectBase
+
 void ObjectBase::lockedExcl [[noreturn]] (thread_db* tdbb)
 {
 	fatal_exception::raise("Unspecified object locked exclusive for deletion");
 }
+
+bool ObjectBase::reload(thread_db* tdbb)
+{
+	// default implementation for missing reload call
+	fatal_exception::raise("Unable to recompile this type of cached object");
+}
+
+
+// class CachePool
 
 MemoryPool& CachePool::get(thread_db* tdbb)
 {
@@ -90,15 +101,12 @@ MemoryPool& CachePool::get(thread_db* tdbb)
 	return dbb->dbb_mdc->getPool();
 }
 
+
+// class ElementBase
+
 [[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* name, const char* family)
 {
 	fatal_exception::raiseFmt("%s %s%sid=%d busy in another thread - operation failed\n",
 		family, name ? name : "", name ? " " : "", id);
-}
-
-bool ObjectBase::reload(thread_db* tdbb)
-{
-	// default implementation for missing reload call
-	fatal_exception::raise("Unable to recompile this type of cached object");
 }
 

@@ -223,8 +223,6 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, Ma
 	  cs(NULL),
 	  cs_lock(nullptr)
 {
-	printf("CharSetContainer::CharSetContainer(..., %04x)\n", id);
-
 	SubtypeInfo info;
 	CSetId cs_id(id);
 

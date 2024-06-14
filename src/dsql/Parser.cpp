@@ -1190,7 +1190,6 @@ int Parser::yylexAux()
 				if (!have_decimal && (number <= MAX_SLONG))
 				{
 					yylval.int32Val = (SLONG) number;
-					//printf ("parse.y %p %d\n", yylval.legacyStr, number);
 					return TOK_NUMBER32BIT;
 				}
 				else
