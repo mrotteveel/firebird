@@ -1343,7 +1343,7 @@ void Applier::doDelete(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 {
 	fb_assert(!(transaction->tra_flags & TRA_system));
 
-	RLCK_reserve_relation(tdbb, transaction, rpb->rpb_relation->rel_perm, true);
+	RLCK_reserve_relation(tdbb, transaction, getPermanent(rpb->rpb_relation), true);
 
 	Savepoint::ChangeMarker marker(transaction->tra_save_point);
 

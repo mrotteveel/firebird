@@ -173,6 +173,8 @@ public:
 	}
 
 	bool reload(thread_db* tdbb) override;
+
+	static int objectType();
 };
 
 
@@ -287,7 +289,7 @@ public:
 	static void update_partners(thread_db* tdbb);
 	void load_db_triggers(thread_db* tdbb, int type, bool force = false);
 	void load_ddl_triggers(thread_db* tdbb, bool force = false);
-	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags = CacheFlag::AUTOCREATE);
+	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name);
 	static Function* lookup_function(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);

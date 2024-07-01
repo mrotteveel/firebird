@@ -976,7 +976,7 @@ Format* MET_current(thread_db* tdbb, jrd_rel* relation)
 	// scanned table must be catched here and investigated.
 	fb_assert(relation->rel_current_fmt || relation->isSystem());
 
-	relation->rel_current_format = MET_format(tdbb, relation->rel_perm, relation->rel_current_fmt);
+	relation->rel_current_format = MET_format(tdbb, getPermanent(relation), relation->rel_current_fmt);
 
 	return relation->rel_current_format;
 }
@@ -1000,9 +1000,9 @@ void MET_delete_dependencies(thread_db* tdbb,
  **************************************/
 	SET_TDBB(tdbb);
 
-//	if (!object_name)
-//		return;
-//
+	if (object_name.isEmpty())
+		return;
+
 	AutoCacheRequest request(tdbb, irq_d_deps, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
@@ -1391,12 +1391,12 @@ DmlNode* MET_get_dependencies(thread_db* tdbb,
 
 	if (blob)
 	{
-		node = PAR_blr(tdbb, relation->rel_perm, blob, blob_length, view_csb, &csb, statementPtr,
+		node = PAR_blr(tdbb, getPermanent(relation), blob, blob_length, view_csb, &csb, statementPtr,
 			(type == obj_trigger && relation != NULL), 0);
 	}
 	else
 	{
-		node = MET_parse_blob(tdbb, relation->rel_perm, blob_id, &csb, statementPtr,
+		node = MET_parse_blob(tdbb, getPermanent(relation), blob_id, &csb, statementPtr,
 			(type == obj_trigger && relation != NULL), type == obj_validation);
 	}
 
@@ -1699,14 +1699,14 @@ void MET_load_trigger(thread_db* tdbb,
 
 	if (relation)
 	{
-		if (relation->rel_perm->rel_flags & REL_sys_trigs_being_loaded)
+		if (getPermanent(relation)->rel_flags & REL_sys_trigs_being_loaded)
 			return;
 
 		// No need to load table triggers for ReadOnly databases,
 		// since INSERT/DELETE/UPDATE statements are not going to be allowed
 		// hvlad: GTT with ON COMMIT DELETE ROWS clause is writable
 
-		if (dbb->readOnly() && !(relation->rel_perm->rel_flags & REL_temp_tran))
+		if (dbb->readOnly() && !(getPermanent(relation)->rel_flags & REL_temp_tran))
 			return;
 	}
 
@@ -2803,7 +2803,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 
-	relation->rel_perm->rel_flags &= ~REL_sys_triggers;
+	getPermanent(relation)->rel_flags &= ~REL_sys_triggers;
 
 	// Release any triggers in case of a rescan
 
@@ -2813,10 +2813,10 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 	// INSERT/DELETE/UPDATE statements are not going to be allowed
 	// hvlad: GTT with ON COMMIT DELETE ROWS clause is writable
 
-	if (dbb->readOnly() && !(relation->rel_perm->rel_flags & REL_temp_tran))
+	if (dbb->readOnly() && !(getPermanent(relation)->rel_flags & REL_temp_tran))
 		return;
 
-	relation->rel_perm->rel_flags |= REL_sys_trigs_being_loaded;
+	getPermanent(relation)->rel_flags |= REL_sys_trigs_being_loaded;
 
 	AutoCacheRequest request(tdbb, irq_s_triggers2, IRQ_REQUESTS);
 
@@ -2847,7 +2847,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 
 			{
 				Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
-				PAR_blr(tdbb, relation->rel_perm, blr.begin(), length, NULL, NULL, &statement, true, par_flags);
+				PAR_blr(tdbb, getPermanent(relation), blr.begin(), length, NULL, NULL, &statement, true, par_flags);
 			}
 
 			statement->triggerName = name;
@@ -2862,7 +2862,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 	}
 	END_FOR
 
-	relation->rel_perm->rel_flags &= ~REL_sys_trigs_being_loaded;
+	getPermanent(relation)->rel_flags &= ~REL_sys_trigs_being_loaded;
 }
 
 
@@ -5121,7 +5121,7 @@ void Trigger::compile(thread_db* tdbb)
 										 *csb->csb_dbg_info);
 				}
 
-				PAR_blr(tdbb, relation->rel_perm, blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
+				PAR_blr(tdbb, getPermanent(relation), blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
 					(relation ? true : false), par_flags);
 			}
 			else
@@ -5349,4 +5349,7 @@ void MetadataCache::changeVersion(thread_db* tdbb, bool loadOld, ObjectType objT
 	}
 }
 
-
+int jrd_prc::objectType()
+{
+	return obj_trigger;
+}

@@ -1491,8 +1491,8 @@ DmlNode* DeclareSubFuncNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerSc
 
 	Function* subFunc = FB_NEW_POOL(pool) Function(pool);
 	node->routine = subFunc;
-	subFunc->getPermanent()->setName(QualifiedName(name));
-	subFunc->getPermanent()->setSubRoutine(true);
+	getPermanent(subFunc)->setName(QualifiedName(name));
+	getPermanent(subFunc)->setSubRoutine(true);
 	subFunc->setImplemented(true);
 
 	{	// scope
@@ -1807,8 +1807,8 @@ DmlNode* DeclareSubProcNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerSc
 	DeclareSubProcNode* node = FB_NEW_POOL(pool) DeclareSubProcNode(pool, name);
 
 	jrd_prc* subProc = node->routine = FB_NEW_POOL(pool) jrd_prc(pool);
-	subProc->getPermanent()->setName(QualifiedName(name));
-	subProc->getPermanent()->setSubRoutine(true);
+	getPermanent(subProc)->setName(QualifiedName(name));
+	getPermanent(subProc)->setSubRoutine(true);
 	subProc->setImplemented(true);
 
 	{	// scope
@@ -2934,7 +2934,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 			}
 		}
 		else
-			procedure = MetadataCache::lookup_procedure(tdbb, name);
+			procedure = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
 	}
 
 	if (!procedure)
@@ -2967,10 +2967,10 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 	PAR_procedure_parms(tdbb, csb, procedure, node->outputMessage.getAddress(),
 		node->outputSources.getAddress(), node->outputTargets.getAddress(), false);
 
-	if (csb->collectingDependencies() && !procedure->getPermanent()->isSubRoutine())
+	if (csb->collectingDependencies() && !getPermanent(procedure)->isSubRoutine())
 	{
 		Dependency dependency(obj_procedure);
-		dependency.procedure = procedure->getPermanent();
+		dependency.procedure = getPermanent(procedure);
 		csb->addDependency(dependency);
 	}
 

@@ -73,7 +73,7 @@ const Format* TimeZonesTableScan::getFormat(thread_db* tdbb, RelationPermanent* 
 bool TimeZonesTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 	FB_UINT64 position, Record* record) const
 {
-	return tdbb->getTransaction()->getTimeZoneSnapshot(tdbb)->getData(relation->rel_perm)->fetch(position, record);
+	return tdbb->getTransaction()->getTimeZoneSnapshot(tdbb)->getData(getPermanent(relation))->fetch(position, record);
 }
 
 

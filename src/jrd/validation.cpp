@@ -2011,7 +2011,7 @@ Validation::RTN Validation::walk_index(jrd_rel* relation, index_root_page& root_
 			AutoSetRestoreFlag<UCHAR> flags(&root_page.irt_rpt[id].irt_flags,
 				irt_expression | irt_condition, false);
 
-			BTR_description(vdr_tdbb, relation->rel_perm, &root_page, &idx, id);
+			BTR_description(vdr_tdbb, getPermanent(relation), &root_page, &idx, id);
 		}
 
 		null_key = &nullKey;
@@ -2567,7 +2567,7 @@ Validation::RTN Validation::walk_pointer_page(jrd_rel* relation, ULONG sequence)
  **************************************/
 	Database* dbb = vdr_tdbb->getDatabase();
 
-	const vcl* vector = relation->rel_perm->getBasePages()->rel_pages;
+	const vcl* vector = getPermanent(relation)->getBasePages()->rel_pages;
 
 	if (!vector || sequence >= vector->count())
 		return corrupt(VAL_P_PAGE_LOST, relation, sequence);
@@ -2686,7 +2686,7 @@ Validation::RTN Validation::walk_pointer_page(jrd_rel* relation, ULONG sequence)
 
 			DPM_scan_pages(vdr_tdbb);
 
-			vector = relation->rel_perm->getBasePages()->rel_pages;
+			vector = getPermanent(relation)->getBasePages()->rel_pages;
 
 			--sequence;
 			if (!vector || sequence >= vector->count()) {
@@ -2853,7 +2853,7 @@ Validation::RTN Validation::walk_record(jrd_rel* relation, const rhd* header, US
 
 	// Check out record length and format
 
-	const Format* format = MET_format(vdr_tdbb, relation->rel_perm, header->rhd_format);
+	const Format* format = MET_format(vdr_tdbb, getPermanent(relation), header->rhd_format);
 
 	if (!delta_flag && record_length != format->fmt_length)
 		return corrupt(VAL_REC_WRONG_LENGTH, relation, number.getValue());
@@ -2919,7 +2919,7 @@ void Validation::checkDPinPP(jrd_rel* relation, ULONG page_number)
 	Database* dbb = vdr_tdbb->getDatabase();
 	DECOMPOSE(sequence, dbb->dbb_dp_per_pp, pp_sequence, slot);
 
-	const vcl* vector = relation->rel_perm->getBasePages()->rel_pages;
+	const vcl* vector = getPermanent(relation)->getBasePages()->rel_pages;
 	pointer_page* ppage = 0;
 	if (pp_sequence < vector->count())
 	{
@@ -3020,7 +3020,7 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 	try {
 
 	// skip deleted relations
-	if (relation->rel_perm->isDropped()) {
+	if (getPermanent(relation)->isDropped()) {
 		return rtn_ok;
 	}
 
@@ -3038,10 +3038,10 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 	}
 
 	AutoLock lckRead(vdr_tdbb);
-	GCLock::Exclusive lckGC(vdr_tdbb, relation->rel_perm);
+	GCLock::Exclusive lckGC(vdr_tdbb, getPermanent(relation));
 	if (vdr_flags & VDR_online)
 	{
-		lckRead = relation->rel_perm->createLock(vdr_tdbb, LCK_relation, false);
+		lckRead = getPermanent(relation)->createLock(vdr_tdbb, LCK_relation, false);
 		if (!LCK_lock(vdr_tdbb, lckRead, LCK_PR, vdr_lock_tout))
 		{
 			output("Acquire relation lock failed\n");
@@ -3084,7 +3084,7 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 
 	for (ULONG sequence = 0; true; sequence++)
 	{
-		const vcl* vector = relation->rel_perm->getBasePages()->rel_pages;
+		const vcl* vector = getPermanent(relation)->getBasePages()->rel_pages;
 		const int ppCnt = vector ? vector->count() : 0;
 
 		output("  process pointer page %4d of %4d\n", sequence, ppCnt);
@@ -3190,7 +3190,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
  **************************************/
 
 	// If the relation has an index root, walk it
-	RelationPages* relPages = relation->rel_perm->getBasePages();
+	RelationPages* relPages = getPermanent(relation)->getBasePages();
 
 	if (!relPages->rel_index_root)
 		return corrupt(VAL_INDEX_ROOT_MISSING, relation);
@@ -3230,7 +3230,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 				AutoSetRestoreFlag<UCHAR> flag(&page->irt_rpt[i].irt_flags, irt_expression, false);
 
 				IdxInfo info;
-				if (BTR_description(vdr_tdbb, relation->rel_perm, page, &info.m_desc, i))
+				if (BTR_description(vdr_tdbb, getPermanent(relation), page, &info.m_desc, i))
 					vdr_cond_idx.add(info);
 			}
 			continue;

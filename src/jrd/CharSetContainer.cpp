@@ -26,6 +26,7 @@
 #include "firebird.h"
 #include "../jrd/CharSetContainer.h"
 #include "../jrd/jrd.h"
+#include "../jrd/obj.h"
 
 using namespace Jrd;
 
@@ -73,3 +74,7 @@ void CharSetContainer::releaseLocks(thread_db* tdbb)
 	LCK_release(tdbb, cs_lock);
 }
 
+int CharSetVers::objectType()
+{
+	return obj_charset;
+}

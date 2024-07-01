@@ -1018,6 +1018,11 @@ public:
 		return listEntry->scanInProgress();
 	}
 
+	static int getObjectType()
+	{
+		return Versioned::objectType();
+	}
+
 private:
 	void setNewResetAt(TraNumber oldVal, TraNumber newVal)
 	{
@@ -1129,11 +1134,7 @@ public:
 			{
 				StoredElement* data = ptr->load(atomics::memory_order_acquire);
 				if (data)
-				{
-					auto rc = data->getObject(tdbb, fl);
-					//if (rc)
-						return rc;
-				}
+					return data->getObject(tdbb, fl);
 			}
 
 			if (!(fl & CacheFlag::AUTOCREATE))
@@ -1181,7 +1182,8 @@ public:
 		return nullptr;
 	}
 
-	StoredElement* lookup(thread_db*tdbb, std::function<bool(Permanent* val)> cmp) const
+	template <typename F>
+	StoredElement* lookup(thread_db* tdbb, F&& cmp) const
 	{
 		auto a = m_objects.readAccessor();
 		for (FB_SIZE_T i = 0; i < a->getCount(); ++i)
@@ -1337,6 +1339,12 @@ private:
 	Storage m_objects;
 	Firebird::Mutex objectsGrowMutex;
 };
+
+template <typename T>
+auto getPermanent(T* t) -> decltype(t->getPermanent())
+{
+	return t ? t->getPermanent() : nullptr;
+}
 
 } // namespace Jrd
 

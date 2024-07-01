@@ -86,13 +86,15 @@ namespace Jrd
 	public:
 		int getObjectType() const override
 		{
-			return obj_udf;
+			return objectType();
 		}
 
 		SLONG getSclType() const override
 		{
 			return obj_functions;
 		}
+
+		static int objectType();
 
 	private:
 		virtual ~Function()

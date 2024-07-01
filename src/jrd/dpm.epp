@@ -239,7 +239,7 @@ double DPM_cardinality(thread_db* tdbb, jrd_rel* relation, const Format* format)
 
 	// Get the number of data pages for this relation
 
-	const ULONG dataPages = DPM_data_pages(tdbb, relation->rel_perm);
+	const ULONG dataPages = DPM_data_pages(tdbb, getPermanent(relation));
 
 	// Calculate record count and total compressed record length
 	// on the first data page
@@ -826,7 +826,7 @@ void DPM_delete( thread_db* tdbb, record_param* rpb, ULONG prior_page)
 		relPages = rpb->rpb_relation->getPages(tdbb);
 		pwindow = WIN(relPages->rel_pg_space_id, -1);
 
-		if (!(ppage = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm, relPages, &pwindow,
+		if (!(ppage = get_pointer_page(tdbb, getPermanent(rpb->rpb_relation), relPages, &pwindow,
 				pp_sequence, LCK_write)))
 		{
 			BUGCHECK(245);	// msg 245 pointer page disappeared in DPM_delete
@@ -1500,7 +1500,7 @@ bool DPM_get(thread_db* tdbb, record_param* rpb, SSHORT lock_type)
 	}
 
 	// Find the pointer page, data page, and record
-	pointer_page* page = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm,
+	pointer_page* page = get_pointer_page(tdbb, getPermanent(rpb->rpb_relation),
 		relPages, window, pp_sequence, LCK_read);
 
 	if (!page)
@@ -1696,10 +1696,10 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 	{
 		// Try to account for staggered execution of large sequential scans.
 
-		window->win_scans = rpb->rpb_relation->rel_perm->rel_scan_count - rpb->rpb_org_scans;
+		window->win_scans = getPermanent(rpb->rpb_relation)->rel_scan_count - rpb->rpb_org_scans;
 
 		if (window->win_scans < 1)
-			window->win_scans = rpb->rpb_relation->rel_perm->rel_scan_count;
+			window->win_scans = getPermanent(rpb->rpb_relation)->rel_scan_count;
 	}
 	rpb->rpb_prior = NULL;
 
@@ -1775,7 +1775,7 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 
 	while (true)
 	{
-		const pointer_page* ppage = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm,
+		const pointer_page* ppage = get_pointer_page(tdbb, getPermanent(rpb->rpb_relation),
 							relPages, window, pp_sequence, LCK_read);
 		if (!ppage)
 			BUGCHECK(249);	// msg 249 pointer page vanished from DPM_next
@@ -1863,7 +1863,7 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 				if (scope == DPM_next_data_page)
 					return false;
 
-				if (!(ppage = get_pointer_page(tdbb, rpb->rpb_relation->rel_perm, relPages, window,
+				if (!(ppage = get_pointer_page(tdbb, getPermanent(rpb->rpb_relation), relPages, window,
 												pp_sequence, LCK_read)))
 				{
 					BUGCHECK(249);	// msg 249 pointer page vanished from DPM_next
@@ -2454,7 +2454,7 @@ static void check_swept(thread_db* tdbb, record_param* rpb)
 		line, slot, pp_sequence);
 
 	pointer_page* ppage =
-		get_pointer_page(tdbb, rpb->rpb_relation->rel_perm, relPages, window, pp_sequence, LCK_read);
+		get_pointer_page(tdbb, getPermanent(rpb->rpb_relation), relPages, window, pp_sequence, LCK_read);
 	if (!ppage)
 		return;
 

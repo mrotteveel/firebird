@@ -78,8 +78,6 @@ namespace Jrd
 		bool isSubRoutine() const { return subRoutine; }
 		void setSubRoutine(bool value) { subRoutine = value; }
 
-		int getObjectType() const;
-
 		void releaseLocks(thread_db* tdbb);
 
 	public:

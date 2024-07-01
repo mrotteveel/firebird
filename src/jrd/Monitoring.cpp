@@ -116,7 +116,7 @@ bool MonitoringTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 										 FB_UINT64 position, Record* record) const
 {
 	MonitoringSnapshot* const snapshot = MonitoringSnapshot::create(tdbb);
-	if (!snapshot->getData(relation->rel_perm)->fetch(position, record))
+	if (!snapshot->getData(getPermanent(relation))->fetch(position, record))
 		return false;
 
 	if (relation->getId() == rel_mon_attachments || relation->getId() == rel_mon_statements)

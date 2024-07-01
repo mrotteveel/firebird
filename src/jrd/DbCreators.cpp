@@ -261,7 +261,7 @@ bool DbCreatorsScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 									FB_UINT64 position, Record* record) const
 {
 	jrd_tra* const transaction = tdbb->getTransaction();
-	return transaction->getDbCreatorsList()->getList(tdbb, relation->rel_perm)->fetch(position, record);
+	return transaction->getDbCreatorsList()->getList(tdbb, getPermanent(relation))->fetch(position, record);
 }
 
 DbCreatorsList::DbCreatorsList(jrd_tra* tra)

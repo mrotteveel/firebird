@@ -989,7 +989,7 @@ void INI_init(thread_db* tdbb)
 
 		jrd_rel* relVers = MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
             CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
-		auto* relation = relVers->rel_perm;
+		auto* relation = getPermanent(relVers);
 
 		relation->rel_flags |= REL_system;
 		relation->rel_flags |= MET_get_rel_flags_from_TYPE(relfld[RFLD_R_TYPE]);
@@ -1790,7 +1790,7 @@ static void store_indices(thread_db* tdbb, USHORT odsVersion)
 		const ini_idx_t* index = &indices[n];
 		auto* relVers = MetadataCache::lookup_relation_id(tdbb, index->ini_idx_relid,
 			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
-		auto* relation = relVers->rel_perm;
+		auto* relation = getPermanent(relVers);
 
 		if (odsVersion && index->ini_idx_ods <= odsVersion)
 			continue;

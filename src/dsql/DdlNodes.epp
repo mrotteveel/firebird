@@ -2797,7 +2797,12 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 
 	compile(tdbb, dsqlScratch);
 
-	executeAlter(tdbb, dsqlScratch, transaction, true, false);	// second pass
+	{ // scope
+		// avoid modify routine dfw during second pass on CREATE
+		AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, altered ? 0 : TDBB_dont_post_dfw, true);
+
+		executeAlter(tdbb, dsqlScratch, transaction, true, false);	// second pass
+	}
 
 	if (package.isEmpty())
 	{
@@ -2886,6 +2891,9 @@ void CreateAlterProcedureNode::executeCreate(thread_db* tdbb, DsqlCompilerScratc
 
 	if (package.isEmpty())
 		storePrivileges(tdbb, transaction, name, obj_procedure, EXEC_PRIVILEGES);
+
+	// avoid modify routine dfw when execute CREATE
+	AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, TDBB_dont_post_dfw, true);
 
 	executeAlter(tdbb, dsqlScratch, transaction, false, false);
 }

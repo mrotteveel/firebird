@@ -12803,7 +12803,7 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	if (!node->function.isSubRoutine() && csb->collectingDependencies())
 	{
 		Dependency dependency(obj_udf);
-		dependency.function = function->getPermanent();
+		dependency.function = getPermanent(function);
 		csb->addDependency(dependency);
 	}
 

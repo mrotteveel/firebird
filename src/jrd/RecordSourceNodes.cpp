@@ -920,8 +920,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			}
 
 			proc = MetadataCache::lookupProcedure(tdbb, pid, CacheFlag::AUTOCREATE);
-			if (!proc)
-				name.identifier.printf("id %d", pid);
+			name.identifier.printf("id %d", pid);
 			break;
 		}
 

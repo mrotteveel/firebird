@@ -106,7 +106,7 @@ const Format* ConfigTableScan::getFormat(thread_db* tdbb, RelationPermanent* rel
 bool ConfigTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 	FB_UINT64 position, Record* record) const
 {
-	RecordBuffer* records = getRecords(tdbb, relation->rel_perm);
+	RecordBuffer* records = getRecords(tdbb, getPermanent(relation));
 	return records->fetch(position, record);
 }
 

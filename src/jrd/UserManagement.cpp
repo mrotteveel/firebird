@@ -161,7 +161,7 @@ bool UsersTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 									FB_UINT64 position, Record* record) const
 {
 	jrd_tra* const transaction = tdbb->getTransaction();
-	return transaction->getUserManagement()->getList(tdbb, relation->rel_perm)->fetch(position, record);
+	return transaction->getUserManagement()->getList(tdbb, getPermanent(relation))->fetch(position, record);
 }
 
 

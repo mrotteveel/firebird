@@ -474,3 +474,9 @@ bool Function::reload(thread_db* tdbb)
 
 	return false;
 }
+
+int Function::objectType()
+{
+	return obj_udf;
+}
+

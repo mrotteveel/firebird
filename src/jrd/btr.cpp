@@ -246,7 +246,7 @@ jrd_rel* IndexRetrieval::getRelation(thread_db* tdbb) const
 
 Cached::Relation* IndexRetrieval::getPermRelation() const
 {
-	return irb_jrd_relation ? irb_jrd_relation->rel_perm : irb_rsc_relation();
+	return irb_jrd_relation ? getPermanent(irb_jrd_relation) : irb_rsc_relation();
 }
 
 // BtrPageLock class
@@ -2186,7 +2186,7 @@ void BTR_selectivity(thread_db* tdbb, jrd_rel* relation, USHORT id, SelectivityL
 	RelationPages* relPages = relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
-	index_root_page* root = fetch_root(tdbb, &window, relation->rel_perm, relPages);
+	index_root_page* root = fetch_root(tdbb, &window, getPermanent(relation), relPages);
 	if (!root)
 		return;
 

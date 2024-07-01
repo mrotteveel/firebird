@@ -2217,7 +2217,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 	}
 
 	// set up the lock on the relation/view
-	Lock* lock = RLCK_transaction_relation_lock(tdbb, transaction, relation->rel_perm);
+	Lock* lock = RLCK_transaction_relation_lock(tdbb, transaction, getPermanent(relation));
 	lock->lck_logical = lock_type;
 
 	if (!found)

@@ -305,7 +305,7 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 		fb_assert(rel);
 
 		IndexDescList indices;
-		BTR_all(tdbb, rel->rel_perm, indices, &rel_pages_base);
+		BTR_all(tdbb, getPermanent(rel), indices, &rel_pages_base);
 
 		for (auto& idx : indices)
 		{
@@ -991,6 +991,11 @@ const char* jrd_rel::objectFamily(RelationPermanent* perm)
 	return perm->isView() ? "view" : "table";
 }
 
+int jrd_rel::objectType()
+{
+	return obj_relation;
+}
+
 void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 {
 	for (auto t : trigs->triggers)
@@ -1073,3 +1078,9 @@ Lock* DbTriggers::makeLock(thread_db* tdbb, MemoryPool& p)
 {
 	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_dbwide_triggers, nullptr, DbTriggersHeader::blockingAst);
 }
+
+int DbTriggers::objectType()
+{
+	return obj_relation;
+}
+

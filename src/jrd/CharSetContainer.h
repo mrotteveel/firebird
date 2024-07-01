@@ -135,9 +135,17 @@ public:
 		return perm;
 	}
 
+	static int objectType();
+
 private:
 	Cached::CharSet* perm;
 	Firebird::HalfStaticArray<Collation*, 16> charset_collations;
+
+public:
+	decltype(perm) getPermanent() const
+	{
+		return perm;
+	}
 };
 
 } // namespace Jrd

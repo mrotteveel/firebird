@@ -252,8 +252,16 @@ public:
 		return "set of database-wide triggers on";
 	}
 
+	static int objectType();
+
 private:
 	DbTriggersHeader* perm;
+
+public:
+	decltype(perm) getPermanent() const
+	{
+		return perm;
+	}
 };
 
 class TrigArray
@@ -514,11 +522,17 @@ public:
 	}
 
 	static const char* objectFamily(RelationPermanent* perm);
+	static int objectType();
 
 public:
 	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
 	const Trigger* findTrigger(const MetaName trig_name) const;
+
+	decltype(rel_perm) getPermanent() const
+	{
+		return rel_perm;
+	}
 };
 
 // rel_flags
