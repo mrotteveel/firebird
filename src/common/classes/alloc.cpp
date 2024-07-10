@@ -1844,9 +1844,6 @@ public:
 	static void deallocate(void* block) noexcept;
 	bool validate(char* buf, FB_SIZE_T size);
 
-	// Create memory pool instance
-	// static MemPool* createPool(MemPool* parent, MemoryStats& stats ALLOC_PARAMS);
-
 	MemoryStats& getStatsGroup() noexcept
 	{
 		return *stats;

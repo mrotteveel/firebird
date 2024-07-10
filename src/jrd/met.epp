@@ -5317,30 +5317,45 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 
 namespace {
 	template <typename C>
-	void changeVers(thread_db* tdbb, bool loadOld, CacheVector<C>& vector, MetaId id)
+	void changeVers(thread_db* tdbb, MetadataCache::Changer cmd, CacheVector<C>& vector, MetaId id)
 	{
-		auto* ver = loadOld ? vector.getObject(tdbb, id, CacheFlag::AUTOCREATE) :
-			vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
-		fb_assert(ver);
+		bool processedChange = false;
+
+		switch (cmd)
+		{
+		case MetadataCache::Changer::CMD_OLD:
+			processedChange = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+			break;
+
+		case MetadataCache::Changer::CMD_NEW:
+			processedChange = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
+			break;
+
+		case MetadataCache::Changer::CMD_ERASE:
+			processedChange = vector.erase(tdbb, id);
+			break;
+		}
+
+		fb_assert(processedChange);
 	}
 }
 
-void MetadataCache::changeVersion(thread_db* tdbb, bool loadOld, ObjectType objType, MetaId id)
+void MetadataCache::changeVersion(thread_db* tdbb, Changer cmd, ObjectType objType, MetaId id)
 {
 	auto* mdc = tdbb->getDatabase()->dbb_mdc;
 	switch(objType)
 	{
 	case obj_procedure:
-		changeVers(tdbb, loadOld, mdc->mdc_procedures, id);
+		changeVers(tdbb, cmd, mdc->mdc_procedures, id);
 		break;
 
 	case obj_charset:
-		changeVers(tdbb, loadOld, mdc->mdc_charsets, id);
+		changeVers(tdbb, cmd, mdc->mdc_charsets, id);
 		break;
 
 /*
 	case :
-	changeVers(tdbb, loadOld, mdc->, id);
+	changeVers(tdbb, cmd, mdc->, id);
 		break;
 */
 	default:
@@ -5353,3 +5368,56 @@ int jrd_prc::objectType()
 {
 	return obj_trigger;
 }
+
+MetadataCache::CleanupQueue::CleanupQueue(MemoryPool& p)
+	: cq_data(p)
+{ }
+
+void MetadataCache::CleanupQueue::enqueue(TraNumber traNum, ElementBase* toClean)
+{
+	MutexLockGuard g(cq_mutex, FB_FUNCTION);
+
+	if (cq_data.getCount() == 0)
+	{
+		cq_traNum = traNum;
+		fb_assert(cq_pos == 0);
+	}
+	cq_data.push(Stored(traNum, toClean));
+}
+
+void MetadataCache::CleanupQueue::dequeue(thread_db* tdbb, TraNumber oldest)
+{
+	MutexEnsureUnlock g(cq_mutex, FB_FUNCTION);
+
+	if (!g.tryEnter())
+		return;
+
+	while (cq_pos < cq_data.getCount() && oldest > cq_data[cq_pos].t)
+	{
+		cq_data[cq_pos++].c->cleanup(tdbb);
+	}
+
+	if (cq_data.getCount() <= cq_pos)
+	{
+		fb_assert(cq_data.getCount() == cq_pos);
+
+		cq_data.clear();
+		cq_pos = 0;
+		cq_traNum = MAX_TRA_NUMBER;
+	}
+	else
+	{
+		if (cq_pos > cq_data.getCount() / 2)
+		{
+			cq_data.removeCount(0, cq_pos);
+			cq_pos = 0;
+		}
+		cq_traNum = cq_data[cq_pos].t;
+	}
+}
+
+void MetadataCache::objectCleanup(TraNumber traNum, ElementBase* toClean)
+{
+	mdc_cleanup_queue.enqueue(traNum, toClean);
+}
+

@@ -3649,6 +3649,10 @@ static void transaction_start(thread_db* tdbb, jrd_tra* trans)
 		dbb->dbb_tip_cache->updateOldestTransaction(tdbb,
 			dbb->dbb_oldest_transaction, dbb->dbb_oldest_snapshot);
 
+		// Plumb remove really old objects from metadata cache
+
+		dbb->dbb_mdc->checkCleanup(tdbb, oldest);
+
 		// If the transaction block is getting out of hand, force a sweep
 
 		if (dbb->dbb_sweep_interval &&

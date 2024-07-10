@@ -233,23 +233,20 @@ public:
 		  mdc_functions(getPool()),
 		  mdc_charsets(getPool()),
 		  mdc_ddl_triggers(nullptr),
-		  mdc_version(0)
+		  mdc_version(0),
+		  mdc_cleanup_queue(pool)
 	{
 		memset(mdc_triggers, 0, sizeof(mdc_triggers));
 	}
 
 	~MetadataCache();
 
-/*
-	// Objects are placed to this list after DROP OBJECT 
-	// and wait for current OAT >= NEXT when DDL committed
-	atomics::atomic<Cache List<ElementBase>*> dropList;
+	// Objects are placed here after DROP OBJECT and wait for current OAT >= NEXT when DDL committed
+	void objectCleanup(TraNumber traNum, ElementBase* toClean);
+	void checkCleanup(thread_db* tdbb, TraNumber oldest)
 	{
-public:
-	void drop(
-}; ?????????????????????
-*/
-
+		mdc_cleanup_queue.check(tdbb, oldest);
+	}
 
 	void releaseRelations(thread_db* tdbb);
 	void releaseLocks(thread_db* tdbb);
@@ -364,16 +361,23 @@ public:
 
 	static void oldVersion(thread_db* tdbb, ObjectType objType, MetaId id)
 	{
-		changeVersion(tdbb, true, objType, id);
+		changeVersion(tdbb, Changer::CMD_OLD, objType, id);
 	}
 
 	static void newVersion(thread_db* tdbb, ObjectType objType, MetaId id)
 	{
-		changeVersion(tdbb, false, objType, id);
+		changeVersion(tdbb, Changer::CMD_NEW, objType, id);
 	}
 
+	static void erase(thread_db* tdbb, ObjectType objType, MetaId id)
+	{
+		changeVersion(tdbb, Changer::CMD_ERASE, objType, id);
+	}
+
+	enum class Changer {CMD_OLD, CMD_NEW, CMD_ERASE};
+
 private:
-	static void changeVersion(thread_db* tdbb, bool loadOld, ObjectType objType, MetaId id);
+	static void changeVersion(thread_db* tdbb, Changer cmd, ObjectType objType, MetaId id);
 
 	class GeneratorFinder
 	{
@@ -433,6 +437,46 @@ private:
 		Firebird::Mutex m_tx;
 	};
 
+	class CleanupQueue
+	{
+	public:
+		CleanupQueue(MemoryPool& p);
+
+		void enqueue(TraNumber traNum, ElementBase* toClean);
+
+		void check(thread_db* tdbb, TraNumber oldest)
+		{
+			// We check transaction number w/o lock - that's OK here cause even in
+			// hardly imaginable case when correctly alligned memory read is not de-facto atomic
+			// the worst result we get is skipped check (will be corrected by next transaction)
+			// or taken extra lock for precise check. Not tragical.
+
+			if (oldest > cq_traNum)
+				dequeue(tdbb, oldest);
+		}
+
+	private:
+		struct Stored
+		{
+			TraNumber t;
+			ElementBase* c;
+
+			Stored(TraNumber traNum, ElementBase* toClean)
+				: t(traNum), c(toClean)
+			{ }
+
+			Stored()	// let HalfStatic work
+			{ }
+		};
+
+		Firebird::Mutex cq_mutex;
+		Firebird::HalfStaticArray<Stored, 32> cq_data;
+		TraNumber cq_traNum = MAX_TRA_NUMBER;
+		FB_SIZE_T cq_pos = 0;
+
+		void dequeue(thread_db* tdbb, TraNumber oldest);
+	};
+
 	GeneratorFinder						mdc_generators;
 	CacheVector<Cached::Relation>		mdc_relations;
 	CacheVector<Cached::Procedure>		mdc_procedures;
@@ -442,6 +486,7 @@ private:
 	TriggersSet							mdc_ddl_triggers;
 
 	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums???????????????)
+	CleanupQueue						mdc_cleanup_queue;
 };
 
 } // namespace Jrd

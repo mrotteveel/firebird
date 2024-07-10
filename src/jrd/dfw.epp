@@ -898,11 +898,12 @@ namespace
 			{
 				case 0:
 					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
-					if (!routine)
-						return false;
-
-					if (routine->existenceLock)
-						LCK_release(tdbb, routine->existenceLock);
+					if (routine)
+					{
+						if (routine->existenceLock)
+							LCK_release(tdbb, routine->existenceLock);
+						routine->rollback(tdbb);
+					}
 
 					return false;
 
@@ -941,8 +942,20 @@ namespace
 					//if (routine->existenceLock)
 					//	routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
-					break;
+					return true;
 				}
+
+				case 5:
+				case 6:
+					return true;
+
+				case 7:
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::RET_ERASED | CacheFlag::NOSCAN);
+					fb_assert(routine);
+					if (routine)
+						routine->commit(tdbb);
+
+					return false;
 			}	// switch
 
 			return false;

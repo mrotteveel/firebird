@@ -29,8 +29,6 @@
 #ifndef JRD_HAZARDPTR_H
 #define JRD_HAZARDPTR_H
 
-#define HZ_DEB(A)
-
 #include "../common/classes/alloc.h"
 #include "../common/classes/array.h"
 #include "../common/gdsassert.h"
@@ -436,13 +434,14 @@ public:
 public:
 	virtual ~ElementBase();
 	virtual void resetDependentObject(thread_db* tdbb, ResetType rt) = 0;
-	virtual void eraseObject(thread_db* tdbb) = 0;			// erase object
+	virtual void cleanup(thread_db* tdbb) = 0;
 
 public:
 	void resetDependentObjects(thread_db* tdbb, TraNumber olderThan);
 	void addDependentObject(thread_db* tdbb, ElementBase* dep);
 	void removeDependentObject(thread_db* tdbb, ElementBase* dep);
 	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* name, const char* family);
+	void commitErase(thread_db* tdbb);
 };
 
 namespace CacheFlag
@@ -453,8 +452,7 @@ namespace CacheFlag
 	static const ObjectBase::Flag AUTOCREATE =	0x08;
 	static const ObjectBase::Flag NOCOMMIT =	0x10;
 	static const ObjectBase::Flag RET_ERASED =	0x20;
-
-	static const ObjectBase::Flag IGNORE_MASK = COMMITTED | ERASED;
+	static const ObjectBase::Flag RETIRED = 	0x40;
 }
 
 
@@ -578,13 +576,15 @@ public:
 	~ListEntry()
 	{
 		fb_assert(!object);
-		fb_assert(!next);
 	}
 
 	void cleanup(thread_db* tdbb)
 	{
-		OBJ::destroy(tdbb, object);
-		object = nullptr;
+		if (object)		// take into an account ERASED entries
+		{
+			OBJ::destroy(tdbb, object);
+			object = nullptr;
+		}
 
 		auto* ptr = next.load(atomics::memory_order_relaxed);
 		if (ptr)
@@ -682,24 +682,33 @@ public:
 	}
 
 	// remove too old objects - they are anyway can't be in use
-	static TraNumber gc(thread_db* tdbb, atomics::atomic<ListEntry*>& list, const TraNumber oldest)
+	static TraNumber gc(thread_db* tdbb, atomics::atomic<ListEntry*>* list, const TraNumber oldest)
 	{
 		TraNumber rc = 0;
-		for (HazardPtr<ListEntry> entry(list); entry; entry.set(entry->next))
+		for (HazardPtr<ListEntry> entry(*list); entry; list = &entry->next, entry.set(*list))
 		{
-			if ((entry->getFlags() & CacheFlag::COMMITTED) && entry->traNumber < oldest)
+			if (!(entry->getFlags() & CacheFlag::COMMITTED))
+				continue;
+
+			if (rc && entry->traNumber < oldest)
 			{
-				if (entry->cacheFlags.fetch_or(CacheFlag::ERASED) & CacheFlag::ERASED)
+				if (entry->cacheFlags.fetch_or(CacheFlag::RETIRED) & CacheFlag::RETIRED)
 					break;	// someone else also performs GC
 
 				// split remaining list off
-				if (entry.replace(list, nullptr))
+				if (entry.replace(*list, nullptr))
 				{
-					while (entry && !(entry->cacheFlags.fetch_or(CacheFlag::ERASED) & CacheFlag::ERASED))
+					while (entry)// && !(entry->cacheFlags.fetch_or(CacheFlag::RETIRED) & CacheFlag::RETIRED))
 					{
+						if (entry->object)
+						{
+							OBJ::destroy(tdbb, entry->object);
+							entry->object = nullptr;
+						}
 						entry->retire();
-						OBJ::destroy(tdbb, entry->object);
 						entry.set(entry->next);
+						if (entry && (entry->cacheFlags.fetch_or(CacheFlag::RETIRED) & CacheFlag::RETIRED))
+							break;
 					}
 				}
 				break;
@@ -709,18 +718,20 @@ public:
 			rc = entry->traNumber;
 		}
 
-		return rc;		// 0 is returned in a case when list becomes empty
+		return rc;		// 0 is returned in a case when list was empty
 	}
 
-	// created earlier object is OK and should become visible to the world
-	void commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
+	// created (erased) earlier object is OK and should become visible to the world
+	// return true if object was erased
+	bool commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
 	{
-		fb_assert((getFlags() & CacheFlag::IGNORE_MASK) == 0);
+		fb_assert((getFlags() & CacheFlag::COMMITTED) == 0);
 		fb_assert(traNumber == currentTrans);
 
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
-		cacheFlags |= CacheFlag::COMMITTED;
+		auto flags = cacheFlags.fetch_or(CacheFlag::COMMITTED);
+		return flags & CacheFlag::ERASED;
 	}
 
 	// created earlier object is bad and should be destroyed
@@ -801,12 +812,14 @@ public:
 	typedef V Versioned;
 	typedef P Permanent;
 
+	typedef atomics::atomic<CacheElement*> AtomicElementPointer;
+
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock) :
-		Permanent(tdbb, p, id, makeLock), list(nullptr), resetAt(0)
+		Permanent(tdbb, p, id, makeLock), list(nullptr), resetAt(0), ptrToClean(nullptr)
 	{ }
 
 	CacheElement(MemoryPool& p) :
-		Permanent(p), list(nullptr), resetAt(0)
+		Permanent(p), list(nullptr), resetAt(0), ptrToClean(nullptr)
 	{ }
 
 	static void cleanup(thread_db* tdbb, CacheElement* element)
@@ -818,12 +831,25 @@ public:
 			delete ptr;
 		}
 
+		if (element->ptrToClean)
+			*element->ptrToClean = nullptr;
+
 		if (!Permanent::destroy(tdbb, element))
 		{
 			// destroy() returns true if it completed removal of permamnet part (delete by pool)
 			// if not - delete it ourself here
 			delete element;
 		}
+	}
+
+	void cleanup(thread_db* tdbb) override
+	{
+		cleanup(tdbb, this);
+	}
+
+	void setCleanup(AtomicElementPointer* clearPtr)
+	{
+		ptrToClean = clearPtr;
 	}
 
 	void reload(thread_db* tdbb)
@@ -907,7 +933,7 @@ public:
 		TraNumber oldest = TransactionNumber::oldestActive(tdbb);
 		TraNumber oldResetAt = resetAt.load(atomics::memory_order_acquire);
 		if (oldResetAt && oldResetAt < oldest)
-			setNewResetAt(oldResetAt, ListEntry<Versioned>::gc(tdbb, list, oldest));
+			setNewResetAt(oldResetAt, ListEntry<Versioned>::gc(tdbb, &list, oldest));
 
 		TraNumber cur = TransactionNumber::current(tdbb);
 		ListEntry<Versioned>* newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, cur, fl);
@@ -938,20 +964,23 @@ public:
 	{
 		HazardPtr<ListEntry<Versioned>> current(list);
 		if (current)
-			current->commit(tdbb, TransactionNumber::current(tdbb), TransactionNumber::next(tdbb));
+		{
+			if (current->commit(tdbb, TransactionNumber::current(tdbb), TransactionNumber::next(tdbb)))
+				commitErase(tdbb);
+		}
 	}
 
 	void rollback(thread_db* tdbb)
 	{
 		ListEntry<Versioned>::rollback(tdbb, list, TransactionNumber::current(tdbb));
 	}
-
+/*
 	void gc()
 	{
 		list.load()->assertCommitted();
-		ListEntry<Versioned>::gc(list, MAX_TRA_NUMBER);
+		ListEntry<Versioned>::gc(&list, MAX_TRA_NUMBER);
 	}
-
+ */
 	void resetDependentObject(thread_db* tdbb, ResetType rt) override
 	{
 		switch (rt)
@@ -983,18 +1012,20 @@ public:
 		}
 	}
 
-	void eraseObject(thread_db* tdbb) override
+	bool erase(thread_db* tdbb)
 	{
 		HazardPtr<ListEntry<Versioned>> l(list);
 		fb_assert(l);
 		if (!l)
-			return;
+			return false;
 
-		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED))
+		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED | CacheFlag::NOCOMMIT))
 		{
 			Versioned* oldObj = getObject(tdbb, 0);
 			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
 		}
+
+		return true;
 	}
 
 	// Checking it does not protect from something to be added in this element at next cycle!!!
@@ -1033,6 +1064,7 @@ private:
 private:
 	atomics::atomic<ListEntry<Versioned>*> list;
 	atomics::atomic<TraNumber> resetAt;
+	AtomicElementPointer* ptrToClean;
 };
 
 
@@ -1045,7 +1077,7 @@ public:
 
 	typedef typename StoredElement::Versioned Versioned;
 	typedef typename StoredElement::Permanent Permanent;
-	typedef atomics::atomic<StoredElement*> SubArrayData;
+	typedef typename StoredElement::AtomicElementPointer SubArrayData;
 	typedef atomics::atomic<SubArrayData*> ArrayData;
 	typedef SharedReadVector<ArrayData, 4> Storage;
 
@@ -1149,6 +1181,19 @@ public:
 #endif
 	}
 
+	bool erase(thread_db* tdbb, MetaId id)
+	{
+		auto ptr = getDataPointer(id);
+		if (ptr)
+		{
+			StoredElement* data = ptr->load(atomics::memory_order_acquire);
+			if (data)
+				return data->erase(tdbb);
+		}
+
+		return false;
+	}
+
 	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 		if (id >= getCount())
@@ -1165,7 +1210,8 @@ public:
 			if (ptr->compare_exchange_strong(data, newData,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{
-				data = newData;;
+				newData->setCleanup(ptr);
+				data = newData;
 			}
 			else
 				StoredElement::cleanup(tdbb, newData);
@@ -1227,7 +1273,7 @@ public:
 					continue;
 
 				StoredElement::cleanup(tdbb, elem);
-				end->store(nullptr, atomics::memory_order_relaxed);
+				fb_assert(!end->load(atomics::memory_order_relaxed));
 			}
 
 			delete[] sub;		// no need using retire() here in CacheVector's cleanup

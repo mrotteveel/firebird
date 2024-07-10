@@ -3387,9 +3387,13 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	AutoSavePoint savePoint(tdbb, transaction);
 	bool found = false;
 
+	//MetadataCache::oldVersion(tdbb, obj_procedure, id);	missing ID in the node
+	MetadataCache::lookup_procedure(tdbb, QualifiedName(name, package), CacheFlag::AUTOCREATE);
+
 	dropParameters(tdbb, transaction, name, package);
 
 	AutoCacheRequest requestHandle(tdbb, drq_e_prcs2, DYN_REQUESTS);
+	MetaId id;
 
 	FOR (REQUEST_HANDLE requestHandle TRANSACTION_HANDLE transaction)
 		PRC IN RDB$PROCEDURES
@@ -3409,12 +3413,12 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 				DDL_TRIGGER_DROP_PROCEDURE, name, NULL);
 		}
 
+		id = PRC.RDB$PROCEDURE_ID;
 		ERASE PRC;
+		found = true;
 
 		if (!PRC.RDB$SECURITY_CLASS.NULL)
 			deleteSecurityClass(tdbb, transaction, PRC.RDB$SECURITY_CLASS);
-
-		found = true;
 	}
 	END_FOR
 
@@ -3437,10 +3441,15 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 		END_FOR
 	}
 
-	if (found && package.isEmpty())
+	if (found)
 	{
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_PROCEDURE,
-			name, NULL);
+		MetadataCache::erase(tdbb, obj_procedure, id);
+
+		if (package.isEmpty())
+		{
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_PROCEDURE,
+				name, NULL);
+		}
 	}
 
 	savePoint.release();	// everything is ok

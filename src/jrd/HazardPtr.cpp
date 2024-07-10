@@ -110,3 +110,9 @@ MemoryPool& CachePool::get(thread_db* tdbb)
 		family, name ? name : "", name ? " " : "", id);
 }
 
+void ElementBase::commitErase(thread_db* tdbb)
+{
+	auto* mdc = tdbb->getDatabase()->dbb_mdc;
+	mdc->objectCleanup(TransactionNumber::current(tdbb), this);
+}
+
