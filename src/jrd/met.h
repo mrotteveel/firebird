@@ -288,7 +288,7 @@ public:
 	void load_ddl_triggers(thread_db* tdbb, bool force = false);
 	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name);
+	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Function* lookup_function(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);

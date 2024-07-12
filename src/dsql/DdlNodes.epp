@@ -1791,7 +1791,12 @@ void CreateAlterFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsql
 
 	compile(tdbb, dsqlScratch);
 
-	executeAlter(tdbb, dsqlScratch, transaction, true, false);	// second pass
+	{ // scope
+		// avoid modify routine dfw during second pass on CREATE
+		AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, altered ? 0 : TDBB_dont_post_dfw, true);
+
+		executeAlter(tdbb, dsqlScratch, transaction, true, false);	// second pass
+	}
 
 	if (package.isEmpty())
 	{
@@ -1889,6 +1894,9 @@ void CreateAlterFunctionNode::executeCreate(thread_db* tdbb, DsqlCompilerScratch
 	if (package.isEmpty())
 		storePrivileges(tdbb, transaction, name, obj_udf, EXEC_PRIVILEGES);
 
+	// avoid modify routine dfw when execute CREATE
+	AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, TDBB_dont_post_dfw, true);
+
 	executeAlter(tdbb, dsqlScratch, transaction, false, false);
 }
 
@@ -1899,6 +1907,7 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 
 	bool modified = false;
 	unsigned returnPos = 0;
+	MetaId id;
 
 	AutoCacheRequest requestHandle(tdbb, drq_m_funcs2, DYN_REQUESTS);
 
@@ -1913,10 +1922,17 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 				Arg::Gds(isc_dyn_cannot_mod_sysfunc) << MetaName(FUN.RDB$FUNCTION_NAME));
 		}
 
-		if (!secondPass && runTriggers && package.isEmpty())
+		id = FUN.RDB$FUNCTION_ID;
+
+		if (!secondPass && runTriggers)
 		{
-			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
-				DDL_TRIGGER_ALTER_FUNCTION, name, NULL);
+			if (package.isEmpty())
+			{
+				executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
+					DDL_TRIGGER_ALTER_FUNCTION, name, NULL);
+			}
+
+			MetadataCache::oldVersion(tdbb, obj_udf, id);
 		}
 
 		MODIFY FUN
@@ -2103,6 +2119,9 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 				parameter, &collectedParameter);
 		}
 	}
+
+	if (secondPass && modified)
+		MetadataCache::newVersion(tdbb, obj_udf, id);
 
 	return modified;
 }
@@ -2442,6 +2461,7 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 
 	AutoCacheRequest request(tdbb, drq_m_fun, DYN_REQUESTS);
 	bool found = false;
+	MetaId id;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		FUN IN RDB$FUNCTIONS
@@ -2455,6 +2475,8 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 
 		if (!FUN.RDB$ENGINE_NAME.NULL || !FUN.RDB$FUNCTION_BLR.NULL)
 			status_exception::raise(Arg::Gds(isc_dyn_newfc_oldsyntax) << name);
+
+		MetadataCache::oldVersion(tdbb, obj_udf, (id = FUN.RDB$FUNCTION_ID));
 
 		MODIFY FUN
 			if (clauses.name.hasData())
@@ -2480,6 +2502,7 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 
 	if (found)
 	{
+		MetadataCache::newVersion(tdbb, obj_udf, id);
 		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_FUNCTION,
 			name, NULL);
 	}
@@ -2566,6 +2589,10 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 	bool found = false;
+	MetaId id;
+
+	//MetadataCache::oldVersion(tdbb, obj_udf, id);		missing ID in the node
+	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::AUTOCREATE);
 
 	dropArguments(tdbb, transaction, name, package);
 
@@ -2589,12 +2616,12 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 				name, NULL);
 		}
 
+		id = FUN.RDB$FUNCTION_ID;
 		ERASE FUN;
+		found = true;
 
 		if (!FUN.RDB$SECURITY_CLASS.NULL)
 			deleteSecurityClass(tdbb, transaction, FUN.RDB$SECURITY_CLASS);
-
-		found = true;
 	}
 	END_FOR
 
@@ -2617,10 +2644,15 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		END_FOR
 	}
 
-	if (found && package.isEmpty())
+	if (found)
 	{
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_FUNCTION,
-			name, NULL);
+		MetadataCache::erase(tdbb, obj_udf, id);
+
+	 	if (package.isEmpty())
+	 	{
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_FUNCTION,
+				name, NULL);
+		}
 	}
 
 	savePoint.release();	// everything is ok

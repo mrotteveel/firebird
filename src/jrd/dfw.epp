@@ -1095,8 +1095,8 @@ namespace
 				X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
 		{
 			blobId = X.RDB$FUNCTION_BLR;
-			routine = Function::lookup(tdbb,
-				QualifiedName(work->dfw_name, work->dfw_package), !compile);
+			routine = Function::lookup(tdbb, QualifiedName(work->dfw_name, work->dfw_package),
+				(compile ? 0 : CacheFlag::NOSCAN) | CacheFlag::AUTOCREATE);
 		}
 		END_FOR
 
@@ -1254,7 +1254,6 @@ static const deferred_task task_table[] =
 	{ dfw_modify_procedure, ProcedureManager::modifyRoutine },
 	{ dfw_modify_function, FunctionManager::modifyRoutine },
 	{ dfw_delete_prm, delete_parameter },
-
 	{ dfw_create_collation, create_collation },
 	{ dfw_delete_collation, delete_collation },
 /*

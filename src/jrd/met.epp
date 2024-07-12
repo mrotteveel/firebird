@@ -2591,17 +2591,17 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 	Attachment* attachment = tdbb->getAttachment();
 	MetadataCache* mdc = attachment->att_database->dbb_mdc;
 
+
 	// See if we already know the procedure by name
-	for (auto procedure : mdc->mdc_procedures)
-	{
-		if (procedure && procedure->getName() == name)
-		{
-			return procedure->getObject(tdbb, CacheFlag::AUTOCREATE);
-		}
-	}
+
+	auto* proc = mdc->mdc_procedures.lookup(tdbb,
+		[name] (Cached::Procedure* proc) { return proc->getName() == name; });
+	if (proc)
+		return proc->getObject(tdbb, flags);
 
 	if (!(flags & CacheFlag::AUTOCREATE))
 		return nullptr;
+
 
 	// We need to look up the procedure name in RDB$PROCEDURES
 
@@ -2614,10 +2614,10 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 		WITH P.RDB$PROCEDURE_NAME EQ name.identifier.c_str() AND
 			 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
+		fb_assert(!procedure);
 		procedure = mdc->mdc_procedures.getObject(tdbb, P.RDB$PROCEDURE_ID, flags);
 	}
 	END_FOR
-
 
 	return procedure;
 }
@@ -2643,7 +2643,7 @@ jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBa
 }
 
 
-Function* MetadataCache::lookup_function(thread_db* tdbb, const QualifiedName& name)
+Function* MetadataCache::lookup_function(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 /************************************************
  *
@@ -2656,7 +2656,38 @@ Function* MetadataCache::lookup_function(thread_db* tdbb, const QualifiedName& n
  *      ASCIZ name.
  *
  **************************************/
-	return Function::lookup(tdbb, name, CacheFlag::AUTOCREATE);
+	SET_TDBB(tdbb);
+	Attachment* attachment = tdbb->getAttachment();
+	MetadataCache* mdc = attachment->att_database->dbb_mdc;
+
+
+	// See if we already know the function by name
+
+	auto* func = mdc->mdc_functions.lookup(tdbb,
+		[name] (Cached::Function* func) { return func->getName() == name; });
+	if (func)
+		return func->getObject(tdbb, flags);
+
+	if (!(flags & CacheFlag::AUTOCREATE))
+		return nullptr;
+
+
+	// We need to look up the function in RDB$FUNCTIONS
+
+	Function* function = nullptr;
+
+	AutoCacheRequest request(tdbb, irq_l_fun_name, IRQ_REQUESTS);
+	FOR(REQUEST_HANDLE request)
+		X IN RDB$FUNCTIONS
+		WITH X.RDB$FUNCTION_NAME EQ name.identifier.c_str() AND
+			 X.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
+	{
+		fb_assert(!function);
+		function = mdc->getFunction(tdbb, X.RDB$FUNCTION_ID, flags);
+	}
+	END_FOR
+
+	return function;
 }
 
 
@@ -5217,7 +5248,7 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, const Qualified
 
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
-	// See if we already know the relation by name
+	// See if we already know the function by name
 	auto* rc = mdc->mdc_functions.lookup(tdbb, [name](RoutinePermanent* func) { return func->name == name; });
 
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
@@ -5351,6 +5382,10 @@ void MetadataCache::changeVersion(thread_db* tdbb, Changer cmd, ObjectType objTy
 
 	case obj_charset:
 		changeVers(tdbb, cmd, mdc->mdc_charsets, id);
+		break;
+
+	case obj_udf:
+		changeVers(tdbb, cmd, mdc->mdc_functions, id);
 		break;
 
 /*

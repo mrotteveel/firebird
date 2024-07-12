@@ -911,7 +911,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 		case blr_pid:
 		case blr_pid2:
 		{
-			const SSHORT pid = csb->csb_blr_reader.getWord();
+			const SSHORT procId = csb->csb_blr_reader.getWord();
 
 			if (blrOp == blr_pid2)
 			{
@@ -919,8 +919,8 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			proc = MetadataCache::lookupProcedure(tdbb, pid, CacheFlag::AUTOCREATE);
-			name.identifier.printf("id %d", pid);
+			proc = MetadataCache::lookupProcedure(tdbb, procId, CacheFlag::AUTOCREATE);
+			name.identifier.printf("id %d", procId);
 			break;
 		}
 

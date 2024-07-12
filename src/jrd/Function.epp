@@ -64,7 +64,7 @@ Function* Function::lookup(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
 	Database* const dbb = tdbb->getDatabase();
 
-	Function* function = dbb->dbb_mdc->getFunction(tdbb, id, flags | CacheFlag::AUTOCREATE);
+	Function* function = dbb->dbb_mdc->getFunction(tdbb, id, flags);
 	return function;
 }
 
@@ -77,27 +77,7 @@ Function* Function::create(thread_db* tdbb, MemoryPool& pool, Cached::Function* 
 
 Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
-	Attachment* const attachment = tdbb->getAttachment();
-	Database* const dbb = tdbb->getDatabase();
-
-	// See if we already know the function by name
-	Function* function = dbb->dbb_mdc->lookup_function(tdbb, name);
-	if (function)
-		return function;
-
-	// We need to look up the function in RDB$FUNCTIONS
-	AutoCacheRequest request(tdbb, irq_l_fun_name, IRQ_REQUESTS);
-	FOR(REQUEST_HANDLE request)
-		X IN RDB$FUNCTIONS
-		WITH X.RDB$FUNCTION_NAME EQ name.identifier.c_str() AND
-			 X.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
-	{
-		if (!function)
-			function = dbb->dbb_mdc->getFunction(tdbb, X.RDB$FUNCTION_ID, flags);
-	}
-	END_FOR
-
-	return function;
+	return MetadataCache::lookup_function(tdbb, name, flags);
 }
 
 Lock* Function::makeLock(thread_db* tdbb, MemoryPool& p)
