@@ -322,7 +322,8 @@ void Routine::checkReload(thread_db* tdbb) const
 
 void Routine::destroy(thread_db* tdbb, Routine* routine)
 {
-	routine->statement->release(tdbb);
+	if (routine->statement)
+		routine->statement->release(tdbb);
 	delete routine;
 }
 
