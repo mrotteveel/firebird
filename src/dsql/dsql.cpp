@@ -639,11 +639,7 @@ static RefPtr<DsqlStatement> prepareStatement(thread_db* tdbb, dsql_dbb* databas
 		if (!isInternalRequest && dsqlStatement->mustBeReplicated())
 			dsqlStatement->setOrgText(text, textLength);
 
-		const bool basedOnCursor =
-				(dsqlStatement->getType() == DsqlStatement::TYPE_UPDATE_CURSOR ||
-				 dsqlStatement->getType() == DsqlStatement::TYPE_DELETE_CURSOR);
-
-		if (isStatementCacheActive && dsqlStatement->isDml() && !basedOnCursor)
+		if (isStatementCacheActive && dsqlStatement->isDml())
 		{
 			database->dbb_statement_cache->putStatement(tdbb,
 				textStr, clientDialect, isInternalRequest, dsqlStatement);

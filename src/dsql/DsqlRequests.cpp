@@ -23,7 +23,7 @@
 #include "../dsql/DsqlRequests.h"
 #include "../dsql/dsql.h"
 #include "../dsql/DsqlBatch.h"
-///#include "../dsql/DsqlStatementCache.h"
+#include "../dsql/DsqlStatementCache.h"
 #include "../dsql/Nodes.h"
 #include "../jrd/Statement.h"
 #include "../jrd/req.h"
@@ -179,6 +179,7 @@ void DsqlRequest::destroy(thread_db* tdbb, DsqlRequest* dsqlRequest)
 		childStatement->setParentRequest(nullptr);
 		childStatement->setParentDbKey(nullptr);
 		childStatement->setParentRecVersion(nullptr);
+		dsqlRequest->req_dbb->dbb_statement_cache->removeStatement(tdbb, childStatement);
 
 		// hvlad: lines below is commented out as
 		// - child is already unlinked from its parent request
