@@ -3186,7 +3186,7 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 						options.dpb_session_tz.c_str(), options.dpb_session_tz.length());
 			}
 
-			CCH_flush(tdbb, FLUSH_FINI, 0);
+			CCH_flush(tdbb, FLUSH_ALL, 0);
 
 			if (!options.dpb_set_force_write)
 				PAG_set_force_write(tdbb, true);
