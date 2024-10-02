@@ -217,7 +217,7 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 	return false;
 }
 
-CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock)
+CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock, NoData)
 	: PermanentStorage(p),
 	  names(p),
 	  cs(NULL),

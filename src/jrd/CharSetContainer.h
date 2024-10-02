@@ -41,7 +41,7 @@ struct SubtypeInfo;
 class CharSetContainer : public Firebird::PermanentStorage
 {
 public:
-	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, MakeLock* makeLock);
+	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, MakeLock* makeLock, NoData);
 
 	static bool destroy(thread_db* tdbb, CharSetContainer* container)
 	{

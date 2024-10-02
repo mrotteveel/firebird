@@ -363,25 +363,26 @@ struct index_root_page
 		friend struct index_root_page; // to allow offset check for private members
 		ULONG irt_root;				// page number of index root if irt_in_progress is NOT set, or
 									// highest 32 bit of transaction if irt_in_progress is set
-		ULONG irt_transaction;		// transaction in progress (lowest 32 bits)
+		ULONG irt_generation;		// index generation if irt_in_progress is NOT set, or
+									// lowest 32 bits of transaction if irt_in_progress is set
 	public:
 		USHORT irt_desc;			// offset to key descriptions
 		UCHAR irt_keys;				// number of keys in index
 		UCHAR irt_flags;
 
 		ULONG getRoot() const;
-		void setRoot(ULONG root_page);
+		void setRoot(ULONG root_page, ULONG generation);
 
 		TraNumber getTransaction() const;
 		void setTransaction(TraNumber traNumber);
 
 		bool isUsed() const;
-
+		ULONG getGeneration() const;
 	} irt_rpt[1];
 
 	static_assert(sizeof(struct irt_repeat) == 12, "struct irt_repeat size mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_root) == 0, "irt_root offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_transaction) == 4, "irt_transaction offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_generation) == 4, "irt_generation offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_desc) == 8, "irt_desc offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_keys) == 10, "irt_keys offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_flags) == 11, "irt_flags offset mismatch");
@@ -421,21 +422,31 @@ inline ULONG index_root_page::irt_repeat::getRoot() const
 	return (irt_flags & irt_in_progress) ? 0 : irt_root;
 }
 
-inline void index_root_page::irt_repeat::setRoot(ULONG root_page)
+// When finally (i.e. from mdc_cleanup_queue) deleting an index in case of CS
+// generation should be checked to ensure correct index is deleted.
+
+inline ULONG index_root_page::irt_repeat::getGeneration() const
+{
+	return (irt_flags & irt_in_progress) || (irt_root == 0) ? 0 : irt_generation;
+}
+
+inline void index_root_page::irt_repeat::setRoot(ULONG root_page, ULONG generation)
 {
 	irt_root = root_page;
+	if (root_page && generation)
+		irt_generation = generation;
 	irt_flags &= ~irt_in_progress;
 }
 
 inline TraNumber index_root_page::irt_repeat::getTransaction() const
 {
-	return (irt_flags & irt_in_progress) ? ((TraNumber) irt_root << BITS_PER_LONG) | irt_transaction : 0;
+	return (irt_flags & irt_in_progress) ? (TraNumber(irt_root) << BITS_PER_LONG) | irt_generation : 0;
 }
 
 inline void index_root_page::irt_repeat::setTransaction(TraNumber traNumber)
 {
 	irt_root = ULONG(traNumber >> BITS_PER_LONG);
-	irt_transaction = ULONG(traNumber);
+	irt_generation = ULONG(traNumber);
 	irt_flags |= irt_in_progress;
 }
 

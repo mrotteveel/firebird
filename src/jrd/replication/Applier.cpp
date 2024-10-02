@@ -549,7 +549,7 @@ void Applier::insertRecord(thread_db* tdbb, TraNumber traNum,
 
 	TRA_attach_request(transaction, m_request);
 
-	const auto relation = MetadataCache::lookup_relation(tdbb, relName);
+	const auto relation = MetadataCache::lookup_relation(tdbb, relName, CacheFlag::AUTOCREATE);
 	if (!relation)
 		raiseError("Table %s is not found", relName.c_str());
 
@@ -682,7 +682,7 @@ void Applier::updateRecord(thread_db* tdbb, TraNumber traNum,
 
 	TRA_attach_request(transaction, m_request);
 
-	const auto relation = MetadataCache::lookup_relation(tdbb, relName);
+	const auto relation = MetadataCache::lookup_relation(tdbb, relName, CacheFlag::AUTOCREATE);
 	if (!relation)
 		raiseError("Table %s is not found", relName.c_str());
 
@@ -820,7 +820,7 @@ void Applier::deleteRecord(thread_db* tdbb, TraNumber traNum,
 
 	TRA_attach_request(transaction, m_request);
 
-	const auto relation = MetadataCache::lookup_relation(tdbb, relName);
+	const auto relation = MetadataCache::lookup_relation(tdbb, relName, CacheFlag::AUTOCREATE);
 	if (!relation)
 		raiseError("Table %s is not found", relName.c_str());
 

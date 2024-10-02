@@ -1739,7 +1739,7 @@ void blb::put_slice(thread_db*	tdbb,
 		ERR_punt();
 
 	jrd_rel* relation = info.sdl_info_relation.length() ?
-		MetadataCache::lookup_relation(tdbb, info.sdl_info_relation) :
+		MetadataCache::lookup_relation(tdbb, info.sdl_info_relation, CacheFlag::AUTOCREATE) :
 		MetadataCache::findRelation(tdbb, info.sdl_info_rid);
 
 	if (!relation) {

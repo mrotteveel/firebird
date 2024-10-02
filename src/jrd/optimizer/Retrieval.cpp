@@ -1065,7 +1065,6 @@ InversionNode* Retrieval::makeIndexScanNode(IndexScratch* indexScratch) const
 	index_desc* const idx = indexScratch->index;
 
 	fb_assert(csb);
-	csb->csb_resources->postIndex(tdbb, relation(), idx->idx_id);
 
 	// For external requests, determine index name (to be reported in plans)
 	MetaName indexName;

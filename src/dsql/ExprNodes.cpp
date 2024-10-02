@@ -4852,7 +4852,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 
 	while (true)
 	{
-		auto relation = MetadataCache::lookup_relation(tdbb, relationName);
+		auto relation = MetadataCache::lookup_relation(tdbb, relationName, CacheFlag::AUTOCREATE);
 
 		if (relation && relation->rel_fields)
 		{

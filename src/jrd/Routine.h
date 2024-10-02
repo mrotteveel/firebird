@@ -47,7 +47,7 @@ namespace Jrd
 	class RoutinePermanent : public Firebird::PermanentStorage
 	{
 	public:
-		explicit RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, MakeLock* makeLock);
+		explicit RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, MakeLock* makeLock, NoData);
 
 		explicit RoutinePermanent(MemoryPool& p)
 			: PermanentStorage(p),

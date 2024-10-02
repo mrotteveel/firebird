@@ -302,13 +302,17 @@ void IndexErrorContext::raise(thread_db* tdbb, idx_e result, Record* record)
 	if (result == idx_e_conversion || result == idx_e_interrupt)
 		ERR_punt();
 
-	const MetaName& relationName = isLocationDefined ? m_location.relation->getName() : m_relation->getName();
+	auto* relation = getPermanent(isLocationDefined ? m_location.relation : m_relation);
 	const USHORT indexId = isLocationDefined ? m_location.indexId : m_index->idx_id;
 
 	MetaName indexName(m_indexName), constraintName;
 
 	if (indexName.isEmpty())
-		MetadataCache::lookup_index(tdbb, indexName, relationName, indexId + 1);
+	{
+		auto* index = relation->lookup_index(tdbb, indexId, CacheFlag::AUTOCREATE);
+		if (index)
+			indexName = index->getName();
+	}
 
 	if (indexName.hasData())
 		MET_lookup_cnstrt_for_index(tdbb, constraintName, indexName);
@@ -329,13 +333,13 @@ void IndexErrorContext::raise(thread_db* tdbb, idx_e result, Record* record)
 
 	case idx_e_foreign_target_doesnt_exist:
 		ERR_post_nothrow(Arg::Gds(isc_foreign_key) <<
-						 Arg::Str(constraintName) << Arg::Str(relationName) <<
+						 Arg::Str(constraintName) << Arg::Str(relation->getName()) <<
 						 Arg::Gds(isc_foreign_key_target_doesnt_exist));
 		break;
 
 	case idx_e_foreign_references_present:
 		ERR_post_nothrow(Arg::Gds(isc_foreign_key) <<
-						 Arg::Str(constraintName) << Arg::Str(relationName) <<
+						 Arg::Str(constraintName) << Arg::Str(relation->getName()) <<
 						 Arg::Gds(isc_foreign_key_references_present));
 		break;
 
@@ -343,7 +347,7 @@ void IndexErrorContext::raise(thread_db* tdbb, idx_e result, Record* record)
 		if (haveConstraint)
 		{
 			ERR_post_nothrow(Arg::Gds(isc_unique_key_violation) <<
-							 Arg::Str(constraintName) << Arg::Str(relationName));
+							 Arg::Str(constraintName) << Arg::Str(relation->getName()));
 		}
 		else
 			ERR_post_nothrow(Arg::Gds(isc_no_dup) << Arg::Str(indexName));
@@ -451,7 +455,14 @@ void BTR_create(thread_db* tdbb,
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* const root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
 	CCH_MARK(tdbb, &window);
-	root->irt_rpt[idx->idx_id].setRoot(idx->idx_root);
+	//root->irt_rpt[idx->idx_id].setRoot(idx->idx_root, root->getGeneration()); temporary don't use root->getGeneration()
+	// ODS change needed!!!!!!!!!!!!!!!!!!!
+		ULONG rnd;
+		do
+		{
+			Firebird::GenerateRandomBytes(&rnd, sizeof(rnd));
+		} while (!rnd);
+		root->irt_rpt[idx->idx_id].setRoot(idx->idx_root, rnd);
 	update_selectivity(root, idx->idx_id, selectivity);
 
 	CCH_RELEASE(tdbb, &window);
@@ -475,30 +486,34 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
 	const Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
+	ULONG generation = 0; //!!!!!!!!!!!!!!!!!!!!
+
 	// Get index descriptor.  If index doesn't exist, just leave.
 	index_root_page* const root = (index_root_page*) window->win_buffer;
 
-	bool tree_exists = false;
-	if (id >= root->irt_count)
-		CCH_RELEASE(tdbb, window);
-	else
+	if (id < root->irt_count)
 	{
 		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-		CCH_MARK(tdbb, window);
-		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
-		tree_exists = (irt_desc->getRoot() != 0);
+		if ((!generation) || (irt_desc->getGeneration() == generation))
+		{
+			CCH_MARK(tdbb, window);
+			const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
+			bool tree_exists = (irt_desc->getRoot() != 0);
 
-		// remove the pointer to the top-level index page before we delete it
-		irt_desc->setRoot(0);
-		irt_desc->irt_flags = 0;
-		const PageNumber prior = window->win_page;
-		const USHORT relation_id = root->irt_relation;
+			// remove the pointer to the top-level index page before we delete it
+			irt_desc->setRoot(0, 0);
+			irt_desc->irt_flags = 0;
+			const PageNumber prior = window->win_page;
+			const USHORT relation_id = root->irt_relation;
 
-		CCH_RELEASE(tdbb, window);
-		delete_tree(tdbb, relation_id, id, next, prior);
+			CCH_RELEASE(tdbb, window);
+			delete_tree(tdbb, relation_id, id, next, prior);
+			return tree_exists;
+		}
 	}
 
-	return tree_exists;
+	CCH_RELEASE(tdbb, window);
+	return false;
 }
 
 
@@ -1277,7 +1292,7 @@ void BTR_insert(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 	CCH_RELEASE(tdbb, &new_window);
 	CCH_precedence(tdbb, root_window, new_window.win_page);
 	CCH_MARK(tdbb, root_window);
-	root->irt_rpt[idx->idx_id].setRoot(new_window.win_page.getPageNum());
+	root->irt_rpt[idx->idx_id].setRoot(new_window.win_page.getPageNum(), 0);
 	CCH_RELEASE(tdbb, root_window);
 }
 
@@ -1921,9 +1936,9 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 	for (; id < root->irt_count; ++id)
 	{
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-		if (irt_desc->getTransaction() && transaction)
+		const TraNumber trans = irt_desc->getTransaction();
+		if (trans && transaction)
 		{
-			const TraNumber trans = irt_desc->getTransaction();
 			CCH_RELEASE(tdbb, window);
 			const int trans_state = TRA_wait(tdbb, transaction, trans, jrd_tra::tra_wait);
 			if ((trans_state == tra_dead) || (trans_state == tra_committed))
@@ -1943,6 +1958,9 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 
 			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 		}
+
+		// May be here finally cleanup index after something like engine failure?
+		// !!!!!!!!!!!!!!!!!!
 
 		if (BTR_description(tdbb, relation, root, idx, id))
 			return true;
@@ -2017,7 +2035,7 @@ void BTR_remove(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 		}
 
 		CCH_MARK(tdbb, root_window);
-		root->irt_rpt[idx->idx_id].setRoot(number);
+		root->irt_rpt[idx->idx_id].setRoot(number, 0);
 
 		// release the pages, and place the page formerly at the top level
 		// on the free list, making sure the root page is written out first
@@ -2072,8 +2090,7 @@ void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation)
 	// Index id for temporary index instance of global temporary table is
 	// already assigned, use it.
 	const bool use_idx_id = (relPages->rel_instance_id != 0);
-	if (use_idx_id)
-		fb_assert(idx->idx_id <= dbb->dbb_max_idx);
+	fb_assert((!use_idx_id) || (idx->idx_id <= dbb->dbb_max_idx));
 
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
@@ -2165,7 +2182,7 @@ void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation)
 }
 
 
-void BTR_selectivity(thread_db* tdbb, jrd_rel* relation, USHORT id, SelectivityList& selectivity)
+void BTR_selectivity(thread_db* tdbb, Cached::Relation* relation, USHORT id, SelectivityList& selectivity)
 {
 /**************************************
  *
@@ -2186,7 +2203,7 @@ void BTR_selectivity(thread_db* tdbb, jrd_rel* relation, USHORT id, SelectivityL
 	RelationPages* relPages = relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
-	index_root_page* root = fetch_root(tdbb, &window, getPermanent(relation), relPages);
+	index_root_page* root = fetch_root(tdbb, &window, relation, relPages);
 	if (!root)
 		return;
 

@@ -814,8 +814,9 @@ public:
 
 	typedef atomics::atomic<CacheElement*> AtomicElementPointer;
 
-	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock) :
-		Permanent(tdbb, p, id, makeLock), list(nullptr), resetAt(0), ptrToClean(nullptr)
+	template <typename EXTEND>
+	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock, EXTEND extend) :
+		Permanent(tdbb, p, id, makeLock, extend), list(nullptr), resetAt(0), ptrToClean(nullptr)
 	{ }
 
 	CacheElement(MemoryPool& p) :
@@ -1068,7 +1069,12 @@ private:
 };
 
 
-template <class StoredElement, unsigned SUBARRAY_SHIFT = 8>
+struct NoData
+{
+	NoData() { }
+};
+
+template <class StoredElement, unsigned SUBARRAY_SHIFT = 8, typename EXTEND = NoData>
 class CacheVector : public Firebird::PermanentStorage
 {
 public:
@@ -1081,9 +1087,10 @@ public:
 	typedef atomics::atomic<SubArrayData*> ArrayData;
 	typedef SharedReadVector<ArrayData, 4> Storage;
 
-	explicit CacheVector(MemoryPool& pool)
+	explicit CacheVector(MemoryPool& pool, EXTEND extend = NoData())
 		: Firebird::PermanentStorage(pool),
-		  m_objects()
+		  m_objects(),
+		  m_extend(extend)
 	{}
 
 private:
@@ -1206,7 +1213,7 @@ public:
 		if (!data)
 		{
 			StoredElement* newData = FB_NEW_POOL(getPool())
-				StoredElement(tdbb, getPool(), id, Versioned::makeLock);
+				StoredElement(tdbb, getPool(), id, Versioned::makeLock, m_extend);
 			if (ptr->compare_exchange_strong(data, newData,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{
@@ -1384,6 +1391,7 @@ public:
 private:
 	Storage m_objects;
 	Firebird::Mutex objectsGrowMutex;
+	EXTEND m_extend;
 };
 
 template <typename T>

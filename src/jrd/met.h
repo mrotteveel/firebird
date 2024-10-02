@@ -294,7 +294,7 @@ public:
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	static jrd_rel* lookup_relation(thread_db*, const MetaName&);
+	static jrd_rel* lookup_relation(thread_db*, const MetaName&, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);

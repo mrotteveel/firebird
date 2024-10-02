@@ -77,10 +77,8 @@ static idx_e check_foreign_key(thread_db*, Record*, jrd_rel*, jrd_tra*, index_de
 static idx_e check_partner_index(thread_db*, jrd_rel*, Record*, jrd_tra*, index_desc*, jrd_rel*, USHORT);
 static bool cmpRecordKeys(thread_db*, Record*, jrd_rel*, index_desc*, Record*, jrd_rel*, index_desc*);
 static bool duplicate_key(const UCHAR*, const UCHAR*, void*);
-static PageNumber get_root_page(thread_db*, jrd_rel*);
-static int index_block_flush(void*);
+static PageNumber get_root_page(thread_db*, Cached::Relation*);
 static idx_e insert_key(thread_db*, jrd_rel*, Record*, jrd_tra*, WIN *, index_insertion*, IndexErrorContext&);
-static void release_index_block(thread_db*, IndexBlock*);
 static void signal_index_deletion(thread_db*, RelationPermanent*, USHORT);
 
 namespace
@@ -148,7 +146,7 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 
 			// get the description of the primary key index
 
-			referenced_window.win_page = get_root_page(tdbb, referenced_relation);
+			referenced_window.win_page = get_root_page(tdbb, getPermanent(referenced_relation));
 			referenced_window.win_flags = 0;
 			index_root_page* referenced_root =
 				(index_root_page*) CCH_FETCH(tdbb, &referenced_window, LCK_read, pag_root);
@@ -184,7 +182,7 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 }
 
 
-bool IDX_check_master_types(thread_db* tdbb, index_desc& idx, jrd_rel* partner_relation, int& bad_segment)
+bool IDX_check_master_types(thread_db* tdbb, index_desc& idx, Cached::Relation* partner_relation, int& bad_segment)
 {
 /**********************************************
  *
@@ -209,7 +207,7 @@ bool IDX_check_master_types(thread_db* tdbb, index_desc& idx, jrd_rel* partner_r
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
 
 	// get the description of the partner index
-	const bool ok = BTR_description(tdbb, getPermanent(partner_relation), root, &partner_idx, idx.idx_primary_index);
+	const bool ok = BTR_description(tdbb, partner_relation, root, &partner_idx, idx.idx_primary_index);
 	CCH_RELEASE(tdbb, &window);
 
 	if (!ok)
@@ -854,7 +852,7 @@ void IDX_create_index(thread_db* tdbb,
 				 Arg::Gds(isc_wish_list));
 	}
 
-	get_root_page(tdbb, relation);
+	get_root_page(tdbb, getPermanent(relation));
 
 	fb_assert(transaction);
 
@@ -964,55 +962,17 @@ void IDX_create_index(thread_db* tdbb,
 		IndexErrorContext context(relation, idx, index_name);
 		context.raise(tdbb, idx_e_duplicate, error_record);
 	}
-
+/*
 	if ((getPermanent(relation)->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0))
 	{
-		IndexLock* idx_lock = getPermanent(relation)->getIndexLock(tdbb, idx->idx_id);
-		if (idx_lock)
-			idx_lock->sharedLock(tdbb);
-	}
+		IndexPermanent* idp = getPermanent(relation)->lookupIndex(tdbb, idx->idx_id);
+		if (idp)
+			idp->sharedLock(tdbb);
+	} */
 }
 
 
-IndexBlock* IDX_create_index_block(thread_db* tdbb, RelationPermanent* relation, USHORT id)
-{
-/**************************************
- *
- *	I D X _ c r e a t e _ i n d e x _ b l o c k
- *
- **************************************
- *
- * Functional description
- *	Create an index block and an associated
- *	lock block for the specified index.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
-
-	IndexBlock* index_block = FB_NEW_POOL(relation->getPool()) IndexBlock();
-	index_block->idb_id = id;
-
-	// link the block in with the relation linked list
-
-	index_block->idb_next = relation->rel_index_blocks;
-	relation->rel_index_blocks = index_block;
-
-	// create a shared lock for the index, to coordinate
-	// any modification to the index so that the cached information
-	// about the index will be discarded
-
-	Lock* lock = FB_NEW_RPT(relation->getPool(), 0)
-		Lock(tdbb, sizeof(SLONG), LCK_expression, index_block, index_block_flush);
-	index_block->idb_lock = lock;
-	lock->setKey((relation->getId() << 16) | index_block->idb_id);
-
-	return index_block;
-}
-
-
-void IDX_delete_index(thread_db* tdbb, jrd_rel* relation, USHORT id)
+void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, USHORT id)
 {
 /**************************************
  *
@@ -1026,20 +986,21 @@ void IDX_delete_index(thread_db* tdbb, jrd_rel* relation, USHORT id)
  **************************************/
 	SET_TDBB(tdbb);
 
-	signal_index_deletion(tdbb, getPermanent(relation), id);
+	signal_index_deletion(tdbb, relation, id);
 
 	WIN window(get_root_page(tdbb, relation));
 	CCH_FETCH(tdbb, &window, LCK_write, pag_root);
 
 	const bool tree_exists = BTR_delete_index(tdbb, &window, id);
-
+/*
 	if ((getPermanent(relation)->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
 		tree_exists)
 	{
-		IndexLock* idx_lock = getPermanent(relation)->getIndexLock(tdbb, id);
+		IndexPermanent* idx_lock = relation->getIndexLock(tdbb, id);
 		if (idx_lock)
 			idx_lock->unlockAll(tdbb);
 	}
+*/
 }
 
 
@@ -1063,19 +1024,19 @@ void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPa
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
 
-	const bool is_temp = (relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0);
+//	const bool is_temp = (relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0);
 
 	for (USHORT i = 0; i < root->irt_count; i++)
 	{
 		const bool tree_exists = BTR_delete_index(tdbb, &window, i);
 		root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
-
+/*
 		if (is_temp && tree_exists)
 		{
-			IndexLock* idx_lock = relation->getIndexLock(tdbb, i);
+			IndexPermanent* idx_lock = relation->getIndexLock(tdbb, i);
 			if (idx_lock)
 				idx_lock->unlockAll(tdbb);
-		}
+		}*/
 	}
 
 	CCH_RELEASE(tdbb, &window);
@@ -1148,7 +1109,7 @@ void IDX_garbage_collect(thread_db* tdbb, record_param* rpb, RecordStack& going,
 	insertion.iib_key = &key1;
 	insertion.iib_btr_level = 0;
 
-	WIN window(get_root_page(tdbb, rpb->rpb_relation));
+	WIN window(get_root_page(tdbb, getPermanent(rpb->rpb_relation)));
 
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
 
@@ -1455,7 +1416,7 @@ void IDX_modify_flag_uk_modified(thread_db* tdbb,
 }
 
 
-void IDX_statistics(thread_db* tdbb, jrd_rel* relation, USHORT id, SelectivityList& selectivity)
+void IDX_statistics(thread_db* tdbb, Cached::Relation* relation, USHORT id, SelectivityList& selectivity)
 {
 /**************************************
  *
@@ -1817,7 +1778,7 @@ static idx_e check_partner_index(thread_db* tdbb,
 
 	// get the index root page for the partner relation
 
-	WIN window(get_root_page(tdbb, partner_relation));
+	WIN window(get_root_page(tdbb, getPermanent(partner_relation)));
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
 
 	// get the description of the partner index
@@ -1953,7 +1914,7 @@ static bool duplicate_key(const UCHAR* record1, const UCHAR* record2, void* ifl_
 }
 
 
-static PageNumber get_root_page(thread_db* tdbb, jrd_rel* relation)
+static PageNumber get_root_page(thread_db* tdbb, Cached::Relation* relation)
 {
 /**************************************
  *
@@ -1979,7 +1940,7 @@ static PageNumber get_root_page(thread_db* tdbb, jrd_rel* relation)
 }
 
 
-static int index_block_flush(void* ast_object)
+int IndexPermanent::indexReload(void* ast_object)
 {
 /**************************************
  *
@@ -1994,16 +1955,19 @@ static int index_block_flush(void* ast_object)
  *	out and release the lock.
  *
  **************************************/
-	IndexBlock* const index_block = static_cast<IndexBlock*>(ast_object);
+
+	// AST for index reload lock
+ 
+	Cached::Index* const idp = static_cast<Cached::Index*>(ast_object);
 
 	try
 	{
-		Lock* const lock = index_block->idb_lock;
+		Lock* const lock = idp->getRescanLock();
 		Database* const dbb = lock->lck_dbb;
 
 		AsyncContextHolder tdbb(dbb, FB_FUNCTION, lock);
 
-		release_index_block(tdbb, index_block);
+		idp->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
 	}
 	catch (const Firebird::Exception&)
 	{} // no-op
@@ -2070,37 +2034,6 @@ static idx_e insert_key(thread_db* tdbb,
 }
 
 
-static void release_index_block(thread_db* tdbb, IndexBlock* index_block)
-{
-/**************************************
- *
- *	r e l e a s e _ i n d e x _ b l o c k
- *
- **************************************
- *
- * Functional description
- *	Release index block structure.
- *
- **************************************/
-	if (index_block->idb_expression_statement)
-	{
-		index_block->idb_expression_statement->release(tdbb);
-		index_block->idb_expression_statement = nullptr;
-	}
-	index_block->idb_expression = nullptr;
-	index_block->idb_expression_desc.clear();
-
-	if (index_block->idb_condition_statement)
-	{
-		index_block->idb_condition_statement->release(tdbb);
-		index_block->idb_condition_statement = nullptr;
-	}
-	index_block->idb_condition = nullptr;
-
-	LCK_release(tdbb, index_block->idb_lock);
-}
-
-
 static void signal_index_deletion(thread_db* tdbb, RelationPermanent* relation, USHORT id)
 {
 /**************************************
@@ -2114,40 +2047,16 @@ static void signal_index_deletion(thread_db* tdbb, RelationPermanent* relation, 
  *	processes to get rid of index info.
  *
  **************************************/
-	IndexBlock* index_block;
 	Lock* lock = NULL;
-
 	SET_TDBB(tdbb);
 
-	// get an exclusive lock on the associated index
-	// block (if it exists) to make sure that all other
-	// processes flush their cached information about this index
-
-	for (index_block = relation->rel_index_blocks; index_block; index_block = index_block->idb_next)
-	{
-		if (index_block->idb_id == id)
-		{
-			lock = index_block->idb_lock;
-			break;
-		}
-	}
-
-	// if one didn't exist, create it
-
-	if (!index_block)
-	{
-		index_block = IDX_create_index_block(tdbb, relation, id);
-		lock = index_block->idb_lock;
-	}
-
 	// signal other processes to clear out the index block
-
+/* !!!!!!!!!!!!!!!!!!!!!!!!
 	if (lock->lck_physical == LCK_SR) {
 		LCK_convert(tdbb, lock, LCK_EX, LCK_WAIT);
 	}
 	else {
 		LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
 	}
-
-	release_index_block(tdbb, index_block);
+ */
 }

@@ -112,14 +112,8 @@ inline constexpr TTypeId::TTypeId(CSetId cs)
 
 
 
+#define	COLLATE_NONE			CollId(0)	// No special collation, use codepoint order
 
-#define	COLLATE_NONE			0	// No special collation, use codepoint order
-/* ?????????????????
-inline void INTL_ASSIGN_DSC(dsc* desc, CSetId cs, CollId coll)
-{
-	desc->setTextType(TTypeId(cs, coll));
-}
-*/
 #define INTL_GET_TTYPE(dsc)		((dsc)->getTextType())
 #define INTL_GET_CHARSET(dsc)	((dsc)->getCharSet())
 #define INTL_GET_COLLATE(dsc)	((dsc)->getCollation())

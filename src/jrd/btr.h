@@ -81,11 +81,11 @@ struct index_desc
 {
 	ULONG	idx_root;						// Index root
 	float	idx_selectivity;				// selectivity of index
-	USHORT	idx_id;
+	MetaId	idx_id;
 	UCHAR	idx_flags;
 	UCHAR	idx_runtime_flags;				// flags used at runtime, not stored on disk
-	USHORT	idx_primary_index;				// id for primary key partner index
-	USHORT	idx_primary_relation;			// id for primary key partner relation
+	MetaId	idx_primary_index;				// id for primary key partner index
+	MetaId	idx_primary_relation;			// id for primary key partner relation
 	USHORT	idx_count;						// number of keys
 	ForeignDeps*	idx_foreign_deps;		// foreign key partners
 	ValueExprNode* idx_expression;			// node tree for indexed expression

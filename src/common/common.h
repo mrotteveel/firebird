@@ -751,6 +751,7 @@ extern "C" int remove(const char* path);
 
 #define MAX_USHORT		((USHORT)0xFFFF)
 #define MIN_USHORT		0x0000
+#define MAX_META_ID		MAX_USHORT
 
 #define MAX_SSHORT		0x7FFF
 #define MIN_SSHORT		(-MAX_SSHORT - 1)

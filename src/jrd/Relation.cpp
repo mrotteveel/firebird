@@ -137,7 +137,7 @@ jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	  rel_triggers(p)
 { }
 
-RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* /*makeLock*/)
+RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* /*makeLock*/, NoData)
 	: PermanentStorage(p),
 	  rel_existence_lock(nullptr),
 	  rel_partners_lock(nullptr),
@@ -147,11 +147,10 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_sweep_count(0),
 	  rel_scan_count(0),
 	  rel_formats(nullptr),
-	  rel_index_locks(),
+	  rel_indices(p, this),
 	  rel_name(p),
 	  rel_id(id),
 	  rel_flags(0u),
-	  rel_index_blocks(nullptr),
 	  rel_pages_inst(nullptr),
 	  rel_pages_base(p),
 	  rel_pages_free(nullptr),
@@ -505,6 +504,50 @@ bool jrd_rel::hasTriggers() const
 }
  */
 
+
+IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+{
+	return rel_indices.getObject(tdbb, id, flags);
+}
+
+
+Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+{
+	auto* idp = rel_indices.getDataNoChecks(id);
+	if (idp)
+		return idp;
+
+	if (flags & CacheFlag::AUTOCREATE)
+	{
+		auto* idv = lookup_index(tdbb, id, flags);
+		if (idv)
+			return getPermanent(idv);
+	}
+
+	return nullptr;
+}
+
+
+const char* IndexPermanent::c_name()
+{
+	// Here we use MetaName feature - pointers in it are DBB-lifetime stable
+	return idp_name.c_str();
+}
+
+void IndexPermanent::createLock(thread_db* tdbb, MetaId relId, MetaId indId)
+{
+	if (!idp_lock)
+	{
+		idp_lock = FB_NEW_RPT(idp_relation->getPool(), 0)
+			Lock(tdbb, sizeof(SLONG), LCK_expression, this, indexReload);
+		idp_lock->setKey((FB_UINT64(relId) << REL_ID_KEY_OFFSET) + indId);
+	}
+}
+
+IndexVersion::IndexVersion(MemoryPool& p, Cached::Index* idp)
+	: perm(idp)
+{ }
+
 void jrd_rel::releaseTriggers(thread_db* tdbb, bool destroy)
 {
 	for (int n = 1; n < TRIGGER_MAX; ++n)
@@ -829,148 +872,15 @@ void RelationPages::free(RelationPages*& nextFree)
 	dpMapMark = 0;
 }
 
-
-IndexLock* RelationPermanent::getIndexLock(thread_db* tdbb, USHORT id)
+void IndexPermanent::unlock(thread_db* tdbb)
 {
-/**************************************
- *
- *	C M P _ g e t _ i n d e x _ l o c k
- *
- **************************************
- *
- * Functional description
- *	Get index lock block for index.  If one doesn't exist,
- *	make one.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Database* dbb = tdbb->getDatabase();
-
-	if (getId() < (MetaId) rel_MAX)
-		return nullptr;
-
-	auto ra = rel_index_locks.readAccessor();
-	if (id < ra->getCount())
-	{
-		IndexLock* indexLock = ra->value(id);
-		if (indexLock)
-			return indexLock;
-	}
-
-	MutexLockGuard g(index_locks_mutex, FB_FUNCTION);
-
-	rel_index_locks.grow(id + 1, false);
-	auto wa = rel_index_locks.writeAccessor();
-	while (auto* dp = wa->addStart())
-	{
-		*dp = nullptr;
-		wa->addComplete();
-	}
-
-	IndexLock* indexLock = wa->value(id);
-	if (!indexLock)
-	{
-		indexLock = FB_NEW_POOL(getPool()) IndexLock(getPool(), tdbb, this, id);
-		wa->value(id) = indexLock;
-	}
-
-	return indexLock;
+	LCK_release(tdbb, idp_lock);
 }
 
-IndexLock::IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id)
-	: idl_relation(rel),
-	  idl_lock(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_idx_exist)),
-	  idl_count(0)
-{
-	idl_lock->setKey((idl_relation->rel_id << 16) | id);
-}
-
-void IndexLock::sharedLock(thread_db* tdbb)
-{
-	MutexLockGuard g(idl_mutex, FB_FUNCTION);
-
-	if (idl_count++ <= 0)
-	{
-		if (idl_count < 0)
-		{
-			--idl_count;
-			errIndexGone();
-		}
-
-		LCK_lock(tdbb, idl_lock, LCK_SR, LCK_WAIT);
-	}
-}
-
-bool IndexLock::exclusiveLock(thread_db* tdbb)
-{
-	MutexLockGuard g(idl_mutex, FB_FUNCTION);
-
-	if (idl_count < 0)
-		errIndexGone();
-
-	if (idl_count > 0)
-		MetadataCache::clear(tdbb);
-
-	if (idl_count ||
-		!LCK_lock(tdbb, idl_lock, LCK_EX, tdbb->getTransaction()->getLockWait()))
-	{
-		return false;
-	}
-
-	idl_mutex.enter(FB_FUNCTION);		// keep exclusive in-process
-	idl_count = exclLock;
-	return true;
-}
-
-bool IndexLock::exclusiveUnlock(thread_db* tdbb)
-{
-	MutexLockGuard g(idl_mutex, FB_FUNCTION);
-
-	if (idl_count == exclLock)
-	{
-		idl_mutex.leave();
-		idl_count = 0;
-		LCK_release(tdbb, idl_lock);
-
-		return true;
-	}
-
-	return false;
-}
-
-void IndexLock::sharedUnlock(thread_db* tdbb)
-{
-	MutexLockGuard g(idl_mutex, FB_FUNCTION);
-
-	if (idl_count > 0)
-		--idl_count;
-
-	if (idl_count == 0)
-		LCK_release(tdbb, idl_lock);
-}
-
-void IndexLock::unlockAll(thread_db* tdbb)
-{
-	MutexLockGuard g(idl_mutex, FB_FUNCTION);
-
-	if (!exclusiveUnlock(tdbb))
-		LCK_release(tdbb, idl_lock);
-
-	idl_count = offTheLock;
-}
-
-void IndexLock::recreate(thread_db*)
-{
-	MutexLockGuard g(idl_mutex, FB_FUNCTION);
-
-	idl_count = 0;
-}
-
-[[noreturn]] void IndexLock::errIndexGone()
+[[noreturn]] void IndexPermanent::errIndexGone()
 {
 	fatal_exception::raise("Index is gone unexpectedly");
 }
-
 
 void jrd_rel::destroy(thread_db* tdbb, jrd_rel* rel)
 {
@@ -1034,7 +944,7 @@ void Trigger::free(thread_db* tdbb, bool force)
 
 // class DbTriggers
 
-DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, MakeLock* makeLock)
+DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, MakeLock* makeLock, NoData)
 	: Firebird::PermanentStorage(p),
 	  type(t),
 	  lock(nullptr)
@@ -1083,4 +993,3 @@ int DbTriggers::objectType()
 {
 	return obj_relation;
 }
-

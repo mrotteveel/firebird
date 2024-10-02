@@ -1708,6 +1708,48 @@ public:
 	}
 };
 
+// Performs 2-pass index create/drop
+
+class ModifyIndexNode
+{
+public:
+	ModifyIndexNode(MetaName relName, MetaName indexName)
+		: indexName(indexName),
+		  relName(relName)
+	{
+	}
+
+	ModifyIndexNode(MetaName indexName)
+		: indexName(indexName)
+	{
+	}
+
+	void modify(thread_db* tdbb, bool isCreate, jrd_tra* transaction);
+
+	virtual void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
+
+public:
+	MetaName indexName;
+	MetaName relName;
+};
+
+class StoreIndexNode : public ModifyIndexNode
+{
+public:
+	StoreIndexNode(MetaName relName, MetaName indexName, bool expressionIndex)
+		: ModifyIndexNode(relName, indexName),
+		  expressionIndex(expressionIndex)
+	{ }
+
+public:
+	void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+
+private:
+	void create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+	void createExpression(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+
+	bool expressionIndex = false;
+};
 
 class CreateIndexNode : public DdlNode
 {
@@ -1723,6 +1765,7 @@ public:
 			conditionSource.clear();
 		}
 
+		MetaName index;
 		MetaName relation;
 		Firebird::ObjectsArray<MetaName> columns;
 		Nullable<bool> unique;
@@ -1740,7 +1783,7 @@ public:
 public:
 	CreateIndexNode(MemoryPool& p, const MetaName& aName)
 		: DdlNode(p),
-		  name(p, aName),
+		  name(aName),
 		  unique(false),
 		  descending(false),
 		  relation(nullptr),
@@ -1751,7 +1794,7 @@ public:
 	}
 
 public:
-	static void store(thread_db* tdbb, jrd_tra* transaction, MetaName& name,
+	static void store(thread_db* tdbb, jrd_tra* transaction, MetaName& idxName,
 		const Definition& definition, MetaName* referredIndexName = nullptr);
 
 public:
@@ -1779,9 +1822,10 @@ public:
 class AlterIndexNode : public DdlNode
 {
 public:
-	AlterIndexNode(MemoryPool& p, const MetaName& aName, bool aActive)
+	// never alter FK index
+	AlterIndexNode(MemoryPool& p, const MetaName& name, bool aActive)
 		: DdlNode(p),
-		  name(p, aName),
+		  indexName(name),
 		  active(aActive)
 	{
 	}
@@ -1794,11 +1838,11 @@ public:
 protected:
 	virtual void putErrorPrefix(Firebird::Arg::StatusVector& statusVector)
 	{
-		statusVector << Firebird::Arg::Gds(isc_dsql_alter_index_failed) << name;
+		statusVector << Firebird::Arg::Gds(isc_dsql_alter_index_failed) << indexName;
 	}
 
 public:
-	MetaName name;
+	MetaName indexName;
 	bool active;
 };
 
@@ -1829,14 +1873,10 @@ public:
 };
 
 
-class DropIndexNode : public DdlNode
+class DropIndexNode : public ModifyIndexNode, public DdlNode
 {
 public:
-	DropIndexNode(MemoryPool& p, const MetaName& aName)
-		: DdlNode(p),
-		  name(p, aName)
-	{
-	}
+	DropIndexNode(MemoryPool& p, const MetaName& name);
 
 	static bool deleteSegmentRecords(thread_db* tdbb, jrd_tra* transaction,
 		const MetaName& name);
@@ -1846,14 +1886,17 @@ public:
 	virtual void checkPermission(thread_db* tdbb, jrd_tra* transaction);
 	virtual void execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction);
 
+	void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+
 protected:
 	virtual void putErrorPrefix(Firebird::Arg::StatusVector& statusVector)
 	{
-		statusVector << Firebird::Arg::Gds(isc_dsql_drop_index_failed) << name;
+		statusVector << Firebird::Arg::Gds(isc_dsql_drop_index_failed) << indexName;
 	}
 
-public:
-	MetaName name;
+private:
+	MetaId idxId;
+	MetaName partnerRelName;
 };
 
 

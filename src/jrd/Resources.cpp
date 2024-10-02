@@ -27,35 +27,9 @@ void Resources::transfer(thread_db* tdbb, VersionedObjects* to)
 	procedures.transfer(tdbb, to);
 	functions.transfer(tdbb, to);
 	triggers.transfer(tdbb, to);
-}
-
-void Resources::postIndex(thread_db* tdbb, RelationPermanent* relation, USHORT index)
-{
-	IndexLock* il = relation->getIndexLock(tdbb, index);
-	if (!il)		// system relation
-		return;
-
-	il->sharedLock(tdbb);
-	try
-	{
-		indexLocks.addUniq(il);
-	}
-	catch (const Exception&)
-	{
-		il->sharedUnlock(tdbb);
-	}
-}
-
-void Resources::release(thread_db* tdbb)
-{
-	for (auto* il : indexLocks)
-		il->sharedUnlock(tdbb);
-
-	indexLocks.clear();		// rely on deleteByPool
+	indices.transfer(tdbb, to);
 }
 
 Resources::~Resources()
-{
-	fb_assert(indexLocks.getCount() == 0);
-}
+{ }
 

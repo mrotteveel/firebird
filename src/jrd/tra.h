@@ -161,6 +161,39 @@ class jrd_tra : public pool_alloc<type_tra>
 	typedef Firebird::HalfStaticArray<Record*, MAX_UNDO_RECORDS> UndoRecordList;
 
 public:
+	class RollbackCleanup
+	{
+	public:
+		virtual ~RollbackCleanup()
+		{ }
+
+		virtual void cleanup(thread_db* tdbb, jrd_tra* tra) = 0;
+
+		RollbackCleanup* performCleanup(thread_db* tdbb, jrd_tra* tra)
+		{
+			if (rb_active)
+			{
+				rb_active = false;
+				cleanup(tdbb, tra);
+			}
+			return rb_next;
+		}
+
+		void link(ULONG id, RollbackCleanup** to)
+		{
+			fb_assert(rb_id == 0 && id);
+			rb_next = *to;
+			*to = this;
+		}
+
+		static void unlink(RollbackCleanup** from, ULONG id);
+
+	private:
+		RollbackCleanup* rb_next = nullptr;
+		ULONG rb_id = 0;
+		bool rb_active = true;
+	};
+
 	enum wait_t {
 		tra_no_wait,
 		tra_probe,
@@ -323,6 +356,8 @@ private:
 	MemoryPool* tra_autonomous_pool;
 	USHORT tra_autonomous_cnt;
 	static const USHORT TRA_AUTONOMOUS_PER_POOL = 64;
+	RollbackCleanup* tra_rb_cleanup = nullptr;
+	ULONG tra_next_rb_id = 0;
 
 public:
 	MemoryPool* getAutonomousPool();
@@ -407,6 +442,25 @@ public:
 	}
 
 	void postResources(thread_db* tdbb, const Resources* resources);
+
+	template <class C, typename... P>
+	void postRollbackCleanup(P... args)
+	{
+		RollbackCleanup* newCleanup = FB_NEW_POOL(*tra_pool) C(args...);
+		newCleanup->link(++tra_next_rb_id, &tra_rb_cleanup);
+	}
+
+	void rollbackCleanup(thread_db* tdbb)
+	{
+		auto* tc = tra_rb_cleanup;
+		while (tc)
+			 tc = tc->performCleanup(tdbb, this);
+	}
+
+	void unlinkCleanup(ULONG id)
+	{
+		RollbackCleanup::unlink(&tra_rb_cleanup, id);
+	}
 };
 
 // System transaction is always transaction 0.
@@ -496,7 +550,6 @@ enum dfw_t {
 	dfw_grant,
 	dfw_revoke,
 	dfw_scan_relation,
-	dfw_create_expression_index,
 	dfw_create_procedure,
 	dfw_modify_procedure,
 	dfw_delete_procedure,

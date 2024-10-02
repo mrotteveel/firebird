@@ -44,8 +44,6 @@ class RseNode;
 class StmtNode;
 class jrd_fld;
 class ExternalFile;
-class IndexLock;
-class IndexBlock;
 class RelationPermanent;
 class jrd_rel;
 
@@ -202,7 +200,7 @@ private:
 class DbTriggersHeader : public Firebird::PermanentStorage
 {
 public:
-	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, MakeLock* makeLock);
+	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, MakeLock* makeLock, NoData = NoData());
 
 	MetaId getId()
 	{
@@ -435,39 +433,131 @@ friend class RelationPermanent;
 };
 
 
-// Index lock block
+// Index block
 
-class IndexLock final
+class IndexPermanent : public Firebird::PermanentStorage
 {
-	static const int exclLock = -1000000;
-	static const int offTheLock = -2000000;
-
 public:
-	enum class GetMode {shared, exclusive};
+	IndexPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock*, RelationPermanent* rel)
+		: PermanentStorage(p),
+		  idp_relation(rel),
+		  idp_id(id)
+	{ }
 
-	IndexLock(MemoryPool& p, thread_db* tdbb, RelationPermanent* rel, USHORT id);
-
-	~IndexLock()
+	~IndexPermanent()
 	{
-		fb_assert(!idl_lock);
+		fb_assert((!idp_lock) || (idp_lock->lck_physical == LCK_none && idp_lock->lck_logical == LCK_none));
 	}
 
-public:
-	bool exclusiveLock(thread_db* tdbb);
-	void sharedLock(thread_db* tdbb);
-	bool exclusiveUnlock(thread_db* tdbb);
-	void sharedUnlock(thread_db* tdbb);
+	static int indexReload(void* ast_object);
 
-	void unlockAll(thread_db* tdbb);
-	void recreate(thread_db* tdbb);
+	static bool destroy(thread_db* tdbb, IndexPermanent* idp)
+	{
+		idp->unlock(tdbb);
+		return false;
+	}
+
+	MetaId getId() const
+	{
+		return idp_id;
+	}
+
+	static const int REL_ID_KEY_OFFSET = 16;
+	void createLock(thread_db* tdbb, MetaId relId, MetaId indId);
+
+	bool exclusiveLock(thread_db* tdbb);
+	bool sharedLock(thread_db* tdbb);
+	void unlock(thread_db* tdbb);
+
+	Lock* getRescanLock()
+	{
+		return nullptr;
+	}
+
+	RelationPermanent* getRelation()
+	{
+		return idp_relation;
+	}
+
+	const char* c_name();
+
+public:
+	MetaName			idp_name;		// used only as temp mirror for c_name() implementation
 
 private:
-	RelationPermanent*	idl_relation;	// Parent relation
-	Lock*				idl_lock;
-	Firebird::Mutex		idl_mutex;
-	int					idl_count;		// Use count
+	RelationPermanent*	idp_relation;
+	Lock*				idp_lock = nullptr;
+	MetaId				idp_id;
 
 	[[noreturn]] void errIndexGone();
+};
+
+class IndexVersion final : public ObjectBase
+{
+public:
+	IndexVersion(MemoryPool& p, Cached::Index* idp);
+
+	static IndexVersion* create(thread_db* tdbb, MemoryPool& p, Cached::Index* idp)
+	{
+		return FB_NEW_POOL(p) IndexVersion(p, idp);
+	}
+
+	static void destroy(thread_db* tdbb, IndexVersion* idv)
+	{
+		delete idv;
+	}
+
+	static Lock* makeLock(thread_db* tdbb, MemoryPool& p)
+	{
+		return nullptr;
+	}
+
+	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
+
+	const char* c_name() const override
+	{
+		return idv_name.c_str();
+	}
+
+	MetaName getName() const
+	{
+		return idv_name;
+	}
+
+	static const char* objectFamily(void*)
+	{
+		return "index";
+	}
+
+	MetaName getForeignKey() const
+	{
+		return idv_foreignKey;
+	}
+
+	MetaId getId() const
+	{
+		return perm->getId();
+	}
+
+	Cached::Index* getPermanent() const
+	{
+		return perm;
+	}
+
+private:
+	Cached::Index* perm;
+	MetaName idv_name;
+	SSHORT idv_uniqFlag = 0;
+	SSHORT idv_segmentCount = 0;
+	SSHORT idv_type = 0;
+	MetaName idv_foreignKey;						// FOREIGN RELATION NAME
+
+public:
+	ValueExprNode* idv_expression = nullptr;		// node tree for index expression
+	Statement* idv_expression_statement = nullptr;	// statement for index expression evaluation
+	dsc			idv_expression_desc;				// descriptor for expression result
+	BoolExprNode* idv_condition = nullptr;			// node tree for index condition
+	Statement* idv_condition_statement = nullptr;	// statement for index condition evaluation
 };
 
 
@@ -537,16 +627,16 @@ public:
 
 // rel_flags
 
-const ULONG REL_system					= 0x0002;
-const ULONG REL_get_dependencies		= 0x0008;	// New relation needs dependencies during scan
-const ULONG REL_sys_triggers			= 0x0040;	// The relation has system triggers to compile
-const ULONG REL_sql_relation			= 0x0080;	// Relation defined as sql table
-const ULONG REL_check_partners			= 0x0100;	// Rescan primary dependencies and foreign references
-const ULONG REL_sys_trigs_being_loaded	= 0x0400;	// System triggers being loaded
-const ULONG REL_temp_tran				= 0x1000;	// relation is a GTT delete rows
-const ULONG REL_temp_conn				= 0x2000;	// relation is a GTT preserve rows
-const ULONG REL_virtual					= 0x4000;	// relation is virtual
-const ULONG REL_jrd_view				= 0x8000;	// relation is VIEW
+const ULONG REL_system					= 0x0001;
+const ULONG REL_get_dependencies		= 0x0002;	// New relation needs dependencies during scan
+const ULONG REL_sys_triggers			= 0x0004;	// The relation has system triggers to compile
+const ULONG REL_sql_relation			= 0x0008;	// Relation defined as sql table
+const ULONG REL_check_partners			= 0x0010;	// Rescan primary dependencies and foreign references
+const ULONG REL_sys_trigs_being_loaded	= 0x0020;	// System triggers being loaded
+const ULONG REL_temp_tran				= 0x0040;	// relation is a GTT delete rows
+const ULONG REL_temp_conn				= 0x0080;	// relation is a GTT preserve rows
+const ULONG REL_virtual					= 0x0100;	// relation is virtual
+const ULONG REL_jrd_view				= 0x0200;	// relation is VIEW
 
 class GCLock
 {
@@ -644,11 +734,11 @@ public:
 
 class RelationPermanent : public Firebird::PermanentStorage
 {
-	typedef SharedReadVector<IndexLock*, 4> IndexLocks;
+	typedef CacheVector<Cached::Index, 4, RelationPermanent*> Indices;
 	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
 
 public:
-	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock);
+	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock, NoData);
 	~RelationPermanent();
 	static bool destroy(thread_db* tdbb, RelationPermanent* rel);
 
@@ -658,7 +748,28 @@ public:
 	Lock* createLock(thread_db* tdbb, MemoryPool& pool, lck_t, bool);
 	void extFile(thread_db* tdbb, const TEXT* file_name);		// impl in ext.cpp
 
-	IndexLock* getIndexLock(thread_db* tdbb, USHORT id);
+	IndexVersion* lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	Cached::Index* lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	IndexVersion* lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
+	Cached::Index* lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
+
+	void newIndex(thread_db* tdbb, MetaId id)
+	{
+		auto chk = rel_indices.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
+		fb_assert(chk);
+	}
+
+	void oldIndex(thread_db* tdbb, MetaId id)
+	{
+		auto chk = rel_indices.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+		fb_assert(chk);
+	}
+
+	void eraseIndex(thread_db* tdbb, MetaId id)		// oldIndex to be called before
+	{
+		auto chk = rel_indices.erase(tdbb, id);
+		fb_assert(chk);
+	}
 
 	Lock*		rel_existence_lock;		// existence lock
 	Lock*		rel_partners_lock;		// partners lock
@@ -753,16 +864,13 @@ public:
 	static int blocking_ast_relation(void* ast_object);
 
 	vec<Format*>*	rel_formats;		// Known record formats
-	IndexLocks		rel_index_locks;	// index existence locks
-	Firebird::Mutex	index_locks_mutex;	// write access to rel_index_locks
+	Indices			rel_indices;		// Active indices
 	MetaName		rel_name;			// ascii relation name
 	MetaId			rel_id;
 
 	MetaName		rel_owner_name;		// ascii owner
 	MetaName		rel_security_name;	// security class name for relation
-	ULONG			rel_flags;			// lock-related flags
-
-	IndexBlock*		rel_index_blocks;	// index blocks for caching index info
+	ULONG			rel_flags;			// flags
 
 	TriState		rel_repl_state;		// replication state
 

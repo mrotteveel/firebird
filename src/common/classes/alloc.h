@@ -350,12 +350,20 @@ public:
 		savedThreadData(subThreadData),
 		savedPool(savedThreadData->getDefaultPool())
 	{
+		fb_assert(newPool);
 		savedThreadData->setDefaultPool(newPool);
 	}
+
 	~SubsystemContextPoolHolder()
 	{
 		savedThreadData->setDefaultPool(savedPool);
 	}
+
+	operator SubsystemPool&()
+	{
+		return *savedThreadData->getDefaultPool();
+	}
+
 private:
 	SubsystemThreadData* savedThreadData;
 	SubsystemPool* savedPool;

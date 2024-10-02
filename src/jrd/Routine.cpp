@@ -35,7 +35,7 @@ using namespace Firebird;
 
 namespace Jrd {
 
-RoutinePermanent::RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, MakeLock* makeLock)
+RoutinePermanent::RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, MakeLock* makeLock, NoData)
 	: PermanentStorage(p),
 	  id(metaId),
 	  name(p),

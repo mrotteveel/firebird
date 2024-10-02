@@ -77,8 +77,6 @@ namespace Jrd
 	class jrd_rel;
 	class ExternalFile;
 	class ViewContext;
-	class IndexBlock;
-	class IndexLock;
 	class ArrayField;
 	struct sort_context;
 	class vcl;

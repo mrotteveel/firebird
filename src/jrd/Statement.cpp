@@ -708,9 +708,6 @@ void Statement::release(thread_db* tdbb)
 		(*subStatement)->release(tdbb);
 	}
 
-	// Release existence locks on references.
-	 resources->release(tdbb);
-
 	// ok to use write accessor w/o lock - we are in a kind of "dtor"
 	auto g = requests.writeAccessor();
 	for (Request** instance = g->begin(); instance != g->end(); ++instance)

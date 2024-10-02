@@ -184,6 +184,8 @@ enum irq_type_t
 	irq_dbb_ss_definer,		// get database sql security value
 	irq_out_proc_param_dep,	// check output procedure parameter dependency
 	irq_l_pub_tab_state,	// lookup publication state for a table
+	irq_index_scan,			// scan index for caching
+	irq_get_index_by_name,	// find appropriate index
 
 	irq_MAX
 };

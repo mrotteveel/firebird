@@ -5311,7 +5311,7 @@ dsc* evlMakeDbkey(Jrd::thread_db* tdbb, const SysFunction* function, const NestV
 		MetaName relName;
 		MOV_get_metaname(tdbb, argDsc, relName);
 
-		jrd_rel* relation = MetadataCache::lookup_relation(tdbb, relName);
+		jrd_rel* relation = MetadataCache::lookup_relation(tdbb, relName, CacheFlag::AUTOCREATE);
 		if (!relation)
 			(Arg::Gds(isc_relnotdef) << Arg::Str(relName)).raise();
 

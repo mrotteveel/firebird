@@ -1330,6 +1330,8 @@ void TRA_rollback(thread_db* tdbb, jrd_tra* transaction, const bool retaining_fl
 
 	EDS::Transaction::jrdTransactionEnd(tdbb, transaction, false, retaining_flag, false /*force_flag ?*/);
 
+	transaction->rollbackCleanup(tdbb);
+
 	Jrd::ContextPoolHolder context(tdbb, transaction->tra_pool);
 
 	if (transaction->tra_flags & (TRA_prepare2 | TRA_reconnected))
@@ -2230,7 +2232,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 		if (ctx[i]->vcx_type == VCT_PROCEDURE)
 			continue;
 
-		jrd_rel* base_rel = MetadataCache::lookup_relation(tdbb, ctx[i]->vcx_relation_name);
+		jrd_rel* base_rel = MetadataCache::lookup_relation(tdbb, ctx[i]->vcx_relation_name, CacheFlag::AUTOCREATE);
 		if (!base_rel)
 		{
 			// should be a BUGCHECK
@@ -3140,7 +3142,7 @@ static void transaction_options(thread_db* tdbb,
 				const MetaName metaName = attachment->nameToMetaCharSet(tdbb, orgName);
 
 				tpb += len;
-				jrd_rel* relation = MetadataCache::lookup_relation(tdbb, metaName);
+				jrd_rel* relation = MetadataCache::lookup_relation(tdbb, metaName, CacheFlag::AUTOCREATE);
 				if (!relation)
 				{
 					ERR_post(Arg::Gds(isc_bad_tpb_content) <<
@@ -4266,3 +4268,20 @@ void jrd_tra::eraseSecDbContext()
 	delete tra_sec_db_context;
 	tra_sec_db_context = NULL;
 }
+
+void jrd_tra::RollbackCleanup::unlink(RollbackCleanup** from, ULONG id)
+{
+	for(; *from; from = &((*from)->rb_next))
+	{
+		RollbackCleanup* target = *from;
+		fb_assert(target->rb_id);
+		if (target->rb_id == id)
+		{
+			*from = target->rb_next;
+			delete target;
+			return;
+		}
+	}
+	fb_assert(false);
+}
+

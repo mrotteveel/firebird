@@ -30,9 +30,15 @@
 namespace Jrd
 {
 	enum dfw_t;
+
+	class thread_db;
+	class jrd_tra;
+	class DeferredWork;
 }
 
 USHORT DFW_assign_index_type(Jrd::thread_db*, const Jrd::MetaName&, SSHORT, TTypeId);
+void DFW_check_dependencies(Jrd::thread_db*, const TEXT*, const TEXT*, const TEXT*, int, Jrd::jrd_tra*);
+void DFW_check_partners(Jrd::thread_db*, const MetaId);
 void DFW_delete_deferred(Jrd::jrd_tra*, SavNumber);
 Firebird::SortedArray<int>& DFW_get_ids(Jrd::DeferredWork* work);
 void DFW_merge_work(Jrd::jrd_tra*, SavNumber, SavNumber);

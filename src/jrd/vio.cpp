@@ -2116,53 +2116,20 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 		case rel_indices:
 			protect_system_table_delupd(tdbb, relation, "DELETE");
-			EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
 			EVL_field(0, rpb->rpb_record, f_idx_id, &desc2);
-			if ( (id = MOV_get_long(tdbb, &desc2, 0)) )
+			if (MOV_get_long(tdbb, &desc2, 0))
 			{
+				EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
 				MetaName relation_name;
 				MOV_get_metaname(tdbb, &desc, relation_name);
-				r2 = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
-				fb_assert(r2);
+				auto* irel = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
+				fb_assert(irel);
 
 				DSC idx_name;
 				EVL_field(0, rpb->rpb_record, f_idx_name, &idx_name);
 
-				// hvlad: lets add index name to the DFW item even if we add it again later within
-				// additional argument. This is needed to make DFW work items different for different
-				// indexes dropped at the same transaction and to not merge them at DFW_merge_work.
-				work = DFW_post_work(transaction, dfw_delete_index, &idx_name, r2->getId());
-
-				// add index id and name (the latter is required to delete dependencies correctly)
-				DFW_post_work_arg(transaction, work, &idx_name, id, dfw_arg_index_name);
-
-				// get partner relation for FK index
-				if (EVL_field(0, rpb->rpb_record, f_idx_foreign, &desc2))
-				{
-					DSC desc3;
-					EVL_field(0, rpb->rpb_record, f_idx_name, &desc3);
-
-					MetaName index_name;
-					MOV_get_metaname(tdbb, &desc3, index_name);
-
-					jrd_rel* partner;
-					index_desc idx;
-
-					if ((BTR_lookup(tdbb, r2, id - 1, &idx, r2->getBasePages())) &&
-						MET_lookup_partner(tdbb, r2, &idx, index_name.nullStr()) &&
-						(partner = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE)) )
-					{
-						DFW_post_work_arg(transaction, work, 0, partner->getId(),
-										  dfw_arg_partner_rel_id);
-					}
-					else
-					{
-						// can't find partner relation - impossible ?
-						// add empty argument to let DFW know dropping
-						// index was bound with FK
-						DFW_post_work_arg(transaction, work, 0, 0, dfw_arg_partner_rel_id);
-					}
-				}
+				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
+				work = DFW_post_work(transaction, dfw_delete_index, &idx_name, irel->getId());
 			}
 			break;
 
@@ -3522,22 +3489,19 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 		case rel_indices:
 			protect_system_table_delupd(tdbb, relation, "UPDATE");
-			EVL_field(0, new_rpb->rpb_record, f_idx_relation, &desc1);
 
 			if (dfw_should_know(tdbb, org_rpb, new_rpb, f_idx_desc, true))
 			{
 				EVL_field(0, new_rpb->rpb_record, f_idx_name, &desc1);
 
-				if (EVL_field(0, new_rpb->rpb_record, f_idx_exp_blr, &desc2))
-				{
-					DFW_post_work(transaction, dfw_create_expression_index,
-								  &desc1, tdbb->getDatabase()->dbb_max_idx);
-				}
-				else
-				{
-					DFW_post_work(transaction, dfw_create_index, &desc1,
-								  tdbb->getDatabase()->dbb_max_idx);
-				}
+				EVL_field(0, new_rpb->rpb_record, f_idx_relation, &desc2);
+				MetaName relation_name;
+				MOV_get_metaname(tdbb, &desc2, relation_name);
+				auto* irel = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
+				fb_assert(irel);
+
+				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
+				DFW_post_work(transaction, dfw_create_index, &desc1, irel->getId());
 			}
 			break;
 
@@ -4075,15 +4039,21 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 		case rel_indices:
 			protect_system_table_insert(tdbb, request, relation);
-			EVL_field(0, rpb->rpb_record, f_idx_name, &desc);
-			if (EVL_field(0, rpb->rpb_record, f_idx_exp_blr, &desc2))
+
 			{
-				DFW_post_work(transaction, dfw_create_expression_index, &desc,
-							  tdbb->getDatabase()->dbb_max_idx);
+				EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
+				MetaName relation_name;
+				MOV_get_metaname(tdbb, &desc, relation_name);
+				auto* irel = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
+				fb_assert(irel);
+
+				DSC idx_name;
+				EVL_field(0, rpb->rpb_record, f_idx_name, &idx_name);
+
+				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
+				work = DFW_post_work(transaction, dfw_create_index, &idx_name, irel->getId());
 			}
-			else {
-				DFW_post_work(transaction, dfw_create_index, &desc, tdbb->getDatabase()->dbb_max_idx);
-			}
+
 			set_system_flag(tdbb, rpb->rpb_record, f_idx_sys_flag);
 			break;
 
