@@ -1330,7 +1330,7 @@ void TRA_rollback(thread_db* tdbb, jrd_tra* transaction, const bool retaining_fl
 
 	EDS::Transaction::jrdTransactionEnd(tdbb, transaction, false, retaining_flag, false /*force_flag ?*/);
 
-	transaction->rollbackCleanup(tdbb);
+// ??????????	transaction->rollbackCleanup(tdbb);
 
 	Jrd::ContextPoolHolder context(tdbb, transaction->tra_pool);
 
@@ -4269,6 +4269,7 @@ void jrd_tra::eraseSecDbContext()
 	tra_sec_db_context = NULL;
 }
 
+/* ?????????????
 void jrd_tra::RollbackCleanup::unlink(RollbackCleanup** from, ULONG id)
 {
 	for(; *from; from = &((*from)->rb_next))
@@ -4284,4 +4285,4 @@ void jrd_tra::RollbackCleanup::unlink(RollbackCleanup** from, ULONG id)
 	}
 	fb_assert(false);
 }
-
+*/

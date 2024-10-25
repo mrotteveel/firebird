@@ -161,6 +161,7 @@ class jrd_tra : public pool_alloc<type_tra>
 	typedef Firebird::HalfStaticArray<Record*, MAX_UNDO_RECORDS> UndoRecordList;
 
 public:
+/* ?????????????????
 	class RollbackCleanup
 	{
 	public:
@@ -193,7 +194,7 @@ public:
 		ULONG rb_id = 0;
 		bool rb_active = true;
 	};
-
+*/
 	enum wait_t {
 		tra_no_wait,
 		tra_probe,
@@ -356,8 +357,8 @@ private:
 	MemoryPool* tra_autonomous_pool;
 	USHORT tra_autonomous_cnt;
 	static const USHORT TRA_AUTONOMOUS_PER_POOL = 64;
-	RollbackCleanup* tra_rb_cleanup = nullptr;
-	ULONG tra_next_rb_id = 0;
+//	??????????????? RollbackCleanup* tra_rb_cleanup = nullptr;
+//	????????????? ULONG tra_next_rb_id = 0;
 
 public:
 	MemoryPool* getAutonomousPool();
@@ -443,6 +444,7 @@ public:
 
 	void postResources(thread_db* tdbb, const Resources* resources);
 
+/* ??????????????
 	template <class C, typename... P>
 	void postRollbackCleanup(P... args)
 	{
@@ -461,6 +463,7 @@ public:
 	{
 		RollbackCleanup::unlink(&tra_rb_cleanup, id);
 	}
+*/
 };
 
 // System transaction is always transaction 0.

@@ -313,7 +313,7 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 
 			idx.idx_root = 0;
 			SelectivityList selectivity(*pool);
-			IDX_create_index(tdbb, rel, &idx, idx_name.c_str(), NULL, idxTran, selectivity);
+			IDX_create_index(tdbb, IdxCreate::AtOnce, rel, &idx, idx_name.c_str(), NULL, idxTran, selectivity);
 
 #ifdef VIO_DEBUG
 			VIO_trace(DEBUG_WRITES,

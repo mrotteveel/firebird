@@ -38,11 +38,12 @@ namespace Jrd
 	class thread_db;
 }
 
+void IDX_activate_index(Jrd::thread_db*, Jrd::Cached::Relation*, MetaId);
 void IDX_check_access(Jrd::thread_db*, Jrd::CompilerScratch*, Jrd::Cached::Relation*, Jrd::Cached::Relation*);
 bool IDX_check_master_types (Jrd::thread_db*, Jrd::index_desc&, Jrd::Cached::Relation*, int&);
-void IDX_create_index(Jrd::thread_db*, Jrd::jrd_rel*, Jrd::index_desc*, const TEXT*,
+void IDX_create_index(Jrd::thread_db*, Jrd::IdxCreate createMethod, Jrd::jrd_rel*, Jrd::index_desc*, const TEXT*,
 					  USHORT*, Jrd::jrd_tra*, Jrd::SelectivityList&);
-void IDX_delete_index(Jrd::thread_db*, Jrd::Cached::Relation*, USHORT);
+void IDX_delete_index(Jrd::thread_db*, Jrd::Cached::Relation*, MetaId);
 void IDX_delete_indices(Jrd::thread_db*, Jrd::RelationPermanent*, Jrd::RelationPages*);
 void IDX_erase(Jrd::thread_db*, Jrd::record_param*, Jrd::jrd_tra*);
 void IDX_garbage_collect(Jrd::thread_db*, Jrd::record_param*, Jrd::RecordStack&, Jrd::RecordStack&);

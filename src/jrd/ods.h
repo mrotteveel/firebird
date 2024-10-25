@@ -363,26 +363,32 @@ struct index_root_page
 		friend struct index_root_page; // to allow offset check for private members
 		ULONG irt_root;				// page number of index root if irt_in_progress is NOT set, or
 									// highest 32 bit of transaction if irt_in_progress is set
-		ULONG irt_generation;		// index generation if irt_in_progress is NOT set, or
-									// lowest 32 bits of transaction if irt_in_progress is set
+		ULONG irt_transaction;		// transaction in progress (lowest 32 bits)
+
 	public:
 		USHORT irt_desc;			// offset to key descriptions
 		UCHAR irt_keys;				// number of keys in index
 		UCHAR irt_flags;
 
 		ULONG getRoot() const;
-		void setRoot(ULONG root_page, ULONG generation);
-
 		TraNumber getTransaction() const;
-		void setTransaction(TraNumber traNumber);
-
 		bool isUsed() const;
-		ULONG getGeneration() const;
+		UCHAR getState() const;
+
+		void setRoot(ULONG root_page);
+		void setProgress(TraNumber traNumber);
+		void setRollback(ULONG root_page, TraNumber traNumber);
+		void setRollback(TraNumber traNumber);
+		void setNormal();
+		void setNormal(ULONG root_page);
+		void setCommit(TraNumber traNumber);
+		void setDrop(TraNumber traNumber);
+		void setEmpty();
 	} irt_rpt[1];
 
 	static_assert(sizeof(struct irt_repeat) == 12, "struct irt_repeat size mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_root) == 0, "irt_root offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_generation) == 4, "irt_generation offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_transaction) == 4, "irt_transaction offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_desc) == 8, "irt_desc offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_keys) == 10, "irt_keys offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_flags) == 11, "irt_flags offset mismatch");
@@ -409,52 +415,131 @@ static_assert(offsetof(struct irtd, irtd_itype) == 2, "irtd_itype offset mismatc
 static_assert(offsetof(struct irtd, irtd_selectivity) == 4, "irtd_selectivity offset mismatch");
 
 // irt_flags, must match the idx_flags (see btr.h)
-const USHORT irt_unique			= 1;
-const USHORT irt_descending		= 2;
-const USHORT irt_in_progress	= 4;
-const USHORT irt_foreign		= 8;
-const USHORT irt_primary		= 16;
-const USHORT irt_expression		= 32;
-const USHORT irt_condition		= 64;
+const UCHAR irt_unique		= 1;
+const UCHAR irt_descending	= 2;
+const UCHAR irt_state_a		= 4;
+const UCHAR irt_foreign		= 8;
+const UCHAR irt_primary		= 16;
+const UCHAR irt_expression	= 32;
+const UCHAR irt_condition	= 64;
+const UCHAR irt_state_b		= 128;
+
+// possible index states
+// irt_transaction == 0 -> normal state
+// following combination of irt_state_a and irt_state_b when irt_transaction != 0
+const UCHAR irt_in_progress	= 0;			// index creation
+const UCHAR irt_rollback	= irt_state_a;	// to be removed when irt_transaction dead
+const UCHAR irt_commit		= irt_state_b;	// to be prepared for remove when irt_transaction committed
+const UCHAR irt_drop		= irt_state_a | irt_state_b;	// to be removed when irt_transaction < OAT
+const UCHAR irt_normal		= 1;			// any constant not overlapping irt_state_mask is fine here
+
+// index state mask in flags
+const UCHAR irt_state_mask	= irt_state_a | irt_state_b;
 
 inline ULONG index_root_page::irt_repeat::getRoot() const
 {
-	return (irt_flags & irt_in_progress) ? 0 : irt_root;
+	return irt_root;
 }
 
-// When finally (i.e. from mdc_cleanup_queue) deleting an index in case of CS
-// generation should be checked to ensure correct index is deleted.
-
-inline ULONG index_root_page::irt_repeat::getGeneration() const
+inline void index_root_page::irt_repeat::setRoot(ULONG root_page)
 {
-	return (irt_flags & irt_in_progress) || (irt_root == 0) ? 0 : irt_generation;
-}
+	fb_assert(irt_root);
+	fb_assert(root_page);
 
-inline void index_root_page::irt_repeat::setRoot(ULONG root_page, ULONG generation)
-{
 	irt_root = root_page;
-	if (root_page && generation)
-		irt_generation = generation;
-	irt_flags &= ~irt_in_progress;
+}
+
+inline void index_root_page::irt_repeat::setProgress(TraNumber traNumber)
+{
+	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
+
+	irt_root = 0;
+	irt_transaction = traNumber;
+	irt_flags = (irt_flags & ~irt_state_mask) | irt_in_progress;
+}
+
+inline void index_root_page::irt_repeat::setRollback(ULONG root_page, TraNumber traNumber)
+{
+	fb_assert(getState() == irt_in_progress);
+	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
+	fb_assert(traNumber == irt_transaction);
+	fb_assert(!irt_root);
+
+	irt_root = root_page;
+	irt_transaction = traNumber;
+	irt_flags = (irt_flags & ~irt_state_mask) | irt_rollback;
+}
+
+inline void index_root_page::irt_repeat::setRollback(TraNumber traNumber)
+{
+	fb_assert(getState() == irt_drop);
+	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
+	fb_assert(traNumber == irt_transaction);
+	fb_assert(irt_root);
+
+	irt_transaction = traNumber;
+	irt_flags = (irt_flags & ~irt_state_mask) | irt_rollback;
+}
+
+inline void index_root_page::irt_repeat::setNormal()
+{
+	fb_assert(getState() == irt_rollback || getState() == irt_commit);
+	fb_assert(irt_root);
+
+	irt_flags &= ~irt_state_mask;
+	irt_transaction = 0;
+}
+
+inline void index_root_page::irt_repeat::setNormal(ULONG root_page)
+{
+	fb_assert(getState() == irt_in_progress);
+	fb_assert(irt_root == 0);
+	fb_assert(root_page);
+
+	irt_flags &= ~irt_state_mask;
+	irt_transaction = 0;
+	irt_root = root_page;
+}
+
+inline void index_root_page::irt_repeat::setCommit(TraNumber traNumber)
+{
+	fb_assert(getState() == irt_normal);
+	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
+	fb_assert(irt_root);
+	irt_transaction = traNumber;
+	irt_flags = (irt_flags & ~irt_state_mask) | irt_commit;
+}
+
+inline void index_root_page::irt_repeat::setDrop(TraNumber traNumber)
+{
+	fb_assert(getState() == irt_commit);
+	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
+	fb_assert(irt_root);
+	irt_transaction = traNumber;
+	irt_flags = (irt_flags & ~irt_state_mask) | irt_drop;
+}
+
+inline void index_root_page::irt_repeat::setEmpty()
+{
+	irt_flags = 0;
+	irt_transaction = 0;
+	irt_root = 0;
 }
 
 inline TraNumber index_root_page::irt_repeat::getTransaction() const
 {
-	return (irt_flags & irt_in_progress) ? (TraNumber(irt_root) << BITS_PER_LONG) | irt_generation : 0;
-}
-
-inline void index_root_page::irt_repeat::setTransaction(TraNumber traNumber)
-{
-	irt_root = ULONG(traNumber >> BITS_PER_LONG);
-	irt_generation = ULONG(traNumber);
-	irt_flags |= irt_in_progress;
+	return irt_transaction;
 }
 
 inline bool index_root_page::irt_repeat::isUsed() const
 {
-	return (irt_flags & irt_in_progress) || (irt_root != 0);
+	return (irt_transaction != 0) || (irt_root != 0);
 }
 
+inline UCHAR index_root_page::irt_repeat::getState() const
+{
+	return irt_transaction ? (irt_flags & irt_state_mask) : irt_normal;
+}
 
 const int STUFF_COUNT		= 4;
 

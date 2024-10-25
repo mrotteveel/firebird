@@ -589,6 +589,7 @@ static lck_owner_t get_owner_type(enum lck_t lock_type)
 	case LCK_repl_tables:
 	case LCK_dsql_statement_cache:
 	case LCK_profiler_listener:
+	case LCK_idx_create:
 		owner_type = LCK_OWNER_attachment;
 		break;
 

@@ -2828,22 +2828,29 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	SET_TDBB(tdbb);
 	Jrd::Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
+	AutoRequest request;
 
 	switch (phase)
 	{
 	case 0:
-		cleanup_index_creation(tdbb, work, transaction);
 		return false;
 
 	case 1:
 	case 2:
-	case 3:
-/* set statistics support ???????????????
+		return true;
 
+	case 3:
+		// set statistics support
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			IDX IN RDB$INDICES
+				WITH IDX.RDB$INDEX_NAME EQ work->dfw_name.c_str()
+		{
+			// Request to recalculate statistics?
 			if (IDX.RDB$INDEX_ID && IDX.RDB$STATISTICS < 0.0)
 			{
 				// we need to know if this relation is temporary or not
-				MET_scan_relation(tdbb, relation);
+				Cached::Relation* relation =
+					MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::AUTOCREATE);
 
 				// no need to recalculate statistics for base instance of GTT
 				RelationPages* relPages = relation->getPages(tdbb, MAX_TRA_NUMBER, false);
@@ -2860,7 +2867,9 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 				return false;
 			}
-*/
+		}
+		END_FOR
+		return true;
 
 	case 4:
 	case 5:
@@ -2904,15 +2913,6 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	switch (phase)
 	{
 	case 0:
-		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::AUTOCREATE);
-			if (relation)
-			{
-				auto* index = relation->lookupIndex(tdbb, work->dfw_name, 0);
-				if (index)
-					index->unlock(tdbb);
-			}
-		}
 		return false;
 
 	case 1:
@@ -2939,74 +2939,3 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	return false;
 }
 
-static void cleanup_index_creation(thread_db* tdbb, DeferredWork* work, jrd_tra* transaction)
-{
-	Database* const dbb = tdbb->getDatabase();
-
-	auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
-	fb_assert(relation);
-	if (!relation)
-		return;
-
-	RelationPages* const relPages = relation->getPages(tdbb, MAX_TRA_NUMBER, false);
-
-	if (relPages && relPages->rel_index_root)
-	{
-		// We need to special handle temp tables with ON PRESERVE ROWS only
-		const bool isTempIndex = (relation->rel_flags & REL_temp_conn) &&
-			(relPages->rel_instance_id != 0);
-
-		// Fetch the root index page and mark MUST_WRITE, and then
-		// delete the index. It will also clean the index slot.
-
-		auto* index = relation->lookup_index(tdbb, work->dfw_name, 0);
-		for (int step=0; step < (isTempIndex ? 2 : 1); ++step)
-		{
-			AutoSetRestoreFlag dbSpace(&tdbb->tdbb_flags, step ? TDBB_use_db_page_space : 0, false);
-
-			WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
-			CCH_FETCH(tdbb, &window, LCK_write, pag_root);
-			CCH_MARK_MUST_WRITE(tdbb, &window);
-			BTR_delete_index(tdbb, &window, index->getId());
-		}
-
-		AutoRequest request;
-
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction) IDXN IN RDB$INDICES
-			WITH IDXN.RDB$INDEX_NAME EQ work->dfw_name.c_str()
-
-			MODIFY IDXN USING
-				IDXN.RDB$INDEX_ID.NULL = TRUE;
-			END_MODIFY
-		END_FOR
-
-		if (index->getForeignKey().hasData())
-		{
-			index_desc idx;
-			idx.idx_id = idx_invalid;
-			idx.idx_flags = idx_foreign;
-
-			jrd_rel* partner_relation = nullptr;
-			if (MET_lookup_partner(tdbb, relation, &idx, work->dfw_name.c_str()))
-				partner_relation = MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
-
-			if (partner_relation)
-			{
-			/* LCK / tra sync ???????????????????????????
-
-				// signal to other processes about new constraint
-				relation->rel_flags |= REL_check_partners;
-				LCK_lock(tdbb, relation->rel_partners_lock, LCK_EX, LCK_WAIT);
-				LCK_release(tdbb, relation->rel_partners_lock);
-
-				if (relation != partner_relation)
-				{
-					partner_relation->rel_flags |= REL_check_partners;
-					LCK_lock(tdbb, partner_relation->rel_partners_lock, LCK_EX, LCK_WAIT);
-					LCK_release(tdbb, partner_relation->rel_partners_lock);
-				}
-				*/
-			}
-		}
-	}
-}

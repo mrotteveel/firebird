@@ -1708,6 +1708,7 @@ public:
 	}
 };
 
+
 // Performs 2-pass index create/drop
 
 class ModifyIndexNode
@@ -1724,32 +1725,15 @@ public:
 	{
 	}
 
-	void modify(thread_db* tdbb, bool isCreate, jrd_tra* transaction);
+	MetaId modify(thread_db* tdbb, const bool isCreate, jrd_tra* transaction);
 
-	virtual void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
+	virtual MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
 
 public:
 	MetaName indexName;
 	MetaName relName;
 };
 
-class StoreIndexNode : public ModifyIndexNode
-{
-public:
-	StoreIndexNode(MetaName relName, MetaName indexName, bool expressionIndex)
-		: ModifyIndexNode(relName, indexName),
-		  expressionIndex(expressionIndex)
-	{ }
-
-public:
-	void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
-
-private:
-	void create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
-	void createExpression(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
-
-	bool expressionIndex = false;
-};
 
 class CreateIndexNode : public DdlNode
 {
@@ -1819,12 +1803,32 @@ public:
 };
 
 
-class AlterIndexNode : public DdlNode
+class StoreIndexNode : public ModifyIndexNode
+{
+public:
+	StoreIndexNode(MetaName relName, MetaName indexName, bool expressionIndex)
+		: ModifyIndexNode(relName, indexName),
+		  expressionIndex(expressionIndex)
+	{ }
+
+public:
+	MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+
+private:
+	MetaId create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+	MetaId createExpression(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+
+	bool expressionIndex = false;
+};
+
+
+class AlterIndexNode : public ModifyIndexNode, public DdlNode
 {
 public:
 	// never alter FK index
 	AlterIndexNode(MemoryPool& p, const MetaName& name, bool aActive)
-		: DdlNode(p),
+		: ModifyIndexNode(name),
+		  DdlNode(p),
 		  indexName(name),
 		  active(aActive)
 	{
@@ -1835,6 +1839,8 @@ public:
 	virtual void checkPermission(thread_db* tdbb, jrd_tra* transaction);
 	virtual void execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction);
 
+	MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+
 protected:
 	virtual void putErrorPrefix(Firebird::Arg::StatusVector& statusVector)
 	{
@@ -1844,6 +1850,7 @@ protected:
 public:
 	MetaName indexName;
 	bool active;
+	Nullable<MetaId> idxId;
 };
 
 
@@ -1886,7 +1893,7 @@ public:
 	virtual void checkPermission(thread_db* tdbb, jrd_tra* transaction);
 	virtual void execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction);
 
-	void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+	MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
 
 protected:
 	virtual void putErrorPrefix(Firebird::Arg::StatusVector& statusVector)

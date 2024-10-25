@@ -78,7 +78,8 @@ enum lck_t {
 	LCK_repl_tables,			// Replication set lock
 	LCK_dsql_statement_cache,	// DSQL statement cache lock
 	LCK_profiler_listener,		// Remote profiler listener
-	LCK_dbwide_triggers			// Database wide triggers existence
+	LCK_dbwide_triggers,		// Database wide triggers existence
+	LCK_idx_create				// Taken during index build process
 };
 
 // Lock owner types

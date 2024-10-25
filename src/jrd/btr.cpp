@@ -62,6 +62,7 @@
 #include "../jrd/mov_proto.h"
 #include "../jrd/pag_proto.h"
 #include "../jrd/tra_proto.h"
+#include "../jrd/tpc_proto.h"
 
 using namespace Jrd;
 using namespace Ods;
@@ -455,14 +456,19 @@ void BTR_create(thread_db* tdbb,
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* const root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
 	CCH_MARK(tdbb, &window);
-	//root->irt_rpt[idx->idx_id].setRoot(idx->idx_root, root->getGeneration()); temporary don't use root->getGeneration()
-	// ODS change needed!!!!!!!!!!!!!!!!!!!
-		ULONG rnd;
-		do
-		{
-			Firebird::GenerateRandomBytes(&rnd, sizeof(rnd));
-		} while (!rnd);
-		root->irt_rpt[idx->idx_id].setRoot(idx->idx_root, rnd);
+
+	switch(creation.forRollback)
+	{
+	case IdxCreate::AtOnce:
+		root->irt_rpt[idx->idx_id].setNormal(idx->idx_root);
+		break;
+	case IdxCreate::ForRollback:
+		jrd_tra* tra = tdbb->getTransaction();
+		fb_assert(tra && tra->tra_number);
+		root->irt_rpt[idx->idx_id].setRollback(idx->idx_root, tra ? tra->tra_number : 0);
+		break;
+	}
+
 	update_selectivity(root, idx->idx_id, selectivity);
 
 	CCH_RELEASE(tdbb, &window);
@@ -486,7 +492,64 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
 	const Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	ULONG generation = 0; //!!!!!!!!!!!!!!!!!!!!
+	// Get index descriptor.  If index doesn't exist, just leave.
+	index_root_page* const root = (index_root_page*) window->win_buffer;
+
+	if (id < root->irt_count)
+	{
+		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
+
+		CCH_MARK(tdbb, window);
+		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
+		bool tree_exists = (irt_desc->getRoot() != 0);
+
+		// remove the pointer to the top-level index page before we delete it
+		irt_desc->setEmpty();
+		const PageNumber prior(window->win_page);
+		const USHORT relation_id = root->irt_relation;
+
+		CCH_RELEASE(tdbb, window);
+		delete_tree(tdbb, relation_id, id, next, prior);
+		return tree_exists;
+	}
+
+	CCH_RELEASE(tdbb, window);
+	return false;
+}
+
+
+static void checkTransactionNumber(const index_root_page::irt_repeat* irt_desc, jrd_tra* tra, const char* msg)
+{
+	if (irt_desc->getTransaction() != tra->tra_number)
+	{
+		fb_assert(false);
+		fatal_exception::raiseFmt("Index root transaction number doesn't match when %s", msg);
+	}
+}
+
+
+static void badState [[noreturn]] (const index_root_page::irt_repeat* irt_desc, const char* set, const char* msg)
+{
+	fb_assert(false);
+	fatal_exception::raiseFmt("Invalid index state %s (%d) when %s", set, irt_desc->getState(), msg);
+}
+
+
+void BTR_mark_index_for_delete(thread_db* tdbb, WIN* window, MetaId id)
+{
+/**************************************
+ *
+ *	B T R _ d e l e t e _ i n d e x
+ *
+ **************************************
+ *
+ * Functional description
+ *	Mark index to be deleted when possible.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	const Database* dbb = tdbb->getDatabase();
+	CHECK_DBB(dbb);
 
 	// Get index descriptor.  If index doesn't exist, just leave.
 	index_root_page* const root = (index_root_page*) window->win_buffer;
@@ -494,26 +557,92 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
 	if (id < root->irt_count)
 	{
 		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-		if ((!generation) || (irt_desc->getGeneration() == generation))
+
+		CCH_MARK(tdbb, window);
+		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
+
+		jrd_tra* tra = tdbb->getTransaction();
+		fb_assert(tra);
+		if (tra)
 		{
-			CCH_MARK(tdbb, window);
-			const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
-			bool tree_exists = (irt_desc->getRoot() != 0);
+			auto msg = "mark index for delete";
 
-			// remove the pointer to the top-level index page before we delete it
-			irt_desc->setRoot(0, 0);
-			irt_desc->irt_flags = 0;
-			const PageNumber prior = window->win_page;
-			const USHORT relation_id = root->irt_relation;
+			switch (irt_desc->getState())
+			{
+			case irt_in_progress:
+			case irt_commit:
+			case irt_drop:
+				badState(irt_desc, "irt_in_progress/irt_commit/irt_drop", msg);
 
-			CCH_RELEASE(tdbb, window);
-			delete_tree(tdbb, relation_id, id, next, prior);
-			return tree_exists;
+			case irt_rollback:			// created right now, may be dropped ?????????? when? one more state?
+				checkTransactionNumber(irt_desc, tra, msg);
+				irt_desc->setDrop(tra->tra_number);
+				break;
+
+			case irt_normal:
+				irt_desc->setCommit(tra->tra_number);
+				break;
+			}
 		}
 	}
 
 	CCH_RELEASE(tdbb, window);
-	return false;
+}
+
+
+void BTR_activate_index(thread_db* tdbb, WIN* window, MetaId id)
+{
+/**************************************
+ *
+ *	B T R _ a c t i v a t e _ i n d e x
+ *
+ **************************************
+ *
+ * Functional description
+ *	Undo delete for an index.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	const Database* dbb = tdbb->getDatabase();
+	CHECK_DBB(dbb);
+
+	// Get index descriptor.  If index doesn't exist, just leave.
+	index_root_page* const root = (index_root_page*) window->win_buffer;
+
+	if (id < root->irt_count)
+	{
+		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
+
+		CCH_MARK(tdbb, window);
+		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
+
+		jrd_tra* tra = tdbb->getTransaction();
+		fb_assert(tra);
+		if (tra)
+		{
+			auto msg = "activate index";
+
+			switch (irt_desc->getState())
+			{
+			case irt_in_progress:
+			case irt_rollback:
+			case irt_normal:
+				badState(irt_desc, "irt_in_progress/irt_rollback/irt_normal", msg);
+
+			case irt_commit:
+				checkTransactionNumber(irt_desc, tra, msg);
+				irt_desc->setNormal();
+				break;
+
+			case irt_drop:
+				checkTransactionNumber(irt_desc, tra, msg);
+				irt_desc->setRollback(tra->tra_number);
+				break;
+			}
+		}
+	}
+
+	CCH_RELEASE(tdbb, window);
 }
 
 
@@ -1292,7 +1421,7 @@ void BTR_insert(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 	CCH_RELEASE(tdbb, &new_window);
 	CCH_precedence(tdbb, root_window, new_window.win_page);
 	CCH_MARK(tdbb, root_window);
-	root->irt_rpt[idx->idx_id].setRoot(new_window.win_page.getPageNum(), 0);
+	root->irt_rpt[idx->idx_id].setRoot(new_window.win_page.getPageNum());
 	CCH_RELEASE(tdbb, root_window);
 }
 
@@ -1935,29 +2064,118 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 
 	for (; id < root->irt_count; ++id)
 	{
+		bool needWrite = false;
+		bool rls = true;
+		TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
+
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
 		const TraNumber trans = irt_desc->getTransaction();
-		if (trans && transaction)
+
+
+		switch (irt_desc->getState())
 		{
-			CCH_RELEASE(tdbb, window);
-			const int trans_state = TRA_wait(tdbb, transaction, trans, jrd_tra::tra_wait);
-			if ((trans_state == tra_dead) || (trans_state == tra_committed))
+		case irt_normal:
+			break;
+
+		case irt_in_progress:
+			// index creation - should wait to know what to do
+			if (trans && transaction)
 			{
-				// clean up this left-over index
-				root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_write, pag_root);
-				irt_desc = root->irt_rpt + id;
+				IndexCreateLock crtLock(tdbb, relation->getId());
 
-				if (irt_desc->getTransaction() == trans)
-					BTR_delete_index(tdbb, window, id);
-				else
-					CCH_RELEASE(tdbb, window);
+				// Wait for completion
+				CCH_RELEASE(tdbb, window);
+				rls = false;
+				crtLock.shared(id);
 
-				root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
-				continue;
+				needWrite = true;	// must get write lock on IRT and recheck what happens
+			}
+			break;
+
+		case irt_rollback:		// to be removed when irt_transaction dead
+		case irt_commit:		// change state on irt_transaction completion
+			switch (TPC_cache_state(tdbb, trans))
+			{
+			case tra_committed:	// switch to normal / drop state
+			case tra_dead:		// drop index on rollback / switch to normal state
+				needWrite = true;
+				break;
+			}
+			break;
+
+		case irt_drop:
+			// drop index when OAT > trans
+			needWrite = oldestActive > trans;
+			break;
+		}
+
+
+		if (needWrite)
+		{
+			if (rls)
+				CCH_RELEASE(tdbb, window);
+
+			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_write, pag_root);
+			index_root_page::irt_repeat* irt_write = root->irt_rpt + id;
+
+			const TraNumber trans = irt_write->getTransaction();
+			bool delIndex = false;
+
+			switch (irt_write->getState())
+			{
+			case irt_normal:
+				break;
+
+			case irt_in_progress:
+				fb_assert(false);
+				fatal_exception::raise("Index state still irt_in_progress after wait for creation lock");
+
+			case irt_rollback:		// to be removed when irt_transaction dead
+				switch (TPC_cache_state(tdbb, trans))
+				{
+				case tra_committed:	// switch to normal state
+					CCH_MARK(tdbb, window);
+					irt_write->setNormal();
+					break;
+
+				case tra_dead:		// drop index on rollback
+					delIndex = true;
+					break;
+				}
+				break;
+
+			case irt_commit:		// change state on irt_transaction completion
+				switch (TPC_cache_state(tdbb, trans))
+				{
+				case tra_committed:	// switch to drop state
+					CCH_MARK(tdbb, window);
+					irt_write->setDrop(TransactionNumber::next(tdbb));
+					break;
+
+				case tra_dead:		// switch to normal state
+					CCH_MARK(tdbb, window);
+					irt_write->setNormal();
+					break;
+				}
+				break;
+
+			case irt_drop:
+				// drop index when OAT > trans
+				if (oldestActive > trans)
+					delIndex = true;
+				break;
 			}
 
+			if (delIndex)
+				BTR_delete_index(tdbb, window, id);
+			else
+				CCH_RELEASE(tdbb, window);
+
 			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
+			continue;
 		}
+
+		root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 
 		// May be here finally cleanup index after something like engine failure?
 		// !!!!!!!!!!!!!!!!!!
@@ -2035,7 +2253,7 @@ void BTR_remove(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 		}
 
 		CCH_MARK(tdbb, root_window);
-		root->irt_rpt[idx->idx_id].setRoot(number, 0);
+		root->irt_rpt[idx->idx_id].setRoot(number);
 
 		// release the pages, and place the page formerly at the top level
 		// on the free list, making sure the root page is written out first
@@ -2057,7 +2275,7 @@ void BTR_remove(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 }
 
 
-void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation)
+void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation, IndexCreateLock& createLock)
 {
 /**************************************
  *
@@ -2173,11 +2391,14 @@ void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation)
 	fb_assert(idx->idx_count <= MAX_UCHAR);
 	slot->irt_keys = (UCHAR) idx->idx_count;
 	slot->irt_flags = idx->idx_flags;
-	slot->setTransaction(transaction->tra_number);
+	slot->setProgress(transaction->tra_number);
 
 	// Exploit the fact idx_repeat structure matches ODS IRTD one
 	memcpy(desc, idx->idx_rpt, len);
 
+	// Take creation lock on new index before releasing a window
+	// Will be always taken cause nobody except us knows about this index ID
+	createLock.exclusive(idx->idx_id);
 	CCH_RELEASE(tdbb, &window);
 }
 
@@ -6742,3 +6963,41 @@ void update_selectivity(index_root_page* root, USHORT id, const SelectivityList&
 	for (int i = 0; i < idx_count; i++, key_descriptor++)
 		key_descriptor->irtd_selectivity = selectivity[i];
 }
+
+
+IndexCreateLock::IndexCreateLock(thread_db* tdbb, MetaId relId)
+	: tdbb(tdbb), relId(relId)
+{ }
+
+IndexCreateLock::~IndexCreateLock()
+{
+	if (lck)
+	{
+		LCK_release(tdbb, lck);
+		delete lck;
+	}
+}
+
+void IndexCreateLock::exclusive(MetaId indexId)
+{
+	makeLock(indexId);
+	bool rc = LCK_lock(tdbb, lck, LCK_EX, LCK_NO_WAIT);
+	fb_assert(rc);
+}
+
+void IndexCreateLock::shared(MetaId indexId)
+{
+	makeLock(indexId);
+	auto* tra = tdbb->getTransaction();
+	auto wait = tra ? tra->getLockWait() : LCK_WAIT;
+	if (!LCK_lock(tdbb, lck, LCK_SR, wait))
+		fatal_exception::raise("Timeout waiting for index to be created");
+}
+
+void IndexCreateLock::makeLock(MetaId indexId)
+{
+	fb_assert(!lck);
+	lck = FB_NEW_RPT(getPool(), 0) Lock(tdbb, 0, LCK_idx_create);
+	lck->setKey((FB_UINT64(relId) << IndexPermanent::REL_ID_KEY_OFFSET) + indexId);
+}
+

@@ -818,6 +818,7 @@ int IndexCreateTask::getMaxWorkers()
 
 
 void IDX_create_index(thread_db* tdbb,
+					  IdxCreate createMethod,
 					  jrd_rel* relation,
 					  index_desc* idx,
 					  const TEXT* index_name,
@@ -895,8 +896,11 @@ void IDX_create_index(thread_db* tdbb,
 	creation.nullIndLen = nullIndLen;
 	creation.dup_recno = -1;
 	creation.duplicates.setValue(0);
+	creation.forRollback = createMethod;
 
-	BTR_reserve_slot(tdbb, creation);
+	IndexCreateLock crtLock(tdbb, relation->getId());
+
+	BTR_reserve_slot(tdbb, creation, crtLock);
 
 	if (index_id)
 		*index_id = idx->idx_id;
@@ -972,7 +976,16 @@ void IDX_create_index(thread_db* tdbb,
 }
 
 
-void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, USHORT id)
+void IDX_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
+{
+	WIN window(get_root_page(tdbb, relation));
+	CCH_FETCH(tdbb, &window, LCK_write, pag_root);
+
+	BTR_activate_index(tdbb, &window, id);
+}
+
+
+void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 {
 /**************************************
  *
@@ -991,8 +1004,8 @@ void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, USHORT id)
 	WIN window(get_root_page(tdbb, relation));
 	CCH_FETCH(tdbb, &window, LCK_write, pag_root);
 
-	const bool tree_exists = BTR_delete_index(tdbb, &window, id);
-/*
+	BTR_mark_index_for_delete(tdbb, &window, id);
+/* ??????????????????
 	if ((getPermanent(relation)->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
 		tree_exists)
 	{
@@ -1030,7 +1043,7 @@ void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPa
 	{
 		const bool tree_exists = BTR_delete_index(tdbb, &window, i);
 		root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
-/*
+/* !!!!!!!!!!!!!!
 		if (is_temp && tree_exists)
 		{
 			IndexPermanent* idx_lock = relation->getIndexLock(tdbb, i);
@@ -2047,11 +2060,11 @@ static void signal_index_deletion(thread_db* tdbb, RelationPermanent* relation, 
  *	processes to get rid of index info.
  *
  **************************************/
+/* !!!!!!!!!!!!!!!!!!!!!!!!
 	Lock* lock = NULL;
 	SET_TDBB(tdbb);
 
 	// signal other processes to clear out the index block
-/* !!!!!!!!!!!!!!!!!!!!!!!!
 	if (lock->lck_physical == LCK_SR) {
 		LCK_convert(tdbb, lock, LCK_EX, LCK_WAIT);
 	}

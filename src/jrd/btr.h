@@ -53,6 +53,7 @@ class Sort;
 class PartitionedSort;
 struct sort_key_def;
 
+enum class IdxCreate {AtOnce, ForRollback};
 
 // Dependencies from/to foreign references
 
@@ -134,13 +135,14 @@ const int idx_offset_intl_range	= (0x7FFF + idx_first_intl_string);
 
 // these flags must match the irt_flags (see ods.h)
 
-const int idx_unique		= 1;
-const int idx_descending	= 2;
-const int idx_in_progress	= 4;
-const int idx_foreign		= 8;
-const int idx_primary		= 16;
-const int idx_expression	= 32;
-const int idx_condition		= 64;
+const UCHAR idx_unique		= 1;
+const UCHAR idx_descending	= 2;
+//const UCHAR idx_state_a	= 4;
+const UCHAR idx_foreign		= 8;
+const UCHAR idx_primary		= 16;
+const UCHAR idx_expression	= 32;
+const UCHAR idx_condition	= 64;
+//const UCHAR idx_state_b	= 128;
 
 // these flags are for idx_runtime_flags
 
@@ -323,6 +325,7 @@ struct IndexCreation
 	USHORT nullIndLen;
 	SINT64 dup_recno;
 	Firebird::AtomicCounter duplicates;
+	IdxCreate forRollback;
 };
 
 // Class used to report any index related errors
@@ -357,6 +360,22 @@ private:
 	bool isLocationDefined;
 };
 
+class IndexCreateLock : public Firebird::AutoStorage
+{
+public:
+	IndexCreateLock(thread_db* tdbb, MetaId relId);
+	~IndexCreateLock();
+
+	void exclusive(MetaId indexId);
+	void shared(MetaId indexId);
+
+private:
+	thread_db* tdbb;	// may be stored here cause IndexCreateLock is always on stack
+	MetaId relId;
+	Lock* lck = nullptr;
+
+	void makeLock(MetaId indexId);
+};
 
 } //namespace Jrd
 

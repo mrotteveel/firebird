@@ -753,13 +753,13 @@ public:
 	IndexVersion* lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 
-	void newIndex(thread_db* tdbb, MetaId id)
+	void newIndexVersion(thread_db* tdbb, MetaId id)
 	{
 		auto chk = rel_indices.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
 		fb_assert(chk);
 	}
 
-	void oldIndex(thread_db* tdbb, MetaId id)
+	void oldIndexVersion(thread_db* tdbb, MetaId id)
 	{
 		auto chk = rel_indices.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 		fb_assert(chk);
