@@ -199,6 +199,8 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 	}
 
 	delete rel->rel_file;
+
+	rel->rel_indices.cleanup(tdbb);
 /*
 	// delete by pool
 	auto& pool = rel->getPool();
@@ -309,7 +311,7 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 		for (auto& idx : indices)
 		{
 			MetaName idx_name;
-			MetadataCache::lookup_index(tdbb, idx_name, this->rel_name, idx.idx_id + 1);
+			MetadataCache::lookup_index(tdbb, idx_name, this->rel_name, idx.idx_id);
 
 			idx.idx_root = 0;
 			SelectivityList selectivity(*pool);

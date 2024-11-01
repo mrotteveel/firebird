@@ -2680,3 +2680,10 @@ void PAG_set_page_scn(thread_db* tdbb, win* window)
 	CCH_precedence(tdbb, window, scn_page);
 }
 
+#ifdef DEB_TDBB_BDBS
+void PageNumber::print(const char* text) const
+{
+	printf("%s %d %d\n", text, pageSpaceID, pageNum);
+}
+#endif
+

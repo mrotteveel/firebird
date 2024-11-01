@@ -474,7 +474,7 @@ public:
 	static TraNumber current(thread_db* tdbb);
 	static TraNumber oldestActive(thread_db* tdbb);
 	static TraNumber next(thread_db* tdbb);
-	static bool isDead(thread_db* tdbb, TraNumber traNumber);
+	static bool isNotActive(thread_db* tdbb, TraNumber traNumber);
 };
 
 
@@ -656,7 +656,7 @@ public:
 			while(oldVal && oldVal->isBusy(newVal->traNumber))
 			{
 				// modified in transaction oldVal->traNumber
-				if (TransactionNumber::isDead(tdbb, oldVal->traNumber))
+				if (TransactionNumber::isNotActive(tdbb, oldVal->traNumber))
 				{
 					rollback(tdbb, list, oldVal->traNumber);
 					oldVal.set(list);

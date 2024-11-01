@@ -10140,13 +10140,11 @@ void CreateIndexNode::store(thread_db* tdbb, jrd_tra* transaction, MetaName& idx
 {
 	if (idxName.isEmpty())
 		DYN_UTIL_generate_index_name(tdbb, transaction, idxName, definition.type);
-
 	DYN_UTIL_check_unique_name(tdbb, transaction, idxName, obj_index);
-
-	AutoCacheRequest request(tdbb, drq_s_indices, DYN_REQUESTS);
 
 	ULONG keyLength = 0;
 
+	AutoCacheRequest request(tdbb, drq_s_indices, DYN_REQUESTS);
 	STORE(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
 	{
@@ -10536,6 +10534,7 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 		name, NULL);
 
 	Definition definition;
+	definition.index = name;
 	definition.type = isc_dyn_def_idx;
 	definition.relation = relation->dsqlName;
 	definition.unique = unique;
@@ -10642,7 +10641,10 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 		expressionIndex = !IDX.RDB$EXPRESSION_BLR.NULL;
 		if (!IDX.RDB$INDEX_ID.NULL)
-			idxId = IDX.RDB$INDEX_ID;
+		{
+			fb_assert(IDX.RDB$INDEX_ID);
+			idxId = IDX.RDB$INDEX_ID - 1;
+		}
 
 		MODIFY IDX
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
@@ -10811,7 +10813,8 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 		IDX IN RDB$INDICES
 		WITH IDX.RDB$INDEX_NAME EQ indexName.c_str()
 	{
-		idxId = IDX.RDB$INDEX_ID;
+		fb_assert(IDX.RDB$INDEX_ID);
+		idxId = IDX.RDB$INDEX_ID - 1;
 		relName = IDX.RDB$RELATION_NAME;
 
 		rel = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);

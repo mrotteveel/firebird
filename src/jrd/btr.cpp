@@ -187,6 +187,24 @@ namespace
 		temporary_key jumpKey;
 	};
 
+	int indexCacheState(thread_db* tdbb, TraNumber trans, Cached::Relation* rel, MetaId idxId, bool creating)
+	{
+		int rc = TPC_cache_state(tdbb, trans);
+		if (rc == tra_committed)		// too old dead transaction may be reported as committed
+		{
+			// check presence of record for this index in RDB$INDICES
+			// use metadata cache for better performance
+			bool indexRecordPresent = rel->lookup_index(tdbb, idxId, CacheFlag::AUTOCREATE);
+
+			// if index really created => record should be present
+			// if index really dropped => record should be missing
+			// otherwise transaction is dead, not committed
+			if (indexRecordPresent != creating)
+				return tra_dead;
+		}
+		return rc;
+	}
+
 } // namespace
 
 static ULONG add_node(thread_db*, WIN*, index_insertion*, temporary_key*, RecordNumber*,
@@ -195,7 +213,7 @@ static void compress(thread_db*, const dsc*, temporary_key*, USHORT, bool, bool,
 static USHORT compress_root(thread_db*, index_root_page*);
 static void copy_key(const temporary_key*, temporary_key*);
 static contents delete_node(thread_db*, WIN*, UCHAR*);
-static void delete_tree(thread_db*, USHORT, USHORT, PageNumber, PageNumber);
+static void delete_tree(thread_db*, MetaId, MetaId, PageNumber, PageNumber);
 static DSC* eval(thread_db*, const ValueExprNode*, DSC*, bool*);
 static ULONG fast_load(thread_db*, IndexCreation&, SelectivityList&);
 
@@ -226,7 +244,7 @@ static contents remove_leaf_node(thread_db*, index_insertion*, WIN*);
 static bool scan(thread_db*, UCHAR*, RecordBitmap**, RecordBitmap*, index_desc*,
 				 const IndexRetrieval*, USHORT, temporary_key*,
 				 bool&, const temporary_key&);
-static void update_selectivity(index_root_page*, USHORT, const SelectivityList&);
+static void update_selectivity(index_root_page*, MetaId, const SelectivityList&);
 static void checkForLowerKeySkip(bool&, const bool, const IndexNode&, const temporary_key&,
 								 const index_desc&, const IndexRetrieval*);
 
@@ -304,7 +322,7 @@ void IndexErrorContext::raise(thread_db* tdbb, idx_e result, Record* record)
 		ERR_punt();
 
 	auto* relation = getPermanent(isLocationDefined ? m_location.relation : m_relation);
-	const USHORT indexId = isLocationDefined ? m_location.indexId : m_index->idx_id;
+	const MetaId indexId = isLocationDefined ? m_location.indexId : m_index->idx_id;
 
 	MetaName indexName(m_indexName), constraintName;
 
@@ -393,7 +411,7 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 	if (!root)
 		return;
 
-	for (USHORT i = 0; i < root->irt_count; i++)
+	for (MetaId i = 0; i < root->irt_count; i++)
 	{
 		index_desc idx;
 		if (BTR_description(tdbb, relation, root, &idx, i))
@@ -475,7 +493,7 @@ void BTR_create(thread_db* tdbb,
 }
 
 
-bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
+bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id)
 {
 /**************************************
  *
@@ -506,7 +524,7 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
 		// remove the pointer to the top-level index page before we delete it
 		irt_desc->setEmpty();
 		const PageNumber prior(window->win_page);
-		const USHORT relation_id = root->irt_relation;
+		const MetaId relation_id = root->irt_relation;
 
 		CCH_RELEASE(tdbb, window);
 		delete_tree(tdbb, relation_id, id, next, prior);
@@ -647,7 +665,7 @@ void BTR_activate_index(thread_db* tdbb, WIN* window, MetaId id)
 
 
 bool BTR_description(thread_db* tdbb, Cached::Relation* relation, index_root_page* root, index_desc* idx,
-					 USHORT id)
+					 MetaId id)
 {
 /**************************************
  *
@@ -1579,7 +1597,7 @@ idx_e BTR_key(thread_db* tdbb, jrd_rel* relation, Record* record, index_desc* id
 				  error.value()[1] == isc_expression_eval_index))
 			{
 				MetaName indexName;
-				MetadataCache::lookup_index(tdbb, indexName, relation->getName(), idx->idx_id + 1);
+				MetadataCache::lookup_index(tdbb, indexName, relation->getName(), idx->idx_id);
 
 				if (indexName.isEmpty())
 					indexName = "***unknown***";
@@ -1741,7 +1759,7 @@ USHORT BTR_key_length(thread_db* tdbb, jrd_rel* relation, index_desc* idx)
 }
 
 
-bool BTR_lookup(thread_db* tdbb, Cached::Relation* relation, USHORT id, index_desc* buffer,
+bool BTR_lookup(thread_db* tdbb, Cached::Relation* relation, MetaId id, index_desc* buffer,
 				  RelationPages* relPages)
 {
 /**************************************
@@ -2041,7 +2059,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
  **************************************/
 	SET_TDBB(tdbb);
 
-	USHORT id;
+	MetaId id;
 	if (idx->idx_id == idx_invalid)
 	{
 		id = 0;
@@ -2070,7 +2088,6 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
 		const TraNumber trans = irt_desc->getTransaction();
-
 
 		switch (irt_desc->getState())
 		{
@@ -2131,7 +2148,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 				fatal_exception::raise("Index state still irt_in_progress after wait for creation lock");
 
 			case irt_rollback:		// to be removed when irt_transaction dead
-				switch (TPC_cache_state(tdbb, trans))
+				switch (indexCacheState(tdbb, trans, relation, id, true))
 				{
 				case tra_committed:	// switch to normal state
 					CCH_MARK(tdbb, window);
@@ -2145,7 +2162,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 				break;
 
 			case irt_commit:		// change state on irt_transaction completion
-				switch (TPC_cache_state(tdbb, trans))
+				switch (indexCacheState(tdbb, trans, relation, id, false))
 				{
 				case tra_committed:	// switch to drop state
 					CCH_MARK(tdbb, window);
@@ -2172,13 +2189,12 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 				CCH_RELEASE(tdbb, window);
 
 			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
-			continue;
+
+			if (delIndex)
+				continue;
 		}
-
-		root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
-
-		// May be here finally cleanup index after something like engine failure?
-		// !!!!!!!!!!!!!!!!!!
+		else
+			fb_assert(rls);
 
 		if (BTR_description(tdbb, relation, root, idx, id))
 			return true;
@@ -2403,7 +2419,7 @@ void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation, IndexCreateLock&
 }
 
 
-void BTR_selectivity(thread_db* tdbb, Cached::Relation* relation, USHORT id, SelectivityList& selectivity)
+void BTR_selectivity(thread_db* tdbb, Cached::Relation* relation, MetaId id, SelectivityList& selectivity)
 {
 /**************************************
  *
@@ -3646,7 +3662,7 @@ static contents delete_node(thread_db* tdbb, WIN* window, UCHAR* pointer)
 
 
 static void delete_tree(thread_db* tdbb,
-						USHORT rel_id, USHORT idx_id, PageNumber next, PageNumber prior)
+						MetaId rel_id, MetaId idx_id, PageNumber next, PageNumber prior)
 {
 /**************************************
  *
@@ -6940,7 +6956,7 @@ static bool scan(thread_db* tdbb, UCHAR* pointer, RecordBitmap** bitmap, RecordB
 }
 
 
-void update_selectivity(index_root_page* root, USHORT id, const SelectivityList& selectivity)
+void update_selectivity(index_root_page* root, MetaId id, const SelectivityList& selectivity)
 {
 /**************************************
  *

@@ -9167,6 +9167,13 @@ ULONG thread_db::adjustWait(ULONG wait) const
 	return MIN(wait, adjustedTimeout);
 }
 
+#ifdef DEB_TDBB_BDBS
+void thread_db::bprint(BufferDesc* bdb, const char* text)
+{
+	bdb->bdb_page.print(text);
+}
+#endif
+
 // end thread_db methods
 
 

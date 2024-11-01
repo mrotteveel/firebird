@@ -2226,7 +2226,6 @@ void MetadataCache::lookup_index(thread_db* tdbb, MetaName& index_name, const Me
  *
  * Functional description
  *      Lookup index name from relation and index number.
- *      Calling routine must pass a buffer of at least 32 bytes.
  *
  **************************************/
 	SET_TDBB(tdbb);
@@ -2238,7 +2237,7 @@ void MetadataCache::lookup_index(thread_db* tdbb, MetaName& index_name, const Me
 
 	FOR(REQUEST_HANDLE request)
 		X IN RDB$INDICES WITH X.RDB$RELATION_NAME EQ relation_name.c_str()
-			AND X.RDB$INDEX_ID EQ number
+			AND X.RDB$INDEX_ID EQ number + 1
 	{
 		index_name = X.RDB$INDEX_NAME;
 	}
@@ -5338,7 +5337,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		IND IN RDB$INDICES
 		CROSS REL IN RDB$RELATIONS
 			OVER RDB$RELATION_NAME
-		WITH IND.RDB$INDEX_ID EQ getId()
+		WITH IND.RDB$INDEX_ID EQ getId() + 1
 			AND REL.RDB$RELATION_ID EQ relId
 	{
 		idv_name = IND.RDB$INDEX_NAME;
@@ -5364,7 +5363,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	auto* relation = (expression.hasData() || condition.hasData()) ?
 		MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE) : nullptr;
-		perm->createLock(tdbb, relId, getId());
+	perm->createLock(tdbb, relId, getId());
 		// ????? perm->createLock( caching lock
 
 	if (expression.hasData())
@@ -5426,7 +5425,7 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 		X IN RDB$INDICES WITH X.RDB$INDEX_NAME EQ name.c_str()
 	{
 		if (!idv)
-			idv = rel_indices.getObject(tdbb, X.RDB$INDEX_ID, flags);
+			idv = rel_indices.getObject(tdbb, X.RDB$INDEX_ID - 1, flags);
 	}
 	END_FOR
 
@@ -5457,7 +5456,7 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 	{
 		if (!idp)
 		{
-			if (auto* idv = rel_indices.getObject(tdbb, X.RDB$INDEX_ID, flags))
+			if (auto* idv = rel_indices.getObject(tdbb, X.RDB$INDEX_ID - 1, flags))
 				idp = getPermanent(idv);
 		}
 	}

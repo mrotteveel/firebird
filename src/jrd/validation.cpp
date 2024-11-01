@@ -3207,7 +3207,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 		MetaName index;
 
 		release_page(&window);
-		MetadataCache::lookup_index(vdr_tdbb, index, relation->getName(), i + 1);
+		MetadataCache::lookup_index(vdr_tdbb, index, relation->getName(), i);
 		fetch_page(false, relPages->rel_index_root, pag_root, &window, &page);
 
 		if (vdr_idx_incl)

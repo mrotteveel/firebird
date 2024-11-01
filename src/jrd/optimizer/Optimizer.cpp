@@ -1069,6 +1069,13 @@ void Optimizer::compileRelation(StreamType stream)
 		IndexDescList idxList;
 		BTR_all(tdbb, relation(), idxList, relPages);
 
+		MetaId n = idxList.getCount();
+		while (n--)
+		{
+			if (!relation()->lookup_index(tdbb, n, CacheFlag::AUTOCREATE))
+				idxList.remove(n);
+		}
+
 		if (idxList.hasData())
 			tail->csb_idx = FB_NEW_POOL(getPool()) IndexDescList(getPool(), idxList);
 
@@ -1653,7 +1660,7 @@ void Optimizer::checkIndices()
 				((idx.idx_runtime_flags & idx_plan_navigate) && !(idx.idx_runtime_flags & idx_navigate)))
 			{
 				if (relation)
-					MetadataCache::lookup_index(tdbb, index_name, relation()->getName(), (USHORT) (idx.idx_id + 1));
+					MetadataCache::lookup_index(tdbb, index_name, relation()->getName(), idx.idx_id);
 				else
 					index_name = "";
 

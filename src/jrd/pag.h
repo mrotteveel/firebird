@@ -309,6 +309,10 @@ public:
 	}
 	*/
 
+#ifdef DEB_TDBB_BDBS
+	void print(const char* text) const;
+#endif
+
 private:
 	ULONG	pageNum;
 	USHORT	pageSpaceID;

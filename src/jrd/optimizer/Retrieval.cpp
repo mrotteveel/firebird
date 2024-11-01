@@ -1069,7 +1069,7 @@ InversionNode* Retrieval::makeIndexScanNode(IndexScratch* indexScratch) const
 	// For external requests, determine index name (to be reported in plans)
 	MetaName indexName;
 	if (!(csb->csb_g_flags & csb_internal))
-		MetadataCache::lookup_index(tdbb, indexName, relation()->getName(), idx->idx_id + 1);
+		MetadataCache::lookup_index(tdbb, indexName, relation()->getName(), idx->idx_id);
 
 	const auto retrieval =
 		FB_NEW_POOL(getPool()) IndexRetrieval(getPool(), relation, idx, indexName);

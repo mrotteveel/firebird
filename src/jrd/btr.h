@@ -242,7 +242,7 @@ public:
 
 private:
 	Rsc::Rel irb_rsc_relation;		// Relation for retrieval
-	jrd_rel* irb_jrd_relation;		// when use din different contexts
+	jrd_rel* irb_jrd_relation;		// when used in different contexts
 
 public:
 	USHORT irb_index;				// Index id

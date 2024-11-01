@@ -65,9 +65,10 @@ TraNumber TransactionNumber::next(thread_db* tdbb)
 	return tdbb->getDatabase()->dbb_next_transaction;
 }
 
-bool TransactionNumber::isDead(thread_db* tdbb, TraNumber traNumber)
+bool TransactionNumber::isNotActive(thread_db* tdbb, TraNumber traNumber)
 {
-	return TPC_cache_state(tdbb, traNumber) == tra_dead;
+	auto state = TPC_cache_state(tdbb, traNumber);
+	return (state == tra_committed) || (state == tra_dead);
 }
 
 

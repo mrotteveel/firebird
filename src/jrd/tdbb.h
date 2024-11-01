@@ -352,12 +352,20 @@ public:
 	// Timer value is rounded to the upper whole second.
 	ULONG adjustWait(ULONG wait) const;
 
+#ifdef DEB_TDBB_BDBS
+	static void bprint(BufferDesc* bdb, const char* text);
+#endif
+
 	void registerBdb(BufferDesc* bdb)
 	{
 		if (tdbb_bdbs.isEmpty()) {
 			tdbb_flags &= ~TDBB_cache_unwound;
 		}
 		fb_assert(!(tdbb_flags & TDBB_cache_unwound));
+
+#ifdef DEB_TDBB_BDBS
+		bprint(bdb, "REG");
+#endif
 
 		FB_SIZE_T pos;
 		if (tdbb_bdbs.find(NULL, pos))
@@ -383,6 +391,10 @@ public:
 		FB_SIZE_T pos;
 		if (!tdbb_bdbs.find(bdb, pos))
 			BUGCHECK(300);	// can't find shared latch
+
+#ifdef DEB_TDBB_BDBS
+		bprint(bdb, "unr");
+#endif
 
 		tdbb_bdbs[pos] = NULL;
 
