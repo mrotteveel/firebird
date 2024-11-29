@@ -341,7 +341,7 @@ template <typename SubsystemThreadData, typename SubsystemPool>
 class SubsystemContextPoolHolder : public ContextPoolHolder
 {
 public:
-	SubsystemContextPoolHolder <SubsystemThreadData, SubsystemPool>
+	SubsystemContextPoolHolder
 	(
 		SubsystemThreadData* subThreadData,
 		SubsystemPool* newPool

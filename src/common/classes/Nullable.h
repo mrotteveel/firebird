@@ -123,19 +123,15 @@ public:
 template <typename T> class Nullable : public BaseNullable<T>
 {
 public:
-	explicit Nullable<T>(const T& v)
+	explicit Nullable(const T& v)
 	{
 		this->value = v;
 		this->specified = true;
 	}
 
-	Nullable<T>(const Nullable<T>& o) = default;
-/*	{
-		this->value = o.value;
-		this->specified = o.specified;
-	}
-*/
-	Nullable<T>()
+	Nullable(const Nullable<T>& o) = default;
+
+	Nullable()
 	{
 		invalidate();
 	}
