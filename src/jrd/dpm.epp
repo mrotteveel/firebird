@@ -542,7 +542,7 @@ bool DPM_chain( thread_db* tdbb, record_param* org_rpb, record_param* new_rpb)
 }
 
 
-void DPM_create_relation( thread_db* tdbb, jrd_rel* relation)
+void DPM_create_relation( thread_db* tdbb, Cached::Relation* relation)
 {
 /**************************************
  *
@@ -555,16 +555,14 @@ void DPM_create_relation( thread_db* tdbb, jrd_rel* relation)
  *
  **************************************/
 	SET_TDBB(tdbb);
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
 
 #ifdef VIO_DEBUG
 	VIO_trace(DEBUG_TRACE_ALL,
 		"DPM_create_relation (relation %d)\n", relation->getId());
 #endif
 
-	RelationPages* relPages = relation->rel_perm->getBasePages();
-	DPM_create_relation_pages(tdbb, relation->rel_perm, relPages);
+	RelationPages* relPages = relation->getBasePages();
+	DPM_create_relation_pages(tdbb, relation, relPages);
 
 	// Store page numbers in RDB$PAGES
 	DPM_pages(tdbb, relation->getId(), pag_pointer, (ULONG) 0,
@@ -2019,7 +2017,8 @@ void DPM_scan_pages( thread_db* tdbb)
 	// infinite recursion from this internal request when RDB$PAGES
 	// has been extended with another pointer page.
 
-	RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, 0u, CacheFlag::AUTOCREATE);
+	RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, 0u,
+		CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 	RelationPages* relPages = relation->getBasePages();
 
 	vcl** address = &relPages->rel_pages;

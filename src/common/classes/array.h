@@ -482,7 +482,19 @@ public:
 	{
 		if (count != op.count)
 			return false;
-		return memcmp(data, op.data, count) == 0;
+
+		// return memcmp(data, op.data, count) == 0;
+		// fast but wrong - imagine array element with non-dense elements
+
+		auto my = begin();
+		const auto my_end = end();
+		for (auto him = op.begin(); my != my_end; ++my, ++him)
+		{
+			if (! (*my == *him))
+				return false;
+		}
+
+		return true;
 	}
 
 	// Member function only for some debugging tests. Hope nobody is bothered.

@@ -409,7 +409,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 	return !(this->flReload);
 }
 
-bool Function::reload(thread_db* tdbb)
+bool Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
@@ -458,5 +458,11 @@ bool Function::reload(thread_db* tdbb)
 int Function::objectType()
 {
 	return obj_udf;
+}
+
+void Function::checkReload(thread_db* tdbb) const
+{
+	if (flReload)
+		getPermanent()->reload(tdbb, 0);
 }
 

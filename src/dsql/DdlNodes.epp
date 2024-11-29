@@ -70,10 +70,27 @@
 #include "../jrd/extds/ExtDS.h"
 #include "../jrd/cch_proto.h"
 #include "../jrd/btr_proto.h"
+#include "../jrd/tra_proto.h"
+#include "../jrd/mov_proto.h"
+#include "../jrd/ini.h"
 
 namespace Jrd {
 
+// Define range of user relation ids
+
+const int MIN_RELATION_ID	= rel_MAX;
+const int MAX_RELATION_ID	= 32767;
+
 using namespace Firebird;
+
+static const UCHAR nonnull_validation_blr[] =
+{
+	blr_version5,
+	blr_not,
+	blr_missing,
+	blr_fid, 0, 0, 0,
+	blr_eoc
+};
 
 static void checkForeignKeyTempScope(thread_db* tdbb, jrd_tra* transaction,
 	const MetaName&	childRelName, const MetaName& masterIndexName);
@@ -118,6 +135,7 @@ static void updateRdbFields(const TypeClause* type,
 	SSHORT& fieldPrecisionNull, SSHORT& fieldPrecision,
 	SSHORT& collationIdNull, SSHORT& collationId,
 	SSHORT& segmentLengthNull, SSHORT& segmentLength);
+static ISC_STATUS getErrorCodeByObjectType(int obj_type);
 
 static const char* const CHECK_CONSTRAINT_EXCEPTION = "check_constraint";
 
@@ -7473,6 +7491,1071 @@ void RelationNode::dropFromPublication(thread_db* tdbb,
 }
 
 
+void RelationNode::createRelation(thread_db* tdbb, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c r e a t e _ r e l a t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Create a new relation.
+ *
+ **************************************/
+	AutoCacheRequest request;
+	USHORT rel_id, external_flag;
+	bid blob_id;
+	AutoRequest handle;
+	Lock* lock;
+
+	blob_id.clear();
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+
+	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
+
+	try
+	{
+		// Take a relation lock on rel id -1 before actually generating a relation id.
+
+		AutoLock lock(tdbb, FB_NEW_RPT(*tdbb->getDefaultPool(), 0)
+			Lock(tdbb, sizeof(SLONG), LCK_relation));
+		lock->setKey(-1);
+
+		LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
+
+		/* Assign a relation ID and dbkey length to the new relation.
+		   Probe the candidate relation ID returned from the system
+		   relation RDB$DATABASE to make sure it isn't already assigned.
+		   This can happen from nefarious manipulation of RDB$DATABASE
+		   or wraparound of the next relation ID. Keep looking for a
+		   usable relation ID until the search space is exhausted. */
+
+		rel_id = 0;
+		request.reset(tdbb, irq_c_relation, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			X IN RDB$DATABASE CROSS Y IN RDB$RELATIONS WITH
+				Y.RDB$RELATION_NAME EQ name.c_str()
+		{
+			blob_id = Y.RDB$VIEW_BLR;
+			external_flag = Y.RDB$EXTERNAL_FILE[0];
+
+			MODIFY X USING
+				rel_id = X.RDB$RELATION_ID;
+
+				if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
+					rel_id = X.RDB$RELATION_ID = local_min_relation_id;
+
+				// Roman Simakov: We need to return deleted relations to skip them.
+				// This maybe result of cleanup failure after phase 3.
+				while (auto relation = MetadataCache::lookupRelation(tdbb, rel_id++,
+					CacheFlag::RET_ERASED | CacheFlag::NOSCAN))
+				{
+					if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
+						rel_id = local_min_relation_id;
+
+					if (rel_id == X.RDB$RELATION_ID)
+					{
+						ERR_post(Arg::Gds(isc_no_meta_update) <<
+								 Arg::Gds(isc_table_name) << Arg::Str(name) <<
+								 Arg::Gds(isc_imp_exc));
+					}
+				}
+
+				X.RDB$RELATION_ID = (rel_id > MAX_RELATION_ID) ? local_min_relation_id : rel_id;
+
+				MODIFY Y USING
+					Y.RDB$RELATION_ID = --rel_id;
+					if (blob_id.isEmpty())
+						Y.RDB$DBKEY_LENGTH = 8;
+					else
+					{
+						// update the dbkey length to include each of the base relations
+						Y.RDB$DBKEY_LENGTH = 0;
+
+						handle.reset();
+
+						FOR(REQUEST_HANDLE handle)
+							Z IN RDB$VIEW_RELATIONS CROSS
+							R IN RDB$RELATIONS OVER RDB$RELATION_NAME
+							WITH Z.RDB$VIEW_NAME = name.c_str() AND
+								 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
+								  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
+						{
+							Y.RDB$DBKEY_LENGTH += R.RDB$DBKEY_LENGTH;
+						}
+						END_FOR
+					}
+				END_MODIFY
+			END_MODIFY
+		}
+		END_FOR
+
+		lock.release();
+
+		// if this is not a view, create the relation
+
+		if (rel_id && blob_id.isEmpty() && !external_flag)
+		{
+			MetadataCache::newVersion(tdbb, obj_relation, rel_id);
+			auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::NOSCAN);
+			DPM_create_relation(tdbb, relation);
+		}
+	}
+	catch(const Exception&)
+	{
+		// We need to cleanup RDB$PAGES and pages if they were added at phase 3.
+		request.reset(tdbb, irq_c_relation3, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request)
+			X IN RDB$RELATIONS WITH
+				X.RDB$RELATION_NAME EQ name.c_str() AND
+				X.RDB$RELATION_ID NOT MISSING
+		{
+			auto* relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID, 0);
+			if (relation)
+			{
+				RelationPages* const relPages = relation->getBasePages();
+
+				if (relPages->rel_index_root)
+					IDX_delete_indices(tdbb, relation, relPages);
+
+				if (relPages->rel_pages)
+					DPM_delete_relation(tdbb, relation);
+			}
+		}
+		END_FOR
+
+		throw;
+	}
+}
+
+
+void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName relName)
+{
+/**************************************
+ *
+ *	m a k e _ v e r s i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Make a new format version for a relation.  While we're at it, make
+ *	sure all fields have id's.  If the relation is a view, make a
+ *	a format anyway -- used for view updates.
+ *
+ *	While we're in the vicinity, also check the updatability of fields.
+ *
+ **************************************/
+	TemporaryField* stack = nullptr;
+	TemporaryField* external = nullptr;
+	jrd_rel* relation = nullptr;
+	int physical_fields = 0;
+	bool external_flag = false;
+	bool computed_field = false;
+	TrigArray* triggers = nullptr;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+	bool null_view;
+	USHORT n;
+
+	{
+		AutoCacheRequest request_fmt1(tdbb, irq_format1, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request_fmt1 TRANSACTION_HANDLE transaction)
+			REL IN RDB$RELATIONS WITH REL.RDB$RELATION_NAME EQ relName.c_str()
+		{
+			relation = MetadataCache::lookup_relation_id(tdbb, REL.RDB$RELATION_ID, CacheFlag::AUTOCREATE);
+			if (!relation)
+				return;
+
+			const bid blob_id = REL.RDB$VIEW_BLR;
+			null_view = blob_id.isEmpty();
+			external_flag = REL.RDB$EXTERNAL_FILE[0];
+			triggers = &relation->rel_triggers;
+
+			if (REL.RDB$FORMAT == MAX_TABLE_VERSIONS)
+				raiseTooManyVersionsError(REL.RDB$VIEW_BLR.NULL ? obj_relation : obj_view, relName);
+
+			MODIFY REL USING
+				blb* blob = blb::create(tdbb, transaction, &REL.RDB$RUNTIME);
+				AutoCacheRequest request_fmtx(tdbb, irq_format2, IRQ_REQUESTS);
+
+				FOR(REQUEST_HANDLE request_fmtx TRANSACTION_HANDLE transaction)
+					RFR IN RDB$RELATION_FIELDS CROSS
+						FLD IN RDB$FIELDS WITH
+						RFR.RDB$RELATION_NAME EQ relName.c_str() AND
+						RFR.RDB$FIELD_SOURCE EQ FLD.RDB$FIELD_NAME
+				{
+					// Update RFR to reflect new fields id
+
+					if (!RFR.RDB$FIELD_ID.NULL && RFR.RDB$FIELD_ID >= REL.RDB$FIELD_ID)
+						REL.RDB$FIELD_ID = RFR.RDB$FIELD_ID + 1;
+
+					// force recalculation of RDB$UPDATE_FLAG if field is calculated
+					if (!FLD.RDB$COMPUTED_BLR.isEmpty())
+					{
+						RFR.RDB$UPDATE_FLAG.NULL = TRUE;
+						computed_field = true;
+					}
+
+					if (RFR.RDB$FIELD_ID.NULL || RFR.RDB$UPDATE_FLAG.NULL)
+					{
+						MODIFY RFR USING
+							if (RFR.RDB$FIELD_ID.NULL)
+							{
+								if (external_flag)
+								{
+									RFR.RDB$FIELD_ID = RFR.RDB$FIELD_POSITION;
+									// RFR.RDB$FIELD_POSITION.NULL is
+									// needed to be referenced in the
+									// code somewhere for GPRE to include
+									// this field in the structures that
+									// it generates at the top of this func.
+									RFR.RDB$FIELD_ID.NULL = RFR.RDB$FIELD_POSITION.NULL;
+								}
+								else
+								{
+									RFR.RDB$FIELD_ID = REL.RDB$FIELD_ID;
+									RFR.RDB$FIELD_ID.NULL = FALSE;
+
+									// If the table is being altered, check validity of NOT NULL fields.
+									if (!REL.RDB$FORMAT.NULL)
+									{
+										bool notNull = (RFR.RDB$NULL_FLAG.NULL ?
+											(FLD.RDB$NULL_FLAG.NULL ? false : (bool) FLD.RDB$NULL_FLAG) :
+											(bool) RFR.RDB$NULL_FLAG);
+
+										if (notNull)
+										{
+											dsc desc;
+											desc.makeText(static_cast<USHORT>(strlen(REL.RDB$RELATION_NAME)),
+												CS_METADATA, (UCHAR*) REL.RDB$RELATION_NAME);
+
+											DeferredWork* work = DFW_post_work(transaction,
+												dfw_check_not_null, &desc, 0);
+											SortedArray<int>& ids = DFW_get_ids(work);
+
+											FB_SIZE_T pos;
+											if (!ids.find(RFR.RDB$FIELD_ID, pos))
+												ids.insert(pos, RFR.RDB$FIELD_ID);
+										}
+									}
+								}
+
+								REL.RDB$FIELD_ID++;
+							}
+							if (RFR.RDB$UPDATE_FLAG.NULL)
+							{
+								RFR.RDB$UPDATE_FLAG.NULL = FALSE;
+								RFR.RDB$UPDATE_FLAG = 1;
+								if (!FLD.RDB$COMPUTED_BLR.isEmpty())
+								{
+									RFR.RDB$UPDATE_FLAG = 0;
+								}
+								if (!null_view && REL.RDB$DBKEY_LENGTH > 8)
+								{
+									AutoRequest temp;
+									RFR.RDB$UPDATE_FLAG = 0;
+									FOR(REQUEST_HANDLE temp) X IN RDB$TRIGGERS WITH
+										X.RDB$RELATION_NAME EQ relName.c_str() AND
+											X.RDB$TRIGGER_TYPE EQ 1
+									{
+										RFR.RDB$UPDATE_FLAG = 1;
+									}
+									END_FOR
+								}
+							}
+						END_MODIFY
+					}
+
+					// Store stuff in field summary
+
+					n = RFR.RDB$FIELD_ID;
+					putSummaryRecord(tdbb, blob, RSR_field_id, (UCHAR*)&n, sizeof(n));
+					putSummaryRecord(tdbb, blob, RSR_field_name, (UCHAR*) RFR.RDB$FIELD_NAME,
+									   fb_utils::name_length(RFR.RDB$FIELD_NAME));
+					if (!FLD.RDB$COMPUTED_BLR.isEmpty() && !RFR.RDB$VIEW_CONTEXT)
+					{
+						putSummaryBlob(tdbb, blob, RSR_computed_blr, &FLD.RDB$COMPUTED_BLR, transaction);
+					}
+					else if (!null_view)
+					{
+						n = RFR.RDB$VIEW_CONTEXT;
+						putSummaryRecord(tdbb, blob, RSR_view_context, (UCHAR*)&n, sizeof(n));
+						putSummaryRecord(tdbb, blob, RSR_base_field, (UCHAR*) RFR.RDB$BASE_FIELD,
+										   fb_utils::name_length(RFR.RDB$BASE_FIELD));
+					}
+					putSummaryBlob(tdbb, blob, RSR_missing_value, &FLD.RDB$MISSING_VALUE, transaction);
+
+					bid* defaultValue = RFR.RDB$DEFAULT_VALUE.isEmpty() ?
+						&FLD.RDB$DEFAULT_VALUE : &RFR.RDB$DEFAULT_VALUE;
+
+					putSummaryBlob(tdbb, blob, RSR_default_value, defaultValue, transaction);
+					putSummaryBlob(tdbb, blob, RSR_validation_blr, &FLD.RDB$VALIDATION_BLR, transaction);
+
+					bool notNull = (RFR.RDB$NULL_FLAG.NULL ?
+						(FLD.RDB$NULL_FLAG.NULL ? false : (bool) FLD.RDB$NULL_FLAG) :
+						(bool) RFR.RDB$NULL_FLAG);
+
+					if (notNull)
+					{
+						putSummaryRecord(tdbb, blob, RSR_field_not_null,
+											nonnull_validation_blr, sizeof(nonnull_validation_blr));
+					}
+
+					n = fb_utils::name_length(RFR.RDB$SECURITY_CLASS);
+					if (!RFR.RDB$SECURITY_CLASS.NULL && n)
+					{
+						putSummaryRecord(tdbb, blob, RSR_security_class,
+										   (UCHAR*) RFR.RDB$SECURITY_CLASS, n);
+					}
+
+					n = fb_utils::name_length(RFR.RDB$GENERATOR_NAME);
+					if (!RFR.RDB$GENERATOR_NAME.NULL && n)
+					{
+						putSummaryRecord(tdbb, blob, RSR_field_generator_name,
+										   (UCHAR*) RFR.RDB$GENERATOR_NAME, n);
+					}
+
+					n = RFR.RDB$IDENTITY_TYPE;
+					if (!RFR.RDB$IDENTITY_TYPE.NULL)
+						putSummaryRecord(tdbb, blob, RSR_field_identity_type, (UCHAR*) &n, sizeof(n));
+
+					// Make a temporary field block
+
+					TemporaryField* tfb = FB_NEW_POOL(*tdbb->getDefaultPool()) TemporaryField;
+					tfb->tfb_next = stack;
+					stack = tfb;
+
+					// for text data types, grab the CHARACTER_SET and
+					// COLLATION to give the type of international text
+
+					if (FLD.RDB$CHARACTER_SET_ID.NULL)
+						FLD.RDB$CHARACTER_SET_ID = CS_NONE;
+
+					CollId collation((!FLD.RDB$COLLATION_ID.NULL) ? FLD.RDB$COLLATION_ID : 
+						(!RFR.RDB$COLLATION_ID.NULL) ? RFR.RDB$COLLATION_ID : COLLATE_NONE);	// codepoint collation
+
+					if (!DSC_make_descriptor(&tfb->tfb_desc, FLD.RDB$FIELD_TYPE,
+											 FLD.RDB$FIELD_SCALE,
+											 FLD.RDB$FIELD_LENGTH,
+											 FLD.RDB$FIELD_SUB_TYPE,
+											 CSetId(FLD.RDB$CHARACTER_SET_ID), collation))
+					{
+						if (null_view && REL.RDB$FORMAT.NULL)
+							DPM_delete_relation(tdbb, getPermanent(relation));
+
+						ERR_post(Arg::Gds(isc_no_meta_update) <<
+								 Arg::Gds(isc_random) << Arg::Str(relName));
+					}
+
+					// Make sure the text type specified is implemented
+					if (!validateTextType(tdbb, tfb))
+					{
+						if (null_view && REL.RDB$FORMAT.NULL)
+							DPM_delete_relation(tdbb, getPermanent(relation));
+
+						ERR_post_nothrow(Arg::Gds(isc_no_meta_update) <<
+										 Arg::Gds(isc_random) << Arg::Str(relName));
+						INTL_texttype_lookup(tdbb, tfb->tfb_desc.getTextType());	// should punt
+						ERR_punt(); // if INTL_texttype_lookup hasn't punt
+					}
+
+					// Store the default value.
+
+					memset(&tfb->tfb_default, 0, sizeof(tfb->tfb_default));
+
+					if (notNull && !defaultValue->isEmpty())
+					{
+						Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
+						Statement* defaultStatement = NULL;
+						try
+						{
+							ValueExprNode* defaultNode = static_cast<ValueExprNode*>(MET_parse_blob(
+								tdbb, getPermanent(relation), defaultValue, NULL, &defaultStatement, false, false));
+
+							Request* const defaultRequest = defaultStatement->findRequest(tdbb);
+
+							// Attention: this is scoped to the end of this "try".
+							AutoSetRestore2<Request*, thread_db> autoRequest(tdbb,
+								&thread_db::getRequest, &thread_db::setRequest, defaultRequest);
+
+							defaultRequest->validateTimeStamp();
+
+							dsc* result = nullptr;
+							{ // scope
+								Firebird::Cleanup detach([&defaultRequest] {TRA_detach_request(defaultRequest);});
+								TRA_attach_request(transaction, defaultRequest);
+								result = EVL_expr(tdbb, defaultRequest, defaultNode);
+							}
+
+							if (result)
+							{
+								dsc desc = *result;
+								MoveBuffer buffer;
+
+								if (desc.isText() || desc.isBlob())
+								{
+									UCHAR* ptr = NULL;
+									const int len = MOV_make_string2(tdbb, &desc, tfb->tfb_desc.getCharSet(),
+										&ptr, buffer, true);
+									fb_assert(ULONG(len) < ULONG(MAX_USHORT));
+									desc.makeText(len, tfb->tfb_desc.getCharSet(), ptr);
+								}
+
+								impure_value tempValue;
+								MoveBuffer tempBuffer;
+
+								if (!tfb->tfb_desc.isBlob() && !DSC_EQUIV(result, &tfb->tfb_desc, false))
+								{
+									tempValue.vlu_desc = tfb->tfb_desc;
+
+									if (tfb->tfb_desc.isText())
+										tempValue.vlu_desc.dsc_address = tempBuffer.getBuffer(tfb->tfb_desc.dsc_length);
+									else
+										tempValue.vlu_desc.dsc_address = (UCHAR*) &tempValue.vlu_misc;
+
+									try
+									{
+										MOV_move(tdbb, &desc, &tempValue.vlu_desc);
+										desc = tempValue.vlu_desc;
+									}
+									catch (const status_exception&)
+									{
+										if (!tdbb->getAttachment()->isGbak())
+											throw;
+
+										// If we're restoring a database, ignore the error and use the original desc.
+										fb_utils::init_status(tdbb->tdbb_status_vector);
+									}
+								}
+
+								EVL_make_value(tdbb, &desc, &tfb->tfb_default, relation->rel_pool);
+							}
+						}
+						catch (const Exception&)
+						{
+							if (defaultStatement)
+								defaultStatement->release(tdbb);
+							throw;
+						}
+
+						defaultStatement->release(tdbb);
+					}
+
+					// dimitr: view fields shouldn't be marked as computed
+					if (null_view && !FLD.RDB$COMPUTED_BLR.isEmpty())
+						tfb->tfb_flags |= TFB_computed;
+					else
+						++physical_fields;
+
+					tfb->tfb_id = RFR.RDB$FIELD_ID;
+
+					if ((n = FLD.RDB$DIMENSIONS))
+						setupArray(tdbb, blob, FLD.RDB$FIELD_NAME, n, tfb);
+
+					if (external_flag)
+					{
+						tfb = FB_NEW_POOL(*tdbb->getDefaultPool()) TemporaryField;
+						tfb->tfb_next = external;
+						external = tfb;
+						fb_assert(FLD.RDB$EXTERNAL_TYPE <= MAX_UCHAR);
+						tfb->tfb_desc.dsc_dtype = (UCHAR)FLD.RDB$EXTERNAL_TYPE;
+						fb_assert(FLD.RDB$EXTERNAL_SCALE >= MIN_SCHAR &&
+							FLD.RDB$EXTERNAL_SCALE <= MAX_SCHAR);
+						tfb->tfb_desc.dsc_scale = (SCHAR)FLD.RDB$EXTERNAL_SCALE;
+						tfb->tfb_desc.dsc_length = FLD.RDB$EXTERNAL_LENGTH;
+						tfb->tfb_id = RFR.RDB$FIELD_ID;
+					}
+				}
+				END_FOR
+
+				if (null_view && !physical_fields)
+				{
+					if (REL.RDB$FORMAT.NULL)
+						DPM_delete_relation(tdbb, getPermanent(relation));
+
+					ERR_post(Arg::Gds(isc_no_meta_update) <<
+							 Arg::Gds(isc_table_name) << Arg::Str(relName) <<
+			 				 Arg::Gds(isc_must_have_phys_field));
+				}
+
+				blob = setupTriggers(tdbb, relation, null_view, triggers, blob);
+
+				blob->BLB_close(tdbb);
+				USHORT version = REL.RDB$FORMAT.NULL ? 0 : REL.RDB$FORMAT;
+				version++;
+				relation->rel_current_format = makeFormat(tdbb, getPermanent(relation), &version, stack);
+				REL.RDB$FORMAT.NULL = FALSE;
+				REL.RDB$FORMAT = version;
+
+				if (!null_view)
+				{
+					// update the dbkey length to include each of the base relations
+
+					REL.RDB$DBKEY_LENGTH = 0;
+
+					AutoRequest handle;
+					FOR(REQUEST_HANDLE handle)
+						Z IN RDB$VIEW_RELATIONS
+						CROSS R IN RDB$RELATIONS OVER RDB$RELATION_NAME
+						WITH Z.RDB$VIEW_NAME = relName.c_str()
+					{
+						REL.RDB$DBKEY_LENGTH += R.RDB$DBKEY_LENGTH;
+					}
+					END_FOR
+				}
+			END_MODIFY
+		}
+		END_FOR
+
+		// If we didn't find the relation, it is probably being dropped
+
+		if (!relation)
+			return;
+
+		// in case somebody changed the view definition or a computed
+		// field, reset the dependencies by deleting the current ones
+		// and setting a flag for MET_scan_relation to find the new ones
+
+		if (!null_view)
+			MET_delete_dependencies(tdbb, relName, obj_view, transaction);
+/*	// !!!!!!!!!!!!!!  commented in order to get first of all working create table
+		{ // begin scope
+			const DeferredWork* arg = work->findArg(dfw_arg_force_computed);
+			if (arg)
+			{
+				computed_field = true;
+				MET_delete_dependencies(tdbb, arg->dfw_name, obj_computed, transaction);
+			}
+		} // end scope
+ */
+		if (!null_view || computed_field)
+			getPermanent(relation)->rel_flags |= REL_get_dependencies;
+
+		if (external_flag)
+		{
+			AutoRequest temp;
+			FOR(REQUEST_HANDLE temp) FMTS IN RDB$FORMATS WITH
+				FMTS.RDB$RELATION_ID EQ relation->getId() AND
+				FMTS.RDB$FORMAT EQ 0
+			{
+				ERASE FMTS;
+			}
+			END_FOR
+
+			makeFormat(tdbb, getPermanent(relation), 0, external);
+		}
+
+		// signal others about new format presence
+/*		LCK_lock(tdbb, relation->rel_rescan_lock, LCK_EX, LCK_WAIT);
+		LCK_release(tdbb, relation->rel_rescan_lock);  !!!!!!classic!!! */
+	}
+}
+
+
+blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_view,
+	TrigArray* triggers, blb* blob)
+{
+/**************************************
+ *
+ *	s e t u p _ t r i g g e r s
+ *
+ **************************************
+ *
+ * Functional description
+ *
+ *	Get the triggers in the right order, which appears
+ *      to be system triggers first, then user triggers,
+ *      then triggers that implement check constraints.
+ *
+ * BUG #8458: Check constraint triggers have to be loaded
+ *	      (and hence executed) after the user-defined
+ *	      triggers because user-defined triggers can modify
+ *	      the values being inserted or updated so that
+ *	      the end values stored in the database don't
+ *	      fulfill the check constraint.
+ *
+ **************************************/
+	if (!relation)
+		return blob;
+
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	// system triggers
+
+	AutoCacheRequest request_fmtx(tdbb, irq_format4, IRQ_REQUESTS);
+
+	FOR (REQUEST_HANDLE request_fmtx)
+		TRG IN RDB$TRIGGERS
+		WITH TRG.RDB$RELATION_NAME = relation->getName().c_str()
+			AND TRG.RDB$SYSTEM_FLAG = 1
+		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
+	{
+		if (!TRG.RDB$TRIGGER_INACTIVE)
+			setupTriggerDetails(tdbb, relation, blob, triggers, TRG.RDB$TRIGGER_NAME, null_view);
+	}
+	END_FOR
+
+	// user triggers
+
+	request_fmtx.reset(tdbb, irq_format5, IRQ_REQUESTS);
+
+	FOR (REQUEST_HANDLE request_fmtx)
+		TRG IN RDB$TRIGGERS
+		WITH TRG.RDB$RELATION_NAME EQ relation->getName().c_str()
+		AND TRG.RDB$SYSTEM_FLAG = 0
+		AND (NOT ANY
+			CHK IN RDB$CHECK_CONSTRAINTS CROSS
+			RCN IN RDB$RELATION_CONSTRAINTS
+			WITH TRG.RDB$TRIGGER_NAME EQ CHK.RDB$TRIGGER_NAME
+			AND CHK.RDB$CONSTRAINT_NAME EQ RCN.RDB$CONSTRAINT_NAME
+			AND (RCN.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT
+			    OR RCN.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY)
+			)
+		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
+	{
+		if (!TRG.RDB$TRIGGER_INACTIVE)
+			setupTriggerDetails(tdbb, relation, blob, triggers, TRG.RDB$TRIGGER_NAME, null_view);
+	}
+	END_FOR
+
+	// check constraint triggers.  We're looking for triggers that belong
+	// to the table and are system triggers (i.e. system flag in (3, 4, 5))
+	// or a user looking trigger that's involved in a check constraint
+
+	request_fmtx.reset(tdbb, irq_format6, IRQ_REQUESTS);
+
+	FOR (REQUEST_HANDLE request_fmtx)
+		TRG IN RDB$TRIGGERS
+		WITH TRG.RDB$RELATION_NAME = relation->getName().c_str()
+		AND (TRG.RDB$SYSTEM_FLAG BT fb_sysflag_check_constraint AND fb_sysflag_view_check
+			OR (TRG.RDB$SYSTEM_FLAG = 0 AND ANY
+			CHK IN RDB$CHECK_CONSTRAINTS CROSS
+			RCN IN RDB$RELATION_CONSTRAINTS
+				WITH TRG.RDB$TRIGGER_NAME EQ CHK.RDB$TRIGGER_NAME
+				AND CHK.RDB$CONSTRAINT_NAME EQ RCN.RDB$CONSTRAINT_NAME
+				AND (RCN.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT
+				    OR RCN.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY)
+		    	)
+			)
+		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
+	{
+		if (!TRG.RDB$TRIGGER_INACTIVE)
+			setupTriggerDetails(tdbb, relation, blob, triggers, TRG.RDB$TRIGGER_NAME, null_view);
+	}
+	END_FOR
+
+	return blob;
+}
+
+
+void RelationNode::setupTriggerDetails(thread_db* tdbb, jrd_rel* relation, blb* blob,
+	TrigArray* triggers, const TEXT* trigger_name, bool null_view)
+{
+/**************************************
+ *
+ *	s e t u p _ t r i g g e r _ d e t a i l s
+ *
+ **************************************
+ *
+ * Functional description
+ *	Stuff trigger details in places.
+ *
+ * for a view, load the trigger temporarily --
+ * this is inefficient since it will just be reloaded
+ *  in MET_scan_relation () but it needs to be done
+ *  in case the view would otherwise be non-updatable
+ *
+ **************************************/
+
+	putSummaryRecord(tdbb, blob, RSR_trigger_name,
+		(const UCHAR*) trigger_name, fb_utils::name_length(trigger_name));
+
+	if (!null_view) {
+		MET_load_trigger(tdbb, relation, trigger_name, [&](int t)->Triggers& {return (*triggers)[t];});
+	}
+}
+
+
+void RelationNode::raiseTooManyVersionsError(const int obj_type, const MetaName& obj_name)
+{
+	ERR_post(Arg::Gds(isc_no_meta_update) <<
+			 Arg::Gds(getErrorCodeByObjectType(obj_type)) << Arg::Str(obj_name) <<
+			 Arg::Gds(isc_version_err));
+}
+
+
+void RelationNode::putSummaryRecord(thread_db* tdbb, blb* blob, rsr_t type, const UCHAR* data, ULONG length)
+{
+/**************************************
+ *
+ *	p u t _ s u m m a r y _ r e c o r d
+ *
+ **************************************
+ *
+ * Functional description
+ *	Put an attribute record to the relation summary blob.
+ *
+ **************************************/
+	// We cannot deal with chunks longer than a max blob segment (minus one)
+	fb_assert(length < MAX_USHORT);
+
+	SET_TDBB(tdbb);
+
+	HalfStaticArray<UCHAR, BUFFER_TINY> buffer;
+	UCHAR* p = buffer.getBuffer(length + 1);
+	*p++ = (UCHAR) type;
+	memcpy(p, data, length);
+
+	blob->BLB_put_segment(tdbb, buffer.begin(), length + 1);
+}
+
+
+void RelationNode::putSummaryBlob(thread_db* tdbb, blb* blob, rsr_t type, bid* blob_id, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	p u t _ s u m m a r y _ b l o b
+ *
+ **************************************
+ *
+ * Functional description
+ *	Put an attribute record to the relation summary blob.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	if (blob_id->isEmpty())	// If blob is null, don't bother.
+		return;
+
+	// Go ahead and open blob
+	blb* blr = blb::open(tdbb, transaction, blob_id);
+
+	ULONG length = blr->blb_length;
+	// We cannot deal with chunks longer than a max blob segment (minus one)
+	fb_assert(length < MAX_USHORT);
+
+	HalfStaticArray<UCHAR, BUFFER_TINY> buffer;
+	UCHAR* p = buffer.getBuffer(length + 1);
+	*p++ = (UCHAR) type;
+
+	length = blr->BLB_get_data(tdbb, p, length);
+
+	blob->BLB_put_segment(tdbb, buffer.begin(), length + 1);
+}
+
+
+bool RelationNode::validateTextType(thread_db* tdbb, const TemporaryField* tfb)
+{
+/**************************************
+ *
+ *	v a l i d a t e _ t e x t _ t y p e
+ *
+ **************************************
+ *
+ * Functional description
+ *	Make sure the text type specified is implemented
+ *
+ **************************************/
+
+	TTypeId ttId = tfb->tfb_desc.getTextType();
+	switch(ttId)
+	{
+	case TTypeId(CS_NONE):
+	case TTypeId(CS_BINARY):
+		break;
+
+	default:
+		return INTL_defined_type(tdbb, ttId);
+	}
+
+	return true;
+}
+
+
+void RelationNode::setupArray(thread_db* tdbb, blb* blob, const TEXT* field_name, USHORT n,
+	TemporaryField* tfb)
+{
+/**************************************
+ *
+ *	s e t u p _ a r r a y
+ *
+ **************************************
+ *
+ * Functional description
+ *
+ *	setup an array descriptor in a tfb
+ *
+ **************************************/
+
+	SLONG stuff[256];
+
+	putSummaryRecord(tdbb, blob, RSR_dimensions, (UCHAR*) &n, sizeof(n));
+	tfb->tfb_flags |= TFB_array;
+	Ods::InternalArrayDesc* array = reinterpret_cast<Ods::InternalArrayDesc*>(stuff);
+	MOVE_CLEAR(array, (SLONG) sizeof(Ods::InternalArrayDesc));
+	array->iad_dimensions = n;
+	array->iad_struct_count = 1;
+	array->iad_rpt[0].iad_desc = tfb->tfb_desc;
+	getArrayDesc(tdbb, field_name, array);
+	putSummaryRecord(tdbb, blob, RSR_array_desc, (UCHAR*) array, array->iad_length);
+}
+
+
+void RelationNode::getArrayDesc(thread_db* tdbb, const TEXT* field_name, Ods::InternalArrayDesc* desc)
+{
+/**************************************
+ *
+ *	g e t _ a r r a y _ d e s c
+ *
+ **************************************
+ *
+ * Functional description
+ *	Get array descriptor for an array.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	AutoCacheRequest request(tdbb, irq_r_fld_dim, IRQ_REQUESTS);
+
+	Ods::InternalArrayDesc::iad_repeat* ranges = 0;
+	FOR (REQUEST_HANDLE request)
+		D IN RDB$FIELD_DIMENSIONS WITH D.RDB$FIELD_NAME EQ field_name
+	{
+		if (D.RDB$DIMENSION >= 0 && D.RDB$DIMENSION < desc->iad_dimensions)
+		{
+			ranges = desc->iad_rpt + D.RDB$DIMENSION;
+			ranges->iad_lower = D.RDB$LOWER_BOUND;
+			ranges->iad_upper = D.RDB$UPPER_BOUND;
+		}
+	}
+	END_FOR
+
+	desc->iad_count = 1;
+
+	for (ranges = desc->iad_rpt + desc->iad_dimensions; --ranges >= desc->iad_rpt;)
+	{
+		ranges->iad_length = desc->iad_count;
+		desc->iad_count *= ranges->iad_upper - ranges->iad_lower + 1;
+	}
+
+	desc->iad_version = Ods::IAD_VERSION_1;
+	desc->iad_length = IAD_LEN(MAX(desc->iad_struct_count, desc->iad_dimensions));
+	desc->iad_element_length = desc->iad_rpt[0].iad_desc.dsc_length;
+	desc->iad_total_length = desc->iad_element_length * desc->iad_count;
+}
+
+
+Format* RelationNode::makeFormat(thread_db* tdbb, Cached::Relation* relation, USHORT* version, TemporaryField* stack)
+{
+/**************************************
+ *
+ *	m a k e _ f o r m a t
+ *
+ **************************************
+ *
+ * Functional description
+ *	Make a format block for a relation.
+ *
+ **************************************/
+	TemporaryField* tfb;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	jrd_tra* sysTransaction = attachment->getSysTransaction();
+	Database* dbb = tdbb->getDatabase();
+
+	// Figure out the highest field id and allocate a format block
+
+	USHORT count = 0;
+	for (tfb = stack; tfb; tfb = tfb->tfb_next)
+		count = MAX(count, tfb->tfb_id);
+
+	// For system tables, all supported formats are predefined and preloaded
+	// into the metadata cache, so we don't need them stored in RDB$FORMATS
+
+	if (relation->isSystem())
+	{
+		// Find and return the format matching new number of fields
+
+		fb_assert(relation->rel_formats);
+		for (const auto format : *relation->rel_formats)
+		{
+			if (format->fmt_count == count + 1)
+			{
+				if (version)
+					*version = format->fmt_version;
+
+				return format;
+			}
+		}
+
+		// We should never get here
+		fb_assert(false);
+	}
+
+	Format* format = Format::newFormat(relation->getPool(), count + 1);
+	format->fmt_version = version ? *version : 0;
+
+	// Fill in the format block from the temporary field blocks
+
+	for (tfb = stack; tfb; tfb = tfb->tfb_next)
+	{
+		dsc* desc = &format->fmt_desc[tfb->tfb_id];
+		if (tfb->tfb_flags & TFB_array)
+		{
+			desc->dsc_dtype = dtype_array;
+			desc->dsc_length = sizeof(ISC_QUAD);
+		}
+		else
+			*desc = tfb->tfb_desc;
+		if (tfb->tfb_flags & TFB_computed)
+			desc->dsc_dtype |= DSC_computed;
+
+		impure_value& defRef = format->fmt_defaults[tfb->tfb_id];
+		defRef = tfb->tfb_default;
+
+		if (tfb->tfb_default.vlu_string)
+		{
+			fb_assert(defRef.vlu_desc.dsc_dtype == dtype_text);
+			defRef.vlu_desc.dsc_address = defRef.vlu_string->str_data;
+		}
+		else
+			defRef.vlu_desc.dsc_address = (UCHAR*) &defRef.vlu_misc;
+	}
+
+	// Compute the offsets of the various fields
+
+	ULONG offset = FLAG_BYTES(count);
+
+	count = 0;
+	for (Format::fmt_desc_iterator desc2 = format->fmt_desc.begin();
+		count < format->fmt_count;
+		++count, ++desc2)
+	{
+		if (desc2->dsc_dtype & DSC_computed)
+		{
+			desc2->dsc_dtype &= ~DSC_computed;
+			continue;
+		}
+		if (desc2->dsc_dtype)
+		{
+			offset = MET_align(&(*desc2), offset);
+			desc2->dsc_address = (UCHAR *) (IPTR) offset;
+			offset += desc2->dsc_length;
+		}
+	}
+
+	// Release the temporary field blocks
+
+	while ( (tfb = stack) )
+	{
+		stack = tfb->tfb_next;
+		delete tfb;
+	}
+
+	if (offset > MAX_RECORD_SIZE)
+	{
+		delete format;
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_rec_size_err) << Arg::Num(offset) <<
+				 Arg::Gds(isc_table_name) << Arg::Str(relation->getName()));
+		// Msg361: new record size of %ld bytes is too big
+	}
+
+	format->fmt_length = offset;
+
+	Format* old_format;
+	if (format->fmt_version &&
+		(old_format = MET_format(tdbb, relation, (format->fmt_version - 1))) &&
+		(*old_format == *format))
+	{
+		delete format;
+		*version = old_format->fmt_version;
+		return old_format;
+	}
+
+	// Link the format block into the world
+
+	vec<Format*>* vector = relation->rel_formats =
+		vec<Format*>::newVector(relation->getPool(), relation->rel_formats, format->fmt_version + 1);
+	(*vector)[format->fmt_version] = format;
+
+	// Store format in system relation
+
+	AutoCacheRequest request(tdbb, irq_format3, IRQ_REQUESTS);
+
+	STORE(REQUEST_HANDLE request)
+		FMTS IN RDB$FORMATS
+	{
+		FMTS.RDB$FORMAT = format->fmt_version;
+		FMTS.RDB$RELATION_ID = relation->getId();
+		blb* blob = blb::create(tdbb, sysTransaction, &FMTS.RDB$DESCRIPTOR);
+
+		// Use generic representation of formats with 32-bit offsets
+
+		Firebird::Array<Ods::Descriptor> odsDescs;
+		Ods::Descriptor* odsDesc = odsDescs.getBuffer(format->fmt_count);
+
+		for (Format::fmt_desc_const_iterator desc = format->fmt_desc.begin();
+			 desc < format->fmt_desc.end(); ++desc, ++odsDesc)
+		{
+			*odsDesc = *desc;
+		}
+
+		HalfStaticArray<UCHAR, BUFFER_MEDIUM> buffer;
+
+		buffer.add(UCHAR(format->fmt_count));
+		buffer.add(UCHAR(format->fmt_count >> 8));
+
+		buffer.add((UCHAR*) odsDescs.begin(), odsDescs.getCount() * sizeof(Ods::Descriptor));
+
+		const FB_SIZE_T pos = buffer.getCount();
+		buffer.add(0);
+		buffer.add(0);
+
+		USHORT i = 0, dflCount = 0;
+		for (Format::fmt_defaults_iterator impure = format->fmt_defaults.begin();
+			 impure != format->fmt_defaults.end(); ++impure, ++i)
+		{
+			if (!impure->vlu_desc.isUnknown())
+			{
+				dsc desc = impure->vlu_desc;
+				desc.dsc_address = NULL;
+
+				Ods::Descriptor odsDflDesc = desc;
+
+				buffer.add(UCHAR(i));
+				buffer.add(UCHAR(i >> 8));
+				buffer.add((UCHAR*) &odsDflDesc, sizeof(odsDflDesc));
+				buffer.add(impure->vlu_desc.dsc_address, impure->vlu_desc.dsc_length);
+
+				++dflCount;
+			}
+		}
+
+		buffer[pos] = UCHAR(dflCount);
+		buffer[pos + 1] = UCHAR(dflCount >> 8);
+
+		blob->BLB_put_data(tdbb, buffer.begin(), buffer.getCount());
+		blob->BLB_close(tdbb);
+	}
+	END_STORE
+
+	return format;
+}
+
+
 //----------------------
 
 
@@ -7609,6 +8692,8 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 	{
 		defineConstraint(tdbb, dsqlScratch, transaction, constraint->name, *constraint->create);
 	}
+
+	createRelation(tdbb, transaction);
 
 	dsqlScratch->relation->rel_flags &= ~REL_creating;
 
@@ -9970,7 +11055,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 			{
 				if (!relation)
 				{
-					relation = MetadataCache::findRelation(tdbb, REL.RDB$RELATION_ID);
+					relation = MetadataCache::find-Relation(tdbb, REL.RDB$RELATION_ID);
 					if (relation->getName().length() == 0)
 						relation->getName() = REL.RDB$RELATION_NAME;
 
@@ -13692,5 +14777,49 @@ void AlterDatabaseNode::defineDifference(thread_db* tdbb, jrd_tra* transaction, 
 	END_STORE
 }
 
+
+static ISC_STATUS getErrorCodeByObjectType(int obj_type)
+{
+	ISC_STATUS err_code = 0;
+
+	switch (obj_type)
+	{
+	case obj_relation:
+		err_code = isc_table_name;
+		break;
+	case obj_view:
+		err_code = isc_view_name;
+		break;
+	case obj_procedure:
+		err_code = isc_proc_name;
+		break;
+	case obj_collation:
+		err_code = isc_collation_name;
+		break;
+	case obj_exception:
+		err_code = isc_exception_name;
+		break;
+	case obj_field:
+		err_code = isc_domain_name;
+		break;
+	case obj_generator:
+		err_code = isc_generator_name;
+		break;
+	case obj_udf:
+		err_code = isc_udf_name;
+		break;
+	case obj_index:
+		err_code = isc_index_name;
+		break;
+	case obj_package_header:
+	case obj_package_body:
+		err_code = isc_package_name;
+		break;
+	default:
+		fb_assert(false);
+	}
+
+	return err_code;
+}
 
 }	// namespace Jrd

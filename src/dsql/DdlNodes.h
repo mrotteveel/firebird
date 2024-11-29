@@ -1186,6 +1186,11 @@ typedef RecreateNode<CreateAlterSequenceNode, DropSequenceNode, isc_dsql_recreat
 	RecreateSequenceNode;
 
 
+// forward
+enum rsr_t : UCHAR;
+class TemporaryField;
+class TrigArray;
+
 class RelationNode : public DdlNode
 {
 public:
@@ -1546,6 +1551,26 @@ protected:
 	void stuffDefaultBlr(const Firebird::ByteChunk& defaultBlr, BlrDebugWriter& blrWriter);
 	void stuffMatchingBlr(Constraint& constraint, BlrDebugWriter& blrWriter);
 	void stuffTriggerFiringCondition(const Constraint& constraint, BlrDebugWriter& blrWriter);
+
+	// former DFW
+	void createRelation(thread_db* tdbb, jrd_tra* transaction);
+
+public:
+	static void makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName relName);
+
+private:
+	static blb* setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_view,
+		TrigArray* triggers, blb* blob);
+	static void setupTriggerDetails(thread_db* tdbb, jrd_rel* relation, blb* blob, TrigArray* triggers,
+		const TEXT* trigger_name, bool null_view);
+	static void putSummaryRecord(thread_db* tdbb, blb* blob, rsr_t type, const UCHAR* data, ULONG length);
+	static void putSummaryBlob(thread_db* tdbb, blb* blob, rsr_t type, bid* blob_id, jrd_tra* transaction);
+	static bool validateTextType(thread_db* tdbb, const TemporaryField* tfb);
+	static void setupArray(thread_db* tdbb, blb* blob, const TEXT* field_name, USHORT n, TemporaryField* tfb);
+	static void getArrayDesc(thread_db* tdbb, const TEXT* field_name, Ods::InternalArrayDesc* desc);
+	static Format* makeFormat(thread_db* tdbb, Cached::Relation* relation, USHORT* version,
+		TemporaryField* stack);
+	static void raiseTooManyVersionsError(const int obj_type, const MetaName& obj_name);
 
 public:
 	NestConst<RelationSourceNode> dsqlNode;

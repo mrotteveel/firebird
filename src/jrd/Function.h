@@ -76,6 +76,7 @@ namespace Jrd
 
 		static Function* create(thread_db* tdbb, MemoryPool& pool, Cached::Function* perm);
 		bool scan(thread_db* tdbb, ObjectBase::Flag flags);
+		void checkReload(thread_db* tdbb) const override;
 
 		static const char* objectFamily(void*)
 		{
@@ -126,7 +127,7 @@ namespace Jrd
 			return cachedFunction;
 		}
 
-		bool reload(thread_db* tdbb) override;
+		bool reload(thread_db* tdbb, ObjectBase::Flag fl);
 	};
 }
 

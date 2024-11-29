@@ -1740,7 +1740,7 @@ void blb::put_slice(thread_db*	tdbb,
 
 	jrd_rel* relation = info.sdl_info_relation.length() ?
 		MetadataCache::lookup_relation(tdbb, info.sdl_info_relation, CacheFlag::AUTOCREATE) :
-		MetadataCache::findRelation(tdbb, info.sdl_info_rid);
+		MetadataCache::lookup_relation_id(tdbb, info.sdl_info_rid, CacheFlag::AUTOCREATE);
 
 	if (!relation) {
 		IBERROR(196);			// msg 196 relation for array not known

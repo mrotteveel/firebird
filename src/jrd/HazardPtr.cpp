@@ -87,12 +87,6 @@ void ObjectBase::lockedExcl [[noreturn]] (thread_db* tdbb)
 	fatal_exception::raise("Unspecified object locked exclusive for deletion");
 }
 
-bool ObjectBase::reload(thread_db* tdbb)
-{
-	// default implementation for missing reload call
-	fatal_exception::raise("Unable to recompile this type of cached object");
-}
-
 
 // class CachePool
 

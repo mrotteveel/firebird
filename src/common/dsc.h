@@ -489,6 +489,16 @@ typedef struct dsc
 
 	int getStringLength() const;
 
+	bool operator==(const dsc& v) const
+	{
+		return dsc_dtype == v.dsc_dtype &&
+			dsc_scale == v.dsc_scale &&
+			dsc_length == v.dsc_length &&
+			dsc_sub_type == v.dsc_sub_type &&
+			dsc_flags == v.dsc_flags &&
+			dsc_address == v.dsc_address;
+	}
+
 	// These functions were added to have interoperability
 	// between Ods::Descriptor and struct dsc
 	dsc(const Ods::Descriptor& od)

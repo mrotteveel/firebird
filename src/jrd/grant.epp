@@ -68,7 +68,7 @@ inline void CHECK_AND_MOVE(Acl& to, UCHAR from)
 
 DATABASE DB = STATIC "yachts.lnk";
 
-static void define_default_class(thread_db*, const TEXT*, MetaName&, const Acl&,
+static void define_default_class(thread_db*, MetaName, MetaName&, const Acl&,
 							jrd_tra*);
 static void finish_security_class(Acl&, SecurityClass::flags_t);
 static void get_object_info(thread_db*, const TEXT*, ObjectType,
@@ -183,7 +183,7 @@ void GRANT_privileges(thread_db* tdbb, const Firebird::string& name, ObjectType 
 		if (restrct)
 		{
 			finish_security_class(default_acl, public_priv);
-			define_default_class(tdbb, name.c_str(), default_class, default_acl,
+			define_default_class(tdbb, name, default_class, default_acl,
 								 transaction);
 		}
 	}
@@ -196,7 +196,7 @@ void GRANT_privileges(thread_db* tdbb, const Firebird::string& name, ObjectType 
 
 
 static void define_default_class(thread_db* tdbb,
-								 const TEXT* relation_name,
+								 MetaName relation_name,
 								 MetaName& default_class,
 								 const Acl& acl,
 								 jrd_tra* transaction)
@@ -219,6 +219,9 @@ static void define_default_class(thread_db* tdbb,
  **************************************/
 	SET_TDBB(tdbb);
 
+	auto* relation = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
+	fb_assert(relation);
+
 	if (default_class.length() == 0)
 	{
 		default_class.printf("%s%" SQUADFORMAT, DEFAULT_CLASS,
@@ -228,7 +231,7 @@ static void define_default_class(thread_db* tdbb,
 
 		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 			REL IN RDB$RELATIONS
-				WITH REL.RDB$RELATION_NAME EQ relation_name
+				WITH REL.RDB$RELATION_NAME EQ relation_name.c_str()
 		{
             MODIFY REL USING
 				REL.RDB$DEFAULT_CLASS.NULL = FALSE;
@@ -241,14 +244,7 @@ static void define_default_class(thread_db* tdbb,
 
 	save_security_class(tdbb, default_class, acl, transaction);
 
-	dsc desc;
-	desc.dsc_dtype = dtype_text;
-	desc.dsc_sub_type = 0;
-	desc.dsc_scale = 0;
-	desc.setTextType(ttype_metadata);
-	desc.dsc_address = (UCHAR *) relation_name;
-	desc.dsc_length = static_cast<USHORT>(strlen(relation_name));
-	DFW_post_work(transaction, dfw_scan_relation, &desc, 0);
+	MetadataCache::newVersion(tdbb, obj_relation, relation->getId());
 }
 
 
@@ -844,7 +840,7 @@ static SecurityClass::flags_t save_field_privileges(thread_db* tdbb,
 		desc.setTextType(ttype_metadata);
 		desc.dsc_address = (UCHAR *) relation_name;
 		desc.dsc_length = static_cast<USHORT>(strlen(relation_name));
-		DFW_post_work(transaction, dfw_update_format, &desc, 0);
+		// ????????????????????????? DFW_post_work(transaction, dfw _update_format, &desc, 0);
 	}
 
 	return aggregate_public;

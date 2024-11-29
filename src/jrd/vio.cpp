@@ -2137,7 +2137,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			protect_system_table_delupd(tdbb, relation, "DELETE");
 
 			EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
-			DFW_post_work(transaction, dfw_update_format, &desc, 0);
+			/// ??? DdlNodes ??????????? Relation::updateFormat(tdbb, transaction, MetaName(desc));
 
 			EVL_field(0, rpb->rpb_record, f_rfr_fname, &desc2);
 			MOV_get_metaname(tdbb, &desc, object_name);
@@ -2148,7 +2148,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			MOV_get_metaname(tdbb, &desc2, object_name);
 
 			if (fb_utils::implicit_domain(object_name.c_str()))
-				DFW_post_work(transaction, dfw_delete_global, &desc2, 0);
+				DFW_post_work(transaction, dfw_delete_global, &desc2, 0);	/// ??? DdlNodes ???????????
 
 			break;
 
@@ -2220,7 +2220,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 		case rel_triggers:
 			protect_system_table_delupd(tdbb, relation, "DELETE");
 			EVL_field(0, rpb->rpb_record, f_trg_rname, &desc2);
-			DFW_post_work(transaction, dfw_update_format, &desc2, 0);
+			// ???????????????????? DFW_post_work(transaction, dfw_update_format, &desc2, 0);
 			EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
 			work = DFW_post_work(transaction, dfw_delete_trigger, &desc, 0);
 
@@ -3331,7 +3331,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 				SCL_check_relation(tdbb, &desc1, SCL_alter);
 			check_class(tdbb, transaction, org_rpb, new_rpb, f_rel_class);
 			check_owner(tdbb, transaction, org_rpb, new_rpb, f_rel_owner);
-			DFW_post_work(transaction, dfw_update_format, &desc1, 0);
+			// ???????????????????? DFW_post_work(transaction, dfw_update_format, &desc1, 0);
 			break;
 
 		case rel_packages:
@@ -3515,9 +3515,9 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 			if (dfw_should_know(tdbb, org_rpb, new_rpb, f_trg_desc, true))
 			{
 				EVL_field(0, new_rpb->rpb_record, f_trg_rname, &desc1);
-				DFW_post_work(transaction, dfw_update_format, &desc1, 0);
+				// ???????????????????? DFW_post_work(transaction, dfw_update_format, &desc1, 0);
 				EVL_field(0, org_rpb->rpb_record, f_trg_rname, &desc1);
-				DFW_post_work(transaction, dfw_update_format, &desc1, 0);
+				// ???????????????????? DFW_post_work(transaction, dfw_update_format, &desc1, 0);
 				EVL_field(0, org_rpb->rpb_record, f_trg_name, &desc1);
 				DeferredWork* dw = DFW_post_work(transaction, dfw_modify_trigger, &desc1, 0);
 
@@ -3961,7 +3961,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			protect_system_table_insert(tdbb, request, relation);
 			EVL_field(0, rpb->rpb_record, f_rel_name, &desc);
 			DFW_post_work(transaction, dfw_create_relation, &desc, 0);
-			DFW_post_work(transaction, dfw_update_format, &desc, 0);
+			// ???????????????????? DFW_post_work(transaction, dfw_update_format, &desc, 0);
 			set_system_flag(tdbb, rpb->rpb_record, f_rel_sys_flag);
 			set_owner_name(tdbb, rpb->rpb_record, f_rel_owner);
 			if (set_security_class(tdbb, rpb->rpb_record, f_rel_class))
@@ -4060,7 +4060,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 		case rel_rfr:
 			protect_system_table_insert(tdbb, request, relation);
 			EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
-			DFW_post_work(transaction, dfw_update_format, &desc, 0);
+			// ???????????????????? DFW_post_work(transaction, dfw_update_format, &desc, 0);
 			set_system_flag(tdbb, rpb->rpb_record, f_rfr_sys_flag);
 			break;
 
@@ -4128,8 +4128,8 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			if (!(request->getStatement()->flags & (Statement::FLAG_IGNORE_PERM | Statement::FLAG_INTERNAL)))
 				SCL_check_relation(tdbb, &desc, SCL_control | SCL_alter);
 
-			if (EVL_field(0, rpb->rpb_record, f_trg_rname, &desc2))
-				DFW_post_work(transaction, dfw_update_format, &desc2, 0);
+// ???????????????????? 			if (EVL_field(0, rpb->rpb_record, f_trg_rname, &desc2))
+// ???????????????????? 				DFW_post_work(transaction, dfw_update_format, &desc2, 0);
 
 			EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
 			work = DFW_post_work(transaction, dfw_create_trigger, &desc, 0);
@@ -4644,7 +4644,7 @@ static void check_rel_field_class(thread_db* tdbb,
 
 	DSC desc;
 	EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
-	DFW_post_work(transaction, dfw_update_format, &desc, 0);
+	// ?????????????//// DFW_post_work(transaction, dfw_update_format, &desc, 0);
 }
 
 static void check_class(thread_db* tdbb,

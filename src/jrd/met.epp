@@ -748,7 +748,7 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 		relation_name.makeText(sizeof(X.RDB$RELATION_NAME) - 1, CS_METADATA,
 			(UCHAR*) X.RDB$RELATION_NAME);
 		SCL_check_relation(tdbb, &relation_name, SCL_alter);
-		dw = DFW_post_work(transaction, dfw_update_format, &relation_name, 0);
+		// ?????????????///// dw = DFW_post_work(transaction, dfw _update_format, &relation_name, 0);
 
 		AutoCacheRequest request2(tdbb, irq_m_fields4, IRQ_REQUESTS);
 
@@ -2603,9 +2603,7 @@ jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name, O
  *
  **************************************/
 	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
-	jrd_rel* check_relation = nullptr;
+	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
 	auto* perm = lookupRelation(tdbb, name, flags);
 	if (!perm)
@@ -2718,7 +2716,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 	if (dbb->readOnly() && !(getPermanent(relation)->rel_flags & REL_temp_tran))
 		return;
 
-	getPermanent(relation)->rel_flags |= REL_sys_trigs_being_loaded;
+	AutoSetRestoreFlag loadSysTrigs(&getPermanent(relation)->rel_flags, REL_sys_trigs_being_loaded, true);
 
 	AutoCacheRequest request(tdbb, irq_s_triggers2, IRQ_REQUESTS);
 
@@ -2763,8 +2761,6 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 		}
 	}
 	END_FOR
-
-	getPermanent(relation)->rel_flags &= ~REL_sys_trigs_being_loaded;
 }
 
 
@@ -3083,7 +3079,13 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 	return !flReload;
 }
 
-bool jrd_prc::reload(thread_db* tdbb)
+void jrd_prc::checkReload(thread_db* tdbb) const
+{
+	if (flReload)
+		getPermanent()->reload(tdbb, 0);
+}
+
+bool jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 {
 	fb_assert(flReload);
 
@@ -3126,29 +3128,6 @@ bool jrd_prc::reload(thread_db* tdbb)
 	END_FOR
 
 	return false;
-}
-
-jrd_rel* MetadataCache::findRelation(thread_db* tdbb, USHORT id)
-{
-/**************************************
- *
- *      M E T _ r e l a t i o n
- *
- **************************************
- *
- * Functional description
- *      Find or create a relation block for a given relation id.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
-
-	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = dbb->dbb_mdc;
-	MemoryPool& pool = mdc->getPool();
-
-	return mdc->mdc_relations.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 }
 
 
@@ -3243,16 +3222,55 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 	blb* blob = NULL;
 
-	jrd_tra* depTrans = tdbb->getTransaction() ?
+	fb_assert(tdbb->getTransaction() || getId() < rel_MAX);
+	jrd_tra* trans = tdbb->getTransaction() ?
 		tdbb->getTransaction() : attachment->getSysTransaction();
+
+	if (flags & CacheFlag::NOCOMMIT)
+	{
+		// New version of relation is created currently.
+		// Perform onle very basic scan - may be more changes to come.
+		// scan() will be called automatically w/o NOCOMMIT
+		// on any attempt to use modified relation
+		// or on transaction commit.
+
+		AutoRequest request;
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
+			REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
+		{
+			rel_perm->rel_flags |= REL_format;
+			if (getName().isEmpty())
+			{
+				rel_perm->rel_name = REL.RDB$RELATION_NAME;
+				rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
+				if (!REL.RDB$RELATION_TYPE.NULL)
+					rel_perm->rel_flags |= MET_get_rel_flags_from_TYPE(REL.RDB$RELATION_TYPE);
+			}
+		}
+		END_FOR
+
+		fb_assert(rel_perm->rel_flags & REL_format);
+
+		// Next time reload() will be called
+		return false;
+	}
 
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;
 	bool sys_triggers = (rel_perm->rel_flags & REL_sys_triggers) ? true : false;
 
-	// If anything errors, catch it to reset the scan flag.  This will
-	// make sure that the error will be caught if the operation is tried again.
+	// If anything errors, cleanup to reset the flagw.
+	// This will ensure that the error will be caught if the operation is tried again.
+	Cleanup onError([&] {
+		if (dependencies)
+			rel_perm->rel_flags |= REL_get_dependencies;
 
-	try {
+		if (sys_triggers)
+			rel_perm->rel_flags |= REL_sys_triggers;
+
+		if (blob)
+			blob->BLB_close(tdbb);
+	});
+
 	rel_perm->rel_flags &= ~(REL_get_dependencies | REL_sys_triggers);
 
 	// REL_sys_triggers flags is set only for system relations in INI_init.
@@ -3261,15 +3279,20 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	if (sys_triggers)
 	{
 		MET_parse_sys_trigger(tdbb, this);
+		sys_triggers = false;
 		return true;
 	}
+
+	// Do we need new format version?
+	if (rel_perm->rel_flags & REL_format)
+		RelationNode::makeVersion(tdbb, trans, rel_perm->getName());
 
 	// Since this can be called recursively, find an inactive clone of the request
 
 	AutoCacheRequest request(tdbb, irq_r_fields, IRQ_REQUESTS);
 	CompilerScratch* csb = NULL;
 
-	FOR(REQUEST_HANDLE request)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
 		REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
 	{
 		if (getName().isEmpty())
@@ -3303,7 +3326,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			{
 				const MetaName depName(REL.RDB$RELATION_NAME);
 				rseNode = MET_get_dependencies(tdbb, this, NULL, 0, NULL, &REL.RDB$VIEW_BLR,
-					NULL, &csb, depName, obj_view, 0, depTrans);
+					NULL, &csb, depName, obj_view, 0, trans);
 			}
 			else
 				rseNode = MET_parse_blob(tdbb, rel_perm, &REL.RDB$VIEW_BLR, &csb, NULL, false, false);
@@ -3446,7 +3469,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 					csb->csb_g_flags |= csb_get_dependencies;
 					field->fld_source = PAR_make_field(tdbb, csb, view_context, (TEXT*) p);
 					const MetaName depName(REL.RDB$RELATION_NAME);
-					MET_store_dependencies(tdbb, csb->csb_dependencies, nullptr, depName, obj_view, depTrans);
+					MET_store_dependencies(tdbb, csb->csb_dependencies, nullptr, depName, obj_view, trans);
 				}
 				else
 					field->fld_source = PAR_make_field(tdbb, csb, view_context, (TEXT*) p);
@@ -3470,7 +3493,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 					DmlNode* nod = dependencies ?
 						MET_get_dependencies(tdbb, this, p, length, csb, NULL, NULL, NULL,
-							field->fld_name, obj_computed, 0, depTrans) :
+							field->fld_name, obj_computed, 0, trans) :
 						PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, 0);
 
 					field->fld_computation = static_cast<ValueExprNode*>(nod);
@@ -3539,7 +3562,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			}
 		}
 		blob->BLB_close(tdbb);
-		blob = 0;
+		blob = nullptr;
 
 		if (field && field->fld_security_name.length() == 0 && !REL.RDB$DEFAULT_CLASS.NULL)
 		{
@@ -3553,24 +3576,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
 
 	rel_current_format = NULL;
-
-	}	// try
-	catch (const Exception& ex)
-	{
-		if (sys_triggers)
-			iscLogException("!!!!!!!!!!!!!!!!!!!!", ex);
-
-		if (dependencies) {
-			rel_perm->rel_flags |= REL_get_dependencies;
-		}
-		if (sys_triggers) {
-			rel_perm->rel_flags |= REL_sys_triggers;
-		}
-		if (blob)
-			blob->BLB_close(tdbb);
-
-		throw;
-	}
+	dependencies = sys_triggers = false;
 
 	return true;
 }
@@ -5221,6 +5227,14 @@ namespace {
 			processedChange = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 			break;
 
+		case MetadataCache::Changer::CMD_MOD:
+			{
+				AutoSetRestore2<jrd_tra*, thread_db> nullifyTransaction(
+					tdbb, &thread_db::getTransaction, &thread_db::setTransaction, nullptr);
+				processedChange = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+			}
+			// fall through...
+
 		case MetadataCache::Changer::CMD_NEW:
 			processedChange = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
 			break;
@@ -5251,11 +5265,10 @@ void MetadataCache::changeVersion(thread_db* tdbb, Changer cmd, ObjectType objTy
 		changeVers(tdbb, cmd, mdc->mdc_functions, id);
 		break;
 
-/*
-	case :
-	changeVers(tdbb, cmd, mdc->, id);
-		break;
-*/
+	case obj_relation:
+		changeVers(tdbb, cmd, mdc->mdc_relations, id);
+			break;
+
 	default:
 		fb_assert(!"object in changeVersion");
 		break;

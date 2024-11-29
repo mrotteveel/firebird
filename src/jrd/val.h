@@ -211,6 +211,14 @@ public:
 		return FB_NEW_POOL(p) Format(p, len);
 	}
 
+	bool operator==(const Format& v) const
+	{
+		if ((fmt_length != v.fmt_length) || (fmt_count != v.fmt_count))
+			return false;
+
+		return fmt_desc == v.fmt_desc;
+	}
+
 	ULONG fmt_length;
 	USHORT fmt_count;
 	USHORT fmt_version;

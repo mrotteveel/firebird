@@ -134,7 +134,7 @@ namespace Jrd
 		bool isDefined() const { return defined; }
 		void setDefined(bool value) { defined = value; }
 
-		void checkReload(thread_db* tdbb) const;
+		virtual void checkReload(thread_db* tdbb) const = 0;
 
 		USHORT getDefaultCount() const { return defaultCount; }
 		void setDefaultCount(USHORT value) { defaultCount = value; }

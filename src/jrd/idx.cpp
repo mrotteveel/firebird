@@ -141,7 +141,8 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 			if (!MET_lookup_partner(tdbb, relation, &idx, 0))
 				continue;
 
-			auto referenced_relation = MetadataCache::findRelation(tdbb, idx.idx_primary_relation);
+			auto referenced_relation =
+				MetadataCache::lookup_relation_id(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
 			const USHORT index_id = idx.idx_primary_index;
 
 			// get the description of the primary key index
@@ -540,7 +541,8 @@ bool IndexCreateTask::handler(WorkItem& _item)
 //		if (!MET_lookup_partner(tdbb, relation, idx, m_creation->index_name)) {
 //			BUGCHECK(173);		// msg 173 referenced index description not found
 //		}
-		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation, CacheFlag::AUTOCREATE);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation,
+			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		partner_index_id = idx->idx_primary_index;
 	}
 
@@ -1706,7 +1708,8 @@ static idx_e check_foreign_key(thread_db* tdbb,
 
 	if (idx->idx_flags & idx_foreign)
 	{
-		partner_relation = MetadataCache::findRelation(tdbb, idx->idx_primary_relation);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation,
+			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		index_id = idx->idx_primary_index;
 		result = check_partner_index(tdbb, relation, record, transaction, idx,
 									 partner_relation, index_id);
@@ -1718,7 +1721,8 @@ static idx_e check_foreign_key(thread_db* tdbb,
 			if (idx->idx_id != frgn.dep_reference_id)
 				continue;
 
-			partner_relation = MetadataCache::findRelation(tdbb, frgn.dep_relation);
+			partner_relation = MetadataCache::lookup_relation_id(tdbb, frgn.dep_relation,
+				CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 			index_id = frgn.dep_index;
 
 			if ((getPermanent(relation)->rel_flags & REL_temp_conn) &&

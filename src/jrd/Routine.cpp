@@ -314,12 +314,6 @@ bool RoutinePermanent::destroy(thread_db* tdbb, RoutinePermanent* routine)
 	return false;
 }
 
-void Routine::checkReload(thread_db* tdbb) const
-{
-	if (flReload)
-		const_cast<Routine*>(this)->reload(tdbb);
-}
-
 void Routine::destroy(thread_db* tdbb, Routine* routine)
 {
 	if (routine->statement)

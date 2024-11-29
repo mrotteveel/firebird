@@ -420,7 +420,6 @@ public:
 	typedef unsigned Flag;
 	virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
 	virtual const char* c_name() const = 0;
-	virtual bool reload(thread_db* tdbb);
 };
 
 
@@ -497,7 +496,7 @@ public:
 	}
 
 	template <typename F>
-	void scanPass(F&& objScan)
+	void scanBar(F&& objScan)
 	{
 		// no need opening barrier twice
 		if (flg == READY)
@@ -580,7 +579,7 @@ public:
 
 	void cleanup(thread_db* tdbb)
 	{
-		if (object)		// take into an account ERASED entries
+		if (object)		// be careful with ERASED entries
 		{
 			OBJ::destroy(tdbb, object);
 			object = nullptr;
@@ -622,11 +621,8 @@ public:
 				auto* obj = listEntry->object;
 				if (obj)
 				{
-					listEntry->scan(
-						[&](bool rld)
-						{
-							return scanCallback(tdbb, obj, rld, fl);
-						},
+					listEntry->scanObject(
+						[&](bool rld) { return scanCallback(tdbb, obj, rld, fl); },
 					fl);
 				}
 				return obj;
@@ -766,16 +762,16 @@ public:
 	}
 
 	template <typename F>
-	void scan(F&& objScan, ObjectBase::Flag fl)
+	void scanObject(F&& scanFunction, ObjectBase::Flag fl)
 	{
 		if (!(fl & CacheFlag::NOSCAN))
-			bar.scanPass(std::forward<F>(objScan));
+			bar.scanBar(std::forward<F>(scanFunction));
 	}
 
 	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
 	{
 		fb_assert(obj);
-		return rld ? obj->reload(tdbb) : obj->scan(tdbb, fl);
+		return rld ? obj->reload(tdbb, fl) : obj->scan(tdbb, fl);
 	}
 
 	bool scanInProgress() const
@@ -853,7 +849,7 @@ public:
 		ptrToClean = clearPtr;
 	}
 
-	void reload(thread_db* tdbb)
+	void reload(thread_db* tdbb, ObjectBase::Flag fl)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		TraNumber cur = TransactionNumber::current(tdbb);
@@ -862,12 +858,9 @@ public:
 			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, 0);
 			if (obj)
 			{
-				listEntry->scan(
-					[&](bool rld)
-					{
-						return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, 0);
-					},
-				0);
+				listEntry->scanObject(
+					[&](bool rld) { return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, 0); },
+				fl);
 			}
 		}
 	}
@@ -901,7 +894,7 @@ public:
 
 			if (ListEntry<Versioned>::replace(list, newEntry, nullptr))
 			{
-				newEntry->scan(
+				newEntry->scanObject(
 					[&](bool rld)
 					{
 						return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl);
@@ -948,11 +941,8 @@ public:
 		setNewResetAt(oldResetAt, cur);
 		if (obj)
 		{
-			newEntry->scan(
-				[&](bool rld)
-				{
-					return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl);
-				},
+			newEntry->scanObject(
+				[&](bool rld) { return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl); },
 			fl);
 		}
 		if (! (fl & CacheFlag::NOCOMMIT))
@@ -1250,7 +1240,7 @@ public:
 				StoredElement* ptr = end->load(atomics::memory_order_relaxed);
 				if (ptr && cmp(ptr))
 				{
-					ptr->reload(tdbb);
+					ptr->reload(tdbb, 0);
 					return ptr;
 				}
 			}

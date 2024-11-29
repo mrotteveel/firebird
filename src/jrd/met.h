@@ -39,9 +39,11 @@
 
 #include "../jrd/CharSetContainer.h"
 
+namespace Jrd {
+
 // Record types for record summary blob records
 
-enum rsr_t {
+enum rsr_t : UCHAR {
 	RSR_field_id,
 	RSR_field_name,
 	RSR_view_context,
@@ -85,6 +87,8 @@ public:
 
 const int TFB_computed			= 1;
 const int TFB_array				= 2;
+
+} // namespace Jrd
 
 #include "../jrd/exe_proto.h"
 #include "../jrd/obj.h"
@@ -172,7 +176,8 @@ public:
 		return "procedure";
 	}
 
-	bool reload(thread_db* tdbb) override;
+	bool reload(thread_db* tdbb, ObjectBase::Flag fl);
+	void checkReload(thread_db* tdbb) const override;
 
 	static int objectType();
 };
@@ -305,7 +310,6 @@ public:
 													 MetaId* relation_id, IndexStatus* status);
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-    static jrd_rel* findRelation(thread_db* tdbb, MetaId id);
 
 	template<typename ID>
 	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const UCHAR* name, USHORT length)
@@ -369,12 +373,17 @@ public:
 		changeVersion(tdbb, Changer::CMD_NEW, objType, id);
 	}
 
+	static void modifyVersion(thread_db* tdbb, ObjectType objType, MetaId id)
+	{
+		changeVersion(tdbb, Changer::CMD_MOD, objType, id);
+	}
+
 	static void erase(thread_db* tdbb, ObjectType objType, MetaId id)
 	{
 		changeVersion(tdbb, Changer::CMD_ERASE, objType, id);
 	}
 
-	enum class Changer {CMD_OLD, CMD_NEW, CMD_ERASE};
+	enum class Changer {CMD_OLD, CMD_NEW, CMD_ERASE, CMD_MOD};
 
 private:
 	static void changeVersion(thread_db* tdbb, Changer cmd, ObjectType objType, MetaId id);

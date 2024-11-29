@@ -62,6 +62,7 @@
 #include "../jrd/constants.h"
 #include "../jrd/grant_proto.h"
 #include "../jrd/SystemPackages.h"
+#include "../dsql/DdlNodes.h"
 
 using namespace Firebird;
 using namespace Jrd;
@@ -722,6 +723,22 @@ namespace
 		AutoRequest handle;
 	};
 
+	class UpdateFormats : public Array<MetaName>
+	{
+	public:
+		void addIfMissing(MetaName relName)
+		{
+			if (!exist(relName))
+				push(relName);
+		}
+
+		void make(thread_db* tdbb)
+		{
+			for (auto relName : *this)
+				RelationNode::makeVersion(tdbb, tdbb->getTransaction(), relName);
+		}
+	};
+
 }; // namespace
 
 static void store_admin_role(thread_db*, const MetaName&, RoleSecurity&);
@@ -734,7 +751,7 @@ static void store_message(thread_db*, const trigger_msg*, AutoRequest&);
 static void store_relation(thread_db*, int, const char*, int, int, AutoRequest&, RelationSecurity&);
 static void store_relation_field(thread_db*, int, const char*, const char*, const char*, int, AutoRequest&);
 static void store_packages(thread_db*, NonRelationSecurity&, USHORT = 0);
-static void store_trigger(thread_db*, const jrd_trg*, AutoRequest&);
+static void store_trigger(thread_db*, const jrd_trg*, AutoRequest&, UpdateFormats&);
 
 
 //
@@ -754,6 +771,9 @@ void INI_format(thread_db* tdbb, const string& charset)
 	const auto ownerName = attachment->getUserName();
 	fb_assert(ownerName.hasData());
 
+	// Adding trigger(s) changes relation format
+	UpdateFormats updateFormats;
+
 	AutoRequest handle, reqAddSC;
 
 	{ // scope for system relations
@@ -768,7 +788,7 @@ void INI_format(thread_db* tdbb, const string& charset)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent)
 			{
-				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
+				DPM_create_relation(tdbb, MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID],
 					CacheFlag::AUTOCREATE | CacheFlag::NOSCAN));
 			}
 
@@ -904,7 +924,7 @@ void INI_format(thread_db* tdbb, const string& charset)
 	handle.reset();
 
 	for (const jrd_trg* trigger = triggers; trigger->trg_relation; ++trigger)
-		store_trigger(tdbb, trigger, handle);
+		store_trigger(tdbb, trigger, handle, updateFormats);
 
 	// Store trigger messages to go with triggers
 
@@ -948,6 +968,8 @@ void INI_format(thread_db* tdbb, const string& charset)
 	buf.printf("%d", GRANT_REVOKE_ANY_DDL_RIGHT);
 	storeGrant(tdbb, buf.c_str(), obj_privilege, "RDB$DB_CREATORS", obj_relation, "SIUDR");
 	GRANT_privileges(tdbb, "RDB$DB_CREATORS", obj_relation, transaction);
+
+	updateFormats.make(tdbb);
 
 	DFW_perform_work(tdbb, transaction);
 
@@ -1275,6 +1297,10 @@ void INI_upgrade(thread_db* tdbb)
 
 	try {
 
+	// finally we should update formats of system relations
+
+	UpdateFormats updateFormats;
+
 	// Disable most of the deferred work processing,
 	// as we do all the underlying work ourselves
 
@@ -1301,7 +1327,7 @@ void INI_upgrade(thread_db* tdbb)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent && relfld[RFLD_R_ODS] > odsVersion)
 			{
-				DPM_create_relation(tdbb, MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
+				DPM_create_relation(tdbb, MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID],
 					CacheFlag::AUTOCREATE | CacheFlag::NOSCAN));
 			}
 
@@ -1356,12 +1382,8 @@ void INI_upgrade(thread_db* tdbb)
 				}
 				END_FOR
 
-				// Schedule metadata cache to be updated at the commit time
-
-				dsc desc;
-				desc.makeText(static_cast<USHORT>(strlen(relName)), CS_METADATA,
-							  (UCHAR*) relName);
-				DFW_post_work(transaction, dfw_update_format, &desc, 0);
+				// Schedule metadata cache to be updated
+				updateFormats.push(relName);
 			}
 		}
 	}
@@ -1392,7 +1414,7 @@ void INI_upgrade(thread_db* tdbb)
 	for (const jrd_trg* trigger = triggers; trigger->trg_relation; ++trigger)
 	{
 		if (trigger->trg_ods_version > odsVersion)
-			store_trigger(tdbb, trigger, handle);
+			store_trigger(tdbb, trigger, handle, updateFormats);
 	}
 
 	context = "trigger messages";
@@ -1429,6 +1451,8 @@ void INI_upgrade(thread_db* tdbb)
 	// the missing charsets/collations.
 	//
 	// The same about the new types being introduced in minor ODS versions.
+
+	updateFormats.make(tdbb);
 
 	TRA_commit(tdbb, transaction, false);
 
@@ -2241,19 +2265,15 @@ static void store_packages(thread_db* tdbb, NonRelationSecurity& security, USHOR
 }
 
 
-static void store_trigger(thread_db* tdbb, const jrd_trg* trigger, AutoRequest& handle)
+static void store_trigger(thread_db* tdbb, const jrd_trg* trigger, AutoRequest& handle, UpdateFormats& updateFormats)
 {
 	const auto attachment = tdbb->getAttachment();
 	const auto transaction = tdbb->getTransaction();
 
 	// Indicate that the relation format needs revising
 
-	const auto triggerName = names[trigger->trg_relation];
-
-	dsc desc;
-	desc.makeText(static_cast<USHORT>(strlen(triggerName)), CS_METADATA,
-				  (UCHAR*) triggerName);
-	DFW_post_work(transaction, dfw_update_format, &desc, 0);
+	const auto relName = names[trigger->trg_relation];
+	updateFormats.addIfMissing(relName);
 
 	// Store the trigger
 
@@ -2261,7 +2281,7 @@ static void store_trigger(thread_db* tdbb, const jrd_trg* trigger, AutoRequest& 
 		X IN RDB$TRIGGERS
 	{
 		PAD(trigger->trg_name, X.RDB$TRIGGER_NAME);
-		PAD(names[trigger->trg_relation], X.RDB$RELATION_NAME);
+		PAD(relName, X.RDB$RELATION_NAME);
 		X.RDB$TRIGGER_SEQUENCE = 0;
 		X.RDB$SYSTEM_FLAG = RDB_system;
 		X.RDB$SYSTEM_FLAG.NULL = FALSE;

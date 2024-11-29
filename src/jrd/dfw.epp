@@ -389,7 +389,6 @@ static bool modify_field(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_global(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_parameter(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_rfr(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
-static bool make_version(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool add_difference(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_difference(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool begin_backup(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
@@ -417,12 +416,6 @@ static bool formatsAreEqual(const Format*, const Format*);
 static bool	find_depend_in_dfw(thread_db*, TEXT*, USHORT, USHORT, jrd_tra*);
 static void get_array_desc(thread_db*, const TEXT*, Ods::InternalArrayDesc*);
 static void get_trigger_dependencies(DeferredWork*, bool, jrd_tra*);
-static Format*	make_format(thread_db*, jrd_rel*, USHORT *, TemporaryField*);
-static void put_summary_blob(thread_db* tdbb, blb*, enum rsr_t, bid*, jrd_tra*);
-static void put_summary_record(thread_db* tdbb, blb*, enum rsr_t, const UCHAR*, ULONG);
-static void	setup_array(thread_db*, blb*, const TEXT*, USHORT, TemporaryField*);
-//static blb*	setup_triggers(thread_db*, jrd_rel*, bool, TrigVectorPtr*, blb*);
-//static void	setup_trigger_details(thread_db*, jrd_rel*, blb*, TrigVectorPtr*, const TEXT*, bool);
 static bool validate_text_type (thread_db*, const TemporaryField*);
 
 static string get_string(const dsc* desc);
@@ -596,6 +589,13 @@ static const UCHAR nonnull_validation_blr[] =
 	blr_fid, 0, 0, 0,
 	blr_eoc
 };
+
+static void DFW_check_dependencies(thread_db* tdbb,
+							const TEXT* dpdo_name,
+							const TEXT* field_name,
+							const TEXT* package_name,
+							int dpdo_type,
+							jrd_tra* transaction);
 
 typedef bool (*dfw_task_routine) (thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 struct deferred_task
@@ -1140,9 +1140,9 @@ static const deferred_task task_table[] =
 	{ dfw_modify_field, modify_field },
 /*
 	{ dfw_delete_global, delete_global },
+*/
 	{ dfw_create_relation, create_relation },
-	{ dfw_update_format, make_version },
-	{ dfw_scan_relation, scan_relation },
+/*
 	{ dfw_compute_security, compute_security },
 */
 	{ dfw_create_index, create_index },
@@ -1182,6 +1182,106 @@ static const deferred_task task_table[] =
 */
 	{ dfw_null, NULL }
 };
+
+
+static void DFW_check_dependencies(thread_db* tdbb,
+							const TEXT* dpdo_name,
+							const TEXT* field_name,
+							const TEXT* package_name,
+							int dpdo_type,
+							jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c h e c k _ d e p e n d e n c i e s
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check the dependency list for relation or relation.field
+ *	before deleting such.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	const MetaName packageName(package_name);
+
+	SLONG dep_counts[obj_type_MAX];
+	for (int i = 0; i < obj_type_MAX; i++)
+		dep_counts[i] = 0;
+
+	if (field_name)
+	{
+		AutoCacheRequest request(tdbb, irq_ch_f_dpd, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request)
+			DEP IN RDB$DEPENDENCIES
+				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
+				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
+				AND DEP.RDB$FIELD_NAME EQ field_name
+				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
+				REDUCED TO DEP.RDB$DEPENDENT_NAME
+		{
+			// If the found object is also being deleted, there's no dependency
+
+			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
+									0, transaction))
+			{
+				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
+			}
+		}
+		END_FOR
+	}
+	else
+	{
+		AutoCacheRequest request(tdbb, irq_ch_dpd, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request)
+			DEP IN RDB$DEPENDENCIES
+				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
+				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
+				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
+				REDUCED TO DEP.RDB$DEPENDENT_NAME
+		{
+			// If the found object is also being deleted, there's no dependency
+
+			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
+									0, transaction))
+			{
+				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
+			}
+		}
+		END_FOR
+	}
+
+	SLONG total = 0;
+	for (int i = 0; i < obj_type_MAX; i++)
+		total += dep_counts[i];
+
+	if (!total)
+		return;
+
+	if (field_name)
+	{
+		string fld_name(dpdo_name);
+		fld_name.append(".");
+		fld_name.append(field_name);
+
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_no_delete) <<						// Msg353: can not delete
+				 Arg::Gds(isc_field_name) << Arg::Str(fld_name) <<
+				 Arg::Gds(isc_dependency) << Arg::Num(total));	// Msg310: there are %ld dependencies
+	}
+	else
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_no_delete) <<						// can not delete
+				 Arg::Gds(getErrorCodeByObjectType(dpdo_type)) <<
+				 	Arg::Str(QualifiedName(dpdo_name, packageName).toString()) <<
+				 Arg::Gds(isc_dependency) << Arg::Num(total));	// there are %ld dependencies
+	}
+}
 
 
 USHORT DFW_assign_index_type(thread_db* tdbb, const MetaName& name, SSHORT field_type,
@@ -2137,106 +2237,6 @@ static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
 }
 
 
-void DFW_check_dependencies(thread_db* tdbb,
-							const TEXT* dpdo_name,
-							const TEXT* field_name,
-							const TEXT* package_name,
-							int dpdo_type,
-							jrd_tra* transaction)
-{
-/**************************************
- *
- *	c h e c k _ d e p e n d e n c i e s
- *
- **************************************
- *
- * Functional description
- *	Check the dependency list for relation or relation.field
- *	before deleting such.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-
-	const MetaName packageName(package_name);
-
-	SLONG dep_counts[obj_type_MAX];
-	for (int i = 0; i < obj_type_MAX; i++)
-		dep_counts[i] = 0;
-
-	if (field_name)
-	{
-		AutoCacheRequest request(tdbb, irq_ch_f_dpd, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			DEP IN RDB$DEPENDENCIES
-				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
-				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
-				AND DEP.RDB$FIELD_NAME EQ field_name
-				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
-				REDUCED TO DEP.RDB$DEPENDENT_NAME
-		{
-			// If the found object is also being deleted, there's no dependency
-
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
-									0, transaction))
-			{
-				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
-			}
-		}
-		END_FOR
-	}
-	else
-	{
-		AutoCacheRequest request(tdbb, irq_ch_dpd, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			DEP IN RDB$DEPENDENCIES
-				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
-				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
-				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
-				REDUCED TO DEP.RDB$DEPENDENT_NAME
-		{
-			// If the found object is also being deleted, there's no dependency
-
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
-									0, transaction))
-			{
-				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
-			}
-		}
-		END_FOR
-	}
-
-	SLONG total = 0;
-	for (int i = 0; i < obj_type_MAX; i++)
-		total += dep_counts[i];
-
-	if (!total)
-		return;
-
-	if (field_name)
-	{
-		string fld_name(dpdo_name);
-		fld_name.append(".");
-		fld_name.append(field_name);
-
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_no_delete) <<						// Msg353: can not delete
-				 Arg::Gds(isc_field_name) << Arg::Str(fld_name) <<
-				 Arg::Gds(isc_dependency) << Arg::Num(total));	// Msg310: there are %ld dependencies
-	}
-	else
-	{
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_no_delete) <<						// can not delete
-				 Arg::Gds(getErrorCodeByObjectType(dpdo_type)) <<
-				 	Arg::Str(QualifiedName(dpdo_name, packageName).toString()) <<
-				 Arg::Gds(isc_dependency) << Arg::Num(total));	// there are %ld dependencies
-	}
-}
-
-
 static bool find_depend_in_dfw(thread_db*	tdbb,
 							   TEXT*	object_name,
 							   USHORT	dep_type,
@@ -2906,10 +2906,6 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
  **************************************/
 	SET_TDBB(tdbb);
 
-	// Maybe a permanent check?
-	//if (id == idx_invalid)
-	//	ERR_post(...);
-
 	switch (phase)
 	{
 	case 0:
@@ -2937,5 +2933,185 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	}
 
 	return false;
+}
+
+
+static bool create_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c r e a t e _ r e l a t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Create a new relation.
+ *
+ **************************************/
+	AutoCacheRequest request;
+	USHORT rel_id, external_flag;
+	bid blob_id;
+	AutoRequest handle;
+	Lock* lock;
+
+	blob_id.clear();
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+
+	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+	case 3:
+		return true;
+
+	case 4:
+/*
+		// get the relation and flag it to check for dependencies
+		// in the view blr (if it exists) and any computed fields
+
+		request.reset(tdbb, irq_c_relation2, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE request)
+			X IN RDB$RELATIONS WITH
+				X.RDB$RELATION_NAME EQ work->dfw_name.c_str()
+		{
+			rel_id = X.RDB$RELATION_ID;
+			// auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE | CacheFlag::DEPENDENCIES);
+			MetadataCache::newVersion(tdbb, obj_relation, rel_id);
+		}
+		END_FOR
+ */
+	case 5:
+	case 6:
+		return true;
+
+	case 7:
+		{
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_name, 0);
+			if (relation)
+				relation->commit(tdbb);
+		}
+		break;
+	}
+
+	return false;
+}
+
+
+static bool validate_text_type(thread_db* tdbb, const TemporaryField* tfb)
+{
+/**************************************
+ *
+ *	v a l i d a t e _ t e x t _ t y p e
+ *
+ **************************************
+ *
+ * Functional description
+ *	Make sure the text type specified is implemented
+ *
+ **************************************/
+
+	TTypeId ttId = tfb->tfb_desc.getTextType();
+	switch(ttId)
+	{
+	case TTypeId(CS_NONE):
+	case TTypeId(CS_BINARY):
+		break;
+
+	default:
+		return INTL_defined_type(tdbb, ttId);
+	}
+
+	return true;
+}
+
+
+static void get_array_desc(thread_db* tdbb, const TEXT* field_name, Ods::InternalArrayDesc* desc)
+{
+/**************************************
+ *
+ *	g e t _ a r r a y _ d e s c
+ *
+ **************************************
+ *
+ * Functional description
+ *	Get array descriptor for an array.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	AutoCacheRequest request(tdbb, irq_r_fld_dim, IRQ_REQUESTS);
+
+	Ods::InternalArrayDesc::iad_repeat* ranges = 0;
+	FOR (REQUEST_HANDLE request)
+		D IN RDB$FIELD_DIMENSIONS WITH D.RDB$FIELD_NAME EQ field_name
+	{
+		if (D.RDB$DIMENSION >= 0 && D.RDB$DIMENSION < desc->iad_dimensions)
+		{
+			ranges = desc->iad_rpt + D.RDB$DIMENSION;
+			ranges->iad_lower = D.RDB$LOWER_BOUND;
+			ranges->iad_upper = D.RDB$UPPER_BOUND;
+		}
+	}
+	END_FOR
+
+	desc->iad_count = 1;
+
+	for (ranges = desc->iad_rpt + desc->iad_dimensions; --ranges >= desc->iad_rpt;)
+	{
+		ranges->iad_length = desc->iad_count;
+		desc->iad_count *= ranges->iad_upper - ranges->iad_lower + 1;
+	}
+
+	desc->iad_version = Ods::IAD_VERSION_1;
+	desc->iad_length = IAD_LEN(MAX(desc->iad_struct_count, desc->iad_dimensions));
+	desc->iad_element_length = desc->iad_rpt[0].iad_desc.dsc_length;
+	desc->iad_total_length = desc->iad_element_length * desc->iad_count;
+}
+
+
+static bool formatsAreEqual(const Format* old_format, const Format* new_format)
+{
+/**************************************
+ *
+ * Functional description
+ *	Compare two format blocks
+ *
+ **************************************/
+
+	if ((old_format->fmt_length != new_format->fmt_length) ||
+		(old_format->fmt_count != new_format->fmt_count))
+	{
+		return false;
+	}
+
+	Format::fmt_desc_const_iterator old_desc = old_format->fmt_desc.begin();
+	const Format::fmt_desc_const_iterator old_end = old_format->fmt_desc.end();
+
+	Format::fmt_desc_const_iterator new_desc = new_format->fmt_desc.begin();
+
+	while (old_desc != old_end)
+	{
+		if ((old_desc->dsc_dtype != new_desc->dsc_dtype) ||
+			(old_desc->dsc_scale != new_desc->dsc_scale) ||
+			(old_desc->dsc_length != new_desc->dsc_length) ||
+			(old_desc->dsc_sub_type != new_desc->dsc_sub_type) ||
+			(old_desc->dsc_flags != new_desc->dsc_flags) ||
+			(old_desc->dsc_address != new_desc->dsc_address))
+		{
+			return false;
+		}
+
+		++new_desc;
+		++old_desc;
+	}
+
+	return true;
 }
 

@@ -240,6 +240,11 @@ public:
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
 
+	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	{
+		return scan(tdbb, flags);
+	}
+
 	const char* c_name() const override
 	{
 		return perm->c_name();
@@ -410,7 +415,7 @@ public:
 
 private:
 	RelationPages*	rel_next_free;
-	SLONG	useCount;
+	SLONG			useCount;
 
 	static const ULONG MAX_DPMAP_ITEMS = 64;
 
@@ -514,6 +519,11 @@ public:
 
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
 
+	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	{
+		return scan(tdbb, flags);
+	}
+
 	const char* c_name() const override
 	{
 		return idv_name.c_str();
@@ -582,8 +592,6 @@ public:
 
 	Nullable<bool>	rel_ss_definer;
 
-//	Firebird::Mutex rel_trig_load_mutex;
-
 	TrigArray rel_triggers;
 
 	bool hasData() const;
@@ -609,6 +617,11 @@ public:
 	static Lock* makeLock(thread_db*, MemoryPool&)
 	{
 		return nullptr;		// ignored
+	}
+
+	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	{
+		return scan(tdbb, flags);
 	}
 
 	static const char* objectFamily(RelationPermanent* perm);
@@ -637,6 +650,7 @@ const ULONG REL_temp_tran				= 0x0040;	// relation is a GTT delete rows
 const ULONG REL_temp_conn				= 0x0080;	// relation is a GTT preserve rows
 const ULONG REL_virtual					= 0x0100;	// relation is virtual
 const ULONG REL_jrd_view				= 0x0200;	// relation is VIEW
+const ULONG REL_format					= 0x0400;	// new format version to be built
 
 class GCLock
 {
