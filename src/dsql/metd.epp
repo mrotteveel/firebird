@@ -1193,6 +1193,9 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 			return temp;
 	}
 
+	// Ensure IDs were assigned for new relation
+	MetadataCache::lookupRelation(tdbb, name, 0);
+
 	// If the relation id or any of the field ids have not yet been assigned,
 	// and this is a type of statement which does not use ids, prepare a
 	// temporary relation block to provide information without caching it
