@@ -924,8 +924,9 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, USHORT id)
 	{
 		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
 		CCH_MARK(tdbb, window);
-		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->irt_root);
-		tree_exists = !irt_desc->isEmpty();
+		const ULONG rootPage = irt_desc->getRoot();
+		const PageNumber next(window->win_page.getPageSpaceID(), rootPage);
+		tree_exists = (rootPage != 0);
 
 		// remove the pointer to the top-level index page before we delete it
 		irt_desc->setEmpty();
@@ -961,11 +962,12 @@ bool BTR_description(thread_db* tdbb, jrd_rel* relation, index_root_page* root, 
 
 	const index_root_page::irt_repeat* irt_desc = &root->irt_rpt[id];
 
-	if (irt_desc->isEmpty())
+	const ULONG rootPage = irt_desc->getRoot();
+	if (!rootPage)
 		return false;
 
 	idx->idx_id = id;
-	idx->idx_root = irt_desc->irt_root;
+	idx->idx_root = rootPage;
 	idx->idx_count = irt_desc->irt_keys;
 	idx->idx_flags = irt_desc->irt_flags;
 	idx->idx_runtime_flags = 0;
@@ -1450,7 +1452,7 @@ void BTR_insert(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 	// update the index root page.  Oh boy.
 	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, root_window, LCK_write, pag_root);
 
-	window.win_page = root->irt_rpt[idx->idx_id].irt_root;
+	window.win_page = root->irt_rpt[idx->idx_id].getRoot();
 	bucket = (btree_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_index);
 
 	if (window.win_page.getPageNum() != idx->idx_root)
@@ -1500,7 +1502,7 @@ void BTR_insert(thread_db* tdbb, WIN* root_window, index_insertion* insertion)
 			BUGCHECK(204);	// msg 204 index inconsistent
 		}
 
-		window.win_page = root->irt_rpt[idx->idx_id].irt_root;
+		window.win_page = root->irt_rpt[idx->idx_id].getRoot();
 		bucket = (btree_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_index);
 		key.key_length = ret_key.key_length;
 		memcpy(key.key_data, ret_key.key_data, ret_key.key_length);
@@ -2392,15 +2394,13 @@ void BTR_selectivity(thread_db* tdbb, jrd_rel* relation, USHORT id, SelectivityL
 	if (!root)
 		return;
 
-	if (id >= root->irt_count || root->irt_rpt[id].isEmpty())
+	if (id >= root->irt_count || !root->irt_rpt[id].getRoot())
 	{
 		CCH_RELEASE(tdbb, &window);
 		return;
 	}
 
-	ULONG page = root->irt_rpt[id].irt_root;
-	fb_assert(page);
-
+	ULONG page = root->irt_rpt[id].getRoot();
 	const bool descending = (root->irt_rpt[id].irt_flags & irt_descending);
 	const ULONG segments = root->irt_rpt[id].irt_keys;
 
@@ -3335,7 +3335,7 @@ static USHORT compress_root(thread_db* tdbb, index_root_page* page)
 	for (const index_root_page::irt_repeat* const end = root_idx + page->irt_count;
 		 root_idx < end; root_idx++)
 	{
-		if (!root_idx->isEmpty())
+		if (root_idx->getRoot())
 		{
 			const USHORT len = root_idx->irt_keys * sizeof(irtd);
 			p -= len;

@@ -1566,11 +1566,12 @@ static void analyze_index( const dba_rel* relation, dba_idx* index)
 
 	const index_root_page* index_root = (const index_root_page*) db_read(relation->rel_index_root);
 
-	if (index_root->irt_count <= index->idx_id || index_root->irt_rpt[index->idx_id].isEmpty())
+	if (index_root->irt_count <= index->idx_id)
 		return;
 
-	ULONG page = index_root->irt_rpt[index->idx_id].irt_root;
-	fb_assert(page);
+	ULONG page = index_root->irt_rpt[index->idx_id].getRoot();
+	if (!page)
+		return;
 
 	// CVC: The two const_cast's for bucket can go away if BTreeNode's functions
 	// are overloaded for constness. They don't modify bucket and pointer's contents.

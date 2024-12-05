@@ -1976,11 +1976,9 @@ Validation::RTN Validation::walk_index(jrd_rel* relation, index_root_page* root_
  **************************************/
 	Database* dbb = vdr_tdbb->getDatabase();
 
-	if (root_page->irt_rpt[id].isEmpty())
+	const ULONG page_number = root_page->irt_rpt[id].getRoot();
+	if (!page_number)
 		return rtn_ok;
-
-	const ULONG page_number = root_page->irt_rpt[id].irt_root;
-	fb_assert(page_number);
 
 	const bool unique = (root_page->irt_rpt[id].irt_flags & (irt_unique | idx_primary));
 	const bool descending = (root_page->irt_rpt[id].irt_flags & irt_descending);
@@ -3211,13 +3209,13 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 	if (!relPages->rel_index_root)
 		return corrupt(VAL_INDEX_ROOT_MISSING, relation);
 
-	index_root_page* page = 0;
+	index_root_page* page = nullptr;
 	WIN window(DB_PAGE_SPACE, -1);
 	fetch_page(!getInfo, relPages->rel_index_root, pag_root, &window, &page);
 
 	for (USHORT i = 0; i < page->irt_count; i++)
 	{
-		if (page->irt_rpt[i].isEmpty())
+		if (!page->irt_rpt[i].getRoot())
 			continue;
 
 		MetaName index;

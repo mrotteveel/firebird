@@ -368,24 +368,26 @@ struct index_root_page
 	USHORT irt_count;				// Number of indices
 	struct irt_repeat
 	{
+		friend class index_root_page;	// to allow offset check for private members
+	private:
 		union
 		{
 			FB_UINT64 irt_transaction;	// transaction in progress
 			ULONG irt_root;				// page number of index root
 		};
+	public:
 		USHORT irt_desc;				// offset to key descriptions
 		USHORT irt_flags;				// index flags
 		UCHAR irt_keys;					// number of keys in index
 
 		TraNumber inProgress() const;
-		bool isEmpty() const;
-		bool isUsed() const;
-
-		void setEmpty();
 		void setInProgress(TraNumber traNumber);
-		void clearInProgress(ULONG rootPage);
+
+		ULONG getRoot() const;
 		void setRoot(ULONG rootPage);
 
+		bool isUsed() const;
+		void setEmpty();
 	} irt_rpt[1];
 
 	static_assert(sizeof(struct irt_repeat) == 16, "struct irt_repeat size mismatch");
@@ -425,16 +427,6 @@ inline constexpr USHORT irt_primary			= 16;
 inline constexpr USHORT irt_expression		= 32;
 inline constexpr USHORT irt_condition		= 64;
 
-inline TraNumber index_root_page::irt_repeat::inProgress() const
-{
-	return (irt_flags & irt_in_progress) ? irt_transaction : 0;
-}
-
-inline bool index_root_page::irt_repeat::isEmpty() const
-{
-	return (irt_flags & irt_in_progress) || (irt_root == 0);
-}
-
 inline bool index_root_page::irt_repeat::isUsed() const
 {
 	return (irt_flags & irt_in_progress) || (irt_root != 0);
@@ -443,13 +435,24 @@ inline bool index_root_page::irt_repeat::isUsed() const
 inline void index_root_page::irt_repeat::setEmpty()
 {
 	irt_transaction = 0;
+	fb_assert(irt_root == 0);
 	irt_flags = 0;
+}
+
+inline TraNumber index_root_page::irt_repeat::inProgress() const
+{
+	return (irt_flags & irt_in_progress) ? irt_transaction : 0;
 }
 
 inline void index_root_page::irt_repeat::setInProgress(TraNumber traNumber)
 {
 	irt_transaction = traNumber;
 	irt_flags |= irt_in_progress;
+}
+
+inline ULONG index_root_page::irt_repeat::getRoot() const
+{
+	return (irt_flags & irt_in_progress) ? 0 : irt_root;
 }
 
 inline void index_root_page::irt_repeat::setRoot(ULONG rootPage)
