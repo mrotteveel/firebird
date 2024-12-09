@@ -2746,7 +2746,7 @@ void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
 			Statement* statement = NULL;
 
 			{
-				Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
+				Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 				PAR_blr(tdbb, getPermanent(relation), blr.begin(), length, NULL, NULL, &statement, true, par_flags);
 			}
 
@@ -2934,7 +2934,7 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 					 (fb_utils::implicit_domain(F.RDB$FIELD_NAME) && !F.RDB$DEFAULT_VALUE.NULL)))
 				{
 					setDefaultCount(getDefaultCount() + 1);
-					MemoryPool* pool = dbb->createPool();
+					MemoryPool* pool = dbb->createPool(ALLOC_ARGS0);
 					Jrd::ContextPoolHolder context(tdbb, pool);
 
 					try
@@ -2988,7 +2988,7 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 
 			if (external || !P.RDB$PROCEDURE_BLR.NULL)
 			{
-				MemoryPool* const csb_pool = dbb->createPool();
+				MemoryPool* const csb_pool = dbb->createPool(ALLOC_ARGS0);
 				Jrd::ContextPoolHolder context(tdbb, csb_pool);
 
 				try
@@ -3095,7 +3095,7 @@ bool jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 	FOR(REQUEST_HANDLE request)
 		P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ this->getId()
 	{
-		MemoryPool* const csb_pool = tdbb->getDatabase()->createPool();
+		MemoryPool* const csb_pool = tdbb->getDatabase()->createPool(ALLOC_ARGS0);
 		Jrd::ContextPoolHolder context(tdbb, csb_pool);
 
 		try
@@ -3258,7 +3258,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;
 	bool sys_triggers = (rel_perm->rel_flags & REL_sys_triggers) ? true : false;
 
-	// If anything errors, cleanup to reset the flagw.
+	// If anything errors, cleanup to reset the flag.
 	// This will ensure that the error will be caught if the operation is tried again.
 	Cleanup onError([&] {
 		if (dependencies)
@@ -3273,15 +3273,19 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	rel_perm->rel_flags &= ~(REL_get_dependencies | REL_sys_triggers);
 
-	// REL_sys_triggers flags is set only for system relations in INI_init.
+	// REL_sys_triggers flag is set only for system relations in INI_init.
 	// Process that task here and do nothing else for that relations
 
-	if (sys_triggers)
+	if (getId() < rel_MAX)
 	{
-		MET_parse_sys_trigger(tdbb, this);
-		sys_triggers = false;
+		if (sys_triggers)
+		{
+			MET_parse_sys_trigger(tdbb, this);
+			sys_triggers = false;
+		}
 		return true;
 	}
+	fb_assert(!sys_triggers);
 
 	// Do we need new format version?
 	if (rel_perm->rel_flags & REL_format)
@@ -4208,8 +4212,6 @@ bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				perm->names.push(T.RDB$TYPE_NAME);
 		}
 		END_FOR
-
-		fb_assert(perm->names.getCount());
 	}
 
 	FOR(REQUEST_HANDLE handle2)
@@ -4996,7 +4998,7 @@ void Trigger::compile(thread_db* tdbb)
 	if (!statement)
 	{
 		// Allocate statement memory pool
-		MemoryPool* new_pool = dbb->createPool();
+		MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
 		// Trigger request is not compiled yet. Lets do it now
 		USHORT par_flags = (USHORT) (flags & TRG_ignore_perm) ? csb_ignore_perm : 0;
 		if (type & 1)
@@ -5381,7 +5383,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (expression.hasData())
 	{
-		AutoMemoryPool stmtPool(dbb->createPool());
+		AutoMemoryPool stmtPool(dbb->createPool(ALLOC_ARGS0));
 		Jrd::ContextPoolHolder context(tdbb, stmtPool);
 
 		CompilerScratch* csb = nullptr;
@@ -5394,7 +5396,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (condition.hasData())
 	{
-		AutoMemoryPool stmtPool(dbb->createPool());
+		AutoMemoryPool stmtPool(dbb->createPool(ALLOC_ARGS0));
 		Jrd::ContextPoolHolder context(tdbb, stmtPool);
 
 		CompilerScratch* csb = nullptr;

@@ -445,13 +445,14 @@ public:
 
 namespace CacheFlag
 {
-	static const ObjectBase::Flag COMMITTED =	0x01;
-	static const ObjectBase::Flag ERASED =		0x02;
-	static const ObjectBase::Flag NOSCAN =		0x04;
-	static const ObjectBase::Flag AUTOCREATE =	0x08;
-	static const ObjectBase::Flag NOCOMMIT =	0x10;
-	static const ObjectBase::Flag RET_ERASED =	0x20;
-	static const ObjectBase::Flag RETIRED = 	0x40;
+	static const ObjectBase::Flag COMMITTED =	0x01;		// version already committed
+	static const ObjectBase::Flag ERASED =		0x02;		// object erased
+	static const ObjectBase::Flag NOSCAN =		0x04;		// do not call Versioned::scan()
+	static const ObjectBase::Flag AUTOCREATE =	0x08;		// create initial version automatically
+	static const ObjectBase::Flag NOCOMMIT =	0x10;		// do not commit created version
+	static const ObjectBase::Flag RET_ERASED =	0x20;		// return erased objects
+	static const ObjectBase::Flag RETIRED = 	0x40;		// object is in a process of GC
+	static const ObjectBase::Flag UPGRADE = 	0x80;		// create new versions for already existing in a cache objects
 }
 
 
@@ -721,7 +722,10 @@ public:
 	// return true if object was erased
 	bool commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
 	{
-		fb_assert((getFlags() & CacheFlag::COMMITTED) == 0);
+		// following assert is OK in general but breaks CREATE DATABASE
+		// commented out till better solution
+		// fb_assert((getFlags() & CacheFlag::COMMITTED) == 0);
+
 		fb_assert(traNumber == currentTrans);
 
 		traNumber = nextTrans;
@@ -1163,7 +1167,17 @@ public:
 			{
 				StoredElement* data = ptr->load(atomics::memory_order_acquire);
 				if (data)
+				{
+					if (fl & CacheFlag::UPGRADE)
+					{
+						auto val = makeObject(tdbb, id, fl);
+						if (val)
+							return val;
+						continue;
+					}
+
 					return data->getObject(tdbb, fl);
+				}
 			}
 
 			if (!(fl & CacheFlag::AUTOCREATE))

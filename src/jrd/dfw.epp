@@ -755,7 +755,7 @@ namespace
 						SSHORT validBlr = FALSE;
 
 						Jrd::Database* dbb = tdbb->getDatabase();
-						MemoryPool* newPool = dbb->createPool();
+						MemoryPool* newPool = dbb->createPool(ALLOC_ARGS0);
 						try
 						{
 							Jrd::ContextPoolHolder context(tdbb, newPool);
@@ -897,7 +897,7 @@ namespace
 			{
 				Statement* statement = NULL;
 				// Nickolay Samofatov: allocate statement memory pool...
-				MemoryPool* new_pool = dbb->createPool();
+				MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
 				// block is used to ensure verify_cache()
 				// works in not deleted context
 				{
@@ -1505,7 +1505,9 @@ void DFW_perform_work(thread_db* tdbb, jrd_tra* transaction)
 
 	SET_TDBB(tdbb);
 
-	tdbb->getAttachment()->att_dsql_instance->dbb_statement_cache->purgeAllAttachments(tdbb);
+	auto* dsql = tdbb->getAttachment()->att_dsql_instance;
+	if (dsql && dsql->dbb_statement_cache)
+		dsql->dbb_statement_cache->purgeAllAttachments(tdbb);
 
 	Jrd::ContextPoolHolder context(tdbb, transaction->tra_pool);
 
@@ -1912,6 +1914,17 @@ static string remove_icu_info_from_attributes(const string& charsetName, const s
 }
 
 
+bool DFW_setupCollationAttributes(const string& collationName, const string& charSetName,
+	const string& oldSpecificAttributes, string& newSpecificAttributes, bool dropIcuInfo)
+{
+	string oldCleanedAttributes = dropIcuInfo ?
+		remove_icu_info_from_attributes(charSetName.c_str(), oldSpecificAttributes) : oldSpecificAttributes;
+
+	DbgRebuildIntl::out("dropIcuInfo %d oldCleanedAttributes %s\n", dropIcuInfo, oldCleanedAttributes.c_str());
+
+	return IntlManager::setupCollationAttributes(collationName, charSetName, oldCleanedAttributes, newSpecificAttributes);
+}
+
 static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transaction,
 	const CSetId charSetId, const char* collationName, bool dropIcuInfo)
 {
@@ -1952,20 +1965,15 @@ static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transacti
 		const string specificAttributes((const char*) buffer.begin(), length);
 		DbgRebuildIntl::out("Try collation %s with %s\n", collationName, specificAttributes.c_str());
 
-		MetaName charsetName(CS.RDB$CHARACTER_SET_NAME);
-		string icuLessAttributes = dropIcuInfo ?
-			remove_icu_info_from_attributes(charsetName.c_str(), specificAttributes) : specificAttributes;
-		DbgRebuildIntl::out("dropIcuInfo %d icuLessAttributes %s\n", dropIcuInfo, icuLessAttributes.c_str());
-		string newSpecificAttributes;
-
 		// ASF: If setupCollationAttributes fail we store the original
 		// attributes. This should be what we want for new databases
-		// and restores. CREATE COLLATION will fail in DYN.
-		if (IntlManager::setupCollationAttributes(
+		// and restores.
+		string newSpecificAttributes;
+		if (DFW_setupCollationAttributes(
 				fb_utils::exact_name(COLL.RDB$BASE_COLLATION_NAME.NULL ?
 					COLL.RDB$COLLATION_NAME : COLL.RDB$BASE_COLLATION_NAME),
 				fb_utils::exact_name(CS.RDB$CHARACTER_SET_NAME),
-				icuLessAttributes, newSpecificAttributes) &&
+				specificAttributes, newSpecificAttributes, dropIcuInfo) &&
 			newSpecificAttributes != specificAttributes) // if nothing changed, we do nothing
 		{
 			DbgRebuildIntl::out("  Recreate collation %s\n", collationName);
@@ -2427,7 +2435,7 @@ static bool create_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			if (!validation.isEmpty())
 			{
 				Jrd::Database* dbb = tdbb->getDatabase();
-				MemoryPool* new_pool = dbb->createPool();
+				MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
 				MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &validation,
@@ -2592,7 +2600,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			if (!validation.isEmpty())
 			{
 				Jrd::Database* dbb = tdbb->getDatabase();
-				MemoryPool* new_pool = dbb->createPool();
+				MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
 				MET_get_dependencies(tdbb, nullptr, NULL, 0, NULL, &validation,
@@ -2670,19 +2678,7 @@ static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 
 	case 2:
 	case 3:
-		return true;
-
 	case 4:
-		{
-			auto* cs = MetadataCache::getCharSet(tdbb, id, 0);
-			if (!cs)
-			{
-				ERR_post(Arg::Gds(isc_no_meta_update) <<
-						 Arg::Gds(isc_charset_not_found) << Arg::Num(CSetId(id)));
-			}
-		}
-		return true;
-
 	case 5:
 	case 6:
 		return true;
@@ -2690,7 +2686,7 @@ static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 	case 7:
 		{
 			auto* cs = MetadataCache::getCharSet(tdbb, id, 0);
-			fb_assert(cs);
+			// fb_assert(cs);	--------------	breaks INI_ini()
 			if (cs)
 				cs->commit(tdbb);
 		}

@@ -759,7 +759,7 @@ static int validate(Firebird::UtilSvc* svc)
 
 		att->att_use_count++;
 
-		val_pool = dbb->createPool();
+		val_pool = dbb->createPool(ALLOC_ARGS0);
 		Jrd::ContextPoolHolder context(tdbb, val_pool);
 
 		Validation control(tdbb, svc);
@@ -1017,7 +1017,7 @@ bool Validation::run(thread_db* tdbb, USHORT flags)
 
 	try
 	{
-		val_pool = dbb->createPool();
+		val_pool = dbb->createPool(ALLOC_ARGS0);
 		Jrd::ContextPoolHolder context(tdbb, val_pool);
 
 		vdr_flags = flags;

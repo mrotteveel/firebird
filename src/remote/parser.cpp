@@ -311,7 +311,7 @@ static rem_fmt* parse_format(const UCHAR*& blr, size_t& blr_length)
 
 				USHORT textType = *blr++;
 				textType += (*blr++) << 8;
-				desc->setTextType(textType);
+				desc->setTextType(TTypeId(textType));
 			}
 			break;
 

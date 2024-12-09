@@ -463,7 +463,7 @@ public:
 	}
 #endif
 
-	MemoryPool* createPool();
+	MemoryPool* createPool(ALLOC_PARAMS0);
 	void deletePool(MemoryPool* pool);
 
 	void registerModule(Module&);

@@ -51,5 +51,7 @@ Jrd::DeferredWork* DFW_post_work_arg(Jrd::jrd_tra*, Jrd::DeferredWork*, const ds
 Jrd::DeferredWork* DFW_post_work_arg(Jrd::jrd_tra*, Jrd::DeferredWork*, const dsc*, USHORT, Jrd::dfw_t);
 void DFW_update_index(const TEXT*, USHORT, const Jrd::SelectivityList&, Jrd::jrd_tra*);
 void DFW_reset_icu(Jrd::thread_db*);
+bool DFW_setupCollationAttributes(const Firebird::string& collationName, const Firebird::string& charSetName,
+    const Firebird::string& oldSpecificAttributes, Firebird::string& newSpecificAttributes, bool dropIcuInfo = false);
 
 #endif // JRD_DFW_PROTO_H

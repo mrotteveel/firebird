@@ -73,9 +73,9 @@ inline constexpr TTypeId::TTypeId(CSetId cs)
 
 #include "../intl/charsets.h"
 
-#define ASCII_SPACE     32		// ASCII code for space
+inline const BYTE ASCII_SPACE			= 32;			// ASCII code for space
 
-//#define INTL_name_not_found		1
+//#define INTL_name_not_found		1			?????????????????
 //#define INTL_subtype_not_implemented	2
 
 /*

@@ -35,6 +35,7 @@
 
 #include "../jrd/flags.h"
 #include "../jrd/constants.h"
+#include "../jrd/intl.h"
 #include <stdlib.h>
 #include <firebird/Interface.h>
 
@@ -238,7 +239,7 @@ public:
 	// from isql.epp
 	USHORT major_ods;
 	USHORT minor_ods;
-	USHORT att_charset;
+	CSetId att_charset;
 	Firebird::IDecFloat16* df16;
 	Firebird::IDecFloat34* df34;
 	Firebird::IInt128* i128;
@@ -281,7 +282,8 @@ struct IsqlVar
 	const char* owner;
 	const char* alias;
 	int subType, scale;
-	unsigned type, length, charSet;
+	unsigned type, length;
+	CSetId charSet;
 	bool nullable;
 	short* nullInd;
 

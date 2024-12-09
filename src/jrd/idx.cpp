@@ -551,7 +551,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		fb_assert(!m_exprBlob.isEmpty());
 
 		CompilerScratch* csb = NULL;
-		Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
+		Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 
 		idx->idx_expression = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, getPermanent(relation), &m_exprBlob,
 			&csb, &idx->idx_expression_statement, false, false));

@@ -204,10 +204,8 @@ namespace IcuUtil
 	};
 
 	// Return the number of characters of a string.
-	static unsigned charLength(SSHORT charset, unsigned len, const char* str)
+	static unsigned charLength(CSetId charset, unsigned len, const char* str)
 	{
-		charset = TTYPE_TO_CHARSET(charset);
-
 		if (charset != CS_UNICODE_FSS && charset != CS_UTF8)
 			return len;
 
@@ -225,11 +223,9 @@ namespace IcuUtil
 	}
 
 	// Pads a string to a specified column width.
-	static void pad(char* buffer, SSHORT charset, unsigned len, const char* str, unsigned width,
+	static void pad(char* buffer, CSetId charset, unsigned len, const char* str, unsigned width,
 		bool right)
 	{
-		charset = TTYPE_TO_CHARSET(charset);
-
 		if (charset != CS_UNICODE_FSS && charset != CS_UTF8)
 		{
 			// Truncate if necessary.
@@ -523,7 +519,7 @@ static int query_abort(const int, const int, void*);
 static bool stdin_redirected();
 static void strip_quotes(const TEXT*, TEXT*);
 static const char* sqltype_to_string(unsigned);
-static const char* charset_to_string(unsigned);
+static const char* charset_to_string(CSetId);
 
 // The dialect spoken by the database, should be 0 when no database is connected.
 USHORT global_dialect_spoken = 0;
@@ -851,7 +847,7 @@ int ISQL_main(int argc, char* argv[])
 	isqlGlob.major_ods = 0;
 	isqlGlob.minor_ods = 0;
 	isqlGlob.db_SQL_dialect = 0;
-	isqlGlob.att_charset = 0;
+	isqlGlob.att_charset = CS_NONE;
 
 	// Output goes to stdout by default
 	isqlGlob.Out = stdout;
@@ -1580,16 +1576,16 @@ processing_state ISQL_fill_var(IsqlVar* var,
 							   unsigned index,
 							   UCHAR* buf)
 {
-	var->field = msg->getField(fbStatus, index);		if (failed()) return ps_ERR;
-	var->relation = msg->getRelation(fbStatus, index);	if (failed()) return ps_ERR;
-	var->owner = msg->getOwner(fbStatus, index);		if (failed()) return ps_ERR;
-	var->alias = msg->getAlias(fbStatus, index);		if (failed()) return ps_ERR;
-	var->subType = msg->getSubType(fbStatus, index);	if (failed()) return ps_ERR;
-	var->scale = msg->getScale(fbStatus, index);		if (failed()) return ps_ERR;
-	var->type = msg->getType(fbStatus, index);			if (failed()) return ps_ERR;
-	var->length = msg->getLength(fbStatus, index);		if (failed()) return ps_ERR;
-	var->charSet = msg->getCharSet(fbStatus, index);	if (failed()) return ps_ERR;
-	var->nullable = msg->isNullable(fbStatus, index);	if (failed()) return ps_ERR;
+	var->field = msg->getField(fbStatus, index);				if (failed()) return ps_ERR;
+	var->relation = msg->getRelation(fbStatus, index);			if (failed()) return ps_ERR;
+	var->owner = msg->getOwner(fbStatus, index);				if (failed()) return ps_ERR;
+	var->alias = msg->getAlias(fbStatus, index);				if (failed()) return ps_ERR;
+	var->subType = msg->getSubType(fbStatus, index);			if (failed()) return ps_ERR;
+	var->scale = msg->getScale(fbStatus, index);				if (failed()) return ps_ERR;
+	var->type = msg->getType(fbStatus, index);					if (failed()) return ps_ERR;
+	var->length = msg->getLength(fbStatus, index);				if (failed()) return ps_ERR;
+	var->charSet = CSetId(msg->getCharSet(fbStatus, index));	if (failed()) return ps_ERR;
+	var->nullable = msg->isNullable(fbStatus, index);			if (failed()) return ps_ERR;
 
 	if (buf)
 	{
@@ -6286,7 +6282,7 @@ void ISQL_get_version(bool call_by_create_db)
 			break;
 
 		case frb_info_att_charset:
-			isqlGlob.att_charset = p.getInt();
+			isqlGlob.att_charset = CSetId(p.getInt());
 			break;
 
 		default:
@@ -8012,7 +8008,7 @@ static unsigned print_item(TEXT** s, const IsqlVar* var, const unsigned length)
 		case SQL_TEXT:
 			str2 = var->value.asChar;
 			// See if it is character set OCTETS
-			if (var->charSet == 1)
+			if (var->charSet == CS_BINARY)
 			{
 				const ULONG hex_len = 2 * var->length;
 				TEXT* buff2 = (TEXT*) ISQL_ALLOC(hex_len + 1);
@@ -8044,7 +8040,7 @@ static unsigned print_item(TEXT** s, const IsqlVar* var, const unsigned length)
 				vary* avary = var->value.asVary;
 
 				// If CHARACTER SET OCTETS, print two hex digits per octet
-				if (var->charSet == 1)
+				if (var->charSet == CS_BINARY)
 				{
 					const ULONG hex_len = 2 * avary->vary_length;
 					char* buff2 = static_cast<char*>(ISQL_ALLOC(hex_len + 1));
@@ -8585,7 +8581,7 @@ static void print_message(Firebird::IMessageMetadata* msg, const char* dir)
 	{
 		unsigned type = msg->getType(fbStatus, i);
 		unsigned subtype = msg->getSubType(fbStatus, i);
-		unsigned cs;
+		CSetId cs;
 		isqlGlob.printf("%02d: sqltype: %d %s %sscale: %d subtype: %d len: %d",
 				i + 1, type, sqltype_to_string(type), msg->isNullable(fbStatus, i) ? "Nullable " : "",
 				msg->getScale(fbStatus, i), subtype, msg->getLength(fbStatus, i));
@@ -8598,7 +8594,7 @@ static void print_message(Firebird::IMessageMetadata* msg, const char* dir)
 
 		case SQL_TEXT:
 		case SQL_VARYING:
-			cs = msg->getCharSet(fbStatus, i);
+			cs = CSetId(msg->getCharSet(fbStatus, i));
 			isqlGlob.printf(" charset: %d %s", cs, charset_to_string(cs));
 			break;
 		}
@@ -8824,7 +8820,7 @@ static unsigned process_message_display(Firebird::IMessageMetadata* message, uns
 			namelength = NULL_DISP_LEN;
 
 		const unsigned type = var.type;
-		const SSHORT charSet = TTYPE_TO_CHARSET(var.charSet);
+		const auto charSet = var.charSet;
 
 		switch (type)
 		{
@@ -9629,7 +9625,7 @@ static const char* sqltype_to_string(unsigned sqltype)
 }
 
 
-static const char* charset_to_string(unsigned charset)
+static const char* charset_to_string(CSetId charset)
 {
 /**************************************
  *
@@ -9642,8 +9638,6 @@ static const char* charset_to_string(unsigned charset)
  *
  **************************************/
 	static Firebird::GlobalPtr<Firebird::GenericMap<Firebird::Pair<Firebird::Right<unsigned, string> > > > csMap;
-
-	charset = TTYPE_TO_CHARSET(charset);
 
 	string* text = csMap->get(charset);
 	if (text)

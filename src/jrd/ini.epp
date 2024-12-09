@@ -935,10 +935,11 @@ void INI_format(thread_db* tdbb, const string& charset)
 
 	// Create system packages
 
-	// Reset nonRelSec for package permissions, it should be its last usage in this function
-	new(&nonRelSec) NonRelationSecurity(ownerName, reqAddSC, true);
+	// --- Reset nonRelSec for package permissions, it should be its last usage in this function
+	//new(&nonRelSec) NonRelationSecurity(ownerName, reqAddSC, true);
+	NonRelationSecurity nonRelSec2(ownerName, reqAddSC, true);
 
-	store_packages(tdbb, nonRelSec);
+	store_packages(tdbb, nonRelSec2);
 
 	// Store default publication
 
@@ -1440,10 +1441,11 @@ void INI_upgrade(thread_db* tdbb)
 	// Create new system packages
 
 	// Reset nonRelSec for package permissions, it should be its last usage in this function
-	new(&nonRelSec) NonRelationSecurity(ownerName, reqAddSC, true);
+	// new(&nonRelSec) NonRelationSecurity(ownerName, reqAddSC, true);
+	NonRelationSecurity nonRelSec2(ownerName, reqAddSC, true);
 
 	context = "packages";
-	store_packages(tdbb, nonRelSec, odsVersion);
+	store_packages(tdbb, nonRelSec2, odsVersion);
 
 	// There are no new built-in charsets and collations introduced in ODS 13.1.
 	// But if it happens in some future minor ODS, the corresponding INTL structures
@@ -1965,10 +1967,24 @@ static void store_intlnames(thread_db* tdbb, NonRelationSecurity& security)
 
 			X.RDB$COLLATION_ATTRIBUTES = collation->attributes;
 
-			if (collation->specificAttributes)
+			string charSetName, modAttributes;
+			for (const auto* charSet = IntlManager::defaultCharSets;
+				charSet->name; ++charSet)
 			{
-				attachment->storeMetaDataBlob(tdbb, transaction,
-					&X.RDB$SPECIFIC_ATTRIBUTES, collation->specificAttributes);
+				if (charSet->id == collation->charSetId)
+				{
+					charSetName = charSet->name;
+					break;
+				}
+			}
+
+			fb_assert(charSetName.hasData());
+			DFW_setupCollationAttributes(collation->baseName ? collation->baseName : collation->name,
+				charSetName, collation->specificAttributes ? collation->specificAttributes : "", modAttributes);
+
+			if (modAttributes.hasData())
+			{
+				attachment->storeMetaDataBlob(tdbb, transaction, &X.RDB$SPECIFIC_ATTRIBUTES, modAttributes);
 				X.RDB$SPECIFIC_ATTRIBUTES.NULL = FALSE;
 			}
 			else
@@ -1977,6 +1993,12 @@ static void store_intlnames(thread_db* tdbb, NonRelationSecurity& security)
 		END_STORE
 
 		security.storePrivileges(tdbb, collation->name, obj_collation);
+	}
+
+	for (const IntlManager::CharSetDefinition* charSet = IntlManager::defaultCharSets;
+		 charSet->name; ++charSet)
+	{
+		MetadataCache::lookup_charset(tdbb, charSet->id, CacheFlag::UPGRADE | CacheFlag::NOCOMMIT);
 	}
 }
 

@@ -91,7 +91,7 @@ CommitNumber ActiveSnapshots::getSnapshotForVersion(CommitNumber version_cn)
 // static method
 Jrd::Attachment* Jrd::Attachment::create(Database* dbb, JProvider* provider)
 {
-	MemoryPool* const pool = dbb->createPool();
+	MemoryPool* const pool = dbb->createPool(ALLOC_ARGS0);
 
 	try
 	{

@@ -7874,7 +7874,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 
 					if (notNull && !defaultValue->isEmpty())
 					{
-						Jrd::ContextPoolHolder context(tdbb, dbb->createPool());
+						Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 						Statement* defaultStatement = NULL;
 						try
 						{
@@ -10800,7 +10800,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			{
 				// Allocate a new pool to contain the expression tree
 				// for index condition
-				const auto new_pool = dbb->createPool();
+				const auto new_pool = dbb->createPool(ALLOC_ARGS0);
 				CompilerScratch* csb = nullptr;
 
 				try
@@ -11097,7 +11097,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 
 					// Allocate a new pool to contain the expression tree
 					// for index expression
-					const auto new_pool = dbb->createPool();
+					const auto new_pool = dbb->createPool(ALLOC_ARGS0);
 
 					try
 					{
@@ -11130,7 +11130,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 					{
 						// Allocate a new pool to contain the expression tree
 						// for index condition
-						const auto new_pool = dbb->createPool();
+						const auto new_pool = dbb->createPool(ALLOC_ARGS0);
 
 						try
 						{

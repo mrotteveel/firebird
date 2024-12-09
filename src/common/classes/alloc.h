@@ -191,14 +191,20 @@ public:
 #define ALLOC_ARGS0 __FILE__, __LINE__
 #define ALLOC_PARAMS , const char* file, int line
 #define ALLOC_PARAMS1 const char* file, int line,
+#define ALLOC_PARAMS0 const char* file, int line
 #define ALLOC_PASS_ARGS , file, line
+#define ALLOC_PASS_ARGS1 file, line,
+#define ALLOC_PASS_ARGS0 file, line
 #else
 #define ALLOC_ARGS
 #define ALLOC_PARAMS
 #define ALLOC_PASS_ARGS
 #define ALLOC_ARGS1
 #define ALLOC_PARAMS1
+#define ALLOC_PASS_ARGS1
 #define ALLOC_ARGS0
+#define ALLOC_PARAMS0
+#define ALLOC_PASS_ARGS0
 #endif // DEBUG_GDS_ALLOC
 
 	// Create memory pool instance

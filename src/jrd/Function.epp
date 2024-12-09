@@ -259,7 +259,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				{
 					setDefaultCount(getDefaultCount() + 1);
 
-					MemoryPool* const csb_pool = dbb->createPool();
+					MemoryPool* const csb_pool = dbb->createPool(ALLOC_ARGS0);
 					Jrd::ContextPoolHolder context(tdbb, csb_pool);
 
 					try
@@ -327,7 +327,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 			}
 			else if (!X.RDB$ENGINE_NAME.NULL || !X.RDB$FUNCTION_BLR.NULL)
 			{
-				MemoryPool* const csb_pool = dbb->createPool();
+				MemoryPool* const csb_pool = dbb->createPool(ALLOC_ARGS0);
 				Jrd::ContextPoolHolder context(tdbb, csb_pool);
 
 				try
@@ -422,7 +422,7 @@ bool Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 		if (X.RDB$FUNCTION_BLR.NULL)
 			continue;
 
-		MemoryPool* const csb_pool = dbb->createPool();
+		MemoryPool* const csb_pool = dbb->createPool(ALLOC_ARGS0);
 		Jrd::ContextPoolHolder context(tdbb, csb_pool);
 
 		try

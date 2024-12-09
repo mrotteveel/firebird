@@ -492,7 +492,9 @@ inline void index_root_page::irt_repeat::setNormal()
 
 inline void index_root_page::irt_repeat::setNormal(ULONG root_page)
 {
-	fb_assert(getState() == irt_in_progress);
+	//create index mode: 	 ForRollback						AtOnce
+	fb_assert((getState() == irt_in_progress) || (getState() == irt_normal));
+
 	fb_assert(irt_root == 0);
 	fb_assert(root_page);
 

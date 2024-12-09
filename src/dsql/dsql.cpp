@@ -130,9 +130,9 @@ dsql_dbb::~dsql_dbb()
 {
 }
 
-MemoryPool* dsql_dbb::createPool()
+MemoryPool* dsql_dbb::createPool(ALLOC_PARAMS0)
 {
-	return dbb_attachment->att_database->createPool();
+	return dbb_attachment->att_database->createPool(ALLOC_PASS_ARGS0);
 }
 
 void dsql_dbb::deletePool(MemoryPool* pool)
@@ -437,7 +437,7 @@ static dsql_dbb* init(thread_db* tdbb, Jrd::Attachment* attachment)
 	if (attachment->att_dsql_instance)
 		return attachment->att_dsql_instance;
 
-	MemoryPool& pool = *attachment->att_database->createPool();
+	MemoryPool& pool = *attachment->att_database->createPool(ALLOC_ARGS0);
 	dsql_dbb* const database = FB_NEW_POOL(pool) dsql_dbb(pool, attachment);
 	attachment->att_dsql_instance = database;
 
@@ -540,12 +540,12 @@ static RefPtr<DsqlStatement> prepareStatement(thread_db* tdbb, dsql_dbb* databas
 
 	MemoryPool* scratchPool = nullptr;
 	DsqlCompilerScratch* scratch = nullptr;
-	MemoryPool* statementPool = database->createPool();
+	MemoryPool* statementPool = database->createPool(ALLOC_ARGS0);
 
 	Jrd::ContextPoolHolder statementContext(tdbb, statementPool);
 	try
 	{
-		scratchPool = database->createPool();
+		scratchPool = database->createPool(ALLOC_ARGS0);
 
 		if (!transaction)		// Useful for session management statements
 			transaction = database->dbb_attachment->getSysTransaction();
