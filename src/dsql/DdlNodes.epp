@@ -6104,7 +6104,8 @@ RelationNode::RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode)
 	: DdlNode(p),
 	  dsqlNode(aDsqlNode),
 	  name(p, dsqlNode->dsqlName),
-	  clauses(p)
+	  clauses(p),
+	  indexList(p)
 {
 }
 
@@ -6867,8 +6868,8 @@ void RelationNode::defineConstraint(thread_db* tdbb, DsqlCompilerScratch* dsqlSc
 				definition.refRelation = constraint.refRelation;
 				definition.refColumns = constraint.refColumns;
 
-				CreateIndexNode::store(tdbb, transaction, constraint.index->name,
-					definition, &referredIndexName);
+				indexList.push(CreateIndexNode::store(tdbb, indexList.getPool(), transaction,
+					constraint.index->name, definition, &referredIndexName));
 
 				CRT.RDB$INDEX_NAME.NULL = FALSE;
 				strcpy(CRT.RDB$INDEX_NAME, constraint.index->name.c_str());
@@ -7604,6 +7605,7 @@ void RelationNode::createRelation(thread_db* tdbb, jrd_tra* transaction)
 			MetadataCache::newVersion(tdbb, obj_relation, rel_id);
 			auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::NOSCAN);
 			DPM_create_relation(tdbb, relation);
+			indexList.exec(tdbb, relation, transaction);
 		}
 	}
 	catch(const Exception&)
@@ -10638,8 +10640,7 @@ void CreateAlterViewNode::createCheckTrigger(thread_db* tdbb, DsqlCompilerScratc
 
 //----------------------
 
-
-MetaId ModifyIndexNode::modify(thread_db* tdbb, const bool isCreate, jrd_tra* transaction)
+ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* transaction)
 {
 /**************************************
  *
@@ -10683,7 +10684,7 @@ MetaId ModifyIndexNode::modify(thread_db* tdbb, const bool isCreate, jrd_tra* tr
 			relName.c_str(), indexName.c_str());
 	}
 
-	if (isCreate)
+	if (create)
 		rc = exec(tdbb, relation, transaction);
 
 	if (relation->rel_flags & REL_temp_conn)
@@ -10694,14 +10695,53 @@ MetaId ModifyIndexNode::modify(thread_db* tdbb, const bool isCreate, jrd_tra* tr
 			exec(tdbb, relation, transaction);
 	}
 
-	if (!isCreate)
+	if (!create)
 		rc = exec(tdbb, relation, transaction);
 
-	return rc;
+	return ModifyValue(create, rc);
+}
+
+string ModifyIndexNode::print(Jrd::NodePrinter& printer) const
+{
+	NODE_PRINT(printer, indexName);
+	NODE_PRINT(printer, relName);
+	NODE_PRINT(printer, create);
+
+	return "ModifyIndexNode";
 }
 
 
-// --- StoreIndexNode ---
+//----------------------
+
+
+ModifyIndexList::~ModifyIndexList()
+{
+	for (auto* node : nodes)
+		delete node;
+}
+
+void ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
+{
+	fb_assert(rel);
+	if (!rel)
+		return;
+
+	for (auto* node : nodes)
+	{
+		if (node)
+		{
+			auto newIndex = node->modify(tdbb, transaction);
+			if (newIndex.create)
+				rel->newIndexVersion(tdbb, newIndex.id);
+			else
+				rel->eraseIndex(tdbb, newIndex.id);
+		}
+	}
+}
+
+
+//----------------------
+
 
 MetaId StoreIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
@@ -11220,12 +11260,13 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 
 
 // Store an index.
-void CreateIndexNode::store(thread_db* tdbb, jrd_tra* transaction, MetaName& idxName,
-	const Definition& definition, MetaName* referredIndexName)
+ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra* transaction,
+	MetaName& idxName, Definition& definition, MetaName* referredIndexName)
 {
 	if (idxName.isEmpty())
 		DYN_UTIL_generate_index_name(tdbb, transaction, idxName, definition.type);
 	DYN_UTIL_check_unique_name(tdbb, transaction, idxName, obj_index);
+	definition.index = idxName;
 
 	ULONG keyLength = 0;
 
@@ -11575,13 +11616,7 @@ void CreateIndexNode::store(thread_db* tdbb, jrd_tra* transaction, MetaName& idx
 		END_FOR
 	}
 
-	MetaId idxId = StoreIndexNode(definition.relation, definition.index, definition.expressionBlr.hasData()).
-		modify(tdbb, true, transaction);
-
-	auto* relPerm = MetadataCache::lookupRelation(tdbb, definition.relation, CacheFlag::AUTOCREATE);
-	fb_assert(relPerm);
-	if (relPerm)
-		relPerm->newIndexVersion(tdbb, idxId);
+	return FB_NEW_POOL(p) StoreIndexNode(definition.relation, definition.index, definition.expressionBlr.hasData());
 }
 
 
@@ -11619,7 +11654,6 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 		name, NULL);
 
 	Definition definition;
-	definition.index = name;
 	definition.type = isc_dyn_def_idx;
 	definition.relation = relation->dsqlName;
 	definition.unique = unique;
@@ -11664,12 +11698,15 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 			&definition.conditionBlr, partialValue);
 	}
 
-	store(tdbb, transaction, name, definition);
-
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_CREATE_INDEX,
 		name, NULL);
 
 	savePoint.release();	// everything is ok
+
+	ModifyIndexList oneElemList(*MemoryPool::getContextPool());
+	oneElemList.push(store(tdbb, oneElemList.getPool(), transaction, name, definition));
+	oneElemList.exec(tdbb, MetadataCache::lookupRelation(tdbb, definition.relation, CacheFlag::AUTOCREATE),
+		transaction);
 }
 
 
@@ -11679,9 +11716,9 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 string AlterIndexNode::internalPrint(NodePrinter& printer) const
 {
 	DdlNode::internalPrint(printer);
+	ModifyIndexNode::print(printer);
 
-	NODE_PRINT(printer, indexName);
-	NODE_PRINT(printer, active);
+	NODE_PRINT(printer, idxId);
 
 	return "AlterIndexNode";
 }
@@ -11704,7 +11741,6 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 	Cached::Relation* relation = nullptr;
 	bool expressionIndex = false;
-	idxId.invalidate();
 
 	AutoCacheRequest request(tdbb, drq_m_index, DYN_REQUESTS);
 	bool found = false;
@@ -11733,7 +11769,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 		MODIFY IDX
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
-			IDX.RDB$INDEX_INACTIVE = active ? FALSE : TRUE;
+			IDX.RDB$INDEX_INACTIVE = create ? FALSE : TRUE;
 		END_MODIFY
 	}
 	END_FOR
@@ -11751,13 +11787,13 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 	if (idxId.isUnknown())
 	{
-		idxId = StoreIndexNode(relName, indexName, expressionIndex).modify(tdbb, true, transaction);
+		idxId = StoreIndexNode(relName, indexName, expressionIndex).modify(tdbb, transaction).id;
 		fb_assert(idxId.value != MAX_META_ID);
 	}
 	else
 	{
-		auto rc = modify(tdbb, active, transaction);
-		fb_assert(idxId.value == rc);
+		auto rc = modify(tdbb, transaction);
+		fb_assert(idxId.value == rc.id);
 	}
 
 	if (relation)
@@ -11766,7 +11802,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 MetaId AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
-	if (active)
+	if (create)
 		IDX_activate_index(tdbb, rel, idxId.value);
 	else
 		IDX_delete_index(tdbb, rel, idxId.value);
@@ -11842,7 +11878,7 @@ void SetStatisticsNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 
 
 DropIndexNode::DropIndexNode(MemoryPool& p, const MetaName& name)
-	: ModifyIndexNode(name),
+	: ModifyIndexNode(name, false),
 	  DdlNode(p),
 	  idxId(MAX_META_ID)
 { }
@@ -11869,6 +11905,7 @@ bool DropIndexNode::deleteSegmentRecords(thread_db* tdbb, jrd_tra* transaction,
 string DropIndexNode::internalPrint(NodePrinter& printer) const
 {
 	DdlNode::internalPrint(printer);
+	ModifyIndexNode::print(printer);
 
 	NODE_PRINT(printer, indexName);
 

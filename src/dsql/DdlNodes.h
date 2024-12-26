@@ -1190,6 +1190,37 @@ typedef RecreateNode<CreateAlterSequenceNode, DropSequenceNode, isc_dsql_recreat
 enum rsr_t : UCHAR;
 class TemporaryField;
 class TrigArray;
+class ModifyIndexNode;
+
+
+// Collects indices to be created after table was actuallly created
+
+class ModifyIndexList
+{
+public:
+	ModifyIndexList(MemoryPool& p)
+		: nodes(p)
+	{
+	}
+
+	~ModifyIndexList();
+
+	void push(ModifyIndexNode* node)
+	{
+		nodes.push(node);
+	}
+
+	void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+
+	MemoryPool& getPool()
+	{
+		return nodes.getPool();
+	}
+
+private:
+	Firebird::HalfStaticArray<ModifyIndexNode*, 8> nodes;
+};
+
 
 class RelationNode : public DdlNode
 {
@@ -1578,6 +1609,7 @@ public:
 	Firebird::Array<NestConst<Clause> > clauses;
 	Nullable<bool> ssDefiner;
 	Nullable<bool> replicationState;
+	ModifyIndexList indexList;
 };
 
 
@@ -1739,24 +1771,45 @@ public:
 class ModifyIndexNode
 {
 public:
-	ModifyIndexNode(MetaName relName, MetaName indexName)
+	struct ModifyValue
+	{
+		ModifyValue(bool create, MetaId id)
+			: create(create), id(id)
+		{
+		}
+
+		bool create;
+		MetaId id;
+	};
+
+	ModifyIndexNode(MetaName relName, MetaName indexName, bool create)
 		: indexName(indexName),
-		  relName(relName)
+		  relName(relName),
+		  create(create)
 	{
 	}
 
-	ModifyIndexNode(MetaName indexName)
-		: indexName(indexName)
+	ModifyIndexNode(MetaName indexName, bool create)
+		: indexName(indexName),
+		  create(create)
 	{
 	}
 
-	MetaId modify(thread_db* tdbb, const bool isCreate, jrd_tra* transaction);
+	virtual ~ModifyIndexNode()
+	{
+	}
+
+	ModifyValue modify(thread_db* tdbb, jrd_tra* transaction);
 
 	virtual MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
+
+protected:
+	Firebird::string print(NodePrinter& printer) const;
 
 public:
 	MetaName indexName;
 	MetaName relName;
+	bool create;
 };
 
 
@@ -1803,8 +1856,8 @@ public:
 	}
 
 public:
-	static void store(thread_db* tdbb, jrd_tra* transaction, MetaName& idxName,
-		const Definition& definition, MetaName* referredIndexName = nullptr);
+	static ModifyIndexNode* store(thread_db* tdbb, MemoryPool& p, jrd_tra* transaction, MetaName& idxName,
+		Definition& definition, MetaName* referredIndexName = nullptr);
 
 public:
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
@@ -1832,7 +1885,7 @@ class StoreIndexNode : public ModifyIndexNode
 {
 public:
 	StoreIndexNode(MetaName relName, MetaName indexName, bool expressionIndex)
-		: ModifyIndexNode(relName, indexName),
+		: ModifyIndexNode(relName, indexName, true),
 		  expressionIndex(expressionIndex)
 	{ }
 
@@ -1851,11 +1904,9 @@ class AlterIndexNode : public ModifyIndexNode, public DdlNode
 {
 public:
 	// never alter FK index
-	AlterIndexNode(MemoryPool& p, const MetaName& name, bool aActive)
-		: ModifyIndexNode(name),
-		  DdlNode(p),
-		  indexName(name),
-		  active(aActive)
+	AlterIndexNode(MemoryPool& p, const MetaName& name, bool active)
+		: ModifyIndexNode(name, active),
+		  DdlNode(p)
 	{
 	}
 
@@ -1873,8 +1924,6 @@ protected:
 	}
 
 public:
-	MetaName indexName;
-	bool active;
 	Nullable<MetaId> idxId;
 };
 
