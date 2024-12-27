@@ -1955,7 +1955,7 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 					DDL_TRIGGER_ALTER_FUNCTION, name, NULL);
 			}
 
-			MetadataCache::oldVersion(tdbb, obj_udf, id);
+			MetadataCache::oldVersion<Cached::Function>(tdbb, id);
 		}
 
 		MODIFY FUN
@@ -2144,7 +2144,7 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 	}
 
 	if (secondPass && modified)
-		MetadataCache::newVersion(tdbb, obj_udf, id);
+		MetadataCache::newVersion<Cached::Function>(tdbb, id);
 
 	return modified;
 }
@@ -2499,7 +2499,7 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 		if (!FUN.RDB$ENGINE_NAME.NULL || !FUN.RDB$FUNCTION_BLR.NULL)
 			status_exception::raise(Arg::Gds(isc_dyn_newfc_oldsyntax) << name);
 
-		MetadataCache::oldVersion(tdbb, obj_udf, (id = FUN.RDB$FUNCTION_ID));
+		MetadataCache::oldVersion<Cached::Function>(tdbb, (id = FUN.RDB$FUNCTION_ID));
 
 		MODIFY FUN
 			if (clauses.name.hasData())
@@ -2525,7 +2525,7 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 
 	if (found)
 	{
-		MetadataCache::newVersion(tdbb, obj_udf, id);
+		MetadataCache::newVersion<Cached::Function>(tdbb, id);
 		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_FUNCTION,
 			name, NULL);
 	}
@@ -2614,8 +2614,8 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	bool found = false;
 	MetaId id;
 
-	//MetadataCache::oldVersion(tdbb, obj_udf, id);		missing ID in the node
-	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::AUTOCREATE);
+	//MetadataCache::oldVersion<Cached::Function>(tdbb, id);		missing ID in the node
+	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 
 	dropArguments(tdbb, transaction, name, package);
 
@@ -2669,7 +2669,7 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 
 	if (found)
 	{
-		MetadataCache::erase(tdbb, obj_udf, id);
+		MetadataCache::erase<Cached::Function>(tdbb, id);
 
 	 	if (package.isEmpty())
 	 	{
@@ -2985,7 +2985,7 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 					DDL_TRIGGER_ALTER_PROCEDURE, name, NULL);
 			}
 
-			MetadataCache::oldVersion(tdbb, obj_procedure, id);
+			MetadataCache::oldVersion<Cached::Procedure>(tdbb, id);
 		}
 
 		MODIFY P
@@ -3130,7 +3130,7 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 	}
 
 	if (secondPass && modified)
-		MetadataCache::newVersion(tdbb, obj_procedure, id);
+		MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
 
 	return modified;
 }
@@ -3442,8 +3442,8 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	AutoSavePoint savePoint(tdbb, transaction);
 	bool found = false;
 
-	//MetadataCache::oldVersion(tdbb, obj_procedure, id);	missing ID in the node
-	MetadataCache::lookup_procedure(tdbb, QualifiedName(name, package), CacheFlag::AUTOCREATE);
+	//MetadataCache::oldVersion<Cached::Procedure>(tdbb, id);	missing ID in the node
+	MetadataCache::lookup_procedure(tdbb, QualifiedName(name, package), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 
 	dropParameters(tdbb, transaction, name, package);
 
@@ -3498,7 +3498,7 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 
 	if (found)
 	{
-		MetadataCache::erase(tdbb, obj_procedure, id);
+		MetadataCache::erase<Cached::Procedure>(tdbb, id);
 
 		if (package.isEmpty())
 		{
@@ -4066,7 +4066,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);
 
-	MetadataCache::oldVersion(tdbb, obj_charset, forCharSetId);
+	MetadataCache::oldVersion<Cached::CharSet>(tdbb, forCharSetId);
 
 	AutoCacheRequest request(tdbb, drq_s_colls, DYN_REQUESTS);
 
@@ -4215,7 +4215,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	storePrivileges(tdbb, transaction, name, obj_collation, USAGE_PRIVILEGES);
 
-	MetadataCache::newVersion(tdbb, obj_charset, forCharSetId);
+	MetadataCache::newVersion<Cached::CharSet>(tdbb, forCharSetId);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);
@@ -7602,8 +7602,7 @@ void RelationNode::createRelation(thread_db* tdbb, jrd_tra* transaction)
 
 		if (rel_id && blob_id.isEmpty() && !external_flag)
 		{
-			MetadataCache::newVersion(tdbb, obj_relation, rel_id);
-			auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::NOSCAN);
+			auto* relation = MetadataCache::newVersion<Cached::Relation>(tdbb, rel_id);
 			DPM_create_relation(tdbb, relation);
 			indexList.exec(tdbb, relation, transaction);
 		}
@@ -7883,7 +7882,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 							ValueExprNode* defaultNode = static_cast<ValueExprNode*>(MET_parse_blob(
 								tdbb, getPermanent(relation), defaultValue, NULL, &defaultStatement, false, false));
 
-							Request* const defaultRequest = defaultStatement->findRequest(tdbb);
+							AutoPtr<Request> defaultRequest(defaultStatement->findRequest(tdbb));
 
 							// Attention: this is scoped to the end of this "try".
 							AutoSetRestore2<Request*, thread_db> autoRequest(tdbb,

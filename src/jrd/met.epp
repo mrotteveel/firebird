@@ -5216,65 +5216,9 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 	return rc;
 }
 
-
-namespace {
-	template <typename C>
-	void changeVers(thread_db* tdbb, MetadataCache::Changer cmd, CacheVector<C>& vector, MetaId id)
-	{
-		bool processedChange = false;
-
-		switch (cmd)
-		{
-		case MetadataCache::Changer::CMD_OLD:
-			processedChange = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
-			break;
-
-		case MetadataCache::Changer::CMD_MOD:
-			{
-				AutoSetRestore2<jrd_tra*, thread_db> nullifyTransaction(
-					tdbb, &thread_db::getTransaction, &thread_db::setTransaction, nullptr);
-				processedChange = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
-			}
-			// fall through...
-
-		case MetadataCache::Changer::CMD_NEW:
-			processedChange = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
-			break;
-
-		case MetadataCache::Changer::CMD_ERASE:
-			processedChange = vector.erase(tdbb, id);
-			break;
-		}
-
-		fb_assert(processedChange);
-	}
-}
-
-void MetadataCache::changeVersion(thread_db* tdbb, Changer cmd, ObjectType objType, MetaId id)
+MetadataCache* MetadataCache::getCache(thread_db* tdbb)
 {
-	auto* mdc = tdbb->getDatabase()->dbb_mdc;
-	switch(objType)
-	{
-	case obj_procedure:
-		changeVers(tdbb, cmd, mdc->mdc_procedures, id);
-		break;
-
-	case obj_charset:
-		changeVers(tdbb, cmd, mdc->mdc_charsets, id);
-		break;
-
-	case obj_udf:
-		changeVers(tdbb, cmd, mdc->mdc_functions, id);
-		break;
-
-	case obj_relation:
-		changeVers(tdbb, cmd, mdc->mdc_relations, id);
-			break;
-
-	default:
-		fb_assert(!"object in changeVersion");
-		break;
-	}
+	return tdbb->getDatabase()->dbb_mdc;
 }
 
 int jrd_prc::objectType()

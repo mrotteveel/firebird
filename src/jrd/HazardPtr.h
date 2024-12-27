@@ -1007,12 +1007,12 @@ public:
 		}
 	}
 
-	bool erase(thread_db* tdbb)
+	CacheElement* erase(thread_db* tdbb)
 	{
 		HazardPtr<ListEntry<Versioned>> l(list);
 		fb_assert(l);
 		if (!l)
-			return false;
+			return nullptr;
 
 		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED | CacheFlag::NOCOMMIT))
 		{
@@ -1020,7 +1020,7 @@ public:
 			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
 		}
 
-		return true;
+		return this;
 	}
 
 	// Checking it does not protect from something to be added in this element at next cycle!!!
@@ -1192,7 +1192,7 @@ public:
 #endif
 	}
 
-	bool erase(thread_db* tdbb, MetaId id)
+	StoredElement* erase(thread_db* tdbb, MetaId id)
 	{
 		auto ptr = getDataPointer(id);
 		if (ptr)
@@ -1202,7 +1202,7 @@ public:
 				return data->erase(tdbb);
 		}
 
-		return false;
+		return nullptr;
 	}
 
 	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)

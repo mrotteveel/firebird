@@ -363,30 +363,103 @@ public:
 		return mdc_generators.lookup(id, name);
 	}
 
-	static void oldVersion(thread_db* tdbb, ObjectType objType, MetaId id)
+	template <typename C>
+	static C* oldVersion(thread_db* tdbb, MetaId id)
 	{
-		changeVersion(tdbb, Changer::CMD_OLD, objType, id);
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
 
-	static void newVersion(thread_db* tdbb, ObjectType objType, MetaId id)
+	template <typename C>
+	static C* newVersion(thread_db* tdbb, MetaId id)
 	{
-		changeVersion(tdbb, Changer::CMD_NEW, objType, id);
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		auto* vrsn = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
+		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
 
-	static void modifyVersion(thread_db* tdbb, ObjectType objType, MetaId id)
+	template <typename C>
+	static void updateFormat(thread_db* tdbb, MetaId id)
 	{
-		changeVersion(tdbb, Changer::CMD_MOD, objType, id);
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
 	}
-
-	static void erase(thread_db* tdbb, ObjectType objType, MetaId id)
+/*
+	template <typename C>
+	static C* modifyVersion(thread_db* tdbb, MetaId id)
 	{
-		changeVersion(tdbb, Changer::CMD_ERASE, objType, id);
+		auto& vector = Vector<C, void>::get(getCache(tdbb));
+		{
+			Firebird::AutoSetRestore2<jrd_tra*, thread_db> nullifyTransaction(
+				tdbb, &thread_db::getTransaction, &thread_db::setTransaction, nullptr);
+			auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+			fb_assert(vrsn);
+		}
+		auto* vrsn = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
+		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
-
-	enum class Changer {CMD_OLD, CMD_NEW, CMD_ERASE, CMD_MOD};
+ */
+	template <typename C>
+	static C* erase(thread_db* tdbb, MetaId id)
+	{
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		return vector.erase(tdbb, id);
+	}
 
 private:
-	static void changeVersion(thread_db* tdbb, Changer cmd, ObjectType objType, MetaId id);
+	// Hack with "typename Dummy" is needed to avoid incomplete support of c++ standard in gcc14.
+	// Hack changes explicit specialization to partial.
+	// When in-class explicit specializations are implemented - to be cleaned up.
+	template <typename C, typename Dummy = void>
+	class Vector
+	{
+	public:
+		static CacheVector<C>& get(MetadataCache*);
+	};
+
+	// specialization
+	template <typename Dummy>
+	class Vector<Cached::Relation, Dummy>
+	{
+	public:
+		static CacheVector<Cached::Relation>& get(MetadataCache* mdc)
+		{
+			return mdc->mdc_relations;
+		}
+	};
+
+	template <typename Dummy>
+	class Vector<Cached::Procedure, Dummy>
+	{
+	public:
+		static CacheVector<Cached::Procedure>& get(MetadataCache* mdc)
+		{
+			return mdc->mdc_procedures;
+		}
+	};
+
+	template <typename Dummy>
+	class Vector<Cached::CharSet, Dummy>
+	{
+	public:
+		static CacheVector<Cached::CharSet>& get(MetadataCache* mdc)
+		{
+			return mdc->mdc_charsets;
+		}
+	};
+
+	template <typename Dummy>
+	class Vector<Cached::Function, Dummy>
+	{
+	public:
+		static CacheVector<Cached::Function>& get(MetadataCache* mdc)
+		{
+			return mdc->mdc_functions;
+		}
+	};
+
+	static MetadataCache* getCache(thread_db* tdbb);
 
 	class GeneratorFinder
 	{

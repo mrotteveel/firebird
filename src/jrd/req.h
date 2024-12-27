@@ -554,4 +554,14 @@ const ULONG req_restart_ready	= 0x2000L;		// Request is ready to restart in case
 
 } //namespace Jrd
 
+namespace Firebird
+{
+template <>
+inline void SimpleDelete<Jrd::Request>::clear(Jrd::Request* req)
+{
+	req->setUnused();
+}
+
+}
+
 #endif // JRD_REQ_H

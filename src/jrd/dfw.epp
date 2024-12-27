@@ -2944,44 +2944,14 @@ static bool create_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
  *	Create a new relation.
  *
  **************************************/
-	AutoCacheRequest request;
-	USHORT rel_id, external_flag;
-	bid blob_id;
-	AutoRequest handle;
-	Lock* lock;
-
-	blob_id.clear();
-
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
-
-	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
 
 	switch (phase)
 	{
 	case 1:
 	case 2:
 	case 3:
-		return true;
-
 	case 4:
-/*
-		// get the relation and flag it to check for dependencies
-		// in the view blr (if it exists) and any computed fields
-
-		request.reset(tdbb, irq_c_relation2, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			X IN RDB$RELATIONS WITH
-				X.RDB$RELATION_NAME EQ work->dfw_name.c_str()
-		{
-			rel_id = X.RDB$RELATION_ID;
-			// auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE | CacheFlag::DEPENDENCIES);
-			MetadataCache::newVersion(tdbb, obj_relation, rel_id);
-		}
-		END_FOR
- */
 	case 5:
 	case 6:
 		return true;
