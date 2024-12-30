@@ -63,6 +63,7 @@
 #include "../jrd/pag_proto.h"
 #include "../jrd/tra_proto.h"
 #include "../jrd/tpc_proto.h"
+#include "../dsql/DdlNodes.h"
 
 using namespace Jrd;
 using namespace Ods;
@@ -187,19 +188,20 @@ namespace
 		temporary_key jumpKey;
 	};
 
-	int indexCacheState(thread_db* tdbb, TraNumber trans, Cached::Relation* rel, MetaId idxId, bool creating)
+	int indexCacheState(thread_db* tdbb, TraNumber descTrans, Cached::Relation* rel, MetaId idxId, bool creating)
 	{
-		int rc = TPC_cache_state(tdbb, trans);
+		int rc = TPC_cache_state(tdbb, descTrans);
 		if (rc == tra_committed)		// too old dead transaction may be reported as committed
 		{
 			// check presence of record for this index in RDB$INDICES
 			// use metadata cache for better performance
-			bool indexRecordPresent = rel->lookup_index(tdbb, idxId, CacheFlag::AUTOCREATE);
+			auto* index = rel->lookup_index(tdbb, idxId, CacheFlag::AUTOCREATE);
+			bool indexPresent = index && index->getActive();
 
 			// if index really created => record should be present
 			// if index really dropped => record should be missing
 			// otherwise transaction is dead, not committed
-			if (indexRecordPresent != creating)
+			if (indexPresent != creating)
 				return tra_dead;
 		}
 		return rc;
@@ -525,9 +527,13 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id)
 		irt_desc->setEmpty();
 		const PageNumber prior(window->win_page);
 		const MetaId relation_id = root->irt_relation;
-
 		CCH_RELEASE(tdbb, window);
+
 		delete_tree(tdbb, relation_id, id, next, prior);
+
+		// clear RDB$INDEX_ID
+		DropIndexNode::clearId(tdbb, relation_id, id);
+
 		return tree_exists;
 	}
 
@@ -580,6 +586,8 @@ void BTR_mark_index_for_delete(thread_db* tdbb, WIN* window, MetaId id)
 		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
 
 		jrd_tra* tra = tdbb->getTransaction();
+		TraNumber descTrans = irt_desc->getTransaction();
+
 		fb_assert(tra);
 		if (tra)
 		{
@@ -592,9 +600,23 @@ void BTR_mark_index_for_delete(thread_db* tdbb, WIN* window, MetaId id)
 			case irt_drop:
 				badState(irt_desc, "irt_in_progress/irt_commit/irt_drop", msg);
 
-			case irt_rollback:			// created right now, may be dropped ?????????? when? one more state?
-				checkTransactionNumber(irt_desc, tra, msg);
-				irt_desc->setDrop(tra->tra_number);
+			case irt_rollback:			// created not long ago
+				if (descTrans != tra->tra_number)
+				{
+					// another transaction - may be no records were modified in the index?
+					switch (TPC_cache_state(tdbb, descTrans))
+					{
+					case tra_committed:	// did not switch to normal state - anyway treat as normal one
+					case tra_dead:		// drop index right now - nobody is using it
+						irt_desc->setCommit(tra->tra_number);
+						break;
+
+					default:	// if we see such index that transaction should not be active - raise error
+						badState(irt_desc, "irt_rollback", msg);
+					}
+				}
+				else
+					irt_desc->setCommit(tra->tra_number);
 				break;
 
 			case irt_normal:
@@ -2087,7 +2109,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 		TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
 
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-		const TraNumber trans = irt_desc->getTransaction();
+		const TraNumber descTrans = irt_desc->getTransaction();
 
 		switch (irt_desc->getState())
 		{
@@ -2096,7 +2118,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 
 		case irt_in_progress:
 			// index creation - should wait to know what to do
-			if (trans && transaction)
+			if (descTrans && transaction)
 			{
 				IndexCreateLock crtLock(tdbb, relation->getId());
 
@@ -2111,7 +2133,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 
 		case irt_rollback:		// to be removed when irt_transaction dead
 		case irt_commit:		// change state on irt_transaction completion
-			switch (TPC_cache_state(tdbb, trans))
+			switch (TPC_cache_state(tdbb, descTrans))
 			{
 			case tra_committed:	// switch to normal / drop state
 			case tra_dead:		// drop index on rollback / switch to normal state
@@ -2121,8 +2143,8 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 			break;
 
 		case irt_drop:
-			// drop index when OAT > trans
-			needWrite = oldestActive > trans;
+			// drop index when OAT > descTrans
+			needWrite = oldestActive > descTrans;
 			break;
 		}
 
@@ -2135,7 +2157,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 			root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_write, pag_root);
 			index_root_page::irt_repeat* irt_write = root->irt_rpt + id;
 
-			const TraNumber trans = irt_write->getTransaction();
+			const TraNumber descTrans = irt_write->getTransaction();
 			bool delIndex = false;
 
 			switch (irt_write->getState())
@@ -2148,7 +2170,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 				fatal_exception::raise("Index state still irt_in_progress after wait for creation lock");
 
 			case irt_rollback:		// to be removed when irt_transaction dead
-				switch (indexCacheState(tdbb, trans, relation, id, true))
+				switch (indexCacheState(tdbb, descTrans, relation, id, true))
 				{
 				case tra_committed:	// switch to normal state
 					CCH_MARK(tdbb, window);
@@ -2162,7 +2184,7 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 				break;
 
 			case irt_commit:		// change state on irt_transaction completion
-				switch (indexCacheState(tdbb, trans, relation, id, false))
+				switch (indexCacheState(tdbb, descTrans, relation, id, false))
 				{
 				case tra_committed:	// switch to drop state
 					CCH_MARK(tdbb, window);
@@ -2177,8 +2199,8 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 				break;
 
 			case irt_drop:
-				// drop index when OAT > trans
-				if (oldestActive > trans)
+				// drop index when OAT > descTrans
+				if (oldestActive > descTrans)
 					delIndex = true;
 				break;
 			}

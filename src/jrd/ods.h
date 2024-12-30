@@ -430,7 +430,7 @@ const UCHAR irt_state_b		= 128;
 const UCHAR irt_in_progress	= 0;			// index creation
 const UCHAR irt_rollback	= irt_state_a;	// to be removed when irt_transaction dead
 const UCHAR irt_commit		= irt_state_b;	// to be prepared for remove when irt_transaction committed
-const UCHAR irt_drop		= irt_state_a | irt_state_b;	// to be removed when irt_transaction < OAT
+const UCHAR irt_drop		= irt_state_a | irt_state_b;	// to be removed when OAT > irt_transaction
 const UCHAR irt_normal		= 1;			// any constant not overlapping irt_state_mask is fine here
 
 // index state mask in flags
@@ -505,7 +505,8 @@ inline void index_root_page::irt_repeat::setNormal(ULONG root_page)
 
 inline void index_root_page::irt_repeat::setCommit(TraNumber traNumber)
 {
-	fb_assert(getState() == irt_normal);
+	//      	going to drop index       tra that created it committed but no records added
+	fb_assert((getState() == irt_normal) || (getState() == irt_rollback));
 	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
 	fb_assert(irt_root);
 	irt_transaction = traNumber;

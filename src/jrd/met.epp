@@ -5304,6 +5304,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		idv_segmentCount = IND.RDB$SEGMENT_COUNT;
 		idv_type = IND.RDB$INDEX_TYPE;
 		idv_foreignKey = IND.RDB$FOREIGN_KEY;
+		idv_inactive = IND.RDB$INDEX_INACTIVE.NULL ? false : IND.RDB$INDEX_INACTIVE;
 
 		if (!IND.RDB$EXPRESSION_BLR.NULL)
 			expression = IND.RDB$EXPRESSION_BLR;

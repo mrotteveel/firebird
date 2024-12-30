@@ -1962,6 +1962,8 @@ public:
 	static bool deleteSegmentRecords(thread_db* tdbb, jrd_tra* transaction,
 		const MetaName& name);
 
+	static void clearId(thread_db* tdbb, MetaId relId, MetaId indexId);
+
 public:
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
 	virtual void checkPermission(thread_db* tdbb, jrd_tra* transaction);

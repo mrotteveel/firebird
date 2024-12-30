@@ -11743,6 +11743,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 	AutoCacheRequest request(tdbb, drq_m_index, DYN_REQUESTS);
 	bool found = false;
+	bool active = create;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
@@ -11750,26 +11751,31 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 	{
 		found = true;
 
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_INDEX,
-			indexName, NULL);
+		active = IDX.RDB$INDEX_INACTIVE.NULL ? true : !IDX.RDB$INDEX_INACTIVE;
 
-		relName = IDX.RDB$RELATION_NAME;
-		relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
-		fb_assert(relation);
-		if (relation && !idxId.isUnknown())
-			relation->oldIndexVersion(tdbb, idxId.value);
-
-		expressionIndex = !IDX.RDB$EXPRESSION_BLR.NULL;
-		if (!IDX.RDB$INDEX_ID.NULL)
+		if (active != create)
 		{
-			fb_assert(IDX.RDB$INDEX_ID);
-			idxId = IDX.RDB$INDEX_ID - 1;
-		}
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_INDEX,
+				indexName, NULL);
 
-		MODIFY IDX
-			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
-			IDX.RDB$INDEX_INACTIVE = create ? FALSE : TRUE;
-		END_MODIFY
+			relName = IDX.RDB$RELATION_NAME;
+			relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
+			fb_assert(relation);
+			if (relation && !idxId.isUnknown())
+				relation->oldIndexVersion(tdbb, idxId.value);
+
+			expressionIndex = !IDX.RDB$EXPRESSION_BLR.NULL;
+			if (!IDX.RDB$INDEX_ID.NULL)
+			{
+				fb_assert(IDX.RDB$INDEX_ID);
+				idxId = IDX.RDB$INDEX_ID - 1;
+			}
+
+			MODIFY IDX
+				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
+				IDX.RDB$INDEX_INACTIVE = create ? FALSE : TRUE;
+			END_MODIFY
+		}
 	}
 	END_FOR
 
@@ -11778,6 +11784,9 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 		// msg 48: "Index not found"
 		status_exception::raise(Arg::PrivateDyn(48));
 	}
+
+	if (active == create)
+		return;
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_INDEX,
 		indexName, NULL);
@@ -12031,6 +12040,30 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 	}
 */
 	return idxId;
+}
+
+
+void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
+{
+	SET_TDBB(tdbb);
+	Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+	jrd_tra* transaction = attachment->getSysTransaction();		// ID cleanup not related to current transaction
+
+	AutoCacheRequest handle(tdbb, irq_index_id_erase, IRQ_REQUESTS);
+	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+		IND IN RDB$INDICES
+		CROSS REL IN RDB$RELATIONS
+			OVER RDB$RELATION_NAME
+		WITH IND.RDB$INDEX_ID EQ indexId + 1
+			AND REL.RDB$RELATION_ID EQ relId
+	{
+		MODIFY IND
+			IND.RDB$INDEX_ID = 0;
+			IND.RDB$INDEX_ID.NULL = TRUE;
+		END_MODIFY
+	}
+	END_FOR
 }
 
 

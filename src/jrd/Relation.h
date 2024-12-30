@@ -554,6 +554,11 @@ public:
 		return perm;
 	}
 
+	bool getActive()
+	{
+		return !idv_inactive;
+	}
+
 private:
 	Cached::Index* perm;
 	MetaName idv_name;
@@ -561,6 +566,7 @@ private:
 	SSHORT idv_segmentCount = 0;
 	SSHORT idv_type = 0;
 	MetaName idv_foreignKey;						// FOREIGN RELATION NAME
+	bool idv_inactive = false;
 
 public:
 	ValueExprNode* idv_expression = nullptr;		// node tree for index expression
