@@ -472,9 +472,8 @@ inline void index_root_page::irt_repeat::setRollback(ULONG root_page, TraNumber 
 
 inline void index_root_page::irt_repeat::setRollback(TraNumber traNumber)
 {
-	fb_assert(getState() == irt_drop);
+	fb_assert((getState() == irt_commit) || (getState() == irt_drop));
 	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
-	fb_assert(traNumber == irt_transaction);
 	fb_assert(irt_root);
 
 	irt_transaction = traNumber;

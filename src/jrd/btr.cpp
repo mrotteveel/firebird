@@ -586,9 +586,9 @@ void BTR_mark_index_for_delete(thread_db* tdbb, WIN* window, MetaId id)
 		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
 
 		jrd_tra* tra = tdbb->getTransaction();
+		fb_assert(tra);
 		TraNumber descTrans = irt_desc->getTransaction();
 
-		fb_assert(tra);
 		if (tra)
 		{
 			auto msg = "mark index for delete";
@@ -606,8 +606,9 @@ void BTR_mark_index_for_delete(thread_db* tdbb, WIN* window, MetaId id)
 					// another transaction - may be no records were modified in the index?
 					switch (TPC_cache_state(tdbb, descTrans))
 					{
-					case tra_committed:	// did not switch to normal state - anyway treat as normal one
-					case tra_dead:		// drop index right now - nobody is using it
+					case tra_committed:
+					case tra_dead:
+						// did not switch to normal state - anyway treat as normal one
 						irt_desc->setCommit(tra->tra_number);
 						break;
 
@@ -658,6 +659,8 @@ void BTR_activate_index(thread_db* tdbb, WIN* window, MetaId id)
 
 		jrd_tra* tra = tdbb->getTransaction();
 		fb_assert(tra);
+		TraNumber descTrans = irt_desc->getTransaction();
+
 		if (tra)
 		{
 			auto msg = "activate index";
@@ -669,9 +672,24 @@ void BTR_activate_index(thread_db* tdbb, WIN* window, MetaId id)
 			case irt_normal:
 				badState(irt_desc, "irt_in_progress/irt_rollback/irt_normal", msg);
 
-			case irt_commit:
-				checkTransactionNumber(irt_desc, tra, msg);
-				irt_desc->setNormal();
+			case irt_commit:		// removed not long ago
+				if (descTrans != tra->tra_number)
+				{
+					// another transaction - may be no records were modified in the index?
+					switch (TPC_cache_state(tdbb, descTrans))
+					{
+					case tra_committed:
+					case tra_dead:
+						// did not switch to drop state - anyway treat as drop
+						irt_desc->setRollback(tra->tra_number);
+						break;
+
+					default:	// if we see such index that transaction should not be active - raise error
+						badState(irt_desc, "irt_commit", msg);
+					}
+				}
+				else
+					irt_desc->setRollback(tra->tra_number);
 				break;
 
 			case irt_drop:
