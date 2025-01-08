@@ -3204,10 +3204,12 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 		if (page->irt_rpt[i].getRoot() == 0)
 			continue;
 
-		MetaName index;
-
 		release_page(&window);
-		MetadataCache::lookup_index(vdr_tdbb, index, relation->getName(), i);
+
+		auto* idx = getPermanent(relation)->lookupIndex(vdr_tdbb, i, CacheFlag::AUTOCREATE);
+		MetaName index;
+		if (idx)
+			index = idx->getName();
 		fetch_page(false, relPages->rel_index_root, pag_root, &window, &page);
 
 		if (vdr_idx_incl)

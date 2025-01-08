@@ -28,6 +28,7 @@
 #include "../common/classes/array.h"
 #include "../common/classes/fb_string.h"
 #include "../common/classes/SyncObject.h"
+#include "../jrd/tra.h"
 
 namespace Ods {
 

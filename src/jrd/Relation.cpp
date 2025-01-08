@@ -310,8 +310,10 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 
 		for (auto& idx : indices)
 		{
+			auto* idp = this->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
 			MetaName idx_name;
-			MetadataCache::lookup_index(tdbb, idx_name, this->rel_name, idx.idx_id);
+			if (idp)
+				idx_name = idp->getName();
 
 			idx.idx_root = 0;
 			SelectivityList selectivity(*pool);
@@ -530,7 +532,7 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaId id, Object
 }
 
 
-const char* IndexPermanent::c_name()
+const char* IndexPermanent::c_name() const
 {
 	// Here we use MetaName feature - pointers in it are DBB-lifetime stable
 	return idp_name.c_str();
@@ -538,12 +540,12 @@ const char* IndexPermanent::c_name()
 
 void IndexPermanent::createLock(thread_db* tdbb, MetaId relId, MetaId indId)
 {
-	if (!idp_lock)
+/*	if (!idp_lock)
 	{
 		idp_lock = FB_NEW_RPT(idp_relation->getPool(), 0)
 			Lock(tdbb, sizeof(SLONG), LCK_expression, this, indexReload);
 		idp_lock->setKey((FB_UINT64(relId) << REL_ID_KEY_OFFSET) + indId);
-	}
+	} */
 }
 
 IndexVersion::IndexVersion(MemoryPool& p, Cached::Index* idp)
@@ -876,7 +878,7 @@ void RelationPages::free(RelationPages*& nextFree)
 
 void IndexPermanent::unlock(thread_db* tdbb)
 {
-	LCK_release(tdbb, idp_lock);
+//	LCK_release(tdbb, idp_lock);
 }
 
 [[noreturn]] void IndexPermanent::errIndexGone()

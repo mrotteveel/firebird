@@ -305,7 +305,6 @@ public:
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id);
 	Cached::Relation* lookupRelationNoChecks(MetaId id);
-	static void lookup_index(thread_db* tdbb, MetaName& index_name, const MetaName& relation_name, USHORT number);
 	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
 													 MetaId* relation_id, IndexStatus* status);
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
@@ -367,7 +366,7 @@ public:
 	static C* oldVersion(thread_db* tdbb, MetaId id)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
 
@@ -393,10 +392,10 @@ public:
 		{
 			Firebird::AutoSetRestore2<jrd_tra*, thread_db> nullifyTransaction(
 				tdbb, &thread_db::getTransaction, &thread_db::setTransaction, nullptr);
-			auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+			auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
 			fb_assert(vrsn);
 		}
-		auto* vrsn = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
+		auto* vrsn = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
 		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
  */

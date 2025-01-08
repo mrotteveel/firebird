@@ -694,7 +694,7 @@ inline int wait(thread_db* tdbb, jrd_tra* transaction, const record_param* rpb)
 	if (transaction->getLockWait())
 		tdbb->bumpRelStats(RuntimeStatistics::RECORD_WAITS, rpb->rpb_relation->getId());
 
-	return TRA_wait(tdbb, transaction, rpb->rpb_transaction_nr, jrd_tra::tra_wait);
+	return TRA_wait(tdbb, transaction, rpb->rpb_transaction_nr, tra_wait);
 }
 
 inline bool checkGCActive(thread_db* tdbb, record_param* rpb, int& state)
@@ -6232,7 +6232,7 @@ static PrepareResult prepare_update(thread_db* tdbb, jrd_tra* transaction, TraNu
 			// transaction which has modified the record.
 
 			state = writeLockSkipLocked == true ?
-				TRA_wait(tdbb, transaction, rpb->rpb_transaction_nr, jrd_tra::tra_probe) :
+				TRA_wait(tdbb, transaction, rpb->rpb_transaction_nr, tra_probe) :
 				wait(tdbb, transaction, rpb);
 
 			if (state == tra_committed)

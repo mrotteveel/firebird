@@ -31,6 +31,7 @@
 
 #include "../common/classes/alloc.h"
 #include "../common/classes/array.h"
+#include "../common/classes/auto.h"
 #include "../common/gdsassert.h"
 #include "fb_blk.h"
 
@@ -43,6 +44,7 @@
 
 #include "../jrd/tdbb.h"
 #include "../jrd/Database.h"
+#include "../jrd/tra_proto.h"
 
 namespace Jrd {
 
@@ -475,6 +477,7 @@ public:
 	static TraNumber oldestActive(thread_db* tdbb);
 	static TraNumber next(thread_db* tdbb);
 	static bool isNotActive(thread_db* tdbb, TraNumber traNumber);
+	static ULONG* getFlags(thread_db* tdbb);
 };
 
 
@@ -775,6 +778,7 @@ public:
 	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
 	{
 		fb_assert(obj);
+		Firebird::AutoSetRestoreFlag readCommitted(TransactionNumber::getFlags(tdbb), TRA_read_committed, true);
 		return rld ? obj->reload(tdbb, fl) : obj->scan(tdbb, fl);
 	}
 

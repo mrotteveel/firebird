@@ -484,7 +484,12 @@ public:
 		return idp_relation;
 	}
 
-	const char* c_name();
+	MetaName getName() const
+	{
+		return idp_name;
+	}
+
+	const char* c_name() const;
 
 public:
 	MetaName			idp_name;		// used only as temp mirror for c_name() implementation
@@ -770,7 +775,6 @@ public:
 
 	IndexVersion* lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	IndexVersion* lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 
 	void newIndexVersion(thread_db* tdbb, MetaId id)

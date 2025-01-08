@@ -1917,7 +1917,7 @@ void TRA_sweep(thread_db* tdbb)
 }
 
 
-int TRA_wait(thread_db* tdbb, jrd_tra* trans, TraNumber number, jrd_tra::wait_t wait)
+int TRA_wait(thread_db* tdbb, jrd_tra* trans, TraNumber number, tra_wait_t wait)
 {
 /**************************************
  *
@@ -1943,12 +1943,12 @@ int TRA_wait(thread_db* tdbb, jrd_tra* trans, TraNumber number, jrd_tra::wait_t 
 	// Create, wait on, and release lock on target transaction.  If
 	// we can't get the lock due to deadlock
 
-	if (wait != jrd_tra::tra_no_wait)
+	if (wait != tra_no_wait)
 	{
 		Lock temp_lock(tdbb, sizeof(TraNumber), LCK_tra);
 		temp_lock.setKey(number);
 
-		const SSHORT timeout = (wait == jrd_tra::tra_wait) ? trans->getLockWait() : 0;
+		const SSHORT timeout = (wait == tra_wait) ? trans->getLockWait() : 0;
 
 		if (!LCK_lock(tdbb, &temp_lock, LCK_read, timeout))
 		{
@@ -1961,7 +1961,7 @@ int TRA_wait(thread_db* tdbb, jrd_tra* trans, TraNumber number, jrd_tra::wait_t 
 
 	int state = TRA_get_state(tdbb, number);
 
-	if (wait != jrd_tra::tra_no_wait && state == tra_committed)
+	if (wait != tra_no_wait && state == tra_committed)
 		return state;
 
 	if (state == tra_precommitted)
@@ -3551,7 +3551,7 @@ static void transaction_start(thread_db* tdbb, jrd_tra* trans)
 				{
 					if (cleanup)
 					{
-						if (TRA_wait(tdbb, trans, active, jrd_tra::tra_no_wait) == tra_committed)
+						if (TRA_wait(tdbb, trans, active, tra_no_wait) == tra_committed)
 							cleanup = false;
 						continue;
 					}

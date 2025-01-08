@@ -1637,8 +1637,9 @@ idx_e BTR_key(thread_db* tdbb, jrd_rel* relation, Record* record, index_desc* id
 				  error.value()[1] == isc_expression_eval_index))
 			{
 				MetaName indexName;
-				MetadataCache::lookup_index(tdbb, indexName, relation->getName(), idx->idx_id);
-
+				auto* index = getPermanent(relation)->lookupIndex(tdbb, idx->idx_id, CacheFlag::AUTOCREATE);
+				if (index)
+					indexName = index->getName();
 				if (indexName.isEmpty())
 					indexName = "***unknown***";
 

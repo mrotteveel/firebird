@@ -11956,6 +11956,9 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 		if (!IDX.RDB$FOREIGN_KEY.NULL)
 			partnerRelName = IDX.RDB$FOREIGN_KEY;
 
+		if (rel)
+			rel->oldIndexVersion(tdbb, idxId);
+
 		ERASE IDX;
 
 		if (IDX.RDB$EXPRESSION_BLR.NULL && !deleteSegmentRecords(tdbb, transaction, indexName))
@@ -11976,6 +11979,8 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 		indexName, NULL);
 
 	savePoint.release();	// everything is ok
+
+	modify(tdbb, transaction);
 }
 
 
@@ -12014,6 +12019,7 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 //	DFW_check_dependencies(tdbb, indexName.c_str(), NULL, NULL, obj_index, transaction);
 
 	IDX_delete_index(tdbb, rel, idxId);
+	rel->eraseIndex(tdbb, idxId);
 
 /*	????????????????? back to DFW?
 	MET_delete_dependencies(tdbb, indexName, obj_index_expression, transaction);

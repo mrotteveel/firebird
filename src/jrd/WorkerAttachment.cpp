@@ -38,6 +38,7 @@
 #include "../jrd/pag_proto.h"
 #include "../jrd/tra_proto.h"
 #include "../jrd/status.h"
+#include "../jrd/Monitoring.h"
 
 
 using namespace Firebird;

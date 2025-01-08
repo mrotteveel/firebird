@@ -1655,17 +1655,20 @@ void Optimizer::checkIndices()
 
 		// Check to make sure that all indices are either used or marked not to be used,
 		// and that there are no unused navigational indices
-		MetaName index_name;
-
 		for (const auto& idx : *tail->csb_idx)
 		{
 			if (!(idx.idx_runtime_flags & (idx_plan_dont_use | idx_used)) ||
 				((idx.idx_runtime_flags & idx_plan_navigate) && !(idx.idx_runtime_flags & idx_navigate)))
 			{
+				MetaName index_name;
 				if (relation)
-					MetadataCache::lookup_index(tdbb, index_name, relation()->getName(), idx.idx_id);
-				else
-					index_name = "";
+				{
+					auto* idp = relation()->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
+					if (idp)
+						index_name = idp->getName();
+				}
+				if (!index_name.hasData())
+					index_name = "***unknown***";
 
 				// index %s cannot be used in the specified plan
 				if (isGbak)

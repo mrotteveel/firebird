@@ -2216,35 +2216,6 @@ void MET_update_generator_increment(thread_db* tdbb, SLONG gen_id, SLONG step)
 }
 
 
-void MetadataCache::lookup_index(thread_db* tdbb, MetaName& index_name, const MetaName& relation_name, USHORT number)
-{
-/**************************************
- *
- *      M E T _ l o o k u p _ i n d e x
- *
- **************************************
- *
- * Functional description
- *      Lookup index name from relation and index number.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-
-	index_name = "";
-
-	AutoCacheRequest request(tdbb, irq_l_index, IRQ_REQUESTS);
-
-	FOR(REQUEST_HANDLE request)
-		X IN RDB$INDICES WITH X.RDB$RELATION_NAME EQ relation_name.c_str()
-			AND X.RDB$INDEX_ID EQ number + 1
-	{
-		index_name = X.RDB$INDEX_NAME;
-	}
-	END_FOR
-}
-
-
 ElementBase::ReturnedId MetadataCache::lookup_index_name(thread_db* tdbb, const MetaName& index_name,
 														MetaId* relation_id, IndexStatus* status)
 {
@@ -5355,44 +5326,6 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	return true;
 }
 
-IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)
-{
-	SET_TDBB(tdbb);
-
-	Attachment* attachment = tdbb->getAttachment();
-
-	// See if we already know the relation by name
-	auto* idp = rel_indices.lookup(tdbb, [tdbb, name, flags](Cached::Index* idp) {
-		auto* idv = idp->getObject(tdbb, flags);
-		return idv ? idv->getName() == name : false;
-	});
-
-	if ((!idp) && !(flags & CacheFlag::AUTOCREATE))
-		return nullptr;
-
-	if (idp)
-	{
-		auto* idv = idp->getObject(tdbb, flags);
-		if (idv)
-			return idv;
-	}
-
-	// We need to look up the index in RDB$INDICES
-	AutoCacheRequest request(tdbb, irq_get_index_by_name, IRQ_REQUESTS);
-	IndexVersion* idv = nullptr;
-
-	FOR(REQUEST_HANDLE request)
-		X IN RDB$INDICES WITH X.RDB$INDEX_NAME EQ name.c_str()
-	{
-		if (!idv)
-			idv = rel_indices.getObject(tdbb, X.RDB$INDEX_ID - 1, flags);
-	}
-	END_FOR
-
-	return idv;
-}
-
-
 Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
@@ -5401,8 +5334,7 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 
 	// See if we already know the relation by name
 	auto* idp = rel_indices.lookup(tdbb, [tdbb, name, flags](Cached::Index* idp) {
-		auto* idv = idp->getObject(tdbb, flags);
-		return idv ? idv->getName() == name : false;
+		return idp->getName() == name ? idp : nullptr;
 	});
 
 	if (idp || !(flags & CacheFlag::AUTOCREATE))
@@ -5412,12 +5344,17 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 	AutoCacheRequest request(tdbb, irq_get_index_by_name, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request)
-		X IN RDB$INDICES WITH X.RDB$INDEX_NAME EQ name.c_str()
+		IDX IN RDB$INDICES WITH IDX.RDB$INDEX_NAME EQ name.c_str()
+			AND IDX.RDB$RELATION_NAME EQ c_name()
 	{
 		if (!idp)
 		{
-			if (auto* idv = rel_indices.getObject(tdbb, X.RDB$INDEX_ID - 1, flags))
+			if (auto* idv = rel_indices.getObject(tdbb, IDX.RDB$INDEX_ID - 1, flags))
 				idp = getPermanent(idv);
+		}
+		else
+		{
+			fb_assert(false);
 		}
 	}
 	END_FOR

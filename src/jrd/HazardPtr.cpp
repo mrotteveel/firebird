@@ -71,6 +71,15 @@ bool TransactionNumber::isNotActive(thread_db* tdbb, TraNumber traNumber)
 	return (state == tra_committed) || (state == tra_dead);
 }
 
+ULONG* TransactionNumber::getFlags(thread_db* tdbb)
+{
+	jrd_tra* tra = tdbb->getTransaction();
+
+	// try to recover missing transaction - sooner of all scan() will use system transaction
+	static ULONG pseudoFlag = 0u;
+	return tra ? &tra->tra_flags : &pseudoFlag;
+}
+
 
 // class VersionSupport
 
