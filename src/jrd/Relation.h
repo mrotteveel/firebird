@@ -721,6 +721,8 @@ public:
 	void enable(thread_db* tdbb, Lock* tempLock);
 	bool disable(thread_db* tdbb, int wait, Lock*& tempLock);
 
+	unsigned getSweepCount() const;		// violates rules of atomic counters - ok ONLY for ASSERT
+
 	static int ast(void* self)
 	{
 		try
@@ -801,7 +803,6 @@ public:
 	GCLock		rel_gc_lock;			// garbage collection lock
 	GCRecordList	rel_gc_records;		// records for garbage collection
 
-	atomics::atomic<USHORT>	rel_sweep_count;	// sweep and/or garbage collector threads active
 	atomics::atomic<SSHORT>	rel_scan_count;		// concurrent sequential scan count
 
 	class RelPagesSnapshot : public Firebird::Array<RelationPages*>

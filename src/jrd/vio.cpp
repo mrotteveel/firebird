@@ -617,7 +617,7 @@ static bool assert_gc_enabled(const jrd_tra* transaction, const jrd_rel* relatio
  *
  * Notes
  *  System and temporary relations are not validated online.
- *  Non-zero rel_sweep_count is possible only under GCShared control when
+ *  Non-zero sweep count is possible only under GCShared control when
  *  garbage collection is enabled.
  *
  *  VIO_backout is more complex as it could run without GCShared control.
@@ -625,7 +625,7 @@ static bool assert_gc_enabled(const jrd_tra* transaction, const jrd_rel* relatio
  *  in this case online validation is not run against given relation.
  *
  **************************************/
-	if (getPermanent(relation)->rel_sweep_count || relation->isSystem() || relation->isTemporary())
+	if (getPermanent(relation)->rel_gc_lock.getSweepCount() || relation->isSystem() || relation->isTemporary())
 		return true;
 
 	if (getPermanent(relation)->rel_gc_lock.flags & GCLock::GC_disabled)

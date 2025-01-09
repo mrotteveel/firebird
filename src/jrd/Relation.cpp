@@ -144,7 +144,6 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_rescan_lock(nullptr),
 	  rel_gc_lock(this),
 	  rel_gc_records(p),
-	  rel_sweep_count(0),
 	  rel_scan_count(0),
 	  rel_formats(nullptr),
 	  rel_indices(p, this),
@@ -770,6 +769,12 @@ void GCLock::downgrade(thread_db* tdbb)
 			newFlags &= ~GC_blocking;
 		}
 	} while (!flags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire));
+}
+
+// violates rules of atomic counters - ok ONLY for ASSERT
+unsigned GCLock::getSweepCount() const
+{
+	return flags.load(std::memory_order_relaxed) & GC_counterMask;
 }
 
 bool GCLock::disable(thread_db* tdbb, int wait, Lock*& tempLock)
