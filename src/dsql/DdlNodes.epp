@@ -10778,252 +10778,250 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	Database* dbb = tdbb->getDatabase();
 	MetaId idxId = dbb->dbb_max_idx;
 
-	//try
+	idx.idx_flags = 0;
+
+	// Fetch the information necessary to create the index.  On the first
+	// time thru, check to see if the index already exists.  If so, delete
+	// it.  If the index inactive flag is set, don't create the index
+
+	request.reset(tdbb, irq_c_index, IRQ_REQUESTS);
+
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+		IDX IN RDB$INDICES CROSS
+		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME
+			WITH IDX.RDB$INDEX_NAME EQ indexName.c_str()
 	{
-		idx.idx_flags = 0;
+		// Reject here request to 'alter index inactive'
+		fb_assert(IDX.RDB$INDEX_ID.NULL);
+		fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
 
-		// Fetch the information necessary to create the index.  On the first
-		// time thru, check to see if the index already exists.  If so, delete
-		// it.  If the index inactive flag is set, don't create the index
-
-		request.reset(tdbb, irq_c_index, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-			IDX IN RDB$INDICES CROSS
-			REL IN RDB$RELATIONS OVER RDB$RELATION_NAME
-				WITH IDX.RDB$INDEX_NAME EQ indexName.c_str()
+		idx.idx_count = IDX.RDB$SEGMENT_COUNT;
+		if (!idx.idx_count || idx.idx_count > MAX_INDEX_SEGMENTS)
 		{
-			// Reject here request to 'alter index inactive'
-			fb_assert(IDX.RDB$INDEX_ID.NULL);
-			fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
-
-			idx.idx_count = IDX.RDB$SEGMENT_COUNT;
-			if (!idx.idx_count || idx.idx_count > MAX_INDEX_SEGMENTS)
+			if (!idx.idx_count)
 			{
-				if (!idx.idx_count)
-				{
-					ERR_post(Arg::Gds(isc_no_meta_update) <<
-							 Arg::Gds(isc_idx_seg_err) << Arg::Str(indexName));
-					// Msg304: segment count of 0 defined for index %s
-				}
-				else
+				ERR_post(Arg::Gds(isc_no_meta_update) <<
+						 Arg::Gds(isc_idx_seg_err) << Arg::Str(indexName));
+				// Msg304: segment count of 0 defined for index %s
+			}
+			else
+			{
+				ERR_post(Arg::Gds(isc_no_meta_update) <<
+						 Arg::Gds(isc_idx_key_err) << Arg::Str(indexName));
+				// Msg311: too many keys defined for index %s
+			}
+		}
+
+		if (IDX.RDB$UNIQUE_FLAG)
+			idx.idx_flags |= idx_unique;
+		if (IDX.RDB$INDEX_TYPE == 1)
+			idx.idx_flags |= idx_descending;
+		if (!IDX.RDB$FOREIGN_KEY.NULL)
+			idx.idx_flags |= idx_foreign;
+
+		AutoCacheRequest rc_request(tdbb, irq_c_index_rc, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE rc_request TRANSACTION_HANDLE transaction)
+			RC IN RDB$RELATION_CONSTRAINTS WITH
+			RC.RDB$INDEX_NAME EQ indexName.c_str() AND
+			RC.RDB$CONSTRAINT_TYPE = PRIMARY_KEY
+		{
+			idx.idx_flags |= idx_primary;
+		}
+		END_FOR
+
+		idx.idx_condition = nullptr;
+		idx.idx_condition_statement = nullptr;
+
+		if (!IDX.RDB$CONDITION_BLR.NULL)
+		{
+			// Allocate a new pool to contain the expression tree
+			// for index condition
+			const auto new_pool = dbb->createPool(ALLOC_ARGS0);
+			CompilerScratch* csb = nullptr;
+
+			try
+			{
+				Jrd::ContextPoolHolder context(tdbb, new_pool);
+
+				MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
+					nullptr, &csb, indexName, obj_index_condition, 0,
+					transaction);
+
+				idx.idx_condition_statement = Statement::makeBoolExpression(tdbb,
+					idx.idx_condition, csb, false);
+
+				idx.idx_flags |= idx_condition;
+			}
+			catch (const Exception&)
+			{
+				dbb->deletePool(new_pool);
+				throw;
+			}
+
+			delete csb;
+		}
+
+		// Here we need dirty reads from database (first of all from
+		// RDB$RELATION_FIELDS and RDB$FIELDS - tables not directly related
+		// with index to be created and it's dfw_name). Missing it breaks gbak,
+		// and appears can break other applications.
+
+		AutoCacheRequest seg_request(tdbb, irq_c_index_seg, IRQ_REQUESTS);
+
+		FOR(REQUEST_HANDLE seg_request)
+			SEG IN RDB$INDEX_SEGMENTS CROSS
+			RFR IN RDB$RELATION_FIELDS CROSS
+			FLD IN RDB$FIELDS
+				WITH SEG.RDB$INDEX_NAME EQ indexName.c_str()
+				AND RFR.RDB$RELATION_NAME EQ rel->c_name()
+				AND RFR.RDB$FIELD_NAME EQ SEG.RDB$FIELD_NAME
+				AND FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
+		{
+			if (++key_count > idx.idx_count || SEG.RDB$FIELD_POSITION > idx.idx_count ||
+				FLD.RDB$FIELD_TYPE == blr_blob || !FLD.RDB$DIMENSIONS.NULL)
+			{
+				if (key_count > idx.idx_count)
 				{
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
 							 Arg::Gds(isc_idx_key_err) << Arg::Str(indexName));
 					// Msg311: too many keys defined for index %s
 				}
-			}
-
-			if (IDX.RDB$UNIQUE_FLAG)
-				idx.idx_flags |= idx_unique;
-			if (IDX.RDB$INDEX_TYPE == 1)
-				idx.idx_flags |= idx_descending;
-			if (!IDX.RDB$FOREIGN_KEY.NULL)
-				idx.idx_flags |= idx_foreign;
-
-			AutoCacheRequest rc_request(tdbb, irq_c_index_rc, IRQ_REQUESTS);
-
-			FOR(REQUEST_HANDLE rc_request TRANSACTION_HANDLE transaction)
-				RC IN RDB$RELATION_CONSTRAINTS WITH
-				RC.RDB$INDEX_NAME EQ indexName.c_str() AND
-				RC.RDB$CONSTRAINT_TYPE = PRIMARY_KEY
-			{
-				idx.idx_flags |= idx_primary;
-			}
-			END_FOR
-
-			idx.idx_condition = nullptr;
-			idx.idx_condition_statement = nullptr;
-
-			if (!IDX.RDB$CONDITION_BLR.NULL)
-			{
-				// Allocate a new pool to contain the expression tree
-				// for index condition
-				const auto new_pool = dbb->createPool(ALLOC_ARGS0);
-				CompilerScratch* csb = nullptr;
-
-				try
+				else if (SEG.RDB$FIELD_POSITION > idx.idx_count)
 				{
-					Jrd::ContextPoolHolder context(tdbb, new_pool);
-
-					MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
-						nullptr, &csb, indexName, obj_index_condition, 0,
-						transaction);
-
-					idx.idx_condition_statement = Statement::makeBoolExpression(tdbb,
-						idx.idx_condition, csb, false);
-
-					idx.idx_flags |= idx_condition;
+					fb_utils::exact_name(RFR.RDB$FIELD_NAME);
+					ERR_post(Arg::Gds(isc_no_meta_update) <<
+							 Arg::Gds(isc_inval_key_posn) <<
+							 // Msg358: invalid key position
+							 Arg::Gds(isc_field_name) << Arg::Str(RFR.RDB$FIELD_NAME) <<
+							 Arg::Gds(isc_index_name) << Arg::Str(indexName));
 				}
-				catch (const Exception&)
+				else if (FLD.RDB$FIELD_TYPE == blr_blob)
 				{
-					dbb->deletePool(new_pool);
-					throw;
+					ERR_post(Arg::Gds(isc_no_meta_update) <<
+							 Arg::Gds(isc_blob_idx_err) << Arg::Str(indexName));
+					// Msg350: attempt to index blob column in index %s
 				}
-
-				delete csb;
-			}
-
-			// Here we need dirty reads from database (first of all from
-			// RDB$RELATION_FIELDS and RDB$FIELDS - tables not directly related
-			// with index to be created and it's dfw_name). Missing it breaks gbak,
-			// and appears can break other applications.
-
-			AutoCacheRequest seg_request(tdbb, irq_c_index_seg, IRQ_REQUESTS);
-
-			FOR(REQUEST_HANDLE seg_request)
-				SEG IN RDB$INDEX_SEGMENTS CROSS
-				RFR IN RDB$RELATION_FIELDS CROSS
-				FLD IN RDB$FIELDS
-					WITH SEG.RDB$INDEX_NAME EQ indexName.c_str()
-					AND RFR.RDB$RELATION_NAME EQ rel->c_name()
-					AND RFR.RDB$FIELD_NAME EQ SEG.RDB$FIELD_NAME
-					AND FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
-			{
-				if (++key_count > idx.idx_count || SEG.RDB$FIELD_POSITION > idx.idx_count ||
-					FLD.RDB$FIELD_TYPE == blr_blob || !FLD.RDB$DIMENSIONS.NULL)
-				{
-					if (key_count > idx.idx_count)
-					{
-						ERR_post(Arg::Gds(isc_no_meta_update) <<
-								 Arg::Gds(isc_idx_key_err) << Arg::Str(indexName));
-						// Msg311: too many keys defined for index %s
-					}
-					else if (SEG.RDB$FIELD_POSITION > idx.idx_count)
-					{
-						fb_utils::exact_name(RFR.RDB$FIELD_NAME);
-						ERR_post(Arg::Gds(isc_no_meta_update) <<
-								 Arg::Gds(isc_inval_key_posn) <<
-								 // Msg358: invalid key position
-								 Arg::Gds(isc_field_name) << Arg::Str(RFR.RDB$FIELD_NAME) <<
-								 Arg::Gds(isc_index_name) << Arg::Str(indexName));
-					}
-					else if (FLD.RDB$FIELD_TYPE == blr_blob)
-					{
-						ERR_post(Arg::Gds(isc_no_meta_update) <<
-								 Arg::Gds(isc_blob_idx_err) << Arg::Str(indexName));
-						// Msg350: attempt to index blob column in index %s
-					}
-					else
-					{
-						ERR_post(Arg::Gds(isc_no_meta_update) <<
-								 Arg::Gds(isc_array_idx_err) << Arg::Str(indexName));
-						// Msg351: attempt to index array column in index %s
-					}
-				}
-
-				idx.idx_rpt[SEG.RDB$FIELD_POSITION].idx_field = RFR.RDB$FIELD_ID;
-
-				if (FLD.RDB$CHARACTER_SET_ID.NULL)
-					FLD.RDB$CHARACTER_SET_ID = CS_NONE;
-
-				CollId collate;
-				if (!RFR.RDB$COLLATION_ID.NULL)
-					collate = CollId(RFR.RDB$COLLATION_ID);
-				else if (!FLD.RDB$COLLATION_ID.NULL)
-					collate = CollId(FLD.RDB$COLLATION_ID);
 				else
-					collate = COLLATE_NONE;
-
-				const TTypeId text_type(CSetId(FLD.RDB$CHARACTER_SET_ID), collate);
-				idx.idx_rpt[SEG.RDB$FIELD_POSITION].idx_itype =
-					DFW_assign_index_type(tdbb, indexName, gds_cvt_blr_dtype[FLD.RDB$FIELD_TYPE], text_type);
-
-				// Initialize selectivity to zero. Otherwise random rubbish makes its way into database
-				idx.idx_rpt[SEG.RDB$FIELD_POSITION].idx_selectivity = 0;
+				{
+					ERR_post(Arg::Gds(isc_no_meta_update) <<
+							 Arg::Gds(isc_array_idx_err) << Arg::Str(indexName));
+					// Msg351: attempt to index array column in index %s
+				}
 			}
-			END_FOR
+
+			idx.idx_rpt[SEG.RDB$FIELD_POSITION].idx_field = RFR.RDB$FIELD_ID;
+
+			if (FLD.RDB$CHARACTER_SET_ID.NULL)
+				FLD.RDB$CHARACTER_SET_ID = CS_NONE;
+
+			CollId collate;
+			if (!RFR.RDB$COLLATION_ID.NULL)
+				collate = CollId(RFR.RDB$COLLATION_ID);
+			else if (!FLD.RDB$COLLATION_ID.NULL)
+				collate = CollId(FLD.RDB$COLLATION_ID);
+			else
+				collate = COLLATE_NONE;
+
+			const TTypeId text_type(CSetId(FLD.RDB$CHARACTER_SET_ID), collate);
+			idx.idx_rpt[SEG.RDB$FIELD_POSITION].idx_itype =
+				DFW_assign_index_type(tdbb, indexName, gds_cvt_blr_dtype[FLD.RDB$FIELD_TYPE], text_type);
+
+			// Initialize selectivity to zero. Otherwise random rubbish makes its way into database
+			idx.idx_rpt[SEG.RDB$FIELD_POSITION].idx_selectivity = 0;
 		}
 		END_FOR
+	}
+	END_FOR
 
-		if (!idx.idx_count)
-			fatal_exception::raiseFmt("The record for %s was not found in RDB$INDICES", indexName.c_str());
+	if (!idx.idx_count)
+		fatal_exception::raiseFmt("The record for %s was not found in RDB$INDICES", indexName.c_str());
 
-		if (key_count != idx.idx_count)
+	if (key_count != idx.idx_count)
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_key_field_err) << Arg::Str(indexName));
+		// Msg352: too few key columns found for index %s (incorrect column name?)
+	}
+
+	if (rel->isView())
+	{
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+		// Msg308: can't create index %s
+	}
+
+	// Actually create the index
+
+	// Protect relation from modification to create consistent index
+	ProtectRelations protectRelations(tdbb, transaction);
+	protectRelations.addRelation(rel);
+
+	if (idx.idx_flags & idx_foreign)
+	{
+		Cached::Relation* partner_relation = nullptr;
+		idx.idx_id = idx_invalid;
+
+		if (MET_lookup_partner(tdbb, rel, &idx, indexName.c_str()))
+		{
+			partner_relation = MetadataCache::lookupRelation(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
+		}
+
+		if (!partner_relation)
+		{
+			MetaName constraint_name;
+			MET_lookup_cnstrt_for_index(tdbb, constraint_name, indexName);
+			ERR_post(Arg::Gds(isc_partner_idx_not_found) << Arg::Str(constraint_name));
+		}
+
+		// Get an protected_read lock on the both relations if the index being
+		// defined enforces a foreign key constraint. This will prevent
+		// the constraint from being violated during index construction.
+
+		protectRelations.addRelation(partner_relation);
+
+		int bad_segment;
+		if (!IDX_check_master_types(tdbb, idx, partner_relation, bad_segment))
 		{
 			ERR_post(Arg::Gds(isc_no_meta_update) <<
-					 Arg::Gds(isc_key_field_err) << Arg::Str(indexName));
-			// Msg352: too few key columns found for index %s (incorrect column name?)
+						Arg::Gds(isc_partner_idx_incompat_type) << Arg::Num(bad_segment + 1));
 		}
 
-		if (rel->isView())
+		/*** hvlad: this code was never called but i preserve it for Claudio review and decision
+
+		// CVC: Currently, the server doesn't enforce FK creation more than at DYN level.
+		// If DYN is bypassed, then FK creation succeeds and operation will fail at run-time.
+		// The aim is to check REFERENCES at DDL time instead of DML time and behave accordingly
+		// to ANSI SQL rules for REFERENCES rights.
+		// For testing purposes, I'm calling SCL_check_index, although most of the DFW ops are
+		// carried using internal metadata structures that are refreshed from system tables.
+
+		// Don't bother if the master's owner is the same than the detail's owner.
+		// If both tables aren't defined in the same session, partner_relation->rel_owner_name
+		// won't be loaded hence, we need to be careful about null pointers.
+
+		if (rel->rel_owner_name.length() == 0 ||
+			partner_relation->rel_owner_name.length() == 0 ||
+			rel->rel_owner_name != partner_relation->rel_owner_name)
 		{
-			ERR_post(Arg::Gds(isc_no_meta_update) <<
-					 Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
-			// Msg308: can't create index %s
+			SCL_check_index(tdbb, partner_relation->getName(),
+							idx.idx_id + 1, SCL_references);
 		}
+		***/
+	}
 
-		// Actually create the index
+	protectRelations.lock();
 
-		// Protect relation from modification to create consistent index
-		ProtectRelations protectRelations(tdbb, transaction);
-		protectRelations.addRelation(rel);
+	fb_assert(idxId <= dbb->dbb_max_idx);
+	idx.idx_id = idxId;
+	SelectivityList selectivity(*tdbb->getDefaultPool());
+	IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName.c_str(),
+					&idxId, transaction, selectivity);
+	fb_assert(idxId == idx.idx_id);
+	DFW_update_index(indexName.c_str(), idxId, selectivity, transaction);
 
-		if (idx.idx_flags & idx_foreign)
-		{
-			Cached::Relation* partner_relation = nullptr;
-			idx.idx_id = idx_invalid;
-
-			if (MET_lookup_partner(tdbb, rel, &idx, indexName.c_str()))
-			{
-				partner_relation = MetadataCache::lookupRelation(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
-			}
-
-			if (!partner_relation)
-			{
-				MetaName constraint_name;
-				MET_lookup_cnstrt_for_index(tdbb, constraint_name, indexName);
-				ERR_post(Arg::Gds(isc_partner_idx_not_found) << Arg::Str(constraint_name));
-			}
-
-			// Get an protected_read lock on the both relations if the index being
-			// defined enforces a foreign key constraint. This will prevent
-			// the constraint from being violated during index construction.
-
-			protectRelations.addRelation(partner_relation);
-
-			int bad_segment;
-			if (!IDX_check_master_types(tdbb, idx, partner_relation, bad_segment))
-			{
-				ERR_post(Arg::Gds(isc_no_meta_update) <<
-							Arg::Gds(isc_partner_idx_incompat_type) << Arg::Num(bad_segment + 1));
-			}
-
-			/*** hvlad: this code was never called but i preserve it for Claudio review and decision
-
-			// CVC: Currently, the server doesn't enforce FK creation more than at DYN level.
-			// If DYN is bypassed, then FK creation succeeds and operation will fail at run-time.
-			// The aim is to check REFERENCES at DDL time instead of DML time and behave accordingly
-			// to ANSI SQL rules for REFERENCES rights.
-			// For testing purposes, I'm calling SCL_check_index, although most of the DFW ops are
-			// carried using internal metadata structures that are refreshed from system tables.
-
-			// Don't bother if the master's owner is the same than the detail's owner.
-			// If both tables aren't defined in the same session, partner_relation->rel_owner_name
-			// won't be loaded hence, we need to be careful about null pointers.
-
-			if (rel->rel_owner_name.length() == 0 ||
-				partner_relation->rel_owner_name.length() == 0 ||
-				rel->rel_owner_name != partner_relation->rel_owner_name)
-			{
-				SCL_check_index(tdbb, partner_relation->getName(),
-								idx.idx_id + 1, SCL_references);
-			}
-			***/
-		}
-
-		protectRelations.lock();
-
-		fb_assert(idxId <= dbb->dbb_max_idx);
-		idx.idx_id = idxId;
-		SelectivityList selectivity(*tdbb->getDefaultPool());
-		IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName.c_str(),
-						&idxId, transaction, selectivity);
-		fb_assert(idxId == idx.idx_id);
-		DFW_update_index(indexName.c_str(), idxId, selectivity, transaction);
-
-		if (idx.idx_condition_statement)
-			idx.idx_condition_statement->release(tdbb);
+	if (idx.idx_condition_statement)
+		idx.idx_condition_statement->release(tdbb);
 
 /*		if (partner_relation)   to be done !!!!!!!!!!!!!!!
 		{
@@ -11040,7 +11038,6 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			}
 		}
 */
-	}
 
 	return idxId;
 }
@@ -11059,199 +11056,163 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
  *
  **************************************/
 
-/*
+	SET_TDBB(tdbb);
 
-	switch (phase)
+	jrd_rel* relation = rel->getObject(tdbb, CacheFlag::AUTOCREATE);
+	if (!relation)
 	{
-	case 0:
-		cleanup_index_creation(tdbb, work, transaction);
-		MET_delete_dependencies(tdbb, name, obj_index_expression, transaction);
-		MET_delete_dependencies(tdbb, name, obj_index_condition, transaction);
-		return false;
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+		// Msg308: can't create index %s
+	}
 
-	case 1:
-	case 2:
-		return true;
+	index_desc idx;
+	MOVE_CLEAR(&idx, sizeof(index_desc));
+	idx.idx_flags = 0;
+	idx.idx_count = 0;
+	int key_count = 0;
+	CompilerScratch* csb = nullptr;
 
-	case 3:
+	const auto dbb = tdbb->getDatabase();
+	const auto attachment = tdbb->getAttachment();
+	MetaId idxId = dbb->dbb_max_idx;
+
+	AutoCacheRequest request(tdbb, irq_c_exp_index, IRQ_REQUESTS);
+
+	FOR(REQUEST_HANDLE request)
+		IDX IN RDB$INDICES CROSS
+		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME WITH
+		IDX.RDB$EXPRESSION_BLR NOT MISSING AND
+		IDX.RDB$INDEX_NAME EQ indexName.c_str()
+	{
+		// Reject here request to 'alter index inactive'
+		fb_assert(IDX.RDB$INDEX_ID.NULL);
+		fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
+
+		if (IDX.RDB$SEGMENT_COUNT)
 		{
-			jrd_rel* relation;
-			CompilerScratch* csb = nullptr;
+			// Msg359: segments not allowed in expression index %s
+			ERR_post(Arg::Gds(isc_no_meta_update) <<
+				Arg::Gds(isc_no_segments_err) << Arg::Str(indexName));
+		}
 
-			const auto dbb = tdbb->getDatabase();
-			const auto attachment = tdbb->getAttachment();
+		if (IDX.RDB$UNIQUE_FLAG)
+			idx.idx_flags |= idx_unique;
+		if (IDX.RDB$INDEX_TYPE == 1)
+			idx.idx_flags |= idx_descending;
 
-			index_desc idx;
-			MOVE_CLEAR(&idx, sizeof(index_desc));
+		// Allocate a new pool to contain the expression tree
+		// for index expression
+		const auto new_pool = dbb->createPool(ALLOC_ARGS0);
 
-			AutoCacheRequest request(tdbb, irq_c_exp_index, IRQ_REQUESTS);
+		try
+		{
+			Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-			FOR(REQUEST_HANDLE request)
-				IDX IN RDB$INDICES CROSS
-				REL IN RDB$RELATIONS OVER RDB$RELATION_NAME WITH
-				IDX.RDB$EXPRESSION_BLR NOT MISSING AND
-				IDX.RDB$INDEX_NAME EQ name.c_str()
-			{
-				if (!relation)
-				{
-					relation = MetadataCache::find-Relation(tdbb, REL.RDB$RELATION_ID);
-					if (relation->getName().length() == 0)
-						relation->getName() = REL.RDB$RELATION_NAME;
+			MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$EXPRESSION_BLR,
+				nullptr, &csb, indexName, obj_index_expression, 0,
+				transaction);
 
-					if (IDX.RDB$INDEX_ID && IDX.RDB$STATISTICS < 0.0)
-					{
-						SelectivityList selectivity(*tdbb->getDefaultPool());
-						const USHORT localId = IDX.RDB$INDEX_ID - 1;
-						IDX_statistics(tdbb, relation, localId, selectivity);
-						DFW_update_index(name.c_str(), localId, selectivity, transaction);
+			idx.idx_expression_statement = Statement::makeValueExpression(tdbb,
+				idx.idx_expression, idx.idx_expression_desc, csb, false);
 
-						return false;
-					}
+			// fake a description of the index
 
-					if (IDX.RDB$INDEX_ID)
-					{
-						IDX _delete_index(tdbb, relation, IDX.RDB$INDEX_ID - 1);
-						MET_delete_dependencies(tdbb, name, obj_expression_index, transaction);
-						MET_delete_dependencies(tdbb, name, obj_index_condition, transaction);
-						MODIFY IDX
-							IDX.RDB$INDEX_ID.NULL = TRUE;
-						END_MODIFY
-					}
+			idx.idx_count = 1;
+			idx.idx_flags |= idx_expression;
+			idx.idx_rpt[0].idx_itype =
+				DFW_assign_index_type(tdbb, indexName,
+					idx.idx_expression_desc.dsc_dtype,
+					idx.idx_expression_desc.getTextType());
+			idx.idx_rpt[0].idx_selectivity = 0;
+		}
+		catch (const Exception&)
+		{
+			dbb->deletePool(new_pool);
+			throw;
+		}
 
-					if (IDX.RDB$INDEX_INACTIVE)
-						return false;
-
-					if (IDX.RDB$SEGMENT_COUNT)
-					{
-						// Msg359: segments not allowed in expression index %s
-						ERR_post(Arg::Gds(isc_no_meta_update) <<
-							Arg::Gds(isc_no_segments_err) << Arg::Str(name));
-					}
-					if (IDX.RDB$UNIQUE_FLAG)
-						idx.idx_flags |= idx_unique;
-					if (IDX.RDB$INDEX_TYPE == 1)
-						idx.idx_flags |= idx_descending;
-
-					MET_scan_relation(tdbb, relation);
-
-					// Allocate a new pool to contain the expression tree
-					// for index expression
-					const auto new_pool = dbb->createPool(ALLOC_ARGS0);
-
-					try
-					{
-						Jrd::ContextPoolHolder context(tdbb, new_pool);
-
-						MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$EXPRESSION_BLR,
-							nullptr, &csb, name, obj_index_expression, 0,
-							transaction);
-
-						idx.idx_expression_statement = Statement::makeValueExpression(tdbb,
-							idx.idx_expression, idx.idx_expression_desc, csb, false);
-
-						// fake a description of the index
-
-						idx.idx_count = 1;
-						idx.idx_flags |= idx_expression;
-						idx.idx_rpt[0].idx_itype =
-							DFW_assign_index_type(tdbb, name,
-							idx.idx_expression_desc.dsc_dtype,
-							idx.idx_expression_desc.dsc_sub_type);
-						idx.idx_rpt[0].idx_selectivity = 0;
-					}
-					catch (const Exception&)
-					{
-						dbb->deletePool(new_pool);
-						throw;
-					}
-
-					if (!IDX.RDB$CONDITION_BLR.NULL)
-					{
-						// Allocate a new pool to contain the expression tree
-						// for index condition
-						const auto new_pool = dbb->createPool(ALLOC_ARGS0);
-
-						try
-						{
-							Jrd::ContextPoolHolder context(tdbb, new_pool);
-
-							MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
-								nullptr, &csb, name, obj_index_condition, 0,
-								transaction);
-
-							idx.idx_condition_statement = Statement::makeBoolExpression(tdbb,
-								idx.idx_condition, csb, false);
-
-							idx.idx_flags |= idx_condition;
-						}
-						catch (const Exception&)
-						{
-							dbb->deletePool(new_pool);
-							throw;
-						}
-					}
-				}
-			}
-			END_FOR
-
-			if (!relation)
-			{
-				// Msg308: can't create index %s
-				ERR_post(Arg::Gds(isc_no_meta_update) <<
-					Arg::Gds(isc_idx_create_err) << Arg::Str(name));
-			}
-
-			delete csb;
-
-			// Actually create the index
-
-			// Protect relation from modification to create consistent index
-			ProtectRelations protectRelation(tdbb, transaction, relation);
-
-			SelectivityList selectivity(*tdbb->getDefaultPool());
-
-			jrd_tra* const current_transaction = tdbb->getTransaction();
-			Request* const current_request = tdbb->getRequest();
+		if (!IDX.RDB$CONDITION_BLR.NULL)
+		{
+			// Allocate a new pool to contain the expression tree
+			// for index condition
+			const auto new_pool = dbb->createPool(ALLOC_ARGS0);
 
 			try
 			{
-				fb_assert(id <= dbb->dbb_max_idx);
-				idx.idx_id = id;
-				IDX_create_index(tdbb, relation, &idx, name.c_str(), &id,
-					transaction, selectivity);
+				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				fb_assert(id == idx.idx_id);
+				MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
+					nullptr, &csb, indexName, obj_index_condition, 0,
+					transaction);
+
+				idx.idx_condition_statement = Statement::makeBoolExpression(tdbb,
+					idx.idx_condition, csb, false);
+
+				idx.idx_flags |= idx_condition;
 			}
 			catch (const Exception&)
 			{
-				tdbb->setTransaction(current_transaction);
-				tdbb->setRequest(current_request);
-
-				// Get rid of the expression/condition statements
-				idx.idx_expression_statement->release(tdbb);
-				if (idx.idx_condition_statement)
-					idx.idx_condition_statement->release(tdbb);
-
+				dbb->deletePool(new_pool);
 				throw;
 			}
-
-			tdbb->setTransaction(current_transaction);
-			tdbb->setRequest(current_request);
-
-			DFW_update_index(name.c_str(), idx.idx_id, selectivity, transaction);
-
-			// Get rid of the expression/condition statements
-			idx.idx_expression_statement->release(tdbb);
-			if (idx.idx_condition_statement)
-				idx.idx_condition_statement->release(tdbb);
 		}
-		break;
-
-	default:
-		break;
 	}
-*/
-	return MAX_META_ID;
+	END_FOR
+
+	if (!relation)
+	{
+		// Msg308: can't create index %s
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+			Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+	}
+
+	delete csb;
+
+	// Actually create the index
+
+	// Protect relation from modification to create consistent index
+	ProtectRelations protectRelation(tdbb, transaction);
+	protectRelation.addRelation(rel);
+
+	SelectivityList selectivity(*tdbb->getDefaultPool());
+
+	jrd_tra* const current_transaction = tdbb->getTransaction();
+	Request* const current_request = tdbb->getRequest();
+
+	try
+	{
+		fb_assert(idxId <= dbb->dbb_max_idx);
+		idx.idx_id = idxId;
+		IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName.c_str(), &idxId,
+			transaction, selectivity);
+
+		fb_assert(idxId == idx.idx_id);
+	}
+	catch (const Exception&)
+	{
+		tdbb->setTransaction(current_transaction);
+		tdbb->setRequest(current_request);
+
+		// Get rid of the expression/condition statements
+		idx.idx_expression_statement->release(tdbb);
+		if (idx.idx_condition_statement)
+			idx.idx_condition_statement->release(tdbb);
+
+		throw;
+	}
+
+	tdbb->setTransaction(current_transaction);
+	tdbb->setRequest(current_request);
+
+	DFW_update_index(indexName.c_str(), idx.idx_id, selectivity, transaction);
+
+	// Get rid of the expression/condition statements
+	idx.idx_expression_statement->release(tdbb);
+	if (idx.idx_condition_statement)
+		idx.idx_condition_statement->release(tdbb);
+
+	return idxId;
 }
 
 
