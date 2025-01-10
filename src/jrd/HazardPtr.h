@@ -559,6 +559,11 @@ public:
 		}
 	}
 
+	bool isReady()
+	{
+		return (flg == READY) || ((thd == Thread::getId()) && (flg == SCANNING));
+	}
+
 private:
 	std::condition_variable cond;
 	std::mutex mtx;
@@ -628,6 +633,9 @@ public:
 					listEntry->scanObject(
 						[&](bool rld) { return scanCallback(tdbb, obj, rld, fl); },
 					fl);
+
+					if ((!(fl & CacheFlag::NOSCAN)) && (!(listEntry->bar.isReady())))
+						return nullptr;
 				}
 				return obj;
 			}

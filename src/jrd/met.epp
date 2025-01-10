@@ -3553,7 +3553,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	rel_current_format = NULL;
 	dependencies = sys_triggers = false;
 
-	return true;
+	return getName().hasData();
 }
 
 
@@ -5286,9 +5286,8 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (idv_name.isEmpty())
 	{
-		fb_assert(false);
-		fatal_exception::raiseFmt("Index with id=%d for relation %s not found\n",
-			getId(), getPermanent()->getRelation()->c_name());
+		idv_inactive = true;
+		return false;
 	}
 	perm->idp_name = idv_name;
 

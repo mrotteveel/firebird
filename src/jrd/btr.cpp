@@ -415,6 +415,9 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 
 	for (MetaId i = 0; i < root->irt_count; i++)
 	{
+		if (!relation->lookup_index(tdbb, i, CacheFlag::AUTOCREATE))
+			continue;
+
 		index_desc idx;
 		if (BTR_description(tdbb, relation, root, &idx, i))
 			idxList.add(idx);
