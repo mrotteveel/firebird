@@ -89,10 +89,10 @@ struct index_desc
 	MetaId	idx_primary_relation;			// id for primary key partner relation
 	USHORT	idx_count;						// number of keys
 	ForeignDeps*	idx_foreign_deps;		// foreign key partners
-	ValueExprNode* idx_expression;			// node tree for indexed expression
+	ValueExprNode* idx_expression_node;		// node tree for indexed expression
 	dsc		idx_expression_desc;			// descriptor for expression result
 	Statement* idx_expression_statement;	// stored statement for expression evaluation
-	BoolExprNode* idx_condition;			// node tree for index condition
+	BoolExprNode* idx_condition_node;		// node tree for index condition
 	Statement* idx_condition_statement;		// stored statement for index condition
 	float idx_fraction;						// fraction of keys included in the index
 	// This structure should exactly match IRTD structure for current ODS

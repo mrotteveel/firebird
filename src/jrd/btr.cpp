@@ -739,9 +739,9 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, index_root_pag
 	idx->idx_foreign_deps = nullptr;
 	idx->idx_primary_relation = 0;
 	idx->idx_primary_index = 0;
-	idx->idx_expression = nullptr;
+	idx->idx_expression_node = nullptr;
 	idx->idx_expression_statement = nullptr;
-	idx->idx_condition = nullptr;
+	idx->idx_condition_node = nullptr;
 	idx->idx_condition_statement = nullptr;
 	idx->idx_fraction = 1.0;
 
@@ -761,13 +761,13 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, index_root_pag
 	if (idx->idx_flags & idx_expression)
 	{
 		MET_lookup_index_expression(tdbb, relation, idx);
-		fb_assert(idx->idx_expression);
+		fb_assert(idx->idx_expression_node);
 	}
 
 	if (idx->idx_flags & idx_condition)
 	{
 		MET_lookup_index_condition(tdbb, relation, idx);
-		fb_assert(idx->idx_condition);
+		fb_assert(idx->idx_condition_node);
 	}
 
 	return true;
@@ -779,7 +779,7 @@ bool BTR_check_condition(Jrd::thread_db* tdbb, Jrd::index_desc* idx, Jrd::Record
 	if (!(idx->idx_flags & idx_condition))
 		return true;
 
-	fb_assert(idx->idx_condition);
+	fb_assert(idx->idx_condition_node);
 
 	Request* const orgRequest = tdbb->getRequest();
 	Request* const conditionRequest = idx->idx_condition_statement->findRequest(tdbb);
@@ -812,7 +812,7 @@ bool BTR_check_condition(Jrd::thread_db* tdbb, Jrd::index_desc* idx, Jrd::Record
 		else
 			conditionRequest->validateTimeStamp();
 
-		result = idx->idx_condition->execute(tdbb, conditionRequest);
+		result = idx->idx_condition_node->execute(tdbb, conditionRequest);
 	}
 	catch (const Exception& ex)
 	{
@@ -834,7 +834,7 @@ bool BTR_check_condition(Jrd::thread_db* tdbb, Jrd::index_desc* idx, Jrd::Record
 DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool& notNull)
 {
 	SET_TDBB(tdbb);
-	fb_assert(idx->idx_expression);
+	fb_assert(idx->idx_expression_node);
 
 	// check for recursive expression evaluation
 	Request* const org_request = tdbb->getRequest();
@@ -871,7 +871,7 @@ DSC* BTR_eval_expression(thread_db* tdbb, index_desc* idx, Record* record, bool&
 		else
 			expr_request->validateTimeStamp();
 
-		if (!(result = EVL_expr(tdbb, expr_request, idx->idx_expression)))
+		if (!(result = EVL_expr(tdbb, expr_request, idx->idx_expression_node)))
 			result = &idx->idx_expression_desc;
 
 		notNull = !(expr_request->req_flags & req_null);
@@ -1730,7 +1730,7 @@ USHORT BTR_key_length(thread_db* tdbb, jrd_rel* relation, index_desc* idx)
 		default:
 			if (idx->idx_flags & idx_expression)
 			{
-				fb_assert(idx->idx_expression);
+				fb_assert(idx->idx_expression_node);
 				length = idx->idx_expression_desc.dsc_length;
 				if (idx->idx_expression_desc.dsc_dtype == dtype_varying)
 				{

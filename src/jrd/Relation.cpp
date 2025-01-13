@@ -551,6 +551,18 @@ IndexVersion::IndexVersion(MemoryPool& p, Cached::Index* idp)
 	: perm(idp)
 { }
 
+void IndexVersion::destroy(thread_db* tdbb, IndexVersion* idv)
+{
+	if (idv->idv_expression_statement)
+		idv->idv_expression_statement->release(tdbb);
+
+	if (idv->idv_condition_statement)
+		idv->idv_condition_statement->release(tdbb);
+
+	delete idv;
+}
+
+
 void jrd_rel::releaseTriggers(thread_db* tdbb, bool destroy)
 {
 	for (int n = 1; n < TRIGGER_MAX; ++n)

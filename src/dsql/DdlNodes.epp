@@ -10830,7 +10830,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 		}
 		END_FOR
 
-		idx.idx_condition = nullptr;
+		idx.idx_condition_node = nullptr;
 		idx.idx_condition_statement = nullptr;
 
 		if (!IDX.RDB$CONDITION_BLR.NULL)
@@ -10849,7 +10849,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 					transaction);
 
 				idx.idx_condition_statement = Statement::makeBoolExpression(tdbb,
-					idx.idx_condition, csb, false);
+					idx.idx_condition_node, csb, false);
 
 				idx.idx_flags |= idx_condition;
 			}
@@ -11114,7 +11114,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 				transaction);
 
 			idx.idx_expression_statement = Statement::makeValueExpression(tdbb,
-				idx.idx_expression, idx.idx_expression_desc, csb, false);
+				idx.idx_expression_node, idx.idx_expression_desc, csb, false);
 
 			// fake a description of the index
 
@@ -11147,7 +11147,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 					transaction);
 
 				idx.idx_condition_statement = Statement::makeBoolExpression(tdbb,
-					idx.idx_condition, csb, false);
+					idx.idx_condition_node, csb, false);
 
 				idx.idx_flags |= idx_condition;
 			}

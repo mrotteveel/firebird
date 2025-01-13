@@ -389,7 +389,7 @@ public:
 				m_idx = *creation->index;	// copy
 				if (m_ownAttach)
 				{
-					m_idx.idx_expression = NULL;
+					m_idx.idx_expression_node = NULL;
 					m_idx.idx_expression_statement = NULL;
 					m_idx.idx_foreign_deps = NULL;
 				}
@@ -546,14 +546,14 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		partner_index_id = idx->idx_primary_index;
 	}
 
-	if ((idx->idx_flags & idx_expression) && (idx->idx_expression == NULL))
+	if ((idx->idx_flags & idx_expression) && (idx->idx_expression_node == NULL))
 	{
 		fb_assert(!m_exprBlob.isEmpty());
 
 		CompilerScratch* csb = NULL;
 		Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 
-		idx->idx_expression = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, getPermanent(relation), &m_exprBlob,
+		idx->idx_expression_node = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, getPermanent(relation), &m_exprBlob,
 			&csb, &idx->idx_expression_statement, false, false));
 
 		delete csb;

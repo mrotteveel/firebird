@@ -512,10 +512,7 @@ public:
 		return FB_NEW_POOL(p) IndexVersion(p, idp);
 	}
 
-	static void destroy(thread_db* tdbb, IndexVersion* idv)
-	{
-		delete idv;
-	}
+	static void destroy(thread_db* tdbb, IndexVersion* idv);
 
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p)
 	{

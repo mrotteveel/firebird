@@ -2276,7 +2276,7 @@ void MET_lookup_index_condition(thread_db* tdbb, Cached::Relation* relation, ind
 	IndexVersion* idv = relation->lookup_index(tdbb, idx->idx_id, CacheFlag::AUTOCREATE);
 	if (idv)
 	{
-		idx->idx_condition = idv->idv_condition;
+		idx->idx_condition_node = idv->idv_condition;
 		idx->idx_condition_statement = idv->idv_condition_statement;
 	}
 }
@@ -2299,7 +2299,7 @@ void MET_lookup_index_expression(thread_db* tdbb, Cached::Relation* relation, in
 	IndexVersion* idv = relation->lookup_index(tdbb, idx->idx_id, CacheFlag::AUTOCREATE);
 	if (idv)
 	{
-		idx->idx_expression = idv->idv_expression;
+		idx->idx_expression_node = idv->idv_expression;
 		idx->idx_expression_statement = idv->idv_expression_statement;
 		memcpy(&idx->idx_expression_desc, &idv->idv_expression_desc, sizeof(struct dsc));
 	}
@@ -5294,7 +5294,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	auto* relation = (expression.hasData() || condition.hasData()) ?
 		MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE) : nullptr;
 	perm->createLock(tdbb, relId, getId());
-		// ????? perm->createLock( caching lock
+		// ?????????????? perm->createLock( caching lock
 
 	if (expression.hasData())
 	{
