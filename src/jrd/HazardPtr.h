@@ -786,7 +786,9 @@ public:
 	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
 	{
 		fb_assert(obj);
-		Firebird::AutoSetRestoreFlag readCommitted(TransactionNumber::getFlags(tdbb), TRA_read_committed, true);
+		auto* flags = TransactionNumber::getFlags(tdbb);
+		Firebird::AutoSetRestoreFlag readCommitted(flags,
+			(*flags) & TRA_degree3 ? 0 : TRA_read_committed | TRA_rec_version, true);
 		return rld ? obj->reload(tdbb, fl) : obj->scan(tdbb, fl);
 	}
 
