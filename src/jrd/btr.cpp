@@ -413,13 +413,43 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 	if (!root)
 		return;
 
-	for (MetaId i = 0; i < root->irt_count; i++)
+	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
+	for (MetaId id = 0; id < root->irt_count; id++)
 	{
-		if (!relation->lookup_index(tdbb, i, CacheFlag::AUTOCREATE))
+		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
+		const TraNumber descTrans = irt_desc->getTransaction();
+
+		switch (irt_desc->getState())
+		{
+		case irt_normal:
+			break;
+
+		case irt_in_progress:			// index creation - skip
+		case irt_drop:					// index removal - skip
+			continue;
+
+		case irt_rollback:		// to be removed when irt_transaction dead
+			switch (indexCacheState(tdbb, descTrans, relation, id, true))
+			{
+			case tra_dead:		// skip - index failed creation
+				continue;
+			}
+			break;
+
+		case irt_commit:		// change state on irt_transaction completion
+			switch (indexCacheState(tdbb, descTrans, relation, id, false))
+			{
+			case tra_committed:	// skip - index to be dropped
+				continue;
+			}
+			break;
+		}
+
+		if (!relation->lookup_index(tdbb, id, CacheFlag::AUTOCREATE))
 			continue;
 
 		index_desc idx;
-		if (BTR_description(tdbb, relation, root, &idx, i))
+		if (BTR_description(tdbb, relation, root, &idx, id))
 			idxList.add(idx);
 	}
 
@@ -2124,11 +2154,11 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 			return false;
 	}
 
+	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
 	for (; id < root->irt_count; ++id)
 	{
 		bool needWrite = false;
 		bool rls = true;
-		TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
 
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
 		const TraNumber descTrans = irt_desc->getTransaction();
@@ -2169,7 +2199,6 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 			needWrite = oldestActive > descTrans;
 			break;
 		}
-
 
 		if (needWrite)
 		{
