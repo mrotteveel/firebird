@@ -46,7 +46,7 @@ namespace Jrd
 class WorkerStableAttachment : public SysStableAttachment
 {
 public:
-	static WorkerStableAttachment* create(FbStatusVector* status, Jrd::Database* dbb);
+	static WorkerStableAttachment* create(FbStatusVector* status, Database* dbb, JProvider* provider);
 
 	void fini();
 
@@ -56,6 +56,8 @@ protected:
 private:
 	explicit WorkerStableAttachment(FbStatusVector* status, Jrd::Attachment* att);
 	virtual ~WorkerStableAttachment();
+
+	Firebird::AutoPlugin<JProvider> m_provider;
 };
 
 
