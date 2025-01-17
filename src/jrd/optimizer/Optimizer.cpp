@@ -1072,7 +1072,8 @@ void Optimizer::compileRelation(StreamType stream)
 		MetaId n = idxList.getCount();
 		while (n--)
 		{
-			auto* idv = relation()->lookup_index(tdbb, n, CacheFlag::AUTOCREATE);
+			auto id = idxList[n].idx_id;
+			auto* idv = relation()->lookup_index(tdbb, id, CacheFlag::AUTOCREATE);
 			if (idv && !idv->getActive())
 				idv = nullptr;
 			if (!idv)
