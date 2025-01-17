@@ -149,8 +149,7 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 
 			referenced_window.win_page = get_root_page(tdbb, getPermanent(referenced_relation));
 			referenced_window.win_flags = 0;
-			index_root_page* referenced_root =
-				(index_root_page*) CCH_FETCH(tdbb, &referenced_window, LCK_read, pag_root);
+			auto* referenced_root = BTR_fetch_root(FB_FUNCTION, tdbb, &referenced_window);
 			index_desc referenced_idx;
 			if (!BTR_description(tdbb, getPermanent(referenced_relation), referenced_root,
 								 &referenced_idx, index_id))
@@ -205,7 +204,7 @@ bool IDX_check_master_types(thread_db* tdbb, index_desc& idx, Cached::Relation* 
 
 	// get the index root page for the partner relation
 	WIN window(get_root_page(tdbb, partner_relation));
-	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
+	auto* root = BTR_fetch_root(FB_FUNCTION, tdbb, &window);
 
 	// get the description of the partner index
 	const bool ok = BTR_description(tdbb, partner_relation, root, &partner_idx, idx.idx_primary_index);
@@ -980,10 +979,7 @@ void IDX_create_index(thread_db* tdbb,
 
 void IDX_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 {
-	WIN window(get_root_page(tdbb, relation));
-	CCH_FETCH(tdbb, &window, LCK_write, pag_root);
-
-	BTR_activate_index(tdbb, &window, id);
+	BTR_activate_index(tdbb, relation, id);
 }
 
 
@@ -1003,12 +999,10 @@ void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 
 	signal_index_deletion(tdbb, relation, id);
 
-	WIN window(get_root_page(tdbb, relation));
-	CCH_FETCH(tdbb, &window, LCK_write, pag_root);
+	BTR_mark_index_for_delete(tdbb, relation, id);
 
-	BTR_mark_index_for_delete(tdbb, &window, id);
 /* ??????????????????
-	if ((getPermanent(relation)->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
+	if ((relation->rel_flags & REL_temp_conn) && (relation->getPages(tdbb)->rel_instance_id != 0) &&
 		tree_exists)
 	{
 		IndexPermanent* idx_lock = relation->getIndexLock(tdbb, id);
@@ -1037,14 +1031,14 @@ void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPa
 	fb_assert(relPages->rel_index_root);
 
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
-	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
+	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
 //	const bool is_temp = (relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0);
 
 	for (USHORT i = 0; i < root->irt_count; i++)
 	{
 		const bool tree_exists = BTR_delete_index(tdbb, &window, i);
-		root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_write, pag_root);
+		root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 /* !!!!!!!!!!!!!!
 		if (is_temp && tree_exists)
 		{
@@ -1126,7 +1120,7 @@ void IDX_garbage_collect(thread_db* tdbb, record_param* rpb, RecordStack& going,
 
 	WIN window(get_root_page(tdbb, getPermanent(rpb->rpb_relation)));
 
-	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
+	auto* root = BTR_fetch_root(FB_FUNCTION, tdbb, &window);
 
 	for (USHORT i = 0; i < root->irt_count; i++)
 	{
@@ -1206,7 +1200,7 @@ void IDX_garbage_collect(thread_db* tdbb, record_param* rpb, RecordStack& going,
 				// Get rid of index node
 
 				BTR_remove(tdbb, &window, &insertion);
-				root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
+				root = BTR_fetch_root(FB_FUNCTION, tdbb, &window);
 
 				if (stack1.hasMore(1))
 					BTR_description(tdbb, getPermanent(rpb->rpb_relation), root, &idx, i);
@@ -1796,7 +1790,7 @@ static idx_e check_partner_index(thread_db* tdbb,
 	// get the index root page for the partner relation
 
 	WIN window(get_root_page(tdbb, getPermanent(partner_relation)));
-	index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, &window, LCK_read, pag_root);
+	auto* root = BTR_fetch_root(FB_FUNCTION, tdbb, &window);
 
 	// get the description of the partner index
 
@@ -1943,17 +1937,7 @@ static PageNumber get_root_page(thread_db* tdbb, Cached::Relation* relation)
  *	Find the root page for a relation.
  *
  **************************************/
-	SET_TDBB(tdbb);
-
-	RelationPages* relPages = relation->getPages(tdbb);
-	SLONG page = relPages->rel_index_root;
-	if (!page)
-	{
-		DPM_scan_pages(tdbb);
-		page = relPages->rel_index_root;
-	}
-
-	return PageNumber(relPages->rel_pg_space_id, page);
+	return relation->getIndexRootPage(tdbb);
 }
 
 

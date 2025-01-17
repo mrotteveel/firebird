@@ -531,6 +531,32 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaId id, Object
 }
 
 
+PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
+{
+/**************************************
+ *
+ *	g e t _ r o o t _ p a g e
+ *
+ **************************************
+ *
+ * Functional description
+ *	Find the root page for a relation.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+
+	RelationPages* relPages = getPages(tdbb);
+	SLONG page = relPages->rel_index_root;
+	if (!page)
+	{
+		DPM_scan_pages(tdbb);
+		page = relPages->rel_index_root;
+	}
+
+	return PageNumber(relPages->rel_pg_space_id, page);
+}
+
+
 const char* IndexPermanent::c_name() const
 {
 	// Here we use MetaName feature - pointers in it are DBB-lifetime stable

@@ -872,8 +872,8 @@ public:
 		rel_file = f;
 	}
 
-
-	void	getRelLockKey(thread_db* tdbb, UCHAR* key);
+	void getRelLockKey(thread_db* tdbb, UCHAR* key);
+	PageNumber getIndexRootPage(thread_db* tdbb);
 
 	bool isSystem() const;
 	bool isTemporary() const;
