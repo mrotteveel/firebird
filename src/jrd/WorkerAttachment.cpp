@@ -50,8 +50,7 @@ const unsigned WORKER_IDLE_TIMEOUT = 60;	// 1 minute
 /// class WorkerStableAttachment
 
 WorkerStableAttachment::WorkerStableAttachment(FbStatusVector* status, Jrd::Attachment* attachment) :
-	SysStableAttachment(attachment),
-	m_provider(attachment->getProvider())
+	SysStableAttachment(attachment)
 {
 	UserId user;
 	user.setUserName("<Worker>");
@@ -70,7 +69,6 @@ WorkerStableAttachment::WorkerStableAttachment(FbStatusVector* status, Jrd::Atta
 	Monitoring::publishAttachment(tdbb);
 
 	initDone();
-	m_provider->addRef();
 }
 
 WorkerStableAttachment::~WorkerStableAttachment()
@@ -459,6 +457,7 @@ StableAttachmentPart* WorkerAttachment::doAttach(FbStatusVector* status, Databas
 	{
 		sAtt->addRef(); // !!
 		sAtt->getHandle()->setIdleTimeout(WORKER_IDLE_TIMEOUT);
+		jInstance->addRef();
 	}
 
 	return sAtt;
@@ -467,6 +466,15 @@ StableAttachmentPart* WorkerAttachment::doAttach(FbStatusVector* status, Databas
 void WorkerAttachment::doDetach(FbStatusVector* status, StableAttachmentPart* sAtt)
 {
 	status->init();
+
+	AutoPlugin<JProvider> provider;
+	{
+		AttSyncLockGuard guard(*sAtt->getSync(), FB_FUNCTION);
+
+		Attachment* attachment = sAtt->getHandle();
+		if (attachment)
+			provider.reset(attachment->getProvider());
+	}
 
 	// if (att->att_flags & ATT_system)
 	if (Config::getServerMode() == MODE_SUPER)

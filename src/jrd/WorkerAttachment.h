@@ -56,8 +56,6 @@ protected:
 private:
 	explicit WorkerStableAttachment(FbStatusVector* status, Jrd::Attachment* att);
 	virtual ~WorkerStableAttachment();
-
-	Firebird::AutoPlugin<JProvider> m_provider;
 };
 
 
