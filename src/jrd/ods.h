@@ -365,7 +365,9 @@ struct index_root_page
 {
 	pag irt_header;
 	USHORT irt_relation;			// relation id (for consistency)
-	USHORT irt_count;				// Number of indices
+	USHORT irt_count;				// number of indices
+	ULONG irt_unused;				// so far used as a padding to ensure the same
+									// alignment between 32-bit and 64-bit builds
 	struct irt_repeat
 	{
 		friend class index_root_page;	// to allow offset check for private members
@@ -373,7 +375,11 @@ struct index_root_page
 		union
 		{
 			FB_UINT64 irt_transaction;	// transaction in progress
-			ULONG irt_root;				// page number of index root
+			struct
+			{
+				ULONG irt_page_num;			// page number
+				ULONG irt_page_space_id;	// page space
+			} irt_root;						// index root page
 		};
 	public:
 		USHORT irt_desc;				// offset to key descriptions
@@ -429,13 +435,13 @@ inline constexpr USHORT irt_condition		= 64;
 
 inline bool index_root_page::irt_repeat::isUsed() const
 {
-	return (irt_flags & irt_in_progress) || (irt_root != 0);
+	return (irt_flags & irt_in_progress) || (irt_root.irt_page_num != 0);
 }
 
 inline void index_root_page::irt_repeat::setEmpty()
 {
 	irt_transaction = 0;
-	fb_assert(irt_root == 0);
+	fb_assert(irt_root.irt_page_num == 0 && irt_root.irt_page_space_id == 0);
 	irt_flags = 0;
 }
 
@@ -452,12 +458,13 @@ inline void index_root_page::irt_repeat::setInProgress(TraNumber traNumber)
 
 inline ULONG index_root_page::irt_repeat::getRoot() const
 {
-	return (irt_flags & irt_in_progress) ? 0 : irt_root;
+	return (irt_flags & irt_in_progress) ? 0 : irt_root.irt_page_num;
 }
 
 inline void index_root_page::irt_repeat::setRoot(ULONG rootPage)
 {
-	irt_root = rootPage;
+	irt_root.irt_page_num = rootPage;
+	irt_root.irt_page_space_id = 0;
 	irt_flags &= ~irt_in_progress;
 }
 
