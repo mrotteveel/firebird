@@ -40,6 +40,17 @@
 ;     server. They must be stopped manually.
 ;
 ;
+;   Debugging this script
+;
+;   You need to run BuildExecutableInstall.bat to create the correct environment.
+;   If you have built firebird from run_all.bat you need to switch to the install
+;   script directory:
+;     pushd ..\install\arch-specific\win32
+;
+;   After that you should be able to compile and debug the script from the command
+;   line thus:
+;     "%INNO6_SETUP_PATH%"\compil32.exe FirebirdInstall.iss
+;
 ;
 #define MyAppPublisher "Firebird Project"
 #define MyAppURL "http://www.firebirdsql.org/"
@@ -660,6 +671,15 @@ Var
 
   novcrt: Boolean;              // Do not install the VC runtime libs
 
+  AdminUserPage: TInputQueryWizardPage;
+
+  DonorPage: TWizardPage;
+  RichEditViewer: TRichEditViewer;
+  DonateButton: TNewButton;
+
+  initWizardHeight: Integer;    // In prev. version - the wizard form was resized to new size every time when go back button pressed
+
+
 #ifdef setuplogging
 // Not yet implemented - leave log in %TEMP%
 //  OkToCopyLog : Boolean;        // Set when installation is complete.
@@ -671,25 +691,15 @@ Var
 
 #include "FirebirdInstallGUIFunctions.inc"
 
-
-var
-  AdminUserPage: TInputQueryWizardPage;
-  initWizardHeight: Integer; //In prev. version - the wizard form was resized to new size every time when go back button pressed
-
 procedure InitializeWizard;
 begin
   initWizardHeight := wizardform.height;
 
-  { Create a page to grab the new SYSDBA password }
-  AdminUserPage := CreateInputQueryPage(wpSelectTasks,
-      ExpandConstant( '{cm:CreateSYSDBAPassword}' )
-    , ExpandConstant( '{cm:ClickThroughPWCreation}' ) + #13#10 +
-      ExpandConstant( '{cm:PasswordNote}' ) , '' );
-  AdminUserPage.Add( ExpandConstant( '{cm:SYSDBAPassword}' ), True);
-  AdminUserPage.Add( ExpandConstant( '{cm:RetypeSYSDBAPassword}' ), True);
+  // Create a page to grab the new SYSDBA password
+  CreateAdminUserPage;
 
-  AdminUserPage.Values[0] := SYSDBAPassword;
-  AdminUserPage.Values[1] := SYSDBAPassword;
+  // Create a page to ask for donations
+  CreateDonorPage;
 
 end;
 
@@ -1059,6 +1069,12 @@ begin
   case CurPage of
     wpInfoBefore:   WizardForm.INFOBEFOREMEMO.font.name:='Courier New';
     wpInfoAfter:    WizardForm.INFOAFTERMEMO.font.name:='Courier New';
+    DonorPage.ID:   begin
+        DonateButton.Visible := True;
+        WizardForm.BackButton.Visible := False;
+      end;
+  else
+    DonateButton.Visible := False;
   end;
 end;
 
@@ -1258,7 +1274,7 @@ begin
   Result := True;
   case CurPageID of
     AdminUserPage.ID : begin
-    { check user has entered new sysdba password correctly. }
+      { check user has entered new sysdba password correctly. }
       i := CompareStr(AdminUserPage.Values[0],AdminUserPage.Values[1]);
       If  not (i = 0) then begin
         Result := False;

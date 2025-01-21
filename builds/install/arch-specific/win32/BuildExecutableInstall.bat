@@ -173,6 +173,10 @@ set FBBUILD_INSTALL_IMAGES=%FB_ROOT_PATH%\builds\install_images
   set FBBUILD_PROD_STATUS=DEV
 )
 
+:: if we do not have any external documentation we should not mark the build as production
+if not defined FB_EXTERNAL_DOCS set FBBUILD_PROD_STATUS=DEV
+
+
 @if "%FB_TARGET_PLATFORM%"=="x64" (
   set FBBUILD_FILE_ID=%PRODUCT_VER_STRING%-%FBBUILD_PACKAGE_NUMBER%%FBBUILD_FILENAME_SUFFIX%-windows-x64
 ) else (
@@ -219,6 +223,7 @@ set FBBUILD_INSTALL_IMAGES=%FB_ROOT_PATH%\builds\install_images
 @if not exist %FB_OUTPUT_DIR%\system32 (
   mkdir %FB_OUTPUT_DIR%\system32
 )
+
 :: Note the confusion of RT library numbers here! These notes, as of time of
 :: writing 2021-12-21, are accurate for current versions of Visual Studio
 :: - 2017, 2019, 2022. Basic MS runtime version is v140. Except that is only
@@ -375,14 +380,15 @@ for %%v in (IPLicense.txt IDPLicense.txt ) do (
   if not exist %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi (
     "%WIX%\bin\candle.exe" -v -sw1091 %FB_ROOT_PATH%\builds\win32\msvc%MSVC_VERSION%\VCCRT_%FB_TARGET_PLATFORM%.wxs -out %FB_GEN_DIR%\vccrt_%FB_TARGET_PLATFORM%.wixobj
     if ERRORLEVEL 1 (
-        ( call :ERROR Could not generate wixobj for MSVC Runtime MSI ) & ( goto :EOF )
+      call :ERROR Could not generate wixobj for MSVC Runtime MSI %MSVC_RUNTIME_LIBRARY_VERSION%  &  goto :EOF
     ) else (
-        "%WIX%\bin\light.exe" -sw1076 %FB_GEN_DIR%\vccrt_%FB_TARGET_PLATFORM%.wixobj -out %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi
-        if ERRORLEVEL 1 ( ( call :ERROR Could not generate MSVCC Runtime MSI %MSVC_RUNTIME_LIBRARY_VERSION% ) & ( goto :EOF ) )
+      "%WIX%\bin\light.exe" -sw1076 %FB_GEN_DIR%\vccrt_%FB_TARGET_PLATFORM%.wixobj -out %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi
+      if ERRORLEVEL 1 (
+        call :ERROR Could not generate MSVCC Runtime MSI %MSVC_RUNTIME_LIBRARY_VERSION% & goto :EOF
+      )
     )
-  ) else (
-    echo   Using an existing build of %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi
-  )
+) else (
+  echo   Using an existing build of %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi
 )
 
 ::End of BUILD_CRT_MSI
@@ -587,6 +593,15 @@ for %%v in (IPLicense.txt IDPLicense.txt ) do (
 @echo   Error code %ERRLEV% in %SCRIPT_SHORT_NAME%
 @echo     %*
 @echo.
+@if "%FBBUILD_PROD_STATUS%" == "PROD" (
+    echo.
+    echo   Production status is Final or Release Candidate
+    echo   Error %ERRLEV% must be fixed before continuing
+    echo.
+) else (
+    set ERRLEV=
+    ver > nul
+)
 ::End of ERROR
 ::------------
 @goto :END

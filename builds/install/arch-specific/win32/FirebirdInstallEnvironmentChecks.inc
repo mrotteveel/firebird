@@ -42,8 +42,8 @@
     function CopyFbClientLib: boolean;
     function ShowCopyFbClientLibTask: boolean;
 
-	function SummarizeInstalledProducts: String;
-	function AnalysisAssessment: boolean;
+    function SummarizeInstalledProducts: String;
+    function AnalysisAssessment: boolean;
 
     function HasWI30: boolean;
     function HasNotWI30: boolean;
