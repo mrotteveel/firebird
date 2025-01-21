@@ -275,6 +275,7 @@
 #define debug_str=""
 #endif
 
+#define InstallTimeStamp GetDateTimeString('yyyymmdd-hhnnss','','')
 
 [Setup]
 AppName={#MyAppName}
@@ -398,9 +399,9 @@ Name: CopyFbClientAsGds32Task; Description: {cm:CopyFbClientAsGds32Task}; Compon
 [Run]
 ; due to the changes required to support MSVC15 support for earlier versions is now broken.
 #if Int(msvc_runtime_major_version,14) >= 14
-Filename: msiexec.exe; Parameters: "/qn /norestart /i ""{tmp}\vccrt{#msvc_runtime_library_version}_Win32.msi"" /L*v ""{tmp}\vccrt{#msvc_runtime_library_version}_Win32.log"" "; StatusMsg: "Installing MSVC 32-bit runtime libraries to system directory"; Check: HasWI30; Components: ClientComponent;
+Filename: msiexec.exe; Parameters: "/qn /norestart /i ""{tmp}\vccrt{#msvc_runtime_library_version}_Win32.msi"" /l*v ""{code:MsiexecLogDir}\vccrt{#msvc_runtime_library_version}_Win32-{#InstallTimeStamp}.log"" "; StatusMsg: "Installing MSVC 32-bit runtime libraries to system directory"; Check: InstallVCRT; Components: ClientComponent;
 #if PlatformTarget == "x64"
-Filename: msiexec.exe; Parameters: "/qn /norestart /i ""{tmp}\vccrt{#msvc_runtime_library_version}_x64.msi"" /L*v ""{tmp}\vccrt{#msvc_runtime_library_version}_x64.log"" ";  StatusMsg: "Installing MSVC 64-bit runtime libraries to system directory"; Check: HasWI30; Components: ClientComponent;
+Filename: msiexec.exe; Parameters: "/qn /norestart /i ""{tmp}\vccrt{#msvc_runtime_library_version}_x64.msi"" /l*v ""{code:MsiexecLogDir}\vccrt{#msvc_runtime_library_version}_x64-{#InstallTimeStamp}.log"" ";  StatusMsg: "Installing MSVC 64-bit runtime libraries to system directory"; Check: InstallVCRT; Components: ClientComponent;
 #endif
 #endif
 
@@ -655,6 +656,10 @@ Var
 
   init_secdb: integer;          // Is set to UNDEFINED by default in InitializeSetup
 
+  msilogdir: String;               // Path to store logs from msiexec
+
+  novcrt: Boolean;              // Do not install the VC runtime libs
+
 #ifdef setuplogging
 // Not yet implemented - leave log in %TEMP%
 //  OkToCopyLog : Boolean;        // Set when installation is complete.
@@ -715,13 +720,17 @@ begin
   if pos('FORCE',Uppercase(CommandLine)) > 0 then
     ForceInstall:=True;
 
+  if pos('NOMSVCRT', Uppercase(CommandLine) ) > 0 then
+    novcrt := true;
 
-    cmdParams := TStringList.create;
-    for i:=0 to ParamCount do begin
-      cmdParams.add(ParamStr(i));
-      if pos('SYSDBAPASSWORD', Uppercase(ParamStr(i)) ) > 0 then
-        SYSDBAPassword := Copy(ParamStr(i),Length('/SYSDBAPASSWORD=')+1,Length(ParamStr(i))-Length('/SYSDBAPASSWORD=') );
-    end;
+  cmdParams := TStringList.create;
+  for i:=0 to ParamCount do begin
+    cmdParams.add(ParamStr(i));
+    if pos('SYSDBAPASSWORD', Uppercase(ParamStr(i)) ) > 0 then
+      SYSDBAPassword := SplitKeyValue( ParamStr(i), false );
+    if pos('MSILOGDIR', Uppercase( ParamStr(i) ) ) > 0 then
+      msilogdir := SplitKeyValue( ParamStr(i), false );
+  end;
 #ifdef iss_debug
     ShowDebugDlg(cmdParams.text,'');
 #endif
@@ -1259,6 +1268,26 @@ begin
       end;
     end;
   end;
+end;
+
+function MsiexecLogDir( nullstr: String ): String;
+begin
+  if msilogdir = '' then
+    msilogdir := ExpandConstant('{tmp}');
+  Result := msilogdir;
+end;
+
+function InstallVCRT: boolean;
+begin
+  if novcrt then begin
+    Result := false;
+    exit;
+  end;
+  if HasNotWI30 then
+    Result := false
+  else
+    Result := true;
+
 end;
 
 begin
