@@ -1635,9 +1635,9 @@ void Validation::walk_database()
 		if (i > dbb->dbb_max_sys_rel) // Why not system flag instead?
 			VAL_debug_level = 2;
 #endif
-		auto* relation = mdc->lookupRelation(vdr_tdbb, i, CacheFlag::AUTOCREATE);
+		auto* relation = mdc->lookup_relation_id(vdr_tdbb, i, CacheFlag::AUTOCREATE);
 
-		if (true)
+		if (relation && relation->hasData())
 		{
 			// Can't validate system relations online as they could be modified
 			// by system transaction which not acquires relation locks
@@ -1666,7 +1666,7 @@ void Validation::walk_database()
 			output("%s\n", relName.c_str());
 
 			int errs = vdr_errors;
-			walk_relation(relation->getObject(vdr_tdbb, CacheFlag::AUTOCREATE));
+			walk_relation(relation);
 			errs = vdr_errors - errs;
 
 			if (!errs)

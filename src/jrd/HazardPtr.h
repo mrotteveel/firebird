@@ -1037,12 +1037,6 @@ public:
 		return this;
 	}
 
-	// Checking it does not protect from something to be added in this element at next cycle!!!
-	bool hasData() const
-	{
-		return list.load(atomics::memory_order_relaxed);
-	}
-
 	bool isDropped() const
 	{
 		auto* l = list.load(atomics::memory_order_relaxed);

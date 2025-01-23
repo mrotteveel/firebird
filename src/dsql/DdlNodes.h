@@ -1203,8 +1203,6 @@ public:
 	{
 	}
 
-	~ModifyIndexList();
-
 	void push(ModifyIndexNode* node)
 	{
 		nodes.push(node);

@@ -74,6 +74,9 @@ using namespace Firebird;
 //Debug page numbers into log file
 //#define DEBUG_BTR_PAGES
 
+//Debug root page content to stdout
+//#define DEBUG_INDEX_ROOT
+
 namespace
 {
 	const unsigned MAX_LEVELS = 16;
@@ -250,18 +253,14 @@ static void update_selectivity(index_root_page*, MetaId, const SelectivityList&)
 static void checkForLowerKeySkip(bool&, const bool, const IndexNode&, const temporary_key&,
 								 const index_desc&, const IndexRetrieval*);
 
-//#define DEBUG_INDEX_ROOT
-
 namespace {
-#ifdef DEBUG_INDEX_ROOT
+enum class ModifyIrtRepeatValue { Skip, Modified, Relock, Deleted };
 
 class Flags
 {
 public:
 	static const char* state(const index_root_page::irt_repeat& rpt)
 	{
-		if (!rpt.isUsed())
-			return "Unused";
 		switch (rpt.getState())
 		{
 		case irt_in_progress: return "irt_in_progress";
@@ -269,24 +268,29 @@ public:
 		case irt_drop: return "irt_drop";
 		case irt_rollback: return "irt_rollback";
 		case irt_normal: return "irt_normal";
+		case irt_kill: return "irt_kill";
+		case irt_unused: return "irt_unused";
 		}
 
 		return "** UNKNOWN **";
 	}
 };
 
+#ifdef DEBUG_INDEX_ROOT
+
 void dumpIndexRoot(const char* up, const char* from, thread_db* tdbb, WIN* window, const index_root_page* root)
 {
 	if (root->irt_relation > 127)
 	{
 		auto* rel = MetadataCache::lookupRelation(tdbb, root->irt_relation, 0);
-		printf("\n%sFrom %s page=%" ULONGFORMAT " len=%d rel %s(%d)\n",
-			up, from, window->win_page.getPageNum(), root->irt_count, rel->c_name(), root->irt_relation);
+		printf("\n%sFrom %s page=%" ULONGFORMAT " len=%d rel=%s(%d) tra=%" SQUADFORMAT "\n",
+			up, from, window->win_page.getPageNum(), root->irt_count, rel->c_name(), root->irt_relation,
+			tdbb->getTransaction() ? tdbb->getTransaction()->tra_number : 0);
 		for (MetaId i = 0; i < root->irt_count; ++i)
 		{
 			auto* idp = rel->lookupIndex(tdbb, i, 0);
 			auto& rpt = root->irt_rpt[i];
-			printf("Index %d %s root %d tra % " SQUADFORMAT " %s\n", i, idp ? idp->getName().c_str() : "not-found",
+			printf("Index %d '%s' root %d tra %" SQUADFORMAT " %s\n", i, idp ? idp->getName().c_str() : "not-found",
 				rpt.getRoot(), rpt.getTransaction(), Flags::state(rpt));
 		}
 		printf("\n");
@@ -299,6 +303,11 @@ void dumpIndexRoot(...) { }
 
 #endif
 }
+
+static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* irt_desc,
+	Cached::Relation* relation, jrd_tra* transaction, WIN* window, MetaId indexId);
+static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::irt_repeat* irt_desc,
+	Cached::Relation* relation, WIN* window, MetaId indexId, bool deletable = true);
 
 index_root_page* BTR_fetch_root_for_update(const char* from, thread_db* tdbb, WIN* window)
 {
@@ -655,7 +664,7 @@ static void checkTransactionNumber(const index_root_page::irt_repeat* irt_desc, 
 static void badState [[noreturn]] (const index_root_page::irt_repeat* irt_desc, const char* set, const char* msg)
 {
 	fb_assert(false);
-	fatal_exception::raiseFmt("Invalid index state %s (%d) when %s", set, irt_desc->getState(), msg);
+	fatal_exception::raiseFmt("Invalid index state %s (%d, %s) when %s", Flags::state(*irt_desc), irt_desc->getState(), set, msg);
 }
 
 
@@ -676,21 +685,39 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, Meta
 	CHECK_DBB(dbb);
 
 	WIN window(relation->getIndexRootPage(tdbb));
-	index_root_page* const root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
 	// Get index descriptor.  If index doesn't exist, just leave.
 	if (id < root->irt_count)
 	{
-		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-
-		CCH_MARK(tdbb, &window);
+		auto* irt_desc = root->irt_rpt + id;
 
 		jrd_tra* tra = tdbb->getTransaction();
 		fb_assert(tra);
-		TraNumber descTrans = irt_desc->getTransaction();
 
 		if (tra)
 		{
+			bool marked = false;
+
+			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id))
+			{
+			case ModifyIrtRepeatValue::Skip:
+				break;
+
+			case ModifyIrtRepeatValue::Modified:
+				marked = true;
+				break;
+
+			case ModifyIrtRepeatValue::Relock:
+				root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+				irt_desc = root->irt_rpt + id;
+				break;
+
+			case ModifyIrtRepeatValue::Deleted:
+				fb_assert(false);	// This should not happen
+				return;				// May be we can recover
+			}
+
 			auto msg = "mark index for delete";
 
 			switch (irt_desc->getState())
@@ -698,29 +725,20 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, Meta
 			case irt_in_progress:
 			case irt_commit:
 			case irt_drop:
-				badState(irt_desc, "irt_in_progress/irt_commit/irt_drop", msg);
+			case irt_kill:
+			case irt_unused:
+				badState(irt_desc, "not irt_rollback/irt_normal", msg);
 
 			case irt_rollback:			// created not long ago
-				if (descTrans != tra->tra_number)
-				{
-					// another transaction - may be no records were modified in the index?
-					switch (TPC_cache_state(tdbb, descTrans))
-					{
-					case tra_committed:
-					case tra_dead:
-						// did not switch to normal state - anyway treat as normal one
-						irt_desc->setCommit(tra->tra_number);
-						break;
-
-					default:	// if we see such index that transaction should not be active - raise error
-						badState(irt_desc, "irt_rollback", msg);
-					}
-				}
-				else
-					irt_desc->setCommit(tra->tra_number);
+				checkTransactionNumber(irt_desc, tra, msg);
+				if (!marked)
+					CCH_MARK(tdbb, &window);
+				irt_desc->setKill(tra->tra_number);
 				break;
 
 			case irt_normal:
+				if (!marked)
+					CCH_MARK(tdbb, &window);
 				irt_desc->setCommit(tra->tra_number);
 				break;
 			}
@@ -748,12 +766,12 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 	CHECK_DBB(dbb);
 
 	WIN window(relation->getIndexRootPage(tdbb));
-	index_root_page* const root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
 	// Get index descriptor.  If index doesn't exist, just leave.
 	if (id < root->irt_count)
 	{
-		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
+		auto* irt_desc = root->irt_rpt + id;
 
 		CCH_MARK(tdbb, &window);
 
@@ -763,37 +781,52 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 
 		if (tra)
 		{
+			bool marked = false;
+
+			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id, false))
+			{
+			case ModifyIrtRepeatValue::Skip:
+				break;
+
+			case ModifyIrtRepeatValue::Modified:
+				marked = true;
+				break;
+
+			case ModifyIrtRepeatValue::Relock:
+				root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+				irt_desc = root->irt_rpt + id;
+				break;
+
+			case ModifyIrtRepeatValue::Deleted:
+				fb_assert(false);	// This should not happen
+				fatal_exception::raise("Index is gone unexpectedly");
+				break;
+			}
+
 			auto msg = "activate index";
 
 			switch (irt_desc->getState())
 			{
 			case irt_in_progress:
+			case irt_unused:
 			case irt_rollback:
 			case irt_normal:
 				badState(irt_desc, "irt_in_progress/irt_rollback/irt_normal", msg);
 
 			case irt_commit:		// removed not long ago
-				if (descTrans != tra->tra_number)
-				{
-					// another transaction - may be no records were modified in the index?
-					switch (TPC_cache_state(tdbb, descTrans))
-					{
-					case tra_committed:
-					case tra_dead:
-						// did not switch to drop state - anyway treat as drop
-						irt_desc->setRollback(tra->tra_number);
-						break;
+				checkTransactionNumber(irt_desc, tra, msg);
+				// fall down...
 
-					default:	// if we see such index that transaction should not be active - raise error
-						badState(irt_desc, "irt_commit", msg);
-					}
-				}
-				else
-					irt_desc->setRollback(tra->tra_number);
+			case irt_drop:			// removed a little more time ago - but still valid
+				if (!marked)
+					CCH_MARK(tdbb, &window);
+				irt_desc->setNormal();
 				break;
 
-			case irt_drop:
+			case irt_kill:
 				checkTransactionNumber(irt_desc, tra, msg);
+				if (!marked)
+					CCH_MARK(tdbb, &window);
 				irt_desc->setRollback(tra->tra_number);
 				break;
 			}
@@ -2185,6 +2218,161 @@ void BTR_make_null_key(thread_db* tdbb, const index_desc* idx, temporary_key* ke
 }
 
 
+// checks is there a need to modify index descriptor
+// if yes - we release index root window
+
+static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* irt_desc,
+	Cached::Relation* relation, WIN* window, MetaId indexId)
+{
+	const TraNumber irtTrans = irt_desc->getTransaction();
+	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
+
+	switch (irt_desc->getState())
+	{
+	case irt_unused:
+	case irt_normal:
+		// normal processing
+		return false;
+
+	case irt_in_progress:
+		// index creation - should wait to know what to do
+		CCH_RELEASE(tdbb, window);
+
+		// Wait for completion
+		{
+			IndexCreateLock crtLock(tdbb, relation->getId());
+			crtLock.shared(indexId);
+		}
+		break;
+
+	case irt_rollback:
+	case irt_commit:
+	case irt_kill:
+		// this three states require modification if irtTrans is completed
+		switch (TPC_cache_state(tdbb, irtTrans))
+		{
+		case tra_committed:
+		case tra_dead:
+			break;
+
+		default:
+			return false;
+		}
+		CCH_RELEASE(tdbb, window);
+		break;
+
+	case irt_drop:
+		// drop index when OAT > irtTrans
+		if (oldestActive <= irtTrans)
+			return false;
+		CCH_RELEASE(tdbb, window);
+		break;
+
+	default:
+		fb_assert(false);
+		return false;
+	}
+
+	return true;
+}
+
+
+// checks is there a need to modify index descriptor
+// if yes - modifies it up to index deletion
+
+static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::irt_repeat* irt_desc,
+	Cached::Relation* relation, WIN* window, MetaId indexId, bool deletable)
+{
+	const TraNumber irtTrans = irt_desc->getTransaction();
+	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
+
+	switch (irt_desc->getState())
+	{
+	case irt_unused:
+	case irt_normal:
+		// normal processing
+		return ModifyIrtRepeatValue::Skip;
+
+	case irt_in_progress:
+		// index creation - should wait to know what to do
+		CCH_RELEASE(tdbb, window);
+
+		// Wait for completion
+		{
+			IndexCreateLock crtLock(tdbb, relation->getId());
+			crtLock.shared(indexId);
+		}
+
+		return ModifyIrtRepeatValue::Relock;
+
+	case irt_rollback:
+		switch (indexCacheState(tdbb, irtTrans, relation, indexId, true))
+		{
+		case tra_committed:	// switch to normal state
+			CCH_MARK(tdbb, window);
+			irt_desc->setNormal();
+			return ModifyIrtRepeatValue::Modified;
+
+		case tra_dead:		// drop index on rollback
+			break;
+
+		default:
+			return ModifyIrtRepeatValue::Skip;
+		}
+		break;
+
+	case irt_kill:
+		switch (TPC_cache_state(tdbb, irtTrans))
+		{
+		case tra_committed:
+		case tra_dead:	// drop index when transaction ended
+			break;
+
+		default:
+			return ModifyIrtRepeatValue::Skip;
+		}
+		break;
+
+	case irt_commit:
+		switch (indexCacheState(tdbb, irtTrans, relation, indexId, false))
+		{
+		case tra_committed:	// switch to drop state
+			CCH_MARK(tdbb, window);
+			irt_desc->setDrop(TransactionNumber::next(tdbb));
+			return ModifyIrtRepeatValue::Modified;
+
+		case tra_dead:		// switch to normal state
+			CCH_MARK(tdbb, window);
+			irt_desc->setNormal();
+			return ModifyIrtRepeatValue::Modified;
+
+		default:
+			return ModifyIrtRepeatValue::Skip;
+		}
+		fb_assert(false);
+		return ModifyIrtRepeatValue::Skip;
+
+	case irt_drop:
+		// drop index when OAT > irtTrans
+		if (oldestActive > irtTrans)
+			break;
+		return ModifyIrtRepeatValue::Skip;
+
+	default:
+		fb_assert(false);
+		return ModifyIrtRepeatValue::Skip;
+	}
+
+	// drop index
+	if (deletable)
+	{
+		BTR_delete_index(tdbb, window, indexId);
+		return ModifyIrtRepeatValue::Deleted;
+	}
+	return ModifyIrtRepeatValue::Skip;
+}
+
+
 bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transaction, index_desc* idx, WIN* window)
 {
 /**************************************
@@ -2221,120 +2409,31 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 			return false;
 	}
 
-	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
 	for (; id < root->irt_count; ++id)
 	{
 		bool needWrite = false;
 		bool rls = true;
 
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-		const TraNumber descTrans = irt_desc->getTransaction();
 
-		switch (irt_desc->getState())
+		if (checkIrtRepeat(tdbb, irt_desc, relation, window, id))
 		{
-		case irt_normal:
-			break;
-
-		case irt_in_progress:
-			// index creation - should wait to know what to do
-			if (descTrans && transaction)
-			{
-				IndexCreateLock crtLock(tdbb, relation->getId());
-
-				// Wait for completion
-				CCH_RELEASE(tdbb, window);
-				rls = false;
-				crtLock.shared(id);
-
-				needWrite = true;	// must get write lock on IRT and recheck what happens
-			}
-			break;
-
-		case irt_rollback:		// to be removed when irt_transaction dead
-		case irt_commit:		// change state on irt_transaction completion
-			switch (TPC_cache_state(tdbb, descTrans))
-			{
-			case tra_committed:	// switch to normal / drop state
-			case tra_dead:		// drop index on rollback / switch to normal state
-				needWrite = true;
-				break;
-			}
-			break;
-
-		case irt_drop:
-			// drop index when OAT > descTrans
-			needWrite = oldestActive > descTrans;
-			break;
-		}
-
-		if (needWrite)
-		{
-			if (rls)
-				CCH_RELEASE(tdbb, window);
-
 			auto* root_write = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, window);
-			index_root_page::irt_repeat* irt_write = root_write->irt_rpt + id;
+			auto* irt_write = root_write->irt_rpt + id;
 
-			const TraNumber descTrans = irt_write->getTransaction();
-			bool delIndex = false;
-
-			switch (irt_write->getState())
+			auto modValue = modifyIrtRepeat(tdbb, irt_write, relation, window, id);
+			switch (modValue)
 			{
-			case irt_normal:
-				break;
-
-			case irt_in_progress:
-				fb_assert(false);
-				fatal_exception::raise("Index state still irt_in_progress after wait for creation lock");
-
-			case irt_rollback:		// to be removed when irt_transaction dead
-				switch (indexCacheState(tdbb, descTrans, relation, id, true))
-				{
-				case tra_committed:	// switch to normal state
-					CCH_MARK(tdbb, window);
-					irt_write->setNormal();
-					break;
-
-				case tra_dead:		// drop index on rollback
-					delIndex = true;
-					break;
-				}
-				break;
-
-			case irt_commit:		// change state on irt_transaction completion
-				switch (indexCacheState(tdbb, descTrans, relation, id, false))
-				{
-				case tra_committed:	// switch to drop state
-					CCH_MARK(tdbb, window);
-					irt_write->setDrop(TransactionNumber::next(tdbb));
-					break;
-
-				case tra_dead:		// switch to normal state
-					CCH_MARK(tdbb, window);
-					irt_write->setNormal();
-					break;
-				}
-				break;
-
-			case irt_drop:
-				// drop index when OAT > descTrans
-				if (oldestActive > descTrans)
-					delIndex = true;
+			case ModifyIrtRepeatValue::Skip:
+			case ModifyIrtRepeatValue::Modified:
+				CCH_RELEASE(tdbb, window);
 				break;
 			}
-
-			if (delIndex)
-				BTR_delete_index(tdbb, window, id);
-			else
-				CCH_RELEASE(tdbb, window);
 
 			root = BTR_fetch_root(FB_FUNCTION, tdbb, window);
-
-			if (delIndex)
+			if (modValue == ModifyIrtRepeatValue::Deleted)
 				continue;
 		}
-		else
-			fb_assert(rls);
 
 		if (BTR_description(tdbb, relation, root, idx, id))
 			return true;

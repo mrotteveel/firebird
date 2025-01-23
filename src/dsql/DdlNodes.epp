@@ -8748,8 +8748,10 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 {
 	saveRelation(tdbb, dsqlScratch, name, false, false);
 
-	dsql_rel* relation;
-	relation = METD_get_relation(dsqlScratch->getTransaction(), dsqlScratch, name);
+	// also ensures oldVersion is present in cache
+	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
+
+	dsql_rel* relation = METD_get_relation(dsqlScratch->getTransaction(), dsqlScratch, name);
 
 	if (!relation || (relation->rel_flags & REL_view))
 	{
@@ -9083,6 +9085,8 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 		// Update DSQL cache
 		METD_drop_relation(transaction, name);
 		MetadataCache::dsql_cache_release(tdbb, SYM_relation, name);
+
+		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
 	}
 	catch (const Exception&)
 	{
@@ -10713,11 +10717,6 @@ string ModifyIndexNode::print(Jrd::NodePrinter& printer) const
 //----------------------
 
 
-ModifyIndexList::~ModifyIndexList()
-{
-	for (auto* node : nodes)
-		delete node;
-}
 
 void ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
@@ -11663,9 +11662,9 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 
 	savePoint.release();	// everything is ok
 
-	ModifyIndexList oneElemList(*MemoryPool::getContextPool());
-	oneElemList.push(store(tdbb, oneElemList.getPool(), transaction, name, definition));
-	oneElemList.exec(tdbb, MetadataCache::lookupRelation(tdbb, definition.relation, CacheFlag::AUTOCREATE),
+	ModifyIndexList oneItemList(*MemoryPool::getContextPool());
+	oneItemList.push(store(tdbb, oneItemList.getPool(), transaction, name, definition));
+	oneItemList.exec(tdbb, MetadataCache::lookupRelation(tdbb, definition.relation, CacheFlag::AUTOCREATE),
 		transaction);
 }
 
@@ -11722,8 +11721,6 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 			relName = IDX.RDB$RELATION_NAME;
 			relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
 			fb_assert(relation);
-			if (relation && !idxId.isUnknown())
-				relation->oldIndexVersion(tdbb, idxId.value);
 
 			expressionIndex = !IDX.RDB$EXPRESSION_BLR.NULL;
 			if (!IDX.RDB$INDEX_ID.NULL)
@@ -11731,6 +11728,8 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 				fb_assert(IDX.RDB$INDEX_ID);
 				idxId = IDX.RDB$INDEX_ID - 1;
 			}
+			if (relation && !idxId.isUnknown())
+				relation->oldIndexVersion(tdbb, idxId.value);
 
 			MODIFY IDX
 				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
@@ -11754,19 +11753,13 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 	savePoint.release();	// system table modified OK
 
+	MemoryPool& pool = *MemoryPool::getContextPool();
+	ModifyIndexList oneItemList(pool);
 	if (idxId.isUnknown())
-	{
-		idxId = StoreIndexNode(relName, indexName, expressionIndex).modify(tdbb, transaction).id;
-		fb_assert(idxId.value != MAX_META_ID);
-	}
+		oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(relName, indexName, expressionIndex));
 	else
-	{
-		auto rc = modify(tdbb, transaction);
-		fb_assert(idxId.value == rc.id);
-	}
-
-	if (relation)
-		relation->newIndexVersion(tdbb, idxId.value);
+		oneItemList.push(this);
+	oneItemList.exec(tdbb, relation, transaction);
 }
 
 MetaId AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
@@ -11942,6 +11935,10 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	savePoint.release();	// everything is ok
 
 	modify(tdbb, transaction);
+
+	ModifyIndexList oneItemList(*MemoryPool::getContextPool());
+	oneItemList.push(this);
+	oneItemList.exec(tdbb, rel, transaction);
 }
 
 
@@ -11977,12 +11974,11 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 	const bool isTempIndex = (rel->rel_flags & REL_temp_conn) &&
 		(relPages->rel_instance_id != 0);
 
-//	DFW_check_dependencies(tdbb, indexName.c_str(), NULL, NULL, obj_index, transaction);
 
 	IDX_delete_index(tdbb, rel, idxId);
-	rel->eraseIndex(tdbb, idxId);
 
-/*	????????????????? back to DFW?
+/*	!!!!!!!!!!!!!!!! back to DFW?
+	DFW_check_dependencies(tdbb, indexName.c_str(), NULL, NULL, obj_index, transaction);
 	MET_delete_dependencies(tdbb, indexName, obj_index_expression, transaction);
 	MET_delete_dependencies(tdbb, indexName, obj_index_condition, transaction);
 

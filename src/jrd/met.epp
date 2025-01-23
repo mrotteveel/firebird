@@ -3193,7 +3193,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 	blb* blob = NULL;
 
-	fb_assert(tdbb->getTransaction() || getId() < rel_MAX);
+//	fb_assert(tdbb->getTransaction() || getId() < rel_MAX);
 	jrd_tra* trans = tdbb->getTransaction() ?
 		tdbb->getTransaction() : attachment->getSysTransaction();
 

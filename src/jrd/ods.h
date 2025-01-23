@@ -379,6 +379,7 @@ struct index_root_page
 		void setProgress(TraNumber traNumber);
 		void setRollback(ULONG root_page, TraNumber traNumber);
 		void setRollback(TraNumber traNumber);
+		void setKill(TraNumber traNumber);
 		void setNormal();
 		void setNormal(ULONG root_page);
 		void setCommit(TraNumber traNumber);
@@ -424,17 +425,51 @@ const UCHAR irt_expression	= 32;
 const UCHAR irt_condition	= 64;
 const UCHAR irt_state_b		= 128;
 
+// index special states mask in flags
+const UCHAR irt_state_mask	= irt_state_a | irt_state_b;
+
 // possible index states
 // irt_transaction == 0 -> normal state
-// following combination of irt_state_a and irt_state_b when irt_transaction != 0
-const UCHAR irt_in_progress	= 0;			// index creation
-const UCHAR irt_rollback	= irt_state_a;	// to be removed when irt_transaction dead
-const UCHAR irt_commit		= irt_state_b;	// to be prepared for remove when irt_transaction committed
-const UCHAR irt_drop		= irt_state_a | irt_state_b;	// to be removed when OAT > irt_transaction
-const UCHAR irt_normal		= 1;			// any constant not overlapping irt_state_mask is fine here
+const UCHAR irt_normal		= 1;
+// irt_root == 0 -> index creation procss
+const UCHAR irt_in_progress	= 2;
+// both zeroes ->unused
+const UCHAR irt_unused		= 8;
+// any constants not overlapping irt_state_mask are fine for unused, normal & progress state
+static_assert(((irt_normal | irt_in_progress | irt_unused) & irt_state_mask) == 0);
 
-// index state mask in flags
-const UCHAR irt_state_mask	= irt_state_a | irt_state_b;
+// following combination of irt_state_a and irt_state_b when both
+// irt_transaction != 0 && irt_root != 0
+const UCHAR irt_rollback	= 0;			// index to be removed when irt_transaction dead (rolled back)
+const UCHAR irt_kill		= irt_state_a;	// index to be removed when irt_transaction ended (both commit/rollback)
+const UCHAR irt_commit		= irt_state_b;	// to be prepared for remove (switch to irt_drop) when irt_transaction committed
+const UCHAR irt_drop		= irt_state_a | irt_state_b;	// to be removed when OAT > irt_transaction
+
+/*
+states for just created index (irt_in_progress):
+	create index / alter index active irt_in_progress => irt_rollback
+	alter index inactive irt_rollback => irt_kill
+	irt_kill:
+		on commit / on rollback - delete index
+	alter index active irt_kill => irt_rollback
+	irt_rollback:
+		on commit irt_rollback => irt_normal
+		on rollback - delete index
+
+states for existing index (irt_normal):
+	alter index inactive / drop index irt_normal => irt_commit
+	irt_commit:
+		on commit => irt_drop
+		on rollback => irt_normal
+	alter index active irt_commit => irt_normal
+	irt_normal:
+		on commit / on rollback - do nothing
+
+state switch order for irt_drop
+	when OAT > irt_transaction - delete index
+
+access in SELECTs: irt_normal, irt_rollback (self transaction), irt_commit (other transactions)
+ */
 
 inline ULONG index_root_page::irt_repeat::getRoot() const
 {
@@ -455,12 +490,16 @@ inline void index_root_page::irt_repeat::setProgress(TraNumber traNumber)
 
 	irt_root = 0;
 	irt_transaction = traNumber;
-	irt_flags = (irt_flags & ~irt_state_mask) | irt_in_progress;
+	irt_flags &= ~irt_state_mask;
 }
 
 inline void index_root_page::irt_repeat::setRollback(ULONG root_page, TraNumber traNumber)
 {
-	fb_assert(getState() == irt_in_progress);
+	//fb_assert(getState() == irt_in_progress);
+	//during create database traNumber == 0, therefore no state irt_in_progress
+	if (!traNumber)
+		return;
+
 	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
 	fb_assert(traNumber == irt_transaction);
 	fb_assert(!irt_root);
@@ -472,18 +511,34 @@ inline void index_root_page::irt_repeat::setRollback(ULONG root_page, TraNumber 
 
 inline void index_root_page::irt_repeat::setRollback(TraNumber traNumber)
 {
-	fb_assert((getState() == irt_commit) || (getState() == irt_drop));
+	fb_assert(getState() == irt_kill);
 	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
 	fb_assert(irt_root);
+	fb_assert(traNumber == irt_transaction);
 
 	irt_transaction = traNumber;
 	irt_flags = (irt_flags & ~irt_state_mask) | irt_rollback;
 }
 
+inline void index_root_page::irt_repeat::setKill(TraNumber traNumber)
+{
+	fb_assert(getState() == irt_rollback);
+	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
+	fb_assert(irt_root);
+	fb_assert(traNumber == irt_transaction);
+
+	irt_transaction = traNumber;
+	irt_flags = (irt_flags & ~irt_state_mask) | irt_kill;
+}
+
 inline void index_root_page::irt_repeat::setNormal()
 {
-	fb_assert(getState() == irt_rollback || getState() == irt_commit);
+	//create index mode: 	 ForRollback
+	fb_assert(getState() == irt_rollback
+	//			deleted by current tra			deleted not long ago
+		|| getState() == irt_commit || getState() == irt_drop);
 	fb_assert(irt_root);
+	fb_assert(irt_transaction);
 
 	irt_flags &= ~irt_state_mask;
 	irt_transaction = 0;
@@ -491,10 +546,11 @@ inline void index_root_page::irt_repeat::setNormal()
 
 inline void index_root_page::irt_repeat::setNormal(ULONG root_page)
 {
-	//create index mode: 	 ForRollback						AtOnce
-	fb_assert((getState() == irt_in_progress) || (getState() == irt_normal));
+	//create index mode: 	 AtOnce
+	fb_assert(getState() == irt_in_progress
+		|| getState() == irt_unused);		// during create database traNumber == 0, therefore we are still in unused state
 
-	fb_assert(irt_root == 0);
+	fb_assert(!irt_root);
 	fb_assert(root_page);
 
 	irt_flags &= ~irt_state_mask;
@@ -504,8 +560,7 @@ inline void index_root_page::irt_repeat::setNormal(ULONG root_page)
 
 inline void index_root_page::irt_repeat::setCommit(TraNumber traNumber)
 {
-	//      	going to drop index       tra that created it committed but no records added
-	fb_assert((getState() == irt_normal) || (getState() == irt_rollback));
+	fb_assert(getState() == irt_normal);
 	fb_assert(traNumber < MAX_ULONG);			// temp limit, need ODS change !!!!!!!!!!!!!!!!!!!!!!!!
 	fb_assert(irt_root);
 	irt_transaction = traNumber;
@@ -533,15 +588,17 @@ inline TraNumber index_root_page::irt_repeat::getTransaction() const
 	return irt_transaction;
 }
 
-inline bool index_root_page::irt_repeat::isUsed() const
-{
-	return (irt_transaction != 0) || (irt_root != 0);
-}
-
 inline UCHAR index_root_page::irt_repeat::getState() const
 {
-	return irt_transaction ? (irt_flags & irt_state_mask) : irt_normal;
+	return (irt_transaction && irt_root) ? (irt_flags & irt_state_mask) :
+		irt_root ? irt_normal : irt_transaction ? irt_in_progress : irt_unused;
 }
+
+inline bool index_root_page::irt_repeat::isUsed() const
+{
+	return getState() != irt_unused;
+}
+
 
 const int STUFF_COUNT		= 4;
 
