@@ -8988,7 +8988,7 @@ bool TimeoutTimer::expired() const
 		return false;
 
 	const SINT64 t = currTime();
-	return t >= m_start + m_value;
+	return t >= m_start + m_value - 1;
 }
 
 unsigned int TimeoutTimer::timeToExpire() const
