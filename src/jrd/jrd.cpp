@@ -7725,14 +7725,26 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 
 	Sync sync(&dbb->dbb_sync, "jrd.cpp: release_attachment");
 
+	// dummy mutex is used to avoid races with crypto thread
+	XThreadMutex dummy_mutex;
+	XThreadEnsureUnlock dummyGuard(dummy_mutex, FB_FUNCTION);
+
 	// avoid races with special threads
 	// take into an account lock earlier taken in DROP DATABASE
 	XThreadEnsureUnlock threadGuard(dbb->dbb_thread_mutex, FB_FUNCTION);
 	XThreadEnsureUnlock* activeThreadGuard = dropGuard;
 	if (!activeThreadGuard)
 	{
-		threadGuard.enter();
-		activeThreadGuard = &threadGuard;
+		if (dbb->dbb_crypto_manager
+			&& Thread::isCurrent(Thread::getIdFromHandle(dbb->dbb_crypto_manager->getCryptThreadHandle())))
+		{
+			activeThreadGuard = &dummyGuard;
+		}
+		else
+		{
+			activeThreadGuard = &threadGuard;
+		}
+		activeThreadGuard->enter();
 	}
 
 	sync.lock(SYNC_EXCLUSIVE);
