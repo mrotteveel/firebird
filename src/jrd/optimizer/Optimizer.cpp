@@ -1729,7 +1729,7 @@ RecordSource* Optimizer::applyLocalBoolean(RecordSource* rsb,
 	globalHolder.deactivate();
 
 	StreamStateHolder localHolder(csb, streams);
-	localHolder.activate(csb);
+	localHolder.activate();
 
 	return applyBoolean(rsb, iter);
 }

@@ -54,6 +54,37 @@ static ValueExprNode* resolveUsingField(DsqlCompilerScratch* dsqlScratch, const 
 
 namespace
 {
+	class AutoActivateResetStreams : public AutoStorage
+	{
+	public:
+		AutoActivateResetStreams(CompilerScratch* csb, const RseNode* rse)
+			: m_csb(csb), m_streams(getPool()), m_flags(getPool())
+		{
+			rse->computeRseStreams(m_streams);
+
+			m_flags.resize(m_streams.getCount());
+
+			FB_SIZE_T pos = 0;
+			for (const auto stream : m_streams)
+			{
+				m_flags[pos++] = m_csb->csb_rpt[stream].csb_flags;
+				m_csb->csb_rpt[stream].csb_flags |= (csb_active | csb_sub_stream);
+			}
+		}
+
+		~AutoActivateResetStreams()
+		{
+			FB_SIZE_T pos = 0;
+			for (const auto stream : m_streams)
+				m_csb->csb_rpt[stream].csb_flags = m_flags[pos++];
+		}
+
+	private:
+		CompilerScratch* m_csb;
+		StreamList m_streams;
+		HalfStaticArray<USHORT, OPT_STATIC_ITEMS> m_flags;
+	};
+
 	// Search through the list of ANDed booleans to find comparisons
 	// referring streams of the parent select expression.
 	// Extract those booleans and return them to the caller.
@@ -3604,10 +3635,7 @@ bool RseNode::computable(CompilerScratch* csb, StreamType stream,
 		return false;
 
 	// Set sub-streams of rse active
-	StreamList streams;
-	computeRseStreams(streams);
-	StreamStateHolder streamHolder(csb, streams);
-	streamHolder.activate(true);
+	AutoActivateResetStreams activator(csb, this);
 
 	// Check sub-stream
 	if ((rse_boolean && !rse_boolean->computable(csb, stream, allowOnlyCurrentStream)) ||
