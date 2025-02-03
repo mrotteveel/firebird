@@ -156,6 +156,7 @@ void InternalConnection::attach(thread_db* tdbb)
 			EngineCallbackGuard guard(tdbb, *this, FB_FUNCTION);
 			m_provider.reset(attachment->getProvider());
 			m_provider->addRef();
+			m_provider->setDbCryptCallback(&status, &m_cryptCallbackRedir);
 			m_attachment.assignRefNoIncr(m_provider->attachDatabase(&status, m_dbName.c_str(),
 				newDpb.getBufferLength(), newDpb.getBuffer()));
 		}
@@ -269,7 +270,7 @@ bool InternalConnection::validate(thread_db* tdbb)
 	return status.isSuccess();
 }
 
-bool InternalConnection::isSameDatabase(const PathName& dbName, ClumpletReader& dpb) const
+bool InternalConnection::isSameDatabase(const PathName& dbName, ClumpletReader& dpb, const CryptHash& ch) const
 {
 	if (m_isCurrent)
 	{
@@ -294,7 +295,7 @@ bool InternalConnection::isSameDatabase(const PathName& dbName, ClumpletReader& 
 		}
 	}
 
-	return Connection::isSameDatabase(dbName, dpb);
+	return Connection::isSameDatabase(dbName, dpb, ch);
 }
 
 Transaction* InternalConnection::doCreateTransaction()

@@ -753,9 +753,19 @@ namespace
 	class DefaultCallback : public AutoIface<ICryptKeyCallbackImpl<DefaultCallback, CheckStatusWrapper> >
 	{
 	public:
-		unsigned int callback(unsigned int, const void*, unsigned int, void*)
+		unsigned int callback(unsigned int, const void*, unsigned int, void*) override
 		{
 			return 0;
+		}
+
+		int getHashLength(Firebird::CheckStatusWrapper* status) override
+		{
+			return 0;
+		}
+
+		void getHashData(Firebird::CheckStatusWrapper* status, void* h) override
+		{
+			fb_assert(false);
 		}
 	};
 

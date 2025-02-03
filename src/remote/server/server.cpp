@@ -167,6 +167,19 @@ public:
 		return stopped;
 	}
 
+	int getHashLength(Firebird::CheckStatusWrapper* status) override
+	{
+		getHashData(status, nullptr);
+
+		return -1;
+	}
+
+	void getHashData(Firebird::CheckStatusWrapper* status, void* h) override
+	{
+		ISC_STATUS err[] = {isc_arg_gds, isc_wish_list};
+		status->setErrors2(FB_NELEM(err), err);
+	}
+
 private:
 	rem_port* port;
 	Semaphore sem;
@@ -254,6 +267,43 @@ public:
 	void stop()
 	{
 		networkCallback.stop();
+	}
+
+	int getHashLength(Firebird::CheckStatusWrapper* status) override
+	{
+		Reference r(*port);
+		loadClientKey();
+
+		if (keyCallback)
+			return keyCallback->getHashLength(status);
+
+		if (!networkCallback.isStopped())
+		{
+			ISC_STATUS err[] = {isc_arg_gds, isc_wish_list};
+			status->setErrors2(FB_NELEM(err), err);
+
+			return -1;
+		}
+
+		return 0;
+	}
+
+	void getHashData(Firebird::CheckStatusWrapper* status, void* h) override
+	{
+		Reference r(*port);
+		loadClientKey();
+
+		if (keyCallback)
+		{
+			keyCallback->getHashData(status, h);
+			return;
+		}
+
+		if (!networkCallback.isStopped())
+		{
+			ISC_STATUS err[] = {isc_arg_gds, isc_wish_list};
+			status->setErrors2(FB_NELEM(err), err);
+		}
 	}
 
 private:

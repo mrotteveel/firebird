@@ -228,18 +228,21 @@ Connection* Manager::getConnection(thread_db* tdbb, const string& dataSource,
 
 	if (!isCurrent)
 	{
+		CryptHash ch(att->att_crypt_callback);
 		hash = DefaultHash<UCHAR>::hash(dbName.c_str(), dbName.length(), MAX_ULONG) +
-			   DefaultHash<UCHAR>::hash(dpb.getBuffer(), dpb.getBufferLength(), MAX_ULONG);
+			   DefaultHash<UCHAR>::hash(dpb.getBuffer(), dpb.getBufferLength(), MAX_ULONG) +
+			   DefaultHash<UCHAR>::hash(ch.getValue(), ch.getLength(), MAX_ULONG);
 
 		while (true)
 		{
-			conn = m_connPool->getConnection(tdbb, prv, hash, dbName, dpb);
+			conn = m_connPool->getConnection(tdbb, prv, hash, dbName, dpb, ch);
 			if (!conn)
 				break;
 
 			if (conn->validate(tdbb))
 			{
 				prv->bindConnection(tdbb, conn);
+				conn->resetRedirect(att->att_crypt_callback);
 				break;
 			}
 
@@ -355,7 +358,7 @@ Connection* Provider::createConnection(thread_db* tdbb,
 	const PathName& dbName, ClumpletReader& dpb, TraScope tra_scope)
 {
 	Connection* conn = doCreateConnection();
-	conn->setup(dbName, dpb);
+	conn->setup(dbName, dpb, tdbb->getAttachment()->att_crypt_callback);
 	try
 	{
 		conn->attach(tdbb);
@@ -391,6 +394,7 @@ Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 {
 	Database* dbb = tdbb->getDatabase();
 	Attachment* att = tdbb->getAttachment();
+	CryptHash ch(att->att_crypt_callback);
 
 	MutexLockGuard guard(m_mutex, FB_FUNCTION);
 
@@ -404,7 +408,7 @@ Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 			if (conn->getBoundAtt() != att)
 				break;
 
-			if (conn->isSameDatabase(dbName, dpb) &&
+			if (conn->isSameDatabase(dbName, dpb, ch) &&
 				conn->isAvailable(tdbb, tra_scope))
 			{
 				fb_assert(conn->getProvider() == this);
@@ -414,6 +418,7 @@ Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 					continue;
 #endif
 
+				conn->resetRedirect(att->att_crypt_callback);
 				return conn;
 			}
 		} while (acc.getNext());
@@ -477,7 +482,8 @@ void Provider::releaseConnection(thread_db* tdbb, Connection& conn, bool inPool)
 	}
 
 	FbLocalStatus resetError;
-	inPool = inPool && connPool && connPool->getMaxCount() && conn.isConnected();
+	inPool = inPool && connPool && connPool->getMaxCount() &&
+		conn.isConnected() && conn.hasValidCryptCallback();
 
 	if (inPool)
 	{
@@ -584,12 +590,14 @@ Connection::Connection(Provider& prov) :
 {
 }
 
-void Connection::setup(const PathName& dbName, const ClumpletReader& dpb)
+void Connection::setup(const PathName& dbName, const ClumpletReader& dpb, ICryptKeyCallback* attCallback)
 {
 	m_dbName = dbName;
 
 	m_dpb.clear();
 	m_dpb.add(dpb.getBuffer(), dpb.getBufferLength());
+
+	m_cryptCallbackRedir.setRedirect(attCallback);
 }
 
 void Connection::deleteConnection(thread_db* tdbb, Connection* conn)
@@ -607,7 +615,7 @@ Connection::~Connection()
 	fb_assert(m_boundAtt == NULL);
 }
 
-bool Connection::isSameDatabase(const PathName& dbName, ClumpletReader& dpb) const
+bool Connection::isSameDatabase(const PathName& dbName, ClumpletReader& dpb, const CryptHash& hash) const
 {
 	if (m_dbName != dbName)
 		return false;
@@ -616,7 +624,8 @@ bool Connection::isSameDatabase(const PathName& dbName, ClumpletReader& dpb) con
 	// but in different order
 
 	const FB_SIZE_T len = m_dpb.getCount();
-	return (len == dpb.getBufferLength()) && (memcmp(m_dpb.begin(), dpb.getBuffer(), len) == 0);
+	return (len == dpb.getBufferLength()) && (memcmp(m_dpb.begin(), dpb.getBuffer(), len) == 0) &&
+		(m_cryptCallbackRedir == hash);
 }
 
 
@@ -916,7 +925,7 @@ ConnectionsPool::Data* ConnectionsPool::removeOldest()
 }
 
 Connection* ConnectionsPool::getConnection(thread_db* tdbb, Provider* prv, ULONG hash,
-	const PathName& dbName, ClumpletReader& dpb)
+	const PathName& dbName, ClumpletReader& dpb, const CryptHash& ch)
 {
 	MutexLockGuard guard(m_mutex, FB_FUNCTION);
 
@@ -932,7 +941,7 @@ Connection* ConnectionsPool::getConnection(thread_db* tdbb, Provider* prv, ULONG
 			break;
 
 		Connection* conn = item->m_conn;
-		if (conn->getProvider() == prv && conn->isSameDatabase(dbName, dpb))
+		if (conn->getProvider() == prv && conn->isSameDatabase(dbName, dpb, ch))
 		{
 			m_idleArray.remove(pos);
 			removeFromList(&m_idleList, item);
@@ -2629,6 +2638,64 @@ EngineCallbackGuard::~EngineCallbackGuard()
 		if (transaction)
 			transaction->tra_callback_count--;
 	}
+}
+
+
+// CryptHash
+
+CryptHash::CryptHash(ICryptKeyCallback* callback)
+	: m_value(*getDefaultMemoryPool())
+{
+	assign(callback);
+}
+
+CryptHash::CryptHash()
+	: m_value(*getDefaultMemoryPool())
+{ }
+
+void CryptHash::assign(ICryptKeyCallback* callback)
+{
+	fb_assert(!isValid());
+
+	FbLocalStatus status;
+
+	int len = callback->getHashLength(&status);
+	if (len > 0 && status.isSuccess())
+		callback->getHashData(&status, m_value.getBuffer(len));
+
+	m_valid = (len >= 0) && status.isSuccess();
+}
+
+bool CryptHash::operator==(const CryptHash& h) const
+{
+	return isValid() && h.isValid() && m_value == h.m_value;
+}
+
+
+// CryptCallbackRedirector
+
+void CryptCallbackRedirector::setRedirect(Firebird::ICryptKeyCallback* originalCallback)
+{
+	m_hash.assign(originalCallback);
+
+	if (m_hash.isValid())
+		m_keyCallback = originalCallback;
+}
+
+void CryptCallbackRedirector::resetRedirect(Firebird::ICryptKeyCallback* newCallback)
+{
+#ifdef DEV_BUILD
+	CryptHash ch(newCallback);
+	fb_assert(isValid() && ch.isValid());
+	fb_assert(m_hash == ch);
+#endif
+
+	m_keyCallback = newCallback;
+}
+
+bool CryptCallbackRedirector::operator==(const CryptHash& ch) const
+{
+	return m_hash == ch;
 }
 
 } // namespace EDS

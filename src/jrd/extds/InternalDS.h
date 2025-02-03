@@ -74,7 +74,7 @@ public:
 	virtual bool validate(Jrd::thread_db* tdbb);
 
 	virtual bool isSameDatabase(const Firebird::PathName& dbName,
-		Firebird::ClumpletReader& dpb) const;
+		Firebird::ClumpletReader& dpb, const CryptHash& ch) const override;
 
 	virtual bool isCurrent() const { return m_isCurrent; }
 

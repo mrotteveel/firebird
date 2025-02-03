@@ -10138,3 +10138,16 @@ unsigned ClntAuthBlock::ClientCrypt::callback(unsigned dlen, const void* data, u
 	// no luck with suggested data
 	return 0;
 }
+
+int ClntAuthBlock::ClientCrypt::getHashLength(Firebird::CheckStatusWrapper* status)
+{
+	getHashData(status, nullptr);
+
+	return -1;
+}
+
+void ClntAuthBlock::ClientCrypt::getHashData(Firebird::CheckStatusWrapper* status, void*)
+{
+	ISC_STATUS err[] = {isc_arg_gds, isc_wish_list};
+	status->setErrors2(FB_NELEM(err), err);
+}
