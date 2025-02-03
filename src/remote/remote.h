@@ -849,6 +849,8 @@ private:
 
 		// Firebird::ICryptKeyCallback implementation
 		unsigned callback(unsigned dataLength, const void* data, unsigned bufferLength, void* buffer);
+		int getHashLength(Firebird::CheckStatusWrapper* status);
+		void getHashData(Firebird::CheckStatusWrapper* status, void* hash);
 
 	private:
 		Firebird::GetPlugins<Firebird::IKeyHolderPlugin> pluginItr;

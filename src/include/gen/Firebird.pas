@@ -486,6 +486,10 @@ type
 	IWireCryptPlugin_getSpecificDataPtr = function(this: IWireCryptPlugin; status: IStatus; keyType: PAnsiChar; length: CardinalPtr): BytePtr; cdecl;
 	IWireCryptPlugin_setSpecificDataPtr = procedure(this: IWireCryptPlugin; status: IStatus; keyType: PAnsiChar; length: Cardinal; data: BytePtr); cdecl;
 	ICryptKeyCallback_callbackPtr = function(this: ICryptKeyCallback; dataLength: Cardinal; data: Pointer; bufferLength: Cardinal; buffer: Pointer): Cardinal; cdecl;
+	ICryptKeyCallback_dummy1Ptr = procedure(this: ICryptKeyCallback; status: IStatus); cdecl;
+	ICryptKeyCallback_dummy2Ptr = procedure(this: ICryptKeyCallback); cdecl;
+	ICryptKeyCallback_getHashLengthPtr = function(this: ICryptKeyCallback; status: IStatus): Integer; cdecl;
+	ICryptKeyCallback_getHashDataPtr = procedure(this: ICryptKeyCallback; status: IStatus; hash: Pointer); cdecl;
 	IKeyHolderPlugin_keyCallbackPtr = function(this: IKeyHolderPlugin; status: IStatus; callback: ICryptKeyCallback): Integer; cdecl;
 	IKeyHolderPlugin_keyHandlePtr = function(this: IKeyHolderPlugin; status: IStatus; keyName: PAnsiChar): ICryptKeyCallback; cdecl;
 	IKeyHolderPlugin_useOnlyOwnKeysPtr = function(this: IKeyHolderPlugin; status: IStatus): Boolean; cdecl;
@@ -2334,18 +2338,30 @@ type
 
 	CryptKeyCallbackVTable = class(VersionedVTable)
 		callback: ICryptKeyCallback_callbackPtr;
+		dummy1: ICryptKeyCallback_dummy1Ptr;
+		dummy2: ICryptKeyCallback_dummy2Ptr;
+		getHashLength: ICryptKeyCallback_getHashLengthPtr;
+		getHashData: ICryptKeyCallback_getHashDataPtr;
 	end;
 
 	ICryptKeyCallback = class(IVersioned)
-		const VERSION = 2;
+		const VERSION = 3;
 
 		function callback(dataLength: Cardinal; data: Pointer; bufferLength: Cardinal; buffer: Pointer): Cardinal;
+		procedure dummy1(status: IStatus);
+		procedure dummy2();
+		function getHashLength(status: IStatus): Integer;
+		procedure getHashData(status: IStatus; hash: Pointer);
 	end;
 
 	ICryptKeyCallbackImpl = class(ICryptKeyCallback)
 		constructor create;
 
 		function callback(dataLength: Cardinal; data: Pointer; bufferLength: Cardinal; buffer: Pointer): Cardinal; virtual; abstract;
+		procedure dummy1(status: IStatus); virtual;
+		procedure dummy2(); virtual;
+		function getHashLength(status: IStatus): Integer; virtual; abstract;
+		procedure getHashData(status: IStatus; hash: Pointer); virtual; abstract;
 	end;
 
 	KeyHolderPluginVTable = class(PluginBaseVTable)
@@ -7871,6 +7887,49 @@ begin
 	Result := CryptKeyCallbackVTable(vTable).callback(Self, dataLength, data, bufferLength, buffer);
 end;
 
+procedure ICryptKeyCallback.dummy1(status: IStatus);
+begin
+	if (vTable.version < 3) then begin
+		FbException.setVersionError(status, 'ICryptKeyCallback', vTable.version, 3);
+	end
+	else begin
+		CryptKeyCallbackVTable(vTable).dummy1(Self, status);
+	end;
+	FbException.checkException(status);
+end;
+
+procedure ICryptKeyCallback.dummy2();
+begin
+	if (vTable.version < 3) then begin
+	end
+	else begin
+		CryptKeyCallbackVTable(vTable).dummy2(Self);
+	end;
+end;
+
+function ICryptKeyCallback.getHashLength(status: IStatus): Integer;
+begin
+	if (vTable.version < 3) then begin
+		FbException.setVersionError(status, 'ICryptKeyCallback', vTable.version, 3);
+		Result := -1;
+	end
+	else begin
+		Result := CryptKeyCallbackVTable(vTable).getHashLength(Self, status);
+	end;
+	FbException.checkException(status);
+end;
+
+procedure ICryptKeyCallback.getHashData(status: IStatus; hash: Pointer);
+begin
+	if (vTable.version < 3) then begin
+		FbException.setVersionError(status, 'ICryptKeyCallback', vTable.version, 3);
+	end
+	else begin
+		CryptKeyCallbackVTable(vTable).getHashData(Self, status, hash);
+	end;
+	FbException.checkException(status);
+end;
+
 function IKeyHolderPlugin.keyCallback(status: IStatus; callback: ICryptKeyCallback): Integer;
 begin
 	Result := KeyHolderPluginVTable(vTable).keyCallback(Self, status, callback);
@@ -12967,6 +13026,51 @@ begin
 	end
 end;
 
+procedure ICryptKeyCallbackImpl_dummy1Dispatcher(this: ICryptKeyCallback; status: IStatus); cdecl;
+begin
+	try
+		ICryptKeyCallbackImpl(this).dummy1(status);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure ICryptKeyCallbackImpl.dummy1(status: IStatus);
+begin
+end;
+
+procedure ICryptKeyCallbackImpl_dummy2Dispatcher(this: ICryptKeyCallback); cdecl;
+begin
+	try
+		ICryptKeyCallbackImpl(this).dummy2();
+	except
+		on e: Exception do FbException.catchException(nil, e);
+	end
+end;
+
+procedure ICryptKeyCallbackImpl.dummy2();
+begin
+end;
+
+function ICryptKeyCallbackImpl_getHashLengthDispatcher(this: ICryptKeyCallback; status: IStatus): Integer; cdecl;
+begin
+	Result := 0;
+	try
+		Result := ICryptKeyCallbackImpl(this).getHashLength(status);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
+procedure ICryptKeyCallbackImpl_getHashDataDispatcher(this: ICryptKeyCallback; status: IStatus; hash: Pointer); cdecl;
+begin
+	try
+		ICryptKeyCallbackImpl(this).getHashData(status, hash);
+	except
+		on e: Exception do FbException.catchException(status, e);
+	end
+end;
+
 var
 	ICryptKeyCallbackImpl_vTable: CryptKeyCallbackVTable;
 
@@ -16685,8 +16789,12 @@ initialization
 	IWireCryptPluginImpl_vTable.setSpecificData := @IWireCryptPluginImpl_setSpecificDataDispatcher;
 
 	ICryptKeyCallbackImpl_vTable := CryptKeyCallbackVTable.create;
-	ICryptKeyCallbackImpl_vTable.version := 2;
+	ICryptKeyCallbackImpl_vTable.version := 3;
 	ICryptKeyCallbackImpl_vTable.callback := @ICryptKeyCallbackImpl_callbackDispatcher;
+	ICryptKeyCallbackImpl_vTable.dummy1 := @ICryptKeyCallbackImpl_dummy1Dispatcher;
+	ICryptKeyCallbackImpl_vTable.dummy2 := @ICryptKeyCallbackImpl_dummy2Dispatcher;
+	ICryptKeyCallbackImpl_vTable.getHashLength := @ICryptKeyCallbackImpl_getHashLengthDispatcher;
+	ICryptKeyCallbackImpl_vTable.getHashData := @ICryptKeyCallbackImpl_getHashDataDispatcher;
 
 	IKeyHolderPluginImpl_vTable := KeyHolderPluginVTable.create;
 	IKeyHolderPluginImpl_vTable.version := 5;
