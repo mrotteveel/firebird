@@ -37,10 +37,13 @@ using namespace Jrd;
 // Data access: full outer join
 // ----------------------------
 
-FullOuterJoin::FullOuterJoin(CompilerScratch* csb, RecordSource* arg1, RecordSource* arg2)
+FullOuterJoin::FullOuterJoin(CompilerScratch* csb,
+							 RecordSource* arg1, RecordSource* arg2,
+							 const StreamList& checkStreams)
 	: RecordSource(csb),
 	  m_arg1(arg1),
-	  m_arg2(arg2)
+	  m_arg2(arg2),
+	  m_checkStreams(csb->csb_pool, checkStreams)
 {
 	fb_assert(m_arg1 && m_arg2);
 
@@ -97,7 +100,27 @@ bool FullOuterJoin::internalGetRecord(thread_db* tdbb) const
 		m_arg2->open(tdbb);
 	}
 
-	return m_arg2->getRecord(tdbb);
+	// We should exclude matching records from the right-joined (second) record source,
+	// as they're already returned from the left-joined (first) record source
+
+	while (m_arg2->getRecord(tdbb))
+	{
+		bool matched = false;
+
+		for (const auto stream : m_checkStreams)
+		{
+			if (request->req_rpb[stream].rpb_number.isValid())
+			{
+				matched = true;
+				break;
+			}
+		}
+
+		if (!matched)
+			return true;
+	}
+
+	return false;
 }
 
 bool FullOuterJoin::refetchRecord(thread_db* /*tdbb*/) const
@@ -105,39 +128,35 @@ bool FullOuterJoin::refetchRecord(thread_db* /*tdbb*/) const
 	return true;
 }
 
-WriteLockResult FullOuterJoin::lockRecord(thread_db* tdbb, bool skipLocked) const
+WriteLockResult FullOuterJoin::lockRecord(thread_db* tdbb) const
 {
 	SET_TDBB(tdbb);
 
 	status_exception::raise(Arg::Gds(isc_record_lock_not_supp));
 }
 
-void FullOuterJoin::getChildren(Array<const RecordSource*>& children) const
+void FullOuterJoin::getLegacyPlan(thread_db* tdbb, string& plan, unsigned level) const
 {
-	children.add(m_arg1);
-	children.add(m_arg2);
+	level++;
+	plan += "JOIN (";
+	m_arg1->getLegacyPlan(tdbb, plan, level);
+	plan += ", ";
+	m_arg2->getLegacyPlan(tdbb, plan, level);
+	plan += ")";
 }
 
-void FullOuterJoin::print(thread_db* tdbb, string& plan, bool detailed, unsigned level, bool recurse) const
+void FullOuterJoin::internalGetPlan(thread_db* tdbb, PlanEntry& planEntry, unsigned level, bool recurse) const
 {
-	if (detailed)
-	{
-		plan += printIndent(++level) + "Full Outer Join";
+	planEntry.className = "FullOuterJoin";
 
-		if (recurse)
-		{
-			m_arg1->print(tdbb, plan, true, level, recurse);
-			m_arg2->print(tdbb, plan, true, level, recurse);
-		}
-	}
-	else
+	planEntry.lines.add().text = "Full Outer Join";
+	printOptInfo(planEntry.lines);
+
+	if (recurse)
 	{
-		level++;
-		plan += "JOIN (";
-		m_arg1->print(tdbb, plan, false, level, recurse);
-		plan += ", ";
-		m_arg2->print(tdbb, plan, false, level, recurse);
-		plan += ")";
+		++level;
+		m_arg1->getPlan(tdbb, planEntry.children.add(), level, recurse);
+		m_arg2->getPlan(tdbb, planEntry.children.add(), level, recurse);
 	}
 }
 

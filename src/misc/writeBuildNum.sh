@@ -6,10 +6,10 @@
 BuildVersion="$Id: writeBuildNum.sh,v 1.28732 2010/05/29 13:12:08 fsg Exp $"
 
 BuildType=T
-MajorVer=5
+MajorVer=6
 MinorVer=0
 RevNo=0
-BuildNum=1001
+BuildNum=595
 
 NowAt=`pwd`
 cd `dirname $0`
@@ -20,7 +20,7 @@ Root=`dirname $Root`
 
 if [ "$SPECIAL_BUILD_SUFFIX" = "" ]; then
 # Normal builds
-SuffixKind="Beta 2"
+SuffixKind="Initial"
 SuffixVer=""
 BuildSuffix="Firebird $MajorVer.$MinorVer"
 [ "$SuffixKind" = "" ] || BuildSuffix="$BuildSuffix $SuffixKind"
@@ -112,7 +112,7 @@ eof
 
 [ -z "$CXX" ] && CXX=g++
 
-$CXX $TestCpp -o $AOut
+$CXX -std=c++17 $TestCpp -o $AOut
 if [ -x $AOut ]
 then
 	$AOut

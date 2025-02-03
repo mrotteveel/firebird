@@ -142,6 +142,9 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 			if (tail->csb_flags & csb_unstable)
 				rpb->rpb_stream_flags |= RPB_s_unstable;
 
+			if (tail->csb_flags & csb_skip_locked)
+				rpb->rpb_stream_flags |= RPB_s_skipLocked;
+
 			rpb->rpb_relation = tail->csb_relation;
 
 			delete tail->csb_fields;
@@ -750,6 +753,15 @@ string Statement::getPlan(thread_db* tdbb, bool detailed) const
 	return plan;
 }
 
+void Statement::getPlan(thread_db* tdbb, PlanEntry& planEntry) const
+{
+	planEntry.className = "Statement";
+	planEntry.level = 0;
+
+	for (const auto select : fors)
+		select->getPlan(tdbb, planEntry.children.add(), 0, true);
+}
+
 // Check that we have enough rights to access all resources this list of triggers touches.
 void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelation,
 	const Triggers& triggers, MetaName userName)
@@ -798,7 +810,7 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
-			else if (t->ssDefiner.specified && t->ssDefiner.value)
+			else if (t->ssDefiner.asBool())
 				userName = t->owner;
 
 			Attachment* attachment = tdbb->getAttachment();
@@ -825,7 +837,7 @@ inline void Statement::triggersExternalAccess(thread_db* tdbb, ExternalAccessLis
 		t->compile(tdbb);
 		if (t->statement)
 		{
-			const MetaName& userName = (t->ssDefiner.specified && t->ssDefiner.value) ? t->owner : user;
+			const MetaName& userName = t->ssDefiner.asBool() ? t->owner : user;
 			t->statement->buildExternalAccess(tdbb, list, userName);
 		}
 	}
@@ -890,7 +902,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 					continue; // should never happen, silence the compiler
 			}
 
-			item->user = relation->rel_ss_definer.orElse(false) ? relation->rel_perm->rel_owner_name : user;
+			item->user = relation->rel_ss_definer.asBool() ? getPermanent(relation)->rel_owner_name : user;
 			if (list.find(*item, i))
 				continue;
 			list.insert(i, *item);

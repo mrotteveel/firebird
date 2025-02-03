@@ -37,6 +37,7 @@
 #include "../jrd/sbm.h"
 #include "../jrd/lck.h"
 #include "../jrd/pag.h"
+#include "../jrd/val.h"
 
 struct dsc;
 
@@ -214,7 +215,7 @@ public:
 	IndexRetrieval(jrd_rel* relation, const index_desc* idx, USHORT count, temporary_key* key)
 		: irb_rsc_relation(), irb_jrd_relation(relation), irb_index(idx->idx_id),
 		  irb_generic(0), irb_lower_count(count), irb_upper_count(count), irb_key(key),
-		  irb_name(NULL), irb_value(NULL)
+		  irb_name(nullptr), irb_value(nullptr), irb_list(nullptr), irb_scale(nullptr)
 	{
 		memcpy(&irb_desc, idx, sizeof(irb_desc));
 	}
@@ -224,7 +225,8 @@ public:
 		: irb_rsc_relation(relation), irb_jrd_relation(nullptr), irb_index(idx->idx_id),
 		  irb_generic(0), irb_lower_count(0), irb_upper_count(0), irb_key(NULL),
 		  irb_name(FB_NEW_POOL(pool) MetaName(name)),
-		  irb_value(FB_NEW_POOL(pool) ValueExprNode*[idx->idx_count * 2])
+		  irb_value(FB_NEW_POOL(pool) ValueExprNode*[idx->idx_count * 2]),
+		  irb_list(nullptr), irb_scale(nullptr)
 	{
 		memcpy(&irb_desc, idx, sizeof(irb_desc));
 	}
@@ -233,6 +235,7 @@ public:
 	{
 		delete irb_name;
 		delete[] irb_value;
+		delete[] irb_scale;
 	}
 
 	jrd_rel* getRelation(thread_db* tdbb) const;
@@ -250,8 +253,10 @@ public:
 	USHORT irb_lower_count;			// Number of segments for retrieval
 	USHORT irb_upper_count;			// Number of segments for retrieval
 	temporary_key* irb_key;			// Key for equality retrieval
-	MetaName* irb_name;	// Index name
-	ValueExprNode** irb_value;
+	MetaName* irb_name;				// Index name
+	ValueExprNode** irb_value;		// Matching value (for equality search)
+	LookupValueList* irb_list;		// Matching values list (for IN <list>)
+	SSHORT* irb_scale;				// Scale for int64/int128 key
 };
 
 // Flag values for irb_generic
@@ -264,6 +269,12 @@ const int irb_descending	= 16;			// Base index uses descending order
 const int irb_exclude_lower	= 32;			// exclude lower bound keys while scanning index
 const int irb_exclude_upper	= 64;			// exclude upper bound keys while scanning index
 const int irb_multi_starting	= 128;		// Use INTL_KEY_MULTI_STARTING
+const int irb_root_list_scan	= 256;		// Locate list items from the root
+const int irb_unique	= 512;				// Unique match (currently used only for plan output)
+
+// Force include flags - always include appropriate key while scanning index
+const int irb_force_lower	= irb_exclude_lower;
+const int irb_force_upper	= irb_exclude_upper;
 
 typedef Firebird::HalfStaticArray<float, 4> SelectivityList;
 
@@ -339,8 +350,8 @@ class IndexErrorContext
 	};
 
 public:
-	IndexErrorContext(jrd_rel* relation, index_desc* index, const char* indexName = NULL)
-		: m_relation(relation), m_index(index), m_indexName(indexName), isLocationDefined(false)
+	IndexErrorContext(jrd_rel* relation, index_desc* index, const char* indexName = nullptr)
+		: m_relation(relation), m_index(index), m_indexName(indexName)
 	{}
 
 	void setErrorLocation(jrd_rel* relation, USHORT indexId)
@@ -350,15 +361,18 @@ public:
 		m_location.indexId = indexId;
 	}
 
-	void raise(thread_db*, idx_e, Record*);
+	void raise(thread_db*, idx_e, Record* = nullptr);
 
 private:
 	jrd_rel* const m_relation;
 	index_desc* const m_index;
 	const char* const m_indexName;
 	Location m_location;
-	bool isLocationDefined;
+	bool isLocationDefined = false;
 };
+
+
+// Index construction lock holder
 
 class IndexCreateLock : public Firebird::AutoStorage
 {
@@ -375,6 +389,199 @@ private:
 	Lock* lck = nullptr;
 
 	void makeLock(MetaId indexId);
+};
+
+
+// Helper classes to allow efficient evaluation of index conditions/expressions
+
+class IndexCondition
+{
+public:
+	IndexCondition(thread_db* tdbb, index_desc* idx);
+
+	IndexCondition(const IndexCondition& other)
+		: m_tdbb(other.m_tdbb), m_condition(other.m_condition), m_request(other.m_request)
+	{}
+
+	~IndexCondition();
+
+	Firebird::TriState check(Record* record, idx_e* errCode = nullptr);
+
+private:
+	thread_db* const m_tdbb;
+	BoolExprNode* m_condition = nullptr;
+	Request* m_request = nullptr;
+
+	bool evaluate(Record* record) const;
+};
+
+class IndexExpression
+{
+public:
+	IndexExpression(thread_db* tdbb, index_desc* idx);
+
+	IndexExpression(const IndexExpression& other)
+		: m_tdbb(other.m_tdbb), m_expression(other.m_expression), m_request(other.m_request)
+	{}
+
+	~IndexExpression();
+
+	dsc* evaluate(Record* record) const;
+
+private:
+	thread_db* const m_tdbb;
+	ValueExprNode* m_expression = nullptr;
+	Request* m_request = nullptr;
+};
+
+typedef Firebird::AutoPtr<IndexExpression> AutoIndexExpression;
+
+// Index key wrapper
+
+class IndexKey
+{
+public:
+	IndexKey(thread_db* tdbb, jrd_rel* relation, index_desc* idx)
+		: m_tdbb(tdbb), m_relation(relation), m_index(idx),
+		  m_keyType((idx->idx_flags & idx_unique) ? INTL_KEY_UNIQUE : INTL_KEY_SORT),
+		  m_segments(idx->idx_count), m_expression(m_localExpression)
+	{
+		fb_assert(m_index->idx_count);
+	}
+
+	IndexKey(thread_db* tdbb, jrd_rel* relation, index_desc* idx, AutoIndexExpression& expr)
+		: m_tdbb(tdbb), m_relation(relation), m_index(idx),
+		  m_keyType((idx->idx_flags & idx_unique) ? INTL_KEY_UNIQUE : INTL_KEY_SORT),
+		  m_segments(idx->idx_count), m_expression(expr)
+	{
+		fb_assert(m_index->idx_count);
+	}
+
+	IndexKey(thread_db* tdbb, jrd_rel* relation, index_desc* idx,
+			 USHORT keyType, USHORT segments)
+		: m_tdbb(tdbb), m_relation(relation), m_index(idx),
+		  m_keyType(keyType), m_segments(segments), m_expression(m_localExpression)
+	{
+		fb_assert(m_index->idx_count && m_segments && m_segments <= m_index->idx_count);
+	}
+
+	IndexKey(thread_db* tdbb, jrd_rel* relation, index_desc* idx,
+			 USHORT keyType, USHORT segments, AutoIndexExpression& expr)
+		: m_tdbb(tdbb), m_relation(relation), m_index(idx),
+		  m_keyType(keyType), m_segments(segments), m_expression(expr)
+	{
+		fb_assert(m_index->idx_count && m_segments && m_segments <= m_index->idx_count);
+	}
+
+	IndexKey(const IndexKey& other)
+		: m_tdbb(other.m_tdbb), m_relation(other.m_relation), m_index(other.m_index),
+		  m_keyType(other.m_keyType), m_segments(other.m_segments), m_expression(other.m_expression)
+	{
+	}
+
+	idx_e compose(Record* record);
+
+	operator temporary_key*()
+	{
+		return &m_key;
+	}
+
+	temporary_key* operator->()
+	{
+		return &m_key;
+	}
+
+	bool operator==(const IndexKey& other) const
+	{
+		if (m_key.key_length != other.m_key.key_length)
+			return false;
+
+		return !memcmp(m_key.key_data, other.m_key.key_data, m_key.key_length);
+	}
+
+	bool operator!=(const IndexKey& other) const
+	{
+		if (m_key.key_length != other.m_key.key_length)
+			return true;
+
+		return memcmp(m_key.key_data, other.m_key.key_data, m_key.key_length);
+	}
+
+	// Return ordinal number of the first NULL segment
+	USHORT getNullSegment() const
+	{
+		USHORT nulls = m_key.key_nulls;
+
+		for (USHORT i = 0; nulls; i++)
+		{
+			if (nulls & 1)
+				return i;
+
+			nulls >>= 1;
+		}
+
+		return MAX_USHORT;
+	}
+
+private:
+	thread_db* const m_tdbb;
+	jrd_rel* const m_relation;
+	index_desc* const m_index;
+	const USHORT m_keyType;
+	const USHORT m_segments;
+	temporary_key m_key;
+	AutoIndexExpression& m_expression;
+	AutoIndexExpression m_localExpression;
+};
+
+// List scan iterator
+
+class IndexScanListIterator
+{
+public:
+	IndexScanListIterator(thread_db* tdbb, const IndexRetrieval* retrieval);
+
+	bool isEmpty() const
+	{
+		return m_listValues.isEmpty();
+	}
+
+	bool getNext(thread_db* tdbb, temporary_key* lower, temporary_key* upper)
+	{
+		if (++m_iterator < m_listValues.end())
+		{
+			makeKeys(tdbb, lower, upper);
+			return true;
+		}
+
+		m_iterator = nullptr;
+		return false;
+	}
+
+	const ValueExprNode* const* getLowerValues() const
+	{
+		return m_lowerValues.begin();
+	}
+
+	const ValueExprNode* const* getUpperValues() const
+	{
+		return m_upperValues.begin();
+	}
+
+	SSHORT* getScale()
+	{
+		return m_retrieval->irb_scale;
+	}
+
+private:
+	void makeKeys(thread_db* tdbb, temporary_key* lower, temporary_key* upper);
+
+	const IndexRetrieval* const m_retrieval;
+	Firebird::HalfStaticArray<const ValueExprNode*, 16> m_listValues;
+	Firebird::HalfStaticArray<const ValueExprNode*, 4> m_lowerValues;
+	Firebird::HalfStaticArray<const ValueExprNode*, 4> m_upperValues;
+	const ValueExprNode* const* m_iterator;
+	USHORT m_segno = MAX_USHORT;
 };
 
 } //namespace Jrd

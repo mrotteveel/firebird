@@ -69,10 +69,9 @@ class InitPool
 {
 public:
 	explicit InitPool(MemoryPool&)
-	{
-		m_pool = InitCDS::createPool();
-		m_pool->setStatsGroup(m_stats);
-	}
+		: m_pool(InitCDS::createPool()),
+		  m_stats(m_pool->getStatsGroup())
+	{ }
 
 	~InitPool()
 	{
@@ -81,7 +80,7 @@ public:
 
 #ifdef DEBUG_CDS_MEMORY
 		char str[256];
-		sprintf(str, "DHP pool stats:\n"
+		sprintf(str, "CCH list's common pool stats:\n"
 			"  usage         = %llu\n"
 			"  mapping       = %llu\n"
 			"  max usage     = %llu\n"
@@ -102,10 +101,9 @@ public:
 	}
 
 private:
-	MemoryPool* m_pool;
-	Firebird::MemoryStats m_stats;
+	Firebird::MemoryPool* m_pool;
+	Firebird::MemoryStats& m_stats;
 };
-
 
 } // namespace Jrd
 

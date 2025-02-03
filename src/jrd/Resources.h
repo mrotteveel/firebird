@@ -25,7 +25,7 @@
 #define JRD_RESOURCES_H
 
 #include "fb_blk.h"
-#include "../jrd/HazardPtr.h"
+#include "../jrd/CacheVector.h"
 #include <functional>
 
 namespace Jrd {

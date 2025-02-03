@@ -99,6 +99,10 @@ namespace EDS {
 	class Connection;
 }
 
+namespace Firebird {
+	class TextType;
+}
+
 namespace Jrd {
 
 const unsigned MAX_CALLBACKS	= 50;
@@ -119,7 +123,6 @@ class ViewContext;
 class ArrayField;
 struct sort_context;
 class vcl;
-class TextType;
 class Parameter;
 class jrd_fld;
 class dsql_dbb;
@@ -417,6 +420,8 @@ namespace Jrd {
 
 				fb_assert((operator thread_db*())->getAttachment());
 			}
+
+			(*this)->tdbb_flags |= TDBB_async;
 		}
 
 	private:

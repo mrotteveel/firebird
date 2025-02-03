@@ -24,8 +24,8 @@
  * Adriano dos Santos Fernandes
  */
 
-#ifndef JRD_DSC_H
-#define JRD_DSC_H
+#ifndef COMMON_DSC_H
+#define COMMON_DSC_H
 
 #include "firebird/impl/dsc_pub.h"
 #include "firebird/impl/consts_pub.h"
@@ -85,21 +85,25 @@ inline bool DTYPE_IS_NUMERIC(UCHAR d)
 
 typedef struct dsc
 {
-	dsc()
-		: dsc_dtype(0),
-		  dsc_scale(0),
-		  dsc_length(0),
-		  dsc_sub_type(0),
-		  dsc_flags(0),
-		  dsc_address(0)
+	dsc() = default;
+
+	// These Ods::Descriptor constructor and operator were added to have
+	// interoperability between Ods::Descriptor and struct dsc
+	dsc(const Ods::Descriptor& od)
+		: dsc_dtype(od.dsc_dtype),
+		  dsc_scale(od.dsc_scale),
+		  dsc_length(od.dsc_length),
+		  dsc_sub_type(od.dsc_sub_type),
+		  dsc_flags(od.dsc_flags),
+		  dsc_address((UCHAR*)(IPTR)(od.dsc_offset))
 	{}
 
-	UCHAR	dsc_dtype;
-	SCHAR	dsc_scale;
-	USHORT	dsc_length;
-	SSHORT	dsc_sub_type;
-	USHORT	dsc_flags;
-	UCHAR*	dsc_address; // Used either as offset in a message or as a pointer
+	UCHAR	dsc_dtype = 0;
+	SCHAR	dsc_scale = 0;
+	USHORT	dsc_length = 0;
+	SSHORT	dsc_sub_type = 0;
+	USHORT	dsc_flags = 0;
+	UCHAR*	dsc_address = nullptr; // Used either as offset in a message or as a pointer
 
 #ifdef __cplusplus
 	bool isNullable() const
@@ -133,6 +137,11 @@ typedef struct dsc
 	bool isBlob() const
 	{
 		return dsc_dtype == dtype_blob || dsc_dtype == dtype_quad;
+	}
+
+	bool isBoolean() const
+	{
+		return dsc_dtype == dtype_boolean;
 	}
 
 	bool isExact() const
@@ -487,8 +496,6 @@ typedef struct dsc
 		dsc_address = address;
 	}
 
-	int getStringLength() const;
-
 	bool operator==(const dsc& v) const
 	{
 		return dsc_dtype == v.dsc_dtype &&
@@ -499,16 +506,7 @@ typedef struct dsc
 			dsc_address == v.dsc_address;
 	}
 
-	// These functions were added to have interoperability
-	// between Ods::Descriptor and struct dsc
-	dsc(const Ods::Descriptor& od)
-		: dsc_dtype(od.dsc_dtype),
-		  dsc_scale(od.dsc_scale),
-		  dsc_length(od.dsc_length),
-		  dsc_sub_type(od.dsc_sub_type),
-		  dsc_flags(od.dsc_flags),
-		  dsc_address((UCHAR*)(IPTR)(od.dsc_offset))
-	{}
+	USHORT getStringLength() const;
 
 	operator Ods::Descriptor() const
 	{
@@ -623,4 +621,4 @@ inline SCHAR NUMERIC_SCALE(const dsc desc)
 
 const UCHAR DEFAULT_DOUBLE  = dtype_double;
 
-#endif // JRD_DSC_H
+#endif // COMMON_DSC_H

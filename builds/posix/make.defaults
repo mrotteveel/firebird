@@ -110,8 +110,8 @@ GLOB_OPTIONS:=
 
 #____________________________________________________________________________
 
-# Global c++ flags: firebird needs no RTTI, choose build standard
-PLUSPLUS_FLAGS:= -fno-rtti -std=c++17
+# Global c++ flags: firebird needs no RTTI, choose build standard and c++ specific warnings level
+PLUSPLUS_FLAGS:= -fno-rtti -std=c++17 -Werror=delete-incomplete -Werror=return-type
 
 # If this is defined then we use special rules useful for developers only
 IsDeveloper = @DEVEL_FLG@
@@ -199,17 +199,12 @@ READELF = @READELF@
 
 AC_CFLAGS = @CFLAGS@
 AC_CXXFLAGS = @CXXFLAGS@
+AC_LDFLAGS = @LDFLAGS@
 
 # LINKER COMMANDS
 
-# FIXME: -static-libstdc++ in MacOS
-ifeq ($(PLATFORM),DARWIN)
-LIB_LINK = $(CXX) $(GLOB_OPTIONS) $(CXXFLAGS)
-EXE_LINK = $(CXX) $(GLOB_OPTIONS) $(CXXFLAGS)
-else
-LIB_LINK = $(CXX) $(GLOB_OPTIONS) $(CXXFLAGS) -static-libstdc++
-EXE_LINK = $(CXX) $(GLOB_OPTIONS) $(CXXFLAGS) -static-libstdc++
-endif
+LIB_LINK = $(CXX) $(GLOB_OPTIONS) $(CXXFLAGS) $(WLDFLAGS)
+EXE_LINK = $(CXX) $(GLOB_OPTIONS) $(CXXFLAGS) $(WLDFLAGS)
 
 STATICLIB_LINK = $(AR) crus
 
@@ -420,10 +415,11 @@ FBGUARD		= $(BIN)/fbguard$(EXEC_EXT)
 INSTREG		= $(BIN)/instreg$(EXEC_EXT)
 INSTSVC		= $(BIN)/instsvc$(EXEC_EXT)
 
-SECURITY_FDB	= $(FIREBIRD)/security5.fdb
+SECURITY_FDB	= $(FIREBIRD)/security6.fdb
 
 # From isql
 ISQL            = $(BIN)/isql$(EXEC_EXT)
+ISQL_TEST       = $(FB_TESTS_DIR)/isql_test$(EXEC_EXT)
 RUN_ISQL        = $(RBIN)/isql$(EXEC_EXT)
 
 # From burp
@@ -446,4 +442,3 @@ FIREBIRD_MSG    = $(FIREBIRD)/firebird.msg
 # For want of a better suggestion we may as well default to posix
 PLATFORM_PATH	=	os/posix
 TRACE_OS_Sources	=
-

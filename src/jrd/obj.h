@@ -78,10 +78,11 @@ const ObjectType obj_index_condition = 37;
 
 const ObjectType obj_type_MAX = 38;
 
-// used in the parser only / no relation with obj_type_MAX (should be greater)
+// not used in metadata / no relation with obj_type_MAX (should be greater)
 const ObjectType obj_user_or_role= 100;
 const ObjectType obj_parameter = 101;
 const ObjectType obj_column = 102;
+const ObjectType obj_publication = 103;
 
 const ObjectType obj_any = 255;
 

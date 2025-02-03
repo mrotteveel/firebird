@@ -99,7 +99,7 @@
 #include "../common/classes/Aligner.h"
 
 
-namespace Jrd {
+namespace Firebird {
 
 
 TextType::TextType(TTypeId _type, texttype *_tt, USHORT _attributes, CharSet* _cs)
@@ -154,7 +154,7 @@ TextType::TextType(TTypeId _type, texttype *_tt, USHORT _attributes, CharSet* _c
 			{'S', CHAR_UPPER_S}
 		};
 
-	for (int i = 0; i < FB_NELEM(conversions); i++)
+	for (FB_SIZE_T i = 0; i < FB_NELEM(conversions); i++)
 	{
 		try
 		{

@@ -194,6 +194,7 @@ public:
 		tra_user_management(NULL),
 		tra_sec_db_context(NULL),
 		tra_mapping_list(NULL),
+		tra_dbcreators_list(nullptr),
 		tra_autonomous_pool(NULL),
 		tra_autonomous_cnt(0)
 	{
@@ -362,15 +363,16 @@ public:
 			Record* const record = *iter;
 			fb_assert(record);
 
-			if (!record->testFlags(REC_undo_active))
+			if (!record->isTempActive())
 			{
 				// initialize record for reuse
-				record->reset(format, REC_undo_active);
+				record->reset(format);
+				record->setTempActive();
 				return record;
 			}
 		}
 
-		Record* const record = FB_NEW_POOL(*tra_pool) Record(*tra_pool, format, REC_undo_active);
+		Record* const record = FB_NEW_POOL(*tra_pool) Record(*tra_pool, format, true);
 		tra_undo_records.add(record);
 
 		return record;
@@ -463,7 +465,6 @@ enum dfw_t {
 	dfw_create_index,
 	dfw_delete_index,
 	dfw_compute_security,
-	dfw_add_file,
 	dfw_add_shadow,
 	dfw_delete_shadow,
 	dfw_delete_shadow_nodelete,

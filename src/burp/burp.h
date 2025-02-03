@@ -29,6 +29,7 @@
 #ifndef BURP_BURP_H
 #define BURP_BURP_H
 
+#include <optional>
 #include <stdio.h>
 #include "ibase.h"
 #include "firebird/Interface.h"
@@ -42,7 +43,6 @@
 #include "../common/classes/array.h"
 #include "../common/classes/fb_pair.h"
 #include "../common/classes/MetaString.h"
-#include "../common/classes/Nullable.h"
 #include "../common/SimilarToRegex.h"
 #include "../common/status.h"
 #include "../common/sha.h"
@@ -258,6 +258,8 @@ enum att_type {
 	att_database_sql_security_deprecated,	// can be removed later
 	att_replica_mode,		// replica mode
 	att_database_sql_security,	// default sql security value
+	att_default_pub_active, // default publication status
+	att_default_pub_auto_enable,
 
 	// Relation attributes
 
@@ -961,6 +963,7 @@ public:
 		  GblPool(us->isService()),
 		  gbl_sw_par_workers(1),
 		  defaultCollations(getPool()),
+		  systemFields(getPool()),
 		  gbl_dpb_data(*getDefaultMemoryPool()),
 		  uSvc(us),
 		  master(true),
@@ -1033,7 +1036,7 @@ public:
 	ULONG		io_buffer_size;
 	redirect_vals	sw_redirect;
 	bool		burp_throw;
-	Nullable<ReplicaMode>	gbl_sw_replica;
+	std::optional<ReplicaMode>	gbl_sw_replica;
 
 	UCHAR*		blk_io_ptr;
 	int			blk_io_cnt;
@@ -1065,6 +1068,8 @@ public:
 	UCHAR*		gbl_crypt_buffer;
 	ULONG		gbl_crypt_left;
 	UCHAR*      gbl_decompress;
+	bool		gbl_default_pub_active = false;
+	bool		gbl_default_pub_auto_enable = false;
 
 	burp_rel*	relations;
 	burp_pkg*	packages;
@@ -1150,6 +1155,7 @@ public:
 	Firebird::IRequest*	handles_get_type_req_handle1;
 	Firebird::IRequest*	handles_get_user_privilege_req_handle1;
 	Firebird::IRequest*	handles_get_view_req_handle1;
+	Firebird::IRequest* handles_activateIndex_req_handle1;
 
 	// The handles_put.. are for backup.
 	Firebird::IRequest*	handles_put_index_req_handle1;
@@ -1196,6 +1202,7 @@ public:
 
 	Firebird::Array<Firebird::Pair<Firebird::NonPooled<Firebird::MetaString, Firebird::MetaString> > >
 		defaultCollations;
+	Firebird::SortedArray<Firebird::MetaString> systemFields;
 	Firebird::Array<UCHAR> gbl_dpb_data;
 	Firebird::UtilSvc* uSvc;
 	bool master;			// set for master thread only
@@ -1221,6 +1228,9 @@ public:
 	bool gbl_stat_header;				// true, if stats header was printed
 	bool gbl_stat_done;					// true, if main process is done, stop to collect db-level stats
 	SINT64 gbl_stats[LAST_COUNTER];
+
+	bool gbl_use_no_auto_undo = true;
+	bool gbl_use_auto_release_temp_blobid = true;
 };
 
 // CVC: This aux routine declared here to not force inclusion of burp.h with burp_proto.h

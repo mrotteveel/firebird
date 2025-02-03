@@ -25,7 +25,7 @@
 #define JRD_INTL_PROTO_H
 
 #include "../jrd/intl_classes.h"
-#include "../jrd/HazardPtr.h"
+// ???????????????? #include "../jrd/HazardPtr.h"
 #include "../common/cvt.h"
 
 namespace Jrd {
@@ -33,6 +33,11 @@ namespace Jrd {
 	class Lock;
 	class Collation;
 	struct SubtypeInfo;
+}
+
+namespace Firebird {
+	class CsConvert;
+	class CharSet;
 }
 
 struct dsc;
@@ -43,15 +48,14 @@ CSetId		INTL_charset(Jrd::thread_db*, TTypeId);
 int			INTL_compare(Jrd::thread_db*, const dsc*, const dsc*, ErrorFunction);
 ULONG		INTL_convert_bytes(Jrd::thread_db*, CSetId, UCHAR*, const ULONG, CSetId,
 								const BYTE*, const ULONG, ErrorFunction);
-Jrd::CsConvert	INTL_convert_lookup(Jrd::thread_db*, CSetId, CSetId);
+Firebird::CsConvert		INTL_convert_lookup(Jrd::thread_db*, CSetId, CSetId);
 void		INTL_convert_string(dsc*, const dsc*, Firebird::Callbacks* cb);
 bool		INTL_data(const dsc*);
 bool		INTL_data_or_binary(const dsc*);
 bool		INTL_defined_type(Jrd::thread_db*, TTypeId);
 USHORT		INTL_key_length(Jrd::thread_db*, USHORT, USHORT);
-Jrd::CharSet*	INTL_charset_lookup(Jrd::thread_db* tdbb, CSetId parm1);
-Jrd::Collation*	INTL_texttype_lookup(Jrd::thread_db* tdbb, TTypeId parm1);
-//void		INTL_texttype_unload(Jrd::thread_db*, USHORT);
+Firebird::CharSet*		INTL_charset_lookup(Jrd::thread_db* tdbb, CSetId parm1);
+Jrd::Collation*			INTL_texttype_lookup(Jrd::thread_db* tdbb, TTypeId parm1);
 bool		INTL_texttype_validate(Jrd::thread_db*, const Jrd::SubtypeInfo*);
 void		INTL_pad_spaces(Jrd::thread_db*, dsc*, UCHAR*, ULONG);
 USHORT		INTL_string_to_key(Jrd::thread_db*, USHORT, const dsc*, dsc*, USHORT);

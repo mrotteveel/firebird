@@ -28,6 +28,11 @@
 #include "../common/cvt.h"
 #include "../jrd/err_proto.h"
 
+namespace Firebird
+{
+	class CharSet;
+}
+
 double		CVT_date_to_double(const dsc*);
 void		CVT_double_to_date(double, SLONG[2]);
 UCHAR		CVT_get_numeric(const UCHAR*, const USHORT, SSHORT*, void*);
@@ -55,9 +60,9 @@ namespace Jrd
 	public:
 		virtual bool transliterate(const dsc* from, dsc* to, CSetId&);
 		virtual CSetId getChid(const dsc* d);
-		virtual CharSet* getToCharset(CSetId charset2);
-		virtual void validateData(CharSet* toCharset, SLONG length, const UCHAR* q);
-		virtual ULONG validateLength(CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
+		virtual Firebird::CharSet* getToCharset(CSetId charset2);
+		virtual void validateData(Firebird::CharSet* toCharset, SLONG length, const UCHAR* q);
+		virtual ULONG validateLength(Firebird::CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 			const USHORT size);
 		virtual SLONG getLocalDate();
 		virtual ISC_TIMESTAMP getCurrentGmtTimeStamp();
@@ -76,7 +81,7 @@ namespace Jrd
 		{
 		}
 
-		virtual ULONG validateLength(CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
+		virtual ULONG validateLength(Firebird::CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 			const USHORT size);
 
 	private:

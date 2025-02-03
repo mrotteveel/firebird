@@ -70,6 +70,7 @@ public:
 
 	MetaString& assign(const char* s, FB_SIZE_T l);
 	MetaString& assign(const char* s) { return assign(s, s ? fb_strlen(s) : 0); }
+	MetaString& clear() { return assign(nullptr, 0); }
 	MetaString& operator=(const char* s) { return assign(s); }
 	MetaString& operator=(const AbstractString& s) { return assign(s.c_str(), s.length()); }
 	MetaString& operator=(const MetaString& m) = default;	//{ return set(m); }
@@ -91,6 +92,30 @@ public:
 	int compare(const char* s) const { return compare(s, s ? fb_strlen(s) : 0); }
 	int compare(const AbstractString& s) const { return compare(s.c_str(), s.length()); }
 	int compare(const MetaString& m) const { return memcmp(data, m.data, MAX_SQL_IDENTIFIER_SIZE); }
+
+	string toQuotedString() const
+	{
+		string s;
+
+		if (hasData())
+		{
+			s.reserve(count + 2);
+
+			s.append("\"");
+
+			for (const auto c : *this)
+			{
+				if (c == '"')
+					s.append("\"");
+
+				s.append(&c, 1);
+			}
+
+			s.append("\"");
+		}
+
+		return s;
+	}
 
 	bool operator==(const char* s) const { return compare(s) == 0; }
 	bool operator!=(const char* s) const { return compare(s) != 0; }

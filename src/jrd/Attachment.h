@@ -44,12 +44,13 @@
 #include "../common/classes/stack.h"
 #include "../common/classes/timestamp.h"
 #include "../common/classes/TimerImpl.h"
+#include "../common/classes/TriState.h"
 #include "../common/ThreadStart.h"
 #include "../common/TimeZoneUtil.h"
 
 #include "../jrd/EngineInterface.h"
 #include "../jrd/sbm.h"
-#include "../jrd/HazardPtr.h"
+// ?????????????? #include "../jrd/HazardPtr.h"
 
 #include <atomic>
 
@@ -73,6 +74,7 @@ namespace Jrd
 	class jrd_file;
 	class Format;
 	class BufferControl;
+	class PageToBufferMap;
 	class SparseBitmap;
 	class jrd_rel;
 	class ExternalFile;
@@ -80,7 +82,6 @@ namespace Jrd
 	class ArrayField;
 	struct sort_context;
 	class vcl;
-	class TextType;
 	class Parameter;
 	class jrd_fld;
 	class dsql_dbb;
@@ -276,12 +277,10 @@ public:
 			return totalLocksCounter;
 		}
 
-#ifdef DEV_BUILD
 		bool locked() const
 		{
 			return threadId == getThreadId();
 		}
-#endif
 
 		~Sync()
 		{
@@ -303,13 +302,11 @@ public:
 		int currentLocksCounter;
 	};
 
-	typedef Firebird::RaiiLockGuard<StableAttachmentPart> SyncGuard;
-
 	explicit StableAttachmentPart(Attachment* handle)
 		: att(handle), jAtt(NULL), shutError(0)
 	{ }
 
-	Attachment* getHandle() throw()
+	Attachment* getHandle() noexcept
 	{
 		return att;
 	}
@@ -543,7 +540,15 @@ public:
 	ULONG		att_flags;					// Flags describing the state of the attachment
 	CSetId		att_client_charset;			// user's charset specified in dpb
 	CSetId		att_charset;				// current (client or external) attachment charset
+
+	// ASF: Attention: att_in_system_routine was initially added to support the profiler plugin
+	// writing to system tables. But a modified implementation used non-system tables and
+	// a problem was discovered that when writing to user's table from a "system context"
+	// (csb_internal) FK validations are not enforced becase MET_scan_relation is not called
+	// for the relation.
+	// Currently all "turning on" code for att_in_system_routine are disabled in SystemPackages.h.
 	bool 		att_in_system_routine = false;	// running a system routine
+
 	Lock*		att_long_locks;				// outstanding two phased locks
 #ifdef DEBUG_LCK_LIST
 	UCHAR		att_long_locks_type;		// Lock type of the first lock in list
@@ -585,6 +590,9 @@ public:
 	USHORT att_original_timezone;
 	USHORT att_current_timezone;
 	int att_parallel_workers;
+	Firebird::TriState att_opt_first_rows;
+
+	PageToBufferMap* att_bdb_cache;			// managed in CCH, created in att_pool, freed with it
 
 	Firebird::RefPtr<Firebird::IReplicatedSession> att_replicator;
 	Firebird::AutoPtr<Replication::TableMatcher> att_repl_matcher;
@@ -643,12 +651,14 @@ public:
 	void storeBinaryBlob(thread_db* tdbb, jrd_tra* transaction, bid* blobId,
 		const Firebird::ByteChunk& chunk);
 
+	void releaseBatches();
+	void releaseGTTs(thread_db* tdbb);
 	void resetSession(thread_db* tdbb, jrd_tra** traHandle);
 
 	void signalCancel();
 	void signalShutdown(ISC_STATUS code);
 
-	void mergeStats();
+	void mergeStats(bool pageStatsOnly = false);
 	bool hasActiveRequests() const;
 
 	bool backupStateWriteLock(thread_db* tdbb, SSHORT wait);
@@ -656,17 +666,17 @@ public:
 	bool backupStateReadLock(thread_db* tdbb, SSHORT wait);
 	void backupStateReadUnLock(thread_db* tdbb);
 
-	StableAttachmentPart* getStable() throw()
+	StableAttachmentPart* getStable() noexcept
 	{
 		return att_stable;
 	}
 
-	void setStable(StableAttachmentPart *js) throw()
+	void setStable(StableAttachmentPart *js) noexcept
 	{
 		att_stable = js;
 	}
 
-	JAttachment* getInterface() throw();
+	JAttachment* getInterface() noexcept;
 
 	unsigned int getIdleTimeout() const
 	{
@@ -704,12 +714,12 @@ public:
 	}
 
 	// batches control
-	void registerBatch(JBatch* b)
+	void registerBatch(DsqlBatch* b)
 	{
 		att_batches.add(b);
 	}
 
-	void deregisterBatch(JBatch* b)
+	void deregisterBatch(DsqlBatch* b)
 	{
 		att_batches.findAndRemove(b);
 	}
@@ -754,8 +764,9 @@ public:
 	void invalidateReplSet(thread_db* tdbb, bool broadcast);
 
 	ProfilerManager* getProfilerManager(thread_db* tdbb);
+	ProfilerManager* getActiveProfilerManagerForNonInternalStatement(thread_db* tdbb);
 	bool isProfilerActive();
-	void releaseProfilerManager();
+	void releaseProfilerManager(thread_db* tdbb);
 
 	JProvider* getProvider()
 	{
@@ -771,7 +782,7 @@ private:
 	unsigned int att_stmt_timeout;		// milliseconds
 	Firebird::RefPtr<Firebird::TimerImpl> att_idle_timer;
 
-	Firebird::Array<JBatch*> att_batches;
+	Firebird::Array<DsqlBatch*> att_batches;
 	InitialOptions att_initial_options;	// Initial session options
 	DebugOptions att_debug_options;
 	Firebird::AutoPtr<ProfilerManager> att_profiler_manager;	// ProfilerManager
@@ -866,9 +877,13 @@ public:
 		: m_attachments(p)
 	{}
 
+	AttachmentsRefHolder()
+		: m_attachments(*MemoryPool::getContextPool())
+	{}
+
 	AttachmentsRefHolder& operator=(const AttachmentsRefHolder& other)
 	{
-		this->~AttachmentsRefHolder();
+		clear();
 
 		for (FB_SIZE_T i = 0; i < other.m_attachments.getCount(); i++)
 			add(other.m_attachments[i]);
@@ -876,12 +891,17 @@ public:
 		return *this;
 	}
 
-	~AttachmentsRefHolder()
+	void clear()
 	{
 		while (m_attachments.hasData())
 		{
 			m_attachments.pop()->release();
 		}
+	}
+
+	~AttachmentsRefHolder()
+	{
+		clear();
 	}
 
 	void add(StableAttachmentPart* jAtt)
@@ -891,11 +911,6 @@ public:
 			jAtt->addRef();
 			m_attachments.add(jAtt);
 		}
-	}
-
-	void remove(Iterator& iter)
-	{
-		iter.remove();
 	}
 
 	bool hasData() const

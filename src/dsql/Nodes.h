@@ -510,6 +510,7 @@ public:
 		TYPE_MISSING_BOOL,
 		TYPE_NOT_BOOL,
 		TYPE_RSE_BOOL,
+		TYPE_IN_LIST_BOOL,
 
 		// RecordSource types
 		TYPE_AGGREGATE_SOURCE,
@@ -657,6 +658,9 @@ public:
 		target = node ? node->dsqlFieldRemapper(visitor) : NULL;
 	}
 
+	// Check if expression returns deterministic result
+	virtual bool deterministic(thread_db* tdbb) const;
+
 	// Check if expression could return NULL or expression can turn NULL into a true/false.
 	virtual bool possiblyUnknown() const;
 
@@ -731,40 +735,37 @@ public:
 	{
 	}
 
-	virtual Kind getKind()
+	Kind getKind() override
 	{
 		return KIND_BOOLEAN;
 	}
 
-	virtual BoolExprNode* dsqlPass(DsqlCompilerScratch* dsqlScratch)
+	BoolExprNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override
 	{
 		ExprNode::dsqlPass(dsqlScratch);
 		return this;
 	}
 
-	virtual BoolExprNode* dsqlFieldRemapper(FieldRemapper& visitor)
+	BoolExprNode* dsqlFieldRemapper(FieldRemapper& visitor) override
 	{
 		ExprNode::dsqlFieldRemapper(visitor);
 		return this;
 	}
 
-	virtual BoolExprNode* pass1(thread_db* tdbb, CompilerScratch* csb)
+	BoolExprNode* pass1(thread_db* tdbb, CompilerScratch* csb) override
 	{
 		ExprNode::pass1(tdbb, csb);
 		return this;
 	}
 
-	virtual BoolExprNode* pass2(thread_db* tdbb, CompilerScratch* csb);
+	BoolExprNode* pass2(thread_db* tdbb, CompilerScratch* csb) override final;
 
-	virtual void pass2Boolean1(thread_db* /*tdbb*/, CompilerScratch* /*csb*/)
+	virtual void pass2Boolean(thread_db* /*tdbb*/, CompilerScratch* /*csb*/, std::function<void ()> process)
 	{
+		process();
 	}
 
-	virtual void pass2Boolean2(thread_db* /*tdbb*/, CompilerScratch* /*csb*/)
-	{
-	}
-
-	virtual BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const = 0;
+	BoolExprNode* copy(thread_db* tdbb, NodeCopier& copier) const override = 0;
 	virtual bool execute(thread_db* tdbb, Request* request) const = 0;
 };
 
@@ -772,10 +773,8 @@ class ValueExprNode : public ExprNode
 {
 public:
 	ValueExprNode(Type aType, MemoryPool& pool)
-		: ExprNode(aType, pool),
-		  nodScale(0)
+		: ExprNode(aType, pool)
 	{
-		dsqlDesc.clear();
 	}
 
 public:
@@ -850,7 +849,7 @@ public:
 	virtual dsc* execute(thread_db* tdbb, Request* request) const = 0;
 
 public:
-	SCHAR nodScale;
+	SCHAR nodScale = 0;
 
 protected:
 	dsc dsqlDesc;
@@ -1134,6 +1133,7 @@ public:
 	static const USHORT DFLAG_CURSOR					= 0x40;
 	static const USHORT DFLAG_LATERAL					= 0x80;
 	static const USHORT DFLAG_PLAN_ITEM					= 0x100;
+	static const USHORT DFLAG_BODY_WRAPPER				= 0x200;
 
 	RecordSourceNode(Type aType, MemoryPool& pool)
 		: ExprNode(aType, pool),
@@ -1273,6 +1273,12 @@ public:
 		items.push(arg1);
 	}
 
+	ValueListNode(MemoryPool& pool)
+		: TypedNode<ListExprNode, ExprNode::TYPE_VALUE_LIST>(pool),
+		  items(pool, INITIAL_CAPACITY)
+	{
+	}
+
 	virtual void getChildren(NodeRefsHolder& holder, bool dsql) const
 	{
 		ListExprNode::getChildren(holder, dsql);
@@ -1293,12 +1299,18 @@ public:
 		return this;
 	}
 
+	void ensureCapacity(unsigned count)
+	{
+		items.ensureCapacity(count);
+	}
+
 	void clear()
 	{
 		items.clear();
 	}
 
 	virtual Firebird::string internalPrint(NodePrinter& printer) const;
+	virtual void getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc);
 
 	virtual ValueListNode* dsqlPass(DsqlCompilerScratch* dsqlScratch)
 	{
@@ -1434,6 +1446,7 @@ public:
 		TYPE_HANDLER,
 		TYPE_LABEL,
 		TYPE_LINE_COLUMN,
+		TYPE_LOCAL_DECLARATIONS,
 		TYPE_LOOP,
 		TYPE_MERGE,
 		TYPE_MERGE_SEND,
@@ -1445,6 +1458,7 @@ public:
 		TYPE_RETURN,
 		TYPE_SAVEPOINT,
 		TYPE_SELECT,
+		TYPE_SELECT_MESSAGE,
 		TYPE_SESSION_MANAGEMENT_WRAPPER,
 		TYPE_SET_GENERATOR,
 		TYPE_STALL,
@@ -1453,7 +1467,7 @@ public:
 		TYPE_TRUNCATE_LOCAL_TABLE,
 		TYPE_UPDATE_OR_INSERT,
 
-		TYPE_EXT_INIT_PARAMETER,
+		TYPE_EXT_INIT_PARAMETERS,
 		TYPE_EXT_TRIGGER
 	};
 

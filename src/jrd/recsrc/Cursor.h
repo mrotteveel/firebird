@@ -35,7 +35,7 @@ namespace Jrd
 
 	// Select class (common base for sub-queries and cursors)
 
-	class Select
+	class Select : public AccessPath
 	{
 	public:
 		enum : ULONG {
@@ -43,18 +43,17 @@ namespace Jrd
 			INVARIANT = 2
 		};
 
-		Select(const RecordSource* source, const RseNode* rse,
-			   ULONG line = 0, ULONG column = 0, const MetaName& cursorName = "")
-			: m_top(source), m_rse(rse), m_cursorName(cursorName),
-			  m_line(line), m_column(column)
-		{}
+		Select(CompilerScratch* csb, const RecordSource* source, const RseNode* rse, ULONG line = 0, ULONG column = 0,
+			const MetaName& cursorName = {});
 
-		virtual ~Select()
-		{}
-
-		const RecordSource* getAccessPath() const
+		const RecordSource* getRootRecordSource() const
 		{
-			return m_top;
+			return m_root;
+		}
+
+		const MetaName& getName() const
+		{
+			return m_cursorName;
 		}
 
 		ULONG getLine() const
@@ -68,17 +67,34 @@ namespace Jrd
 		}
 
 		void initializeInvariants(Request* request) const;
-		void printPlan(thread_db* tdbb, Firebird::string& plan, bool detailed) const;
+
+		void getLegacyPlan(thread_db* tdbb, Firebird::string& plan, unsigned level) const override;
+
+		void printPlan(thread_db* tdbb, Firebird::string& plan, bool detailed) const
+		{
+			if (detailed)
+			{
+				PlanEntry planEntry;
+				getPlan(tdbb, planEntry, 0, true);
+				planEntry.asString(plan);
+			}
+			else
+				getLegacyPlan(tdbb, plan, 0);
+		}
 
 		virtual void open(thread_db* tdbb) const = 0;
 		virtual void close(thread_db* tdbb) const = 0;
 
 	protected:
-		const RecordSource* const m_top;
+		void internalGetPlan(thread_db* tdbb, PlanEntry& planEntry,
+			unsigned level, bool recurse) const override;
+
+	protected:
+		const RecordSource* const m_root;
 		const RseNode* const m_rse;
-		MetaName m_cursorName;	// optional name for explicit PSQL cursors
 
 	private:
+		MetaName m_cursorName;	// optional name for explicit PSQL cursors
 		ULONG m_line = 0;
 		ULONG m_column = 0;
 	};
@@ -88,7 +104,7 @@ namespace Jrd
 	class SubQuery final : public Select
 	{
 	public:
-		SubQuery(const RecordSource* rsb, const RseNode* rse);
+		SubQuery(CompilerScratch* csb, const RecordSource* rsb, const RseNode* rse);
 
 		void open(thread_db* tdbb) const override;
 		void close(thread_db* tdbb) const override;
@@ -125,26 +141,12 @@ namespace Jrd
 
 		void checkState(Request* request) const;
 
-		ULONG getCursorProfileId() const
-		{
-			return m_cursorProfileId;
-		}
-
 		bool isUpdateCounters() const
 		{
 			return m_updateCounters;
 		}
 
-		const MetaName& getName() const
-		{
-			return m_cursorName;
-		}
-
 	private:
-		void prepareProfiler(thread_db* tdbb, Request* request) const;
-
-	private:
-		const ULONG m_cursorProfileId;
 		ULONG m_impure;
 		const bool m_updateCounters;
 	};

@@ -263,7 +263,8 @@ namespace Jrd
 		public:
 			FB_BOOLEAN fetch(Firebird::ThrowStatusExceptionWrapper* status) override
 			{
-				Firebird::AutoSetRestore<bool> autoInSystemPackage(&attachment->att_in_system_routine, true);
+				// See comment in Attachment.h.
+				// Firebird::AutoSetRestore<bool> autoInSystemPackage(&attachment->att_in_system_routine, true);
 
 				return resultSet->fetch(status);
 			}
@@ -309,7 +310,8 @@ namespace Jrd
 			Firebird::IExternalResultSet* open(Firebird::ThrowStatusExceptionWrapper* status,
 				Firebird::IExternalContext* context, void* inMsg, void* outMsg) override
 			{
-				Firebird::AutoSetRestore<bool> autoInSystemPackage(&attachment->att_in_system_routine, true);
+				// See comment in Attachment.h.
+				// Firebird::AutoSetRestore<bool> autoInSystemPackage(&attachment->att_in_system_routine, true);
 
 				const auto resultSet = OpenFunction(status, context,
 					static_cast<typename Input::Type*>(inMsg),
@@ -375,7 +377,8 @@ namespace Jrd
 			void execute(Firebird::ThrowStatusExceptionWrapper* status,
 				Firebird::IExternalContext* context, void* inMsg, void* outMsg) override
 			{
-				Firebird::AutoSetRestore<bool> autoInSystemPackage(&attachment->att_in_system_routine, true);
+				// See comment in Attachment.h.
+				// Firebird::AutoSetRestore<bool> autoInSystemPackage(&attachment->att_in_system_routine, true);
 
 				ExecFunction(status, context,
 					static_cast<typename Input::Type*>(inMsg),

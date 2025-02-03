@@ -43,6 +43,7 @@
 #include "../common/intlobj_new.h"
 #include "../jrd/jrd.h"
 #include "../jrd/status.h"
+#include "../jrd/ibsetjmp.h"
 #include "../common/CharSet.h"
 #include "../dsql/Parser.h"
 #include "../dsql/ddl_proto.h"
@@ -85,9 +86,10 @@ using namespace Firebird;
 
 static ULONG	get_request_info(thread_db*, DsqlRequest*, ULONG, UCHAR*);
 static dsql_dbb*	init(Jrd::thread_db*, Jrd::Attachment*);
-static DsqlRequest* prepareRequest(thread_db*, dsql_dbb*, jrd_tra*, ULONG, const TEXT*, USHORT, bool);
+static DsqlRequest* prepareRequest(thread_db*, dsql_dbb*, jrd_tra*, ULONG, const TEXT*, USHORT, unsigned, bool);
+static DsqlRequest* safePrepareRequest(thread_db*, dsql_dbb*, jrd_tra*, ULONG, const TEXT*, USHORT, unsigned, bool);
 static RefPtr<DsqlStatement> prepareStatement(thread_db*, dsql_dbb*, jrd_tra*, ULONG, const TEXT*, USHORT,
-	bool, ntrace_result_t* traceResult);
+	unsigned, bool, ntrace_result_t* traceResult);
 static UCHAR*	put_item(UCHAR, const USHORT, const UCHAR*, UCHAR*, const UCHAR* const);
 static void		sql_info(thread_db*, DsqlRequest*, ULONG, const UCHAR*, ULONG, UCHAR*);
 static UCHAR*	var_info(const dsql_msg*, const UCHAR*, const UCHAR* const, UCHAR*,
@@ -271,8 +273,8 @@ DsqlRequest* DSQL_prepare(thread_db* tdbb,
 	{
 		// Allocate a new request block and then prepare the request.
 
-		dsqlRequest = prepareRequest(tdbb, database, transaction, length, string, dialect,
-			isInternalRequest);
+		dsqlRequest = safePrepareRequest(tdbb, database, transaction, length, string, dialect,
+			prepareFlags, isInternalRequest);
 
 		// Can not prepare a CREATE DATABASE/SCHEMA statement
 
@@ -346,8 +348,8 @@ void DSQL_execute_immediate(thread_db* tdbb, Jrd::Attachment* attachment, jrd_tr
 
 	try
 	{
-		dsqlRequest = prepareRequest(tdbb, database, *tra_handle, length, string, dialect,
-			isInternalRequest);
+		dsqlRequest = safePrepareRequest(tdbb, database, *tra_handle, length, string, dialect,
+			0, isInternalRequest);
 
 		const auto dsqlStatement = dsqlRequest->getDsqlStatement();
 
@@ -450,11 +452,28 @@ static dsql_dbb* init(thread_db* tdbb, Jrd::Attachment* attachment)
 	return attachment->att_dsql_instance;
 }
 
+// Use SEH frame when preparing user requests to catch possible stack overflows
+static DsqlRequest* safePrepareRequest(thread_db* tdbb, dsql_dbb* database, jrd_tra* transaction,
+	ULONG textLength, const TEXT* text, USHORT clientDialect, unsigned prepareFlags, bool isInternalRequest)
+{
+	if (isInternalRequest)
+		return prepareRequest(tdbb, database, transaction, textLength, text, clientDialect, prepareFlags, true);
+
+#ifdef WIN_NT
+	START_CHECK_FOR_EXCEPTIONS(NULL);
+#endif
+	return prepareRequest(tdbb, database, transaction, textLength, text, clientDialect, prepareFlags, false);
+
+#ifdef WIN_NT
+	END_CHECK_FOR_EXCEPTIONS(NULL);
+#endif
+}
+
 
 // Prepare a request for execution.
 // Note: caller is responsible for pool handling.
 static DsqlRequest* prepareRequest(thread_db* tdbb, dsql_dbb* database, jrd_tra* transaction,
-	ULONG textLength, const TEXT* text, USHORT clientDialect, bool isInternalRequest)
+	ULONG textLength, const TEXT* text, USHORT clientDialect, unsigned prepareFlags, bool isInternalRequest)
 {
 	TraceDSQLPrepare trace(database->dbb_attachment, transaction, textLength, text, isInternalRequest);
 
@@ -462,7 +481,7 @@ static DsqlRequest* prepareRequest(thread_db* tdbb, dsql_dbb* database, jrd_tra*
 	try
 	{
 		auto statement = prepareStatement(tdbb, database, transaction, textLength, text,
-			clientDialect, isInternalRequest, &traceResult);
+			clientDialect, prepareFlags, isInternalRequest, &traceResult);
 
 		auto dsqlRequest = statement->createRequest(tdbb, database);
 
@@ -472,9 +491,19 @@ static DsqlRequest* prepareRequest(thread_db* tdbb, dsql_dbb* database, jrd_tra*
 
 		return dsqlRequest;
 	}
-	catch (const Exception&)
+	catch (const Exception& ex)
 	{
-		trace.prepare(ITracePlugin::RESULT_FAILED);
+		StaticStatusVector st;
+		ex.stuffException(st);
+
+		if (!((prepareFlags & IStatement::PREPARE_REQUIRE_SEMICOLON) &&
+				fb_utils::containsErrorCode(st.begin(), isc_command_end_err2)))
+		{
+			trace.prepare(ITracePlugin::RESULT_FAILED);
+		}
+		else
+			trace.avoidTrace();
+
 		throw;
 	}
 }
@@ -483,7 +512,8 @@ static DsqlRequest* prepareRequest(thread_db* tdbb, dsql_dbb* database, jrd_tra*
 // Prepare a statement for execution.
 // Note: caller is responsible for pool handling.
 static RefPtr<DsqlStatement> prepareStatement(thread_db* tdbb, dsql_dbb* database, jrd_tra* transaction,
-	ULONG textLength, const TEXT* text, USHORT clientDialect, bool isInternalRequest, ntrace_result_t* traceResult)
+	ULONG textLength, const TEXT* text, USHORT clientDialect, unsigned prepareFlags, bool isInternalRequest,
+	ntrace_result_t* traceResult)
 {
 	Database* const dbb = tdbb->getDatabase();
 
@@ -504,15 +534,18 @@ static RefPtr<DsqlStatement> prepareStatement(thread_db* tdbb, dsql_dbb* databas
 				  Arg::Gds(isc_command_end_err2) << Arg::Num(1) << Arg::Num(1));
 	}
 
-	// Get rid of the trailing ";" if there is one.
-
-	for (const TEXT* p = text + textLength; p-- > text;)
+	if (!(prepareFlags & IStatement::PREPARE_REQUIRE_SEMICOLON))
 	{
-		if (*p != ' ')
+		// Get rid of the trailing ";" if there is one.
+
+		for (const TEXT* p = text + textLength; p-- > text;)
 		{
-			if (*p == ';')
-				textLength = p - text;
-			break;
+			if (*p != ' ')
+			{
+				if (*p == ';')
+					textLength = p - text;
+				break;
+			}
 		}
 	}
 
@@ -567,7 +600,9 @@ static RefPtr<DsqlStatement> prepareStatement(thread_db* tdbb, dsql_dbb* databas
 				scratch->flags |= DsqlCompilerScratch::FLAG_INTERNAL_REQUEST;
 
 			Parser parser(tdbb, *scratchPool, statementPool, scratch, clientDialect,
-				dbDialect, text, textLength, charSetId);
+				dbDialect,
+				(prepareFlags & IStatement::PREPARE_REQUIRE_SEMICOLON),
+				text, textLength, charSetId);
 
 			// Parse the SQL statement.  If it croaks, return
 			dsqlStatement = parser.parse();
@@ -1138,22 +1173,21 @@ static UCHAR* var_info(const dsql_msg* message,
 	for (FB_SIZE_T i = 0; i < parameters.getCount(); i++)
 	{
 		const dsql_par* param = parameters[i];
-		fb_assert(param);
 
-		if (param->par_index >= first_index)
+		if (param && param->par_index >= first_index)
 		{
 			dsc desc = param->par_desc;
 
 			// Scan sources of coercion rules in reverse order to observe
 			// 'last entered in use' rule. Start with dynamic binding rules ...
-			if (!attachment->att_bindings.coerce(&desc))
+			if (!attachment->att_bindings.coerce(tdbb, &desc))
 			{
 				// next - given in DPB ...
-				if (!attachment->getInitialBindings()->coerce(&desc))
+				if (!attachment->getInitialBindings()->coerce(tdbb, &desc))
 				{
 					Database* dbb = tdbb->getDatabase();
 					// and finally - rules from .conf files.
-					dbb->getBindings()->coerce(&desc, dbb->dbb_compatibility_index);
+					dbb->getBindings()->coerce(tdbb, &desc, dbb->dbb_compatibility_index);
 				}
 			}
 

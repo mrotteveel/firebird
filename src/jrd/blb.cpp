@@ -322,6 +322,9 @@ blb* blb::create2(thread_db* tdbb,
 
 	blb* blob = allocate_blob(tdbb, transaction);
 
+	if (userBlob)
+		blob->blb_flags |= BLB_user;
+
 	if (type & isc_bpb_type_stream)
 		blob->blb_flags |= BLB_stream;
 
@@ -444,6 +447,7 @@ void BLB_garbage_collect(thread_db* tdbb,
  **************************************/
 	SET_TDBB(tdbb);
 
+	fb_assert(prior_page > 0);
 	RecordBitmap bmGoing;
 	ULONG cntGoing = 0;
 
@@ -1290,7 +1294,9 @@ void blb::move(thread_db* tdbb, dsc* from_desc, dsc* to_desc,
 			array->arr_request = own_request;
 	}
 
-	blob->destroy(!materialized_blob);
+	const bool purgeBlob = !materialized_blob ||
+		((transaction->tra_flags & TRA_auto_release_temp_blobid) && (blob->blb_flags & BLB_user));
+	blob->destroy(purgeBlob);
 }
 
 
@@ -2586,8 +2592,7 @@ static void move_from_string(thread_db* tdbb, const dsc* from_desc, dsc* to_desc
 	temp_bid.clear();
 	blb* blob = blb::create2(tdbb, transaction, &temp_bid, bpb.getCount(), bpb.begin());
 
-	DSC blob_desc;
-	blob_desc.clear();
+	dsc blob_desc;
 
 	blob_desc.dsc_scale = to_desc->dsc_scale;	// blob charset
 	blob_desc.dsc_flags = (blob_desc.dsc_flags & 0xFF) | (to_desc->dsc_flags & 0xFF00);	// blob collation

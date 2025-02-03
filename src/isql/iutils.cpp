@@ -34,8 +34,10 @@
 #include "ibase.h"
 #include "isql.h"
 #include "../common/classes/MsgPrint.h"
+#include "../common/utils_proto.h"
 #include <stdarg.h>
 
+using namespace Firebird;
 using MsgFormat::SafeArg;
 
 
@@ -147,6 +149,16 @@ void IUTILS_msg_get(USHORT number, USHORT size, TEXT* msg, const SafeArg& args)
 	fb_msg_format(NULL, ISQL_MSG_FAC, number, size, msg, args);
 }
 
+
+string IUTILS_name_to_string(const MetaString& name)
+{
+	if (isqlGlob.db_SQL_dialect > SQL_DIALECT_V6_TRANSITION)
+		return name.toQuotedString();
+	else
+		return name.c_str();
+}
+
+
 void IUTILS_printf(FILE* fp, const char* buffer)
 {
 /**************************************
@@ -249,7 +261,7 @@ void IUTILS_truncate_term(TEXT* str, USHORT len)
  * CVC: Notice isspace may be influenced by locales.
  **************************************/
 	int i = len - 1;
-	while (i >= 0 && (isspace(UCHAR(str[i])) || (str[i] == 0)))
+	while (i >= 0 && (str[i] == 0 || fb_utils::isspace(str[i])))
 		--i;
 	str[i + 1] = 0;
 }

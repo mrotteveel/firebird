@@ -25,8 +25,8 @@
 #define JRD_MET_PROTO_H
 
 #include "../common/classes/array.h"
+#include "../common/classes/TriState.h"
 #include "../jrd/MetaName.h"
-#include "../jrd/HazardPtr.h"
 #include "../jrd/Resources.h"
 
 #include <functional>
@@ -107,12 +107,11 @@ bool		MET_lookup_generator_id(Jrd::thread_db*, SLONG, Jrd::MetaName&, bool* sysG
 void		MET_update_generator_increment(Jrd::thread_db* tdbb, SLONG gen_id, SLONG step);
 void		MET_lookup_index_condition(Jrd::thread_db* tdbb, Jrd::Cached::Relation* relation, Jrd::index_desc* idx);
 void		MET_lookup_index_expression(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::index_desc*);
-void		MET_lookup_index_expression_blr(Jrd::thread_db*, Jrd::MetaName index_name, Jrd::bid& expr_blob_id);
+bool		MET_lookup_index_expr_cond_blr(Jrd::thread_db* tdbb, const Jrd::MetaName& index_name, Jrd::bid& expr_blob_id, Jrd::bid& cond_blob_id);
 bool		MET_lookup_partner(Jrd::thread_db* tdbb, Jrd::RelationPermanent* relation, Jrd::index_desc* idx,
 							   const TEXT* index_name);
 Jrd::DmlNode*	MET_parse_blob(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::bid*, Jrd::CompilerScratch**,
 							   Jrd::Statement**, bool, bool);
-void		MET_parse_sys_trigger(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_prepare(Jrd::thread_db*, Jrd::jrd_tra*, USHORT, const UCHAR*);
 void		MET_release_existence(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_revoke(Jrd::thread_db*, Jrd::jrd_tra*, const Jrd::MetaName&,
@@ -128,6 +127,6 @@ void		MET_get_domain(Jrd::thread_db*, MemoryPool& csbPool, const Jrd::MetaName&,
 Jrd::MetaName MET_get_relation_field(Jrd::thread_db*, MemoryPool& csbPool,
 	const Jrd::MetaName&, const Jrd::MetaName&, dsc*, Jrd::FieldInfo*);
 int			MET_get_linger(Jrd::thread_db*);
-Nullable<bool>	MET_get_ss_definer(Jrd::thread_db*);
+Firebird::TriState	MET_get_ss_definer(Jrd::thread_db*);
 
 #endif // JRD_MET_PROTO_H

@@ -132,6 +132,7 @@
 #define isc_dpb_upgrade_db				  97
 #define isc_dpb_parallel_workers		 100
 #define isc_dpb_worker_attach			 101
+#define isc_dpb_owner					 102
 
 
 /**************************************************/
@@ -267,6 +268,7 @@
 #define isc_tpb_lock_timeout              21
 #define isc_tpb_read_consistency          22
 #define isc_tpb_at_snapshot_number        23
+#define isc_tpb_auto_release_temp_blobid  24
 
 
 /************************/
@@ -383,7 +385,6 @@
 #define isc_info_svc_limbo_trans		66	/* Retrieve the limbo transactions */
 #define isc_info_svc_running			67	/* Checks to see if a service is running on an attachment */
 #define isc_info_svc_get_users			68	/* Returns the user information from isc_action_svc_display_users */
-#define isc_info_svc_auth_block			69	/* Sets authentication block for service query() call */
 #define isc_info_svc_stdin				78	/* Returns maximum size of data, needed as stdin for service */
 
 

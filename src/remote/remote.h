@@ -46,6 +46,7 @@
 #include "firebird/Interface.h"
 
 #include <type_traits>	// std::is_unsigned
+#include <atomic>
 
 #ifndef WIN_NT
 #include <signal.h>
@@ -177,13 +178,13 @@ private:
 	ThreadId		rdb_async_thread_id;	// Id of async thread (when active)
 
 public:
-	Firebird::Mutex	rdb_async_lock;			// Sync to avoid 2 async calls at once
+	std::atomic<int> rdb_async_lock;		// Atomic to avoid >1 async calls at once
 
 public:
 	Rdb() :
 		rdb_iface(NULL), rdb_port(0),
 		rdb_transactions(0), rdb_requests(0), rdb_events(0), rdb_sql_requests(0),
-		rdb_id(0), rdb_async_thread_id(0)
+		rdb_id(0), rdb_async_thread_id(0), rdb_async_lock(0)
 	{
 	}
 
@@ -220,6 +221,27 @@ public:
 };
 
 
+struct RBlobInfo
+{
+	bool	valid;
+	UCHAR	blob_type;
+	ULONG	num_segments;
+	ULONG	max_segment;
+	ULONG	total_length;
+
+	RBlobInfo()
+	{
+		memset(this, 0, sizeof(*this));
+	}
+
+	// parse into response into m_info, assume buffer contains all known info items
+	void parseInfo(unsigned int bufferLength, const unsigned char* buffer);
+
+	// returns false if there is no valid local info or if unknown item encountered
+	bool getLocalInfo(unsigned int itemsLength, const unsigned char* items,
+		unsigned int bufferLength, unsigned char* buffer);
+};
+
 struct Rbl : public Firebird::GlobalStorage, public TypedHandle<rem_type_rbl>
 {
 	Firebird::HalfStaticArray<UCHAR, BLOB_LENGTH> rbl_data;
@@ -238,6 +260,7 @@ struct Rbl : public Firebird::GlobalStorage, public TypedHandle<rem_type_rbl>
 	USHORT		rbl_source_interp;	// source interp (for writing)
 	USHORT		rbl_target_interp;	// destination interp (for reading)
 	Rbl**		rbl_self;
+	RBlobInfo	rbl_info;
 
 public:
 	// Values for rbl_flags
@@ -414,8 +437,8 @@ public:
 
 	static ISC_STATUS badHandle() { return isc_bad_req_handle; }
 
-	void saveStatus(const Firebird::Exception& ex) throw();
-	void saveStatus(Firebird::IStatus* ex) throw();
+	void saveStatus(const Firebird::Exception& ex) noexcept;
+	void saveStatus(Firebird::IStatus* ex) noexcept;
 };
 
 
@@ -711,6 +734,7 @@ public:
 	virtual void wakeup(unsigned int length, const void* data) = 0;
 	virtual Firebird::ICryptKeyCallback* getInterface() = 0;
 	virtual void stop() = 0;
+	virtual void destroy() = 0;
 };
 
 // CryptKey implementation
@@ -858,21 +882,76 @@ private:
 	unsigned nextKey;							// First key to be analyzed
 
 	class ClientCrypt final :
-		public Firebird::VersionedIface<Firebird::ICryptKeyCallbackImpl<ClientCrypt, Firebird::CheckStatusWrapper> >
+		public Firebird::VersionedIface<Firebird::ICryptKeyCallbackImpl<ClientCrypt, Firebird::CheckStatusWrapper> >,
+		public Firebird::GlobalStorage
 	{
 	public:
 		ClientCrypt()
-			: pluginItr(Firebird::IPluginManager::TYPE_KEY_HOLDER, "NoDefault"), currentIface(nullptr)
+			: pluginItr(Firebird::IPluginManager::TYPE_KEY_HOLDER, "NoDefault"),
+			  currentIface(nullptr), afterIface(nullptr),
+			  triedPlugins(getPool())
 		{ }
+
+		~ClientCrypt()
+		{
+			destroy();
+		}
 
 		Firebird::ICryptKeyCallback* create(const Firebird::Config* conf);
 
 		// Firebird::ICryptKeyCallback implementation
 		unsigned callback(unsigned dataLength, const void* data, unsigned bufferLength, void* buffer);
+		unsigned afterAttach(Firebird::CheckStatusWrapper* st, const char* dbName, const Firebird::IStatus* attStatus);
+		void destroy();
 
-	private:
-		Firebird::GetPlugins<Firebird::IKeyHolderPlugin> pluginItr;
-		Firebird::ICryptKeyCallback* currentIface;
+ 	private:
+		typedef Firebird::GetPlugins<Firebird::IKeyHolderPlugin> KeyHolderItr;
+		KeyHolderItr pluginItr;
+ 		Firebird::ICryptKeyCallback* currentIface;
+		Firebird::ICryptKeyCallback* afterIface;
+
+		class TriedPlugins
+		{
+			typedef Firebird::Pair<Firebird::Left<Firebird::PathName, Firebird::IKeyHolderPlugin*> > TriedPlugin;
+			Firebird::ObjectsArray<TriedPlugin> data;
+
+		public:
+			TriedPlugins(MemoryPool& p)
+				: data(p)
+			{ }
+
+			void add(KeyHolderItr& itr)
+			{
+				for (auto& p : data)
+				{
+					if (p.first == itr.name())
+					return;
+				}
+
+				TriedPlugin tp(itr.name(), itr.plugin());
+				data.add(tp);
+				tp.second->addRef();
+			}
+
+			void remove()
+			{
+				fb_assert(data.hasData());
+				data[0].second->release();
+				data.remove(0);
+			}
+
+			bool hasData() const
+			{
+				return data.hasData();
+			}
+
+			Firebird::IKeyHolderPlugin* get()
+			{
+				return data[0].second;
+			}
+		};
+
+		TriedPlugins triedPlugins;
 	};
 	ClientCrypt clientCrypt;
 	Firebird::ICryptKeyCallback** createdInterface;
@@ -1121,10 +1200,100 @@ struct rem_port : public Firebird::GlobalStorage, public Firebird::RefCounted
 
 	UCharArrayAutoPtr	port_buffer;
 
+
+	enum io_direction_t {
+		NONE,
+		SEND,
+		RECEIVE
+	};
+
+private:
+	// packets over physical connection
 	FB_UINT64 port_snd_packets;
 	FB_UINT64 port_rcv_packets;
+	// protocol packets
+	FB_UINT64 port_out_packets;
+	FB_UINT64 port_in_packets;
+	// bytes over physical connection
 	FB_UINT64 port_snd_bytes;
 	FB_UINT64 port_rcv_bytes;
+	// bytes before/after compression
+	FB_UINT64 port_out_bytes;
+	FB_UINT64 port_in_bytes;
+	FB_UINT64 port_roundtrips;				// number of changes of IO direction from SEND to RECEIVE
+	io_direction_t port_io_direction;		// last direction of IO
+
+public:
+	void bumpPhysStats(io_direction_t direction, ULONG count)
+	{
+		fb_assert(direction != NONE);
+
+		if (direction == SEND)
+		{
+			port_snd_packets++;
+			port_snd_bytes += count;
+		}
+		else
+		{
+			port_rcv_packets++;
+			port_rcv_bytes += count;
+		}
+
+		if (direction != port_io_direction)
+		{
+			if (port_io_direction != NONE && direction == RECEIVE)
+				port_roundtrips++;
+			port_io_direction = direction;
+		}
+	}
+
+	void bumpLogBytes(io_direction_t direction, ULONG count)
+	{
+		fb_assert(direction != NONE);
+
+		if (direction == SEND)
+			port_out_bytes += count;
+		else
+			port_in_bytes += count;
+	}
+
+	void bumpLogPackets(io_direction_t direction)
+	{
+		fb_assert(direction != NONE);
+
+		if (direction == SEND)
+			port_out_packets++;
+		else
+			port_in_packets++;
+	}
+
+	FB_UINT64 getStatItem(UCHAR infoItem) const
+	{
+		switch (infoItem)
+		{
+		case fb_info_wire_snd_packets:
+			return port_snd_packets;
+		case fb_info_wire_rcv_packets:
+			return port_rcv_packets;
+		case fb_info_wire_out_packets:
+			return port_out_packets;
+		case fb_info_wire_in_packets:
+			return port_in_packets;
+		case fb_info_wire_snd_bytes:
+			return port_snd_bytes;
+		case fb_info_wire_rcv_bytes:
+			return port_rcv_bytes;
+		case fb_info_wire_out_bytes:
+			return port_out_bytes;
+		case fb_info_wire_in_bytes:
+			return port_in_bytes;
+		case fb_info_wire_roundtrips:
+			return port_roundtrips;
+		default:
+			return 0;
+		}
+	}
+
 
 #ifdef WIRE_COMPRESS_SUPPORT
 	z_stream port_send_stream, port_recv_stream;
@@ -1164,7 +1333,9 @@ public:
 		port_known_server_keys(getPool()), port_crypt_plugin(NULL),
 		port_client_crypt_callback(NULL), port_server_crypt_callback(NULL), port_crypt_name(getPool()),
 		port_replicator(NULL), port_buffer(FB_NEW_POOL(getPool()) UCHAR[rpt]),
-		port_snd_packets(0), port_rcv_packets(0), port_snd_bytes(0), port_rcv_bytes(0)
+		port_snd_packets(0), port_rcv_packets(0), port_out_packets(0), port_in_packets(0),
+		port_snd_bytes(0), port_rcv_bytes(0), port_out_bytes(0), port_in_bytes(0),
+		port_roundtrips(0), port_io_direction(NONE)
 	{
 		addRef();
 		memset(&port_linger, 0, sizeof port_linger);

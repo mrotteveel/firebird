@@ -624,10 +624,6 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 	if (aliasString)
 		node->alias = *aliasString;
 
-	// Latest relation version should be here
-
-	fb_assert(!(rel->rel_flags & REL_sys_triggers));
-
 	// generate a stream for the relation reference, assuming it is a real reference
 
 	if (parseContext)
@@ -902,26 +898,144 @@ RecordSource* RelationSourceNode::compile(thread_db* tdbb, Optimizer* opt, bool 
 ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch* csb,
 	const SSHORT blrOp, bool parseContext)
 {
-	SET_TDBB(tdbb);
+	const auto predateCheck = [&](bool condition, const char* preVerb, const char* postVerb)
+	{
+		if (!condition)
+		{
+			string str;
+			str.printf("%s should predate %s", preVerb, postVerb);
+			PAR_error(csb, Arg::Gds(isc_random) << str);
+		}
+	};
 
-	const auto blrStartPos = csb->csb_blr_reader.getPos();
-	AutoPtr<string> aliasString;
+	auto& pool = *tdbb->getDefaultPool();
+	auto& blrReader = csb->csb_blr_reader;
+	const auto blrStartPos = blrReader.getPos();
+	const UCHAR* inArgNamesPos = nullptr;
+	ObjectsArray<MetaName>* inArgNames = nullptr;
+	USHORT inArgCount = 0;
 	QualifiedName name;
 	Cached::Procedure* proc = nullptr;
 	SubRoutine<jrd_prc> nodeProc;
 
+	const auto node = FB_NEW_POOL(pool) ProcedureSourceNode(pool);
+
 	switch (blrOp)
 	{
+		case blr_select_procedure:
+		{
+			CompilerScratch::csb_repeat* csbTail = nullptr;
+			UCHAR subCode;
+
+			while ((subCode = blrReader.getByte()) != blr_end)
+			{
+				switch (subCode)
+				{
+					case blr_invsel_procedure_type:
+					{
+						UCHAR procedureType = blrReader.getByte();
+
+						switch (procedureType)
+						{
+							case blr_invsel_procedure_type_packaged:
+								blrReader.getMetaName(name.package);
+								break;
+
+							case blr_invsel_procedure_type_standalone:
+							case blr_invsel_procedure_type_sub:
+								break;
+
+							default:
+								PAR_error(csb, Arg::Gds(isc_random) << "Invalid blr_invsel_procedure_type");
+								break;
+						}
+
+						blrReader.getMetaName(name.identifier);
+
+						if (procedureType == blr_invsel_procedure_type_sub)
+						{
+							for (auto curCsb = csb; curCsb && !node->procedure; curCsb = curCsb->mainCsb)
+							{
+								if (const auto declareNode = curCsb->subProcedures.get(name.identifier))
+									node->procedure = (*declareNode)->routine;
+							}
+						}
+						else if (!node->procedure)
+							proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+
+						break;
+					}
+
+					case blr_invsel_procedure_in_arg_names:
+					{
+						predateCheck(node->procedure, "blr_invsel_procedure_type", "blr_invsel_procedure_in_arg_names");
+						predateCheck(!node->inputSources, "blr_invsel_procedure_in_arg_names", "blr_invsel_procedure_in_args");
+
+						inArgNamesPos = blrReader.getPos();
+						USHORT inArgNamesCount = blrReader.getWord();
+						MetaName argName;
+
+						inArgNames = FB_NEW_POOL(pool) ObjectsArray<MetaName>(pool);
+
+						while (inArgNamesCount--)
+						{
+							blrReader.getMetaName(argName);
+							inArgNames->add(argName);
+						}
+
+						break;
+					}
+
+					case blr_invsel_procedure_in_args:
+						predateCheck(node->procedure, "blr_invsel_procedure_type", "blr_invsel_procedure_in_args");
+
+						inArgCount = blrReader.getWord();
+						node->inputSources = PAR_args(tdbb, csb, inArgCount,
+							MAX(inArgCount, node->procedure(tdbb)->getInputFields().getCount()));
+						break;
+
+					case blr_invsel_procedure_context:
+						if (!parseContext)
+						{
+							PAR_error(csb,
+								Arg::Gds(isc_random) <<
+								"blr_invsel_procedure_context not expected inside plan clauses");
+						}
+
+						predateCheck(node->procedure, "blr_invsel_procedure_type", "blr_invsel_procedure_context");
+						node->stream = PAR_context2(csb, &node->context);
+						csbTail = &csb->csb_rpt[node->stream];
+						csbTail->csb_procedure = node->procedure;
+
+						if (node->alias.hasData())
+							csbTail->csb_alias = &node->alias;
+
+						if (csb->collectingDependencies())
+							PAR_dependency(tdbb, csb, node->stream, (SSHORT) -1, "");
+
+						break;
+
+					case blr_invsel_procedure_alias:
+						blrReader.getString(node->alias);
+						if (csbTail && node->alias.hasData())
+							csbTail->csb_alias = &node->alias;
+						break;
+
+					default:
+						PAR_error(csb, Arg::Gds(isc_random) << "Invalid blr_select_procedure sub code");
+				}
+			}
+
+			break;
+		}
+
 		case blr_pid:
 		case blr_pid2:
 		{
-			const SSHORT procId = csb->csb_blr_reader.getWord();
+			const SSHORT procId = blrReader.getWord();
 
 			if (blrOp == blr_pid2)
-			{
-				aliasString = FB_NEW_POOL(csb->csb_pool) string(csb->csb_pool);
-				csb->csb_blr_reader.getString(*aliasString);
-			}
+				blrReader.getString(node->alias);
 
 			proc = MetadataCache::lookupProcedure(tdbb, procId, CacheFlag::AUTOCREATE);
 			name.identifier.printf("id %d", procId);
@@ -934,30 +1048,19 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 		case blr_procedure4:
 		case blr_subproc:
 			if (blrOp == blr_procedure3 || blrOp == blr_procedure4)
-				csb->csb_blr_reader.getMetaName(name.package);
+				blrReader.getMetaName(name.package);
 
-			csb->csb_blr_reader.getMetaName(name.identifier);
+			blrReader.getMetaName(name.identifier);
 
 			if (blrOp == blr_procedure2 || blrOp == blr_procedure4 || blrOp == blr_subproc)
-			{
-				aliasString = FB_NEW_POOL(csb->csb_pool) string(csb->csb_pool);
-				csb->csb_blr_reader.getString(*aliasString);
-
-				if (blrOp == blr_subproc && aliasString->isEmpty())
-					aliasString.reset();
-			}
+				blrReader.getString(node->alias);
 
 			if (blrOp == blr_subproc)
 			{
-				DeclareSubProcNode* declareNode;
-
-				for (auto curCsb = csb; curCsb; curCsb = curCsb->mainCsb)
+				for (auto curCsb = csb; curCsb && !node->procedure; curCsb = curCsb->mainCsb)
 				{
-					if (curCsb->subProcedures.get(name.identifier, declareNode))
-					{
-						nodeProc = declareNode->routine;
-						break;
-					}
+					if (const auto declareNode = curCsb->subProcedures.get(name.identifier))
+						node->procedure = (*declareNode)->routine;
 				}
 			}
 			else
@@ -969,61 +1072,121 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			fb_assert(false);
 	}
 
-	if (proc)
-		nodeProc = csb->csb_resources->procedures.registerResource(proc);
+	if (inArgNames && inArgNames->getCount() > node->inputSources->items.getCount())
+	{
+		blrReader.setPos(inArgNamesPos);
+		PAR_error(csb,
+			Arg::Gds(isc_random) <<
+			"blr_invsel_procedure_in_arg_names count cannot be greater than blr_invsel_procedure_in_args");
+	}
 
-	jrd_prc* procedure = nodeProc(tdbb);
+	if (proc)
+	{
+		fb_assert(!node->procedure);
+		node->procedure = csb->csb_resources->procedures.registerResource(proc);
+	}
+
+	fb_assert(node->procedure);
+	jrd_prc* procedure = node->procedure(tdbb);
 	if (!procedure)
+	{
+		blrReader.setPos(blrStartPos);
 		PAR_error(csb, Arg::Gds(isc_prcnotdef) << Arg::Str(name.toString()));
+	}
+
+	if (procedure->prc_type == prc_executable)
+	{
+		if (tdbb->getAttachment()->isGbak())
+			PAR_warning(Arg::Warning(isc_illegal_prc_type) << node->procedure()->getName().toString());
+		else
+			PAR_error(csb, Arg::Gds(isc_illegal_prc_type) << node->procedure()->getName().toString());
+	}
+
+	// node->isSubRoutine = node->procedure.isSubRoutine();
+	node->procedureId = node->procedure()->getId();
 
 	if (procedure->isImplemented() && !procedure->isDefined())
 	{
 		if (tdbb->getAttachment()->isGbak() || (tdbb->tdbb_flags & TDBB_replicator))
 		{
 			PAR_warning(
-				Arg::Warning(isc_prcnotdef) << Arg::Str(name.toString()) <<
+				Arg::Warning(isc_prcnotdef) << name.toString() <<
 				Arg::Warning(isc_modnotfound));
 		}
 		else
 		{
-			csb->csb_blr_reader.setPos(blrStartPos);
+			blrReader.setPos(blrStartPos);
 			PAR_error(csb,
-				Arg::Gds(isc_prcnotdef) << Arg::Str(name.toString()) <<
+				Arg::Gds(isc_prcnotdef) << name.toString() <<
 				Arg::Gds(isc_modnotfound));
 		}
 	}
 
-	if (procedure->prc_type == prc_executable)
-	{
-		const string name = procedure->getName().toString();
-
-		if (tdbb->getAttachment()->isGbak())
-			PAR_warning(Arg::Warning(isc_illegal_prc_type) << Arg::Str(name));
-		else
-			PAR_error(csb, Arg::Gds(isc_illegal_prc_type) << Arg::Str(name));
-	}
-
-	ProcedureSourceNode* node = FB_NEW_POOL(*tdbb->getDefaultPool()) ProcedureSourceNode(
-		*tdbb->getDefaultPool());
-
-	node->procedure = nodeProc;
-	node->procedureId = nodeProc()->getId();
-
-	if (aliasString)
-		node->alias = *aliasString;
-
 	if (parseContext)
 	{
-		node->stream = PAR_context(csb, &node->context);
+		if (blrOp != blr_select_procedure)
+		{
+			node->stream = PAR_context(csb, &node->context);
 
-		csb->csb_rpt[node->stream].csb_procedure = nodeProc;
-		csb->csb_rpt[node->stream].csb_alias = aliasString.release();
+			csb->csb_rpt[node->stream].csb_procedure = node->procedure;
+			if (node->alias.hasData())
+				csb->csb_rpt[node->stream].csb_alias = &node->alias;
 
-		PAR_procedure_parms(tdbb, csb, procedure, node->in_msg.getAddress(),
-			node->sourceList.getAddress(), node->targetList.getAddress(), true);
+			inArgCount = blrReader.getWord();
+			node->inputSources = PAR_args(tdbb, csb, inArgCount, inArgCount);
+		}
 
-		if (csb->collectingDependencies())
-			PAR_dependency(tdbb, csb, node->stream, (SSHORT) -1, "");
+		if (!node->inputSources)
+			node->inputSources = FB_NEW_POOL(pool) ValueListNode(pool);
+
+		node->inputTargets = FB_NEW_POOL(pool) ValueListNode(pool, procedure->getInputFields().getCount());
+
+		Arg::StatusVector mismatchStatus;
+
+		if (!CMP_procedure_arguments(
+			tdbb,
+			csb,
+			procedure,
+			true,
+			inArgCount,
+			inArgNames,
+			node->inputSources,
+			node->inputTargets,
+			node->inputMessage,
+			mismatchStatus))
+		{
+			status_exception::raise(Arg::Gds(isc_prcmismat) <<
+				node->procedure()->getName().toString() << mismatchStatus);
+		}
+
+		if (csb->collectingDependencies() && !node->procedure.isSubRoutine())
+		{
+			{	// scope
+				Dependency dependency(obj_procedure);
+				dependency.procedure = node->procedure();
+				csb->addDependency(dependency);
+			}
+
+			if (inArgNames)
+			{
+				for (const auto& argName : *inArgNames)
+				{
+					Dependency dependency(obj_procedure);
+					dependency.procedure = node->procedure();
+					dependency.subName = argName;
+					csb->addDependency(dependency);
+				}
+			}
+		}
+	}
+
+	if (node->inputSources && node->inputSources->items.isEmpty())
+	{
+		delete node->inputSources.getObject();
+		node->inputSources = nullptr;
+
+		delete node->inputTargets.getObject();
+		node->inputTargets = nullptr;
 	}
 
 	return node;
@@ -1033,7 +1196,7 @@ string ProcedureSourceNode::internalPrint(NodePrinter& printer) const
 {
 	RecordSourceNode::internalPrint(printer);
 
-	NODE_PRINT(printer, in_msg);
+	NODE_PRINT(printer, inputMessage);
 	NODE_PRINT(printer, context);
 
 	return "ProcedureSourceNode";
@@ -1050,7 +1213,7 @@ bool ProcedureSourceNode::dsqlAggregateFinder(AggregateFinder& visitor)
 	if (dsqlContext->ctx_procedure)
 	{
 		// Check if an aggregate is buried inside the input parameters.
-		return visitor.visit(dsqlContext->ctx_proc_inputs);
+		return visitor.visit(inputSources);
 	}
 
 	return false;
@@ -1059,7 +1222,7 @@ bool ProcedureSourceNode::dsqlAggregateFinder(AggregateFinder& visitor)
 bool ProcedureSourceNode::dsqlAggregate2Finder(Aggregate2Finder& visitor)
 {
 	if (dsqlContext->ctx_procedure)
-		return visitor.visit(dsqlContext->ctx_proc_inputs);
+		return visitor.visit(inputSources);
 
 	return false;
 }
@@ -1068,7 +1231,7 @@ bool ProcedureSourceNode::dsqlInvalidReferenceFinder(InvalidReferenceFinder& vis
 {
 	// If relation is a procedure, check if the parameters are valid.
 	if (dsqlContext->ctx_procedure)
-		return visitor.visit(dsqlContext->ctx_proc_inputs);
+		return visitor.visit(inputSources);
 
 	return false;
 }
@@ -1077,7 +1240,7 @@ bool ProcedureSourceNode::dsqlSubSelectFinder(SubSelectFinder& visitor)
 {
 	// If relation is a procedure, check if the parameters are valid.
 	if (dsqlContext->ctx_procedure)
-		return visitor.visit(dsqlContext->ctx_proc_inputs);
+		return visitor.visit(inputSources);
 
 	return false;
 }
@@ -1086,7 +1249,7 @@ bool ProcedureSourceNode::dsqlFieldFinder(FieldFinder& visitor)
 {
 	// If relation is a procedure, check if the parameters are valid.
 	if (dsqlContext->ctx_procedure)
-		return visitor.visit(dsqlContext->ctx_proc_inputs);
+		return visitor.visit(inputSources);
 
 	return false;
 }
@@ -1095,7 +1258,7 @@ RecordSourceNode* ProcedureSourceNode::dsqlFieldRemapper(FieldRemapper& visitor)
 {
 	// Check if relation is a procedure.
 	if (dsqlContext->ctx_procedure)
-		doDsqlFieldRemapper(visitor, dsqlContext->ctx_proc_inputs);	// Remap the input parameters.
+		doDsqlFieldRemapper(visitor, inputSources);	// Remap the input parameters.
 
 	return this;
 }
@@ -1110,12 +1273,67 @@ bool ProcedureSourceNode::dsqlMatch(DsqlCompilerScratch* dsqlScratch, const Expr
 // Generate blr for a procedure reference.
 void ProcedureSourceNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 {
-	const dsql_prc* procedure = dsqlContext->ctx_procedure;
+	const dsql_prc* dsqlProcedure = dsqlContext->ctx_procedure;
 
-	if (procedure->prc_flags & PRC_subproc)
+	if (dsqlInputArgNames)
+	{
+		dsqlScratch->appendUChar(blr_select_procedure);
+
+		dsqlScratch->appendUChar(blr_invsel_procedure_type);
+
+		if (dsqlName.package.hasData())
+		{
+			dsqlScratch->appendUChar(blr_invsel_procedure_type_packaged);
+			dsqlScratch->appendMetaString(dsqlName.package.c_str());
+		}
+		else
+		{
+			dsqlScratch->appendUChar((dsqlProcedure->prc_flags & PRC_subproc) ?
+				blr_invsel_procedure_type_sub : blr_invsel_procedure_type_standalone);
+		}
+
+		dsqlScratch->appendMetaString(dsqlName.identifier.c_str());
+
+		// Input parameters.
+		if (inputSources)
+		{
+			if (dsqlInputArgNames && dsqlInputArgNames->hasData())
+			{
+				dsqlScratch->appendUChar(blr_invsel_procedure_in_arg_names);
+				dsqlScratch->appendUShort(dsqlInputArgNames->getCount());
+
+				for (auto& argName : *dsqlInputArgNames)
+					dsqlScratch->appendMetaString(argName.c_str());
+			}
+
+			dsqlScratch->appendUChar(blr_invsel_procedure_in_args);
+			dsqlScratch->appendUShort(inputSources->items.getCount());
+
+			for (auto& arg : inputSources->items)
+				GEN_arg(dsqlScratch, arg);
+		}
+
+		if (dsqlContext->ctx_context > MAX_UCHAR)
+			ERRD_post(Arg::Gds(isc_too_many_contexts));
+
+		dsqlScratch->appendUChar(blr_invsel_procedure_context);
+		dsqlScratch->appendUShort(dsqlContext->ctx_context);
+
+		if (dsqlContext->ctx_alias.hasData())
+		{
+			dsqlScratch->appendUChar(blr_invsel_procedure_alias);
+			dsqlScratch->appendMetaString(dsqlContext->ctx_alias.c_str());
+		}
+
+		dsqlScratch->appendUChar(blr_end);
+
+		return;
+	}
+
+	if (dsqlProcedure->prc_flags & PRC_subproc)
 	{
 		dsqlScratch->appendUChar(blr_subproc);
-		dsqlScratch->appendMetaString(procedure->prc_name.identifier.c_str());
+		dsqlScratch->appendMetaString(dsqlProcedure->prc_name.identifier.c_str());
 		dsqlScratch->appendMetaString(dsqlContext->ctx_alias.c_str());
 	}
 	else
@@ -1125,20 +1343,20 @@ void ProcedureSourceNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 		if (DDL_ids(dsqlScratch))
 		{
 			dsqlScratch->appendUChar(dsqlContext->ctx_alias.hasData() ? blr_pid2 : blr_pid);
-			dsqlScratch->appendUShort(procedure->prc_id);
+			dsqlScratch->appendUShort(dsqlProcedure->prc_id);
 		}
 		else
 		{
-			if (procedure->prc_name.package.hasData())
+			if (dsqlProcedure->prc_name.package.hasData())
 			{
 				dsqlScratch->appendUChar(dsqlContext->ctx_alias.hasData() ? blr_procedure4 : blr_procedure3);
-				dsqlScratch->appendMetaString(procedure->prc_name.package.c_str());
-				dsqlScratch->appendMetaString(procedure->prc_name.identifier.c_str());
+				dsqlScratch->appendMetaString(dsqlProcedure->prc_name.package.c_str());
+				dsqlScratch->appendMetaString(dsqlProcedure->prc_name.identifier.c_str());
 			}
 			else
 			{
 				dsqlScratch->appendUChar(dsqlContext->ctx_alias.hasData() ? blr_procedure2 : blr_procedure);
-				dsqlScratch->appendMetaString(procedure->prc_name.identifier.c_str());
+				dsqlScratch->appendMetaString(dsqlProcedure->prc_name.identifier.c_str());
 			}
 		}
 
@@ -1148,18 +1366,12 @@ void ProcedureSourceNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 
 	GEN_stuff_context(dsqlScratch, dsqlContext);
 
-	ValueListNode* inputs = dsqlContext->ctx_proc_inputs;
-
-	if (inputs && !(dsqlFlags & DFLAG_PLAN_ITEM))
+	if (inputSources && !(dsqlFlags & DFLAG_PLAN_ITEM))
 	{
-		dsqlScratch->appendUShort(inputs->items.getCount());
+		dsqlScratch->appendUShort(inputSources->items.getCount());
 
-		for (NestConst<ValueExprNode>* ptr = inputs->items.begin();
-			 ptr != inputs->items.end();
-			 ++ptr)
-		{
-			GEN_expr(dsqlScratch, *ptr);
-		}
+		for (auto& arg : inputSources->items)
+			GEN_arg(dsqlScratch, arg);
 	}
 	else
 		dsqlScratch->appendUShort(0);
@@ -1191,12 +1403,12 @@ ProcedureSourceNode* ProcedureSourceNode::copy(thread_db* tdbb, NodeCopier& copi
 	// dimitr: See the appropriate code and comment in NodeCopier (in nod_argument).
 	// We must copy the message first and only then use the new pointer to
 	// copy the inputs properly.
-	newSource->in_msg = copier.copy(tdbb, in_msg);
+	newSource->inputMessage = copier.copy(tdbb, inputMessage);
 
 	{	// scope
-		AutoSetRestore<MessageNode*> autoMessage(&copier.message, newSource->in_msg);
-		newSource->sourceList = copier.copy(tdbb, sourceList);
-		newSource->targetList = copier.copy(tdbb, targetList);
+		AutoSetRestore<MessageNode*> autoMessage(&copier.message, newSource->inputMessage);
+		newSource->inputSources = copier.copy(tdbb, inputSources);
+		newSource->inputTargets = copier.copy(tdbb, inputTargets);
 	}
 
 	newSource->stream = copier.csb->nextStream();
@@ -1221,9 +1433,9 @@ ProcedureSourceNode* ProcedureSourceNode::copy(thread_db* tdbb, NodeCopier& copi
 
 RecordSourceNode* ProcedureSourceNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 {
-	doPass1(tdbb, csb, sourceList.getAddress());
-	doPass1(tdbb, csb, targetList.getAddress());
-	doPass1(tdbb, csb, in_msg.getAddress());
+	doPass1(tdbb, csb, inputSources.getAddress());
+	doPass1(tdbb, csb, inputTargets.getAddress());
+	doPass1(tdbb, csb, inputMessage.getAddress());
 	return this;
 }
 
@@ -1263,9 +1475,9 @@ void ProcedureSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, Rse
 
 RecordSourceNode* ProcedureSourceNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 {
-	ExprNode::doPass2(tdbb, csb, sourceList.getAddress());
-	ExprNode::doPass2(tdbb, csb, targetList.getAddress());
-	ExprNode::doPass2(tdbb, csb, in_msg.getAddress());
+	ExprNode::doPass2(tdbb, csb, inputSources.getAddress());
+	ExprNode::doPass2(tdbb, csb, inputTargets.getAddress());
+	ExprNode::doPass2(tdbb, csb, inputMessage.getAddress());
 	return this;
 }
 
@@ -1282,16 +1494,16 @@ RecordSource* ProcedureSourceNode::compile(thread_db* tdbb, Optimizer* opt, bool
 	const string alias = opt->makeAlias(stream);
 
 	return FB_NEW_POOL(*tdbb->getDefaultPool()) ProcedureScan(tdbb, csb, alias, stream, procedure,
-		sourceList, targetList, in_msg);
+		inputSources, inputTargets, inputMessage);
 }
 
 bool ProcedureSourceNode::computable(CompilerScratch* csb, StreamType stream,
 	bool allowOnlyCurrentStream, ValueExprNode* /*value*/)
 {
-	if (sourceList && !sourceList->computable(csb, stream, allowOnlyCurrentStream))
+	if (inputSources && !inputSources->computable(csb, stream, allowOnlyCurrentStream))
 		return false;
 
-	if (targetList && !targetList->computable(csb, stream, allowOnlyCurrentStream))
+	if (inputTargets && !inputTargets->computable(csb, stream, allowOnlyCurrentStream))
 		return false;
 
 	return true;
@@ -1300,22 +1512,22 @@ bool ProcedureSourceNode::computable(CompilerScratch* csb, StreamType stream,
 void ProcedureSourceNode::findDependentFromStreams(const CompilerScratch* csb,
 	StreamType currentStream, SortedStreamList* streamList)
 {
-	if (sourceList)
-		sourceList->findDependentFromStreams(csb, currentStream, streamList);
+	if (inputSources)
+		inputSources->findDependentFromStreams(csb, currentStream, streamList);
 
-	if (targetList)
-		targetList->findDependentFromStreams(csb, currentStream, streamList);
+	if (inputTargets)
+		inputTargets->findDependentFromStreams(csb, currentStream, streamList);
 }
 
 void ProcedureSourceNode::collectStreams(SortedStreamList& streamList) const
 {
 	RecordSourceNode::collectStreams(streamList);
 
-	if (sourceList)
-		sourceList->collectStreams(streamList);
+	if (inputSources)
+		inputSources->collectStreams(streamList);
 
-	if (targetList)
-		targetList->collectStreams(streamList);
+	if (inputTargets)
+		inputTargets->collectStreams(streamList);
 }
 
 
@@ -1652,7 +1864,7 @@ RecordSource* AggregateSourceNode::compile(thread_db* tdbb, Optimizer* opt, bool
 		// 10-Aug-2004. Nickolay Samofatov - Unneeded nulls seem to be skipped somehow.
 		aggregate->nullOrder.add(NULLS_DEFAULT);
 
-		rse->flags |= RseNode::FLAG_OPT_FIRST_ROWS;
+		rse->firstRows = true;
 	}
 
 	RecordSource* const nextRsb = opt->compile(rse, &deliverStack);
@@ -1713,7 +1925,7 @@ UnionSourceNode* UnionSourceNode::parse(thread_db* tdbb, CompilerScratch* csb, c
 
 	if (node->recursive)
 	{
-		stream2 = PAR_context(csb, 0);
+		stream2 = PAR_context(csb, nullptr);
 		node->mapStream = stream2;
 	}
 
@@ -2761,6 +2973,8 @@ RseNode* RseNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 RseNode* RseNode::copy(thread_db* tdbb, NodeCopier& copier) const
 {
 	RseNode* newSource = FB_NEW_POOL(*tdbb->getDefaultPool()) RseNode(*tdbb->getDefaultPool());
+	newSource->line = line;
+	newSource->column = column;
 
 	for (const auto sub : rse_relations)
 		newSource->rse_relations.add(sub->copy(tdbb, copier));
@@ -3445,7 +3659,7 @@ string SelectExprNode::internalPrint(NodePrinter& printer) const
 RseNode* SelectExprNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 {
 	fb_assert(dsqlFlags & DFLAG_DERIVED);
-	return PASS1_derived_table(dsqlScratch, this, NULL, false, false);
+	return PASS1_derived_table(dsqlScratch, this, NULL);
 }
 
 
@@ -3458,13 +3672,13 @@ static RecordSourceNode* dsqlPassRelProc(DsqlCompilerScratch* dsqlScratch, Recor
 	MetaName relName;
 	string relAlias;
 
-	if (auto procNode = nodeAs<ProcedureSourceNode>(source))
+	if (const auto procNode = nodeAs<ProcedureSourceNode>(source))
 	{
 		relName = procNode->dsqlName.identifier;
 		relAlias = procNode->alias;
-		couldBeCte = !procNode->sourceList && procNode->dsqlName.package.isEmpty();
+		couldBeCte = !procNode->inputSources && procNode->dsqlName.package.isEmpty();
 	}
-	else if (auto relNode = nodeAs<RelationSourceNode>(source))
+	else if (const auto relNode = nodeAs<RelationSourceNode>(source))
 	{
 		relName = relNode->dsqlName;
 		relAlias = relNode->alias;
@@ -3514,7 +3728,7 @@ static RecordSourceNode* dsqlPassRelProc(DsqlCompilerScratch* dsqlScratch, Recor
 	dsqlScratch->currCtes.push(cte);
 
 	RseNode* derivedNode = PASS1_derived_table(dsqlScratch,
-		cte, (isRecursive ? relAlias.c_str() : NULL), false, false);
+		cte, (isRecursive ? relAlias.c_str() : NULL));
 
 	if (!isRecursive)
 		cte->alias = saveCteName;
@@ -3716,6 +3930,7 @@ static void genDeliverUnmapped(CompilerScratch* csb,
 
 		const auto cmpNode = nodeAs<ComparativeBoolNode>(boolean);
 		const auto missingNode = nodeAs<MissingBoolNode>(boolean);
+		const auto listNode = nodeAs<InListBoolNode>(boolean);
 		HalfStaticArray<ValueExprNode*, 2> children;
 
 		if (cmpNode &&
@@ -3726,6 +3941,12 @@ static void genDeliverUnmapped(CompilerScratch* csb,
 		{
 			children.add(cmpNode->arg1);
 			children.add(cmpNode->arg2);
+		}
+		else if (listNode)
+		{
+			children.add(listNode->arg);
+			for (auto item : listNode->list->items)
+				children.add(item);
 		}
 		else if (missingNode)
 			children.add(missingNode->arg);
@@ -3761,6 +3982,18 @@ static void genDeliverUnmapped(CompilerScratch* csb,
 			newChildren.add(newCmpNode->arg2.getAddress());
 
 			deliverNode = newCmpNode;
+		}
+		else if (listNode)
+		{
+			const auto newListNode = FB_NEW_POOL(pool) InListBoolNode(pool);
+			const auto count = listNode->list->items.getCount();
+			newListNode->list = FB_NEW_POOL(pool) ValueListNode(pool, count);
+
+			newChildren.add(newListNode->arg.getAddress());
+			for (auto& item : newListNode->list->items)
+				newChildren.add(item.getAddress());
+
+			deliverNode = newListNode;
 		}
 		else if (missingNode)
 		{
@@ -3810,7 +4043,17 @@ static void genDeliverUnmapped(CompilerScratch* csb,
 		}
 
 		if (okNode)
-			deliverStack.push(deliverNode.release());
+		{
+			const auto node = deliverNode.release();
+
+			if (const auto newListNode = nodeAs<InListBoolNode>(node))
+			{
+				newListNode->lookup = FB_NEW_POOL(pool)
+					LookupValueList(pool, newListNode->list, newListNode->impureOffset);
+			}
+
+			deliverStack.push(node);
+		}
 	}
 }
 

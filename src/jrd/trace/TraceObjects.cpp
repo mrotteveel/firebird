@@ -57,7 +57,100 @@
 
 using namespace Firebird;
 
+namespace
+{
+
+// Convert text descriptor into UTF8 string.
+// Binary data converted into HEX representation.
+bool descToUTF8(const dsc* param, string& result)
+{
+	UCHAR* address;
+	USHORT length;
+
+	switch (param->dsc_dtype)
+	{
+	case dtype_text:
+		address = param->dsc_address;
+		length = param->dsc_length;
+		break;
+
+	case dtype_varying:
+		address = param->dsc_address + sizeof(USHORT);
+		length = *(USHORT*) param->dsc_address;
+		fb_assert(length <= param->dsc_length - 2);
+		break;
+
+	default:
+		return false;
+	}
+
+	if (param->getCharSet() == CS_BINARY)
+	{
+		// Convert OCTETS and [VAR]BINARY to HEX string
+
+		char* hex = result.getBuffer(length * 2);
+
+		for (const UCHAR* p = address; p < address + length; p++)
+		{
+			UCHAR c = (*p & 0xF0) >> 4;
+			*hex++ = c + (c < 10 ? '0' : 'A' - 10);
+
+			c = (*p & 0x0F);
+			*hex++ = c + (c < 10 ? '0' : 'A' - 10);
+		}
+		return result.c_str();
+	}
+
+	string src(address, length);
+
+	try
+	{
+		if (!Jrd::DataTypeUtil::convertToUTF8(src, result, param->getCharSet(), status_exception::raise))
+			result = src;
+	}
+	catch (const Firebird::Exception&)
+	{
+		result = src;
+	}
+
+	return true;
+}
+
+} // namespace
+
 namespace Jrd {
+
+const char* StatementHolder::ensurePlan(bool explained)
+{
+	if (m_statement && (m_plan.isEmpty() || m_planExplained != explained))
+	{
+		m_planExplained = explained;
+		m_plan = Optimizer::getPlan(JRD_get_thread_data(), m_statement, explained);
+	}
+
+	return m_plan.c_str();
+}
+
+
+/// StatementHolder
+
+Firebird::string StatementHolder::getName() const
+{
+	if (m_statement)
+	{
+		if (m_statement->procedure)
+			return m_statement->procedure->getName().toString();
+
+		if (m_statement->function)
+			return m_statement->function->getName().toString();
+
+		if (m_statement->triggerName.hasData())
+			return m_statement->triggerName.c_str();
+	}
+
+	return "";
+}
+
 
 /// TraceConnectionImpl
 
@@ -195,28 +288,6 @@ const char* TraceSQLStatementImpl::getTextUTF8()
 	return m_textUTF8.c_str();
 }
 
-const char* TraceSQLStatementImpl::getPlan()
-{
-	fillPlan(false);
-	return m_plan.c_str();
-}
-
-const char* TraceSQLStatementImpl::getExplainedPlan()
-{
-	fillPlan(true);
-	return m_plan.c_str();
-}
-
-void TraceSQLStatementImpl::fillPlan(bool explained)
-{
-	if (m_plan.isEmpty() || m_planExplained != explained)
-	{
-		m_planExplained = explained;
-		if (m_stmt->getStatement())
-			m_plan = Optimizer::getPlan(JRD_get_thread_data(), m_stmt->getStatement(), m_planExplained);
-	}
-}
-
 PerformanceInfo* TraceSQLStatementImpl::getPerf()
 {
 	return m_perf;
@@ -298,38 +369,11 @@ const dsc* TraceSQLStatementImpl::DSQLParamsImpl::getParam(FB_SIZE_T idx)
 const char* TraceSQLStatementImpl::DSQLParamsImpl::getTextUTF8(CheckStatusWrapper* status, FB_SIZE_T idx)
 {
 	const dsc* param = getParam(idx);
-	UCHAR* address;
-	USHORT length;
 
-	switch (param->dsc_dtype)
-	{
-	case dtype_text:
-		address = param->dsc_address;
-		length = param->dsc_length;
-		break;
+	if (descToUTF8(param, m_tempUTF8))
+		return m_tempUTF8.c_str();
 
-	case dtype_varying:
-		address = param->dsc_address + sizeof(USHORT);
-		length = *(USHORT*) param->dsc_address;
-		break;
-
-	default:
-		return NULL;
-	}
-
-	string src(address, length);
-
-	try
-	{
-		if (!DataTypeUtil::convertToUTF8(src, temp_utf8_text, param->getCharSet(), status_exception::raise))
-			temp_utf8_text = src;
-	}
-	catch (const Firebird::Exception&)
-	{
-		temp_utf8_text = src;
-	}
-
-	return temp_utf8_text.c_str();
+	return nullptr;
 }
 
 
@@ -362,38 +406,11 @@ const dsc* TraceParamsImpl::getParam(FB_SIZE_T idx)
 const char* TraceParamsImpl::getTextUTF8(CheckStatusWrapper* status, FB_SIZE_T idx)
 {
 	const dsc* param = getParam(idx);
-	UCHAR* address;
-	USHORT length;
 
-	switch (param->dsc_dtype)
-	{
-	case dtype_text:
-		address = param->dsc_address;
-		length = param->dsc_length;
-		break;
+	if (descToUTF8(param, m_tempUTF8))
+		return m_tempUTF8.c_str();
 
-	case dtype_varying:
-		address = param->dsc_address + sizeof(USHORT);
-		length = *(USHORT*) param->dsc_address;
-		break;
-
-	default:
-		return NULL;
-	}
-
-	string src(address, length);
-
-	try
-	{
-		if (!DataTypeUtil::convertToUTF8(src, temp_utf8_text, param->getCharSet(), status_exception::raise))
-			temp_utf8_text = src;
-	}
-	catch (const Firebird::Exception&)
-	{
-		temp_utf8_text = src;
-	}
-
-	return temp_utf8_text.c_str();
+	return nullptr;
 }
 
 
@@ -401,7 +418,7 @@ const char* TraceParamsImpl::getTextUTF8(CheckStatusWrapper* status, FB_SIZE_T i
 
 void TraceDscFromValues::fillParams()
 {
-	if (m_descs.getCount() || !m_params)
+	if (m_descs.getCount() || !m_request || !m_params)
 		return;
 
 	thread_db* tdbb = JRD_get_thread_data();
@@ -483,23 +500,6 @@ void TraceDscFromMsg::fillParams()
 		if (*nullPtr == -1)
 			desc->setNull();
 	}
-}
-
-
-/// TraceTriggerImpl
-
-const char* TraceTriggerImpl::getTriggerName()
-{
-	return m_trig->getStatement()->triggerName.c_str();
-}
-
-const char* TraceTriggerImpl::getRelationName()
-{
-	if (m_trig->req_rpb.getCount() == 0)
-		return NULL;
-
-	const jrd_rel* rel = m_trig->req_rpb[0].rpb_relation;
-	return rel ? rel->getName().c_str() : NULL;
 }
 
 
@@ -705,13 +705,13 @@ const char* TraceStatusVectorImpl::getText()
 
 	return m_error.c_str();
 }
-
+/*
 TraceProcedureImpl::TraceProcedureImpl(Request* request, Firebird::PerformanceInfo* perf) :
 	m_request(request),
 	m_perf(perf),
 	m_inputs(*getDefaultMemoryPool(), request->req_proc_caller, request->req_proc_inputs),
 	m_name(m_request->getStatement()->procedure->getName().toString())
 {}
-
+???????????????????????? */
 
 } // namespace Jrd

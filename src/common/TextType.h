@@ -27,15 +27,15 @@
  *
  */
 
-#ifndef JRD_TEXTTYPE_H
-#define JRD_TEXTTYPE_H
+#ifndef COMMON_TEXTTYPE_H
+#define COMMON_TEXTTYPE_H
 
 #include "../common/classes/MetaString.h"
 #include "../jrd/intl.h"
 
 struct texttype;
 
-namespace Jrd {
+namespace Firebird {
 
 class CharSet;
 
@@ -154,7 +154,7 @@ private:
 	ULONG canonicalChars[CHAR_COUNT];
 };
 
-}	// namespace Jrd
+}	// namespace Firebird
 
 
-#endif	// JRD_TEXTTYPE_H
+#endif	// COMMON_TEXTTYPE_H

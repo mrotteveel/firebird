@@ -56,19 +56,15 @@ void DsqlStatement::rethrowDdlException(status_exception& ex, bool metadataUpdat
 	status_exception::raise(newVector);
 }
 
-int DsqlStatement::release()
+void DsqlStatement::release()
 {
 	fb_assert(refCounter.value() > 0);
-	int refCnt = --refCounter;
 
-	if (!refCnt)
+	if (!--refCounter)
 	{
 		if (cacheKey)
 		{
-			refCnt = ++refCounter;
-			auto key = cacheKey;
-			cacheKey = nullptr;
-			dsqlAttachment->dbb_statement_cache->statementGoingInactive(key);
+			dsqlAttachment->dbb_statement_cache->statementGoingInactive(cacheKey);
 		}
 		else
 		{
@@ -76,8 +72,6 @@ int DsqlStatement::release()
 			dsqlAttachment->deletePool(&getPool());
 		}
 	}
-
-	return refCnt;
 }
 
 void DsqlStatement::doRelease()

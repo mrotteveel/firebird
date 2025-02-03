@@ -82,11 +82,11 @@ private:
 	struct IdxInfo
 	{
 		IdxInfo()
-		  : m_recs(nullptr)
 		{}
 
 		index_desc m_desc;
-		RecordBitmap* m_recs;
+		RecordBitmap* m_recs = nullptr;
+		IndexCondition* m_condition = nullptr;
 	};
 
 	enum VAL_ERRORS
@@ -213,7 +213,6 @@ private:
 	RTN walk_data_page(jrd_rel*, ULONG, ULONG, UCHAR&);
 	void walk_database();
 	void walk_generators();
-	void walk_header(ULONG);
 	RTN walk_index(jrd_rel*, Ods::index_root_page&, USHORT);
 	void walk_pip();
 	RTN walk_pointer_page(jrd_rel*, ULONG);

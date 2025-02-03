@@ -128,7 +128,7 @@ public:
 	SLONG		bcb_dirty_count;	// count of pages in dirty page btree
 
 	Precedence*	bcb_free;			// Free precedence blocks
-	SSHORT		bcb_flags;			// see below
+	Firebird::AtomicCounter	bcb_flags;	// see below
 	SSHORT		bcb_free_minimum;	// Threshold to activate cache writer
 	ULONG		bcb_count;			// Number of buffers allocated
 	ULONG		bcb_inuse;			// Number of buffers in use
@@ -141,6 +141,9 @@ public:
 	Firebird::SyncObject	bcb_syncEmpty;
 	Firebird::SyncObject	bcb_syncPrecedence;
 	Firebird::SyncObject	bcb_syncLRU;
+
+	// If we make bcb_flags atomic this mutex will become unneeded: XCHG of bcb_flags is enough
+	Firebird::Mutex			bcb_threadStartup;
 
 	typedef ThreadFinishSync<BufferControl*> BcbThreadSync;
 

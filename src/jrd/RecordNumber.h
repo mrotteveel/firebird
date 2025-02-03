@@ -278,6 +278,11 @@ struct bid
 		return temp;
 	}
 
+	operator ISC_QUAD() const
+	{
+		return {ISC_LONG(bid_quad.bid_quad_high), bid_quad.bid_quad_low};
+	}
+
 	bool operator == (const bid& other) const
 	{
 		return bid_quad.bid_quad_high == other.bid_quad.bid_quad_high &&
@@ -292,8 +297,7 @@ struct bid
 	}
 };
 
-// Make sure that compiler packed structure like we wanted
-static_assert(sizeof(bid) == 8);
+static_assert(sizeof(bid) == 8);	// make sure that compiler packed structure like we wanted
 
 } // namespace Jrd
 

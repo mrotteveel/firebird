@@ -48,6 +48,7 @@
 #include "../jrd/DebugInterface.h"
 #include "../jrd/QualifiedName.h"
 #include "../jrd/Statement.h"
+#include "../jrd/trace/TraceJrdHelpers.h"
 
 #include "../jrd/Function.h"
 
@@ -125,7 +126,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				(X.RDB$PACKAGE_NAME.NULL ? nullptr : X.RDB$PACKAGE_NAME)));
 			getPermanent()->owner = X.RDB$OWNER_NAME;
 
-			Nullable<bool> ssDefiner;
+			TriState ssDefiner;
 
 			if (!X.RDB$SECURITY_CLASS.NULL)
 			{
@@ -151,7 +152,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				END_FOR
 			}
 
-			if (!ssDefiner.specified)
+			if (!ssDefiner.isAssigned())
 			{
 				if (!X.RDB$SQL_SECURITY.NULL)
 					ssDefiner = (bool) X.RDB$SQL_SECURITY;
@@ -159,7 +160,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					ssDefiner = MET_get_ss_definer(tdbb);
 			}
 
-			if (ssDefiner.orElse(false))
+			if (ssDefiner.asBool())
 				invoker = attachment->getUserId(getPermanent()->owner);
 
 			size_t count = 0;
@@ -356,16 +357,21 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					}
 					else if (!X.RDB$FUNCTION_BLR.NULL)
 					{
+						const string name = getName().toString();
+
 						try
 						{
+							TraceFuncCompile trace(tdbb, name);
+
 							parseBlr(tdbb, csb, &X.RDB$FUNCTION_BLR,
 								X.RDB$DEBUG_INFO.NULL ? nullptr : &X.RDB$DEBUG_INFO);
+
+							trace.finish(getStatement(), ITracePlugin::RESULT_SUCCESS);
 						}
 						catch (const Exception& ex)
 						{
 							StaticStatusVector temp_status;
 							ex.stuffException(temp_status);
-							const string name = getName().toString();
 							(Arg::Gds(isc_bad_fun_BLR) << Arg::Str(name)
 								<< Arg::StatusVector(temp_status.begin())).raise();
 						}

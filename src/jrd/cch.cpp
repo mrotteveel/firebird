@@ -63,6 +63,7 @@
 #include "../common/classes/MsgPrint.h"
 #include "../jrd/CryptoManager.h"
 #include "../common/utils_proto.h"
+#include "../jrd/PageToBufferMap.h"
 
 // Use lock-free lists in hash table implementation
 #define HASH_USE_CDS_LIST
@@ -132,6 +133,7 @@ static void prefetch_init(Prefetch*, thread_db*);
 static void prefetch_io(Prefetch*, FbStatusVector *);
 static void prefetch_prologue(Prefetch*, SLONG *);
 #endif
+static void cacheBuffer(Attachment* att, BufferDesc* bdb);
 static void check_precedence(thread_db*, WIN*, PageNumber);
 static void clear_precedence(thread_db*, BufferDesc*);
 static void down_grade(thread_db*, BufferDesc*, int high = 0);
@@ -144,8 +146,6 @@ static ULONG memory_init(thread_db*, BufferControl*, ULONG);
 static void page_validation_error(thread_db*, win*, SSHORT);
 static void purgePrecedence(BufferControl*, BufferDesc*);
 static SSHORT related(BufferDesc*, const BufferDesc*, SSHORT, const ULONG);
-static bool writeable(BufferDesc*);
-static bool is_writeable(BufferDesc*, const ULONG);
 static int write_buffer(thread_db*, BufferDesc*, const PageNumber, const bool, FbStatusVector* const,
 	const bool);
 static bool write_page(thread_db*, BufferDesc*, FbStatusVector* const, const bool);
@@ -545,7 +545,7 @@ bool CCH_exclusive_attachment(thread_db* tdbb, USHORT level, SSHORT wait_flag, S
  *	return false.
  *
  **************************************/
-	const int CCH_EXCLUSIVE_RETRY_INTERVAL = 1;	// retry interval in seconds
+	const int CCH_EXCLUSIVE_RETRY_INTERVAL = 10;	// retry interval in millseconds
 
 	SET_TDBB(tdbb);
 	Database* const dbb = tdbb->getDatabase();
@@ -565,7 +565,7 @@ bool CCH_exclusive_attachment(thread_db* tdbb, USHORT level, SSHORT wait_flag, S
 
 	attachment->att_flags |= (level == LCK_none) ? ATT_attach_pending : ATT_exclusive_pending;
 
-	const SLONG timeout = (wait_flag == LCK_WAIT) ? 1L << 30 : -wait_flag;
+	const SLONG timeout = (wait_flag == LCK_WAIT) ? 1L << 30 : (-wait_flag * 1000 / CCH_EXCLUSIVE_RETRY_INTERVAL);
 
 	// If requesting exclusive database access, then re-position attachment as the
 	// youngest so that pending attachments may pass.
@@ -591,8 +591,6 @@ bool CCH_exclusive_attachment(thread_db* tdbb, USHORT level, SSHORT wait_flag, S
 	{
 		try
 		{
-			tdbb->checkCancelState();
-
 			bool found = false;
 			for (Jrd::Attachment* other_attachment = attachment->att_next; other_attachment;
 				 other_attachment = other_attachment->att_next)
@@ -638,12 +636,13 @@ bool CCH_exclusive_attachment(thread_db* tdbb, USHORT level, SSHORT wait_flag, S
 				return true;
 			}
 
-			// Our thread needs to sleep for CCH_EXCLUSIVE_RETRY_INTERVAL seconds.
+			// Our thread needs to sleep for CCH_EXCLUSIVE_RETRY_INTERVAL milliseconds.
 
 			if (remaining >= CCH_EXCLUSIVE_RETRY_INTERVAL)
 			{
 				SyncUnlockGuard unlock(exLock ? (*exGuard) : dsGuard);
-				Thread::sleep(CCH_EXCLUSIVE_RETRY_INTERVAL * 1000);
+				tdbb->reschedule();
+				Thread::sleep(CCH_EXCLUSIVE_RETRY_INTERVAL);
 			}
 
 		} // try
@@ -1027,7 +1026,10 @@ void CCH_fetch_page(thread_db* tdbb, WIN* window, const bool read_shadow)
 			}
 		}
 		fb_assert(bdb->bdb_page == window->win_page);
-		fb_assert(bdb->bdb_buffer->pag_pageno == window->win_page.getPageNum());
+		fb_assert(bdb->bdb_buffer->pag_pageno == window->win_page.getPageNum() ||
+			bdb->bdb_buffer->pag_type == pag_undefined &&
+			bdb->bdb_buffer->pag_generation == 0 &&
+			bdb->bdb_buffer->pag_scn == 0);
 	}
 	else
 	{
@@ -1277,7 +1279,7 @@ void CCH_flush(thread_db* tdbb, USHORT flush_flag, TraNumber tra_number)
 			PIO_flush(tdbb, shadow->sdw_file);
 
 		BackupManager* bm = dbb->dbb_backup_manager;
-		if (!bm->isShutDown())
+		if (bm && !bm->isShutDown())
 		{
 			BackupManager::StateReadGuard stateGuard(tdbb);
 			const int backup_state = bm->getState();
@@ -1634,6 +1636,10 @@ void CCH_init2(thread_db* tdbb)
 	Database* dbb = tdbb->getDatabase();
 	BufferControl* bcb = dbb->dbb_bcb;
 
+	// Avoid running CCH_init2() in 2 parallel threads
+	Firebird::MutexEnsureUnlock guard(bcb->bcb_threadStartup, FB_FUNCTION);
+	guard.enter();
+
 	if (!(bcb->bcb_flags & BCB_exclusive) || (bcb->bcb_flags & (BCB_cache_writer | BCB_writer_start)))
 		return;
 
@@ -1654,6 +1660,7 @@ void CCH_init2(thread_db* tdbb)
 	{
 		// writer startup in progress
 		bcb->bcb_flags |= BCB_writer_start;
+		guard.leave();
 
 		try
 		{
@@ -1742,8 +1749,8 @@ void CCH_mark(thread_db* tdbb, WIN* window, bool mark_system, bool must_write)
 	if (mark_system)
 		newFlags |= BDB_system_dirty;
 
-	/*if (bcb->bcb_flags & BCB_exclusive) */
-		newFlags |= BDB_db_dirty;
+	/// if (bcb->bcb_flags & BCB_exclusive)
+	newFlags |= BDB_db_dirty;
 
 	if (must_write || dbb->dbb_backup_manager->databaseFlushInProgress())
 		newFlags |= BDB_must_write;
@@ -2479,19 +2486,9 @@ bool CCH_write_all_shadows(thread_db* tdbb, Shadow* shadow, BufferDesc* bdb, Ods
 			const UCHAR* q = (UCHAR *) pageSpaceID->file->fil_string;
 			header->hdr_data[0] = HDR_end;
 			header->hdr_end = HDR_SIZE;
-			header->hdr_next_page = 0;
 
 			PAG_add_header_entry(tdbb, header, HDR_root_file_name,
 								 (USHORT) strlen((const char*) q), q);
-
-			jrd_file* next_file = shadow_file->fil_next;
-			if (next_file)
-			{
-				q = (UCHAR *) next_file->fil_string;
-				const SLONG last = next_file->fil_min_page - 1;
-				PAG_add_header_entry(tdbb, header, HDR_file, (USHORT) strlen((const char*) q), q);
-				PAG_add_header_entry(tdbb, header, HDR_last_page, sizeof(last), (const UCHAR*) &last);
-			}
 
 			header->hdr_flags |= hdr_active_shadow;
 			header->hdr_header.pag_pageno = bdb->bdb_page.getPageNum();
@@ -3083,7 +3080,10 @@ void BufferControl::cache_writer(BufferControl* bcb)
 				{
 					BufferDesc* const bdb = get_dirty_buffer(tdbb);
 					if (bdb)
+					{
 						write_buffer(tdbb, bdb, bdb->bdb_page, true, &status_vector, true);
+						attachment->mergeStats();
+					}
 				}
 
 				// If there's more work to do voluntarily ask to be rescheduled.
@@ -3150,6 +3150,18 @@ void BufferControl::exceptionHandler(const Firebird::Exception& ex, BcbThreadSyn
 	FbLocalStatus status_vector;
 	ex.stuffException(&status_vector);
 	iscDbLogStatus(bcb_database->dbb_filename.c_str(), &status_vector);
+}
+
+
+static void cacheBuffer(Attachment* att, BufferDesc* bdb)
+{
+	if (att)
+	{
+		if (!att->att_bdb_cache)
+			att->att_bdb_cache = FB_NEW_POOL(*att->att_pool) PageToBufferMap(*att->att_pool);
+
+		att->att_bdb_cache->put(bdb);
+	}
 }
 
 
@@ -3783,6 +3795,32 @@ static BufferDesc* get_buffer(thread_db* tdbb, const PageNumber page, SyncType s
 	SET_TDBB(tdbb);
 	Database* dbb = tdbb->getDatabase();
 	BufferControl* bcb = dbb->dbb_bcb;
+	Attachment* att = tdbb->getAttachment();
+
+	if (att && att->att_bdb_cache)
+	{
+		if (BufferDesc* bdb = att->att_bdb_cache->get(page))
+		{
+			if (bdb->addRef(tdbb, syncType, wait))
+			{
+				if (bdb->bdb_page == page)
+				{
+					recentlyUsed(bdb);
+					tdbb->bumpStats(RuntimeStatistics::PAGE_FETCHES);
+					return bdb;
+				}
+
+				bdb->release(tdbb, true);
+				att->att_bdb_cache->remove(page);
+			}
+			else
+			{
+				fb_assert(wait <= 0);
+				if (bdb->bdb_page == page)
+					return nullptr;
+			}
+		}
+	}
 
 	while (true)
 	{
@@ -3812,6 +3850,7 @@ static BufferDesc* get_buffer(thread_db* tdbb, const PageNumber page, SyncType s
 				{
 					recentlyUsed(bdb);
 					tdbb->bumpStats(RuntimeStatistics::PAGE_FETCHES);
+					cacheBuffer(att, bdb);
 					return bdb;
 				}
 
@@ -3851,6 +3890,7 @@ static BufferDesc* get_buffer(thread_db* tdbb, const PageNumber page, SyncType s
 					bdb->downgrade(syncType);
 					recentlyUsed(bdb);
 					tdbb->bumpStats(RuntimeStatistics::PAGE_FETCHES);
+					cacheBuffer(att, bdb);
 					return bdb;
 				}
 			}
@@ -3894,6 +3934,7 @@ static BufferDesc* get_buffer(thread_db* tdbb, const PageNumber page, SyncType s
 							recentlyUsed(bdb);
 					}
 					tdbb->bumpStats(RuntimeStatistics::PAGE_FETCHES);
+					cacheBuffer(att, bdb);
 					return bdb;
 				}
 			}
@@ -3911,6 +3952,7 @@ static BufferDesc* get_buffer(thread_db* tdbb, const PageNumber page, SyncType s
 				}
 				recentlyUsed(bdb2);
 				tdbb->bumpStats(RuntimeStatistics::PAGE_FETCHES);
+				cacheBuffer(att, bdb2);
 			}
 			else
 				bdb2 = nullptr;
@@ -4576,6 +4618,7 @@ static SSHORT related(BufferDesc* low, const BufferDesc* high, SSHORT limit, con
 }
 
 
+#ifdef NOT_USED_OR_REPLACED
 static inline bool writeable(BufferDesc* bdb)
 {
 /**************************************
@@ -4654,6 +4697,7 @@ static bool is_writeable(BufferDesc* bdb, const ULONG mark)
 	bdb->bdb_prec_walk_mark = mark;
 	return true;
 }
+#endif	// NOT_USED_OR_REPLACED
 
 
 static int write_buffer(thread_db* tdbb,

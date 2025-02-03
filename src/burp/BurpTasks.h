@@ -400,9 +400,9 @@ public:
 	class ExcReadDone : public Firebird::Exception
 	{
 	public:
-		ExcReadDone() throw() : Firebird::Exception() { }
-		virtual void stuffByException(Firebird::StaticStatusVector& status_vector) const throw();
-		virtual const char* what() const throw();
+		ExcReadDone() noexcept : Firebird::Exception() { }
+		virtual void stuffByException(Firebird::StaticStatusVector& status_vector) const noexcept;
+		virtual const char* what() const noexcept;
 		static void raise();
 	};
 
@@ -545,7 +545,13 @@ public:
 			if (!m_mutex.tryEnter(FB_FUNCTION))
 				return;
 
+			fb_assert(m_locked >= 0);
+			const bool lockedByMe = (m_locked != 0);
+
 			m_mutex.leave();
+
+			if (!lockedByMe)
+				return;
 		}
 
 		fb_assert(m_locked > 0);

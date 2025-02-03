@@ -32,7 +32,7 @@
 #include "../common/DecFloat.h"
 #include "../jrd/intl.h"
 
-namespace Jrd {
+namespace Firebird {
 
 class CharSet;
 
@@ -57,9 +57,9 @@ public:
 public:
 	virtual bool transliterate(const dsc* from, dsc* to, CSetId&) = 0;
 	virtual CSetId getChid(const dsc* d) = 0;
-	virtual Jrd::CharSet* getToCharset(CSetId charset2) = 0;
-	virtual void validateData(Jrd::CharSet* toCharset, SLONG length, const UCHAR* q) = 0;
-	virtual ULONG validateLength(Jrd::CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
+	virtual Firebird::CharSet* getToCharset(CSetId charset2) = 0;
+	virtual void validateData(Firebird::CharSet* toCharset, SLONG length, const UCHAR* q) = 0;
+	virtual ULONG validateLength(Firebird::CharSet* charSet, CSetId charSetId, ULONG length, const UCHAR* start,
 		const USHORT size) = 0;
 	virtual SLONG getLocalDate() = 0;
 	virtual ISC_TIMESTAMP getCurrentGmtTimeStamp() = 0;
@@ -86,7 +86,7 @@ class Int128;
 } // namespace Firebird
 
 
-void CVT_conversion_error(const dsc*, ErrorFunction);
+void CVT_conversion_error(const dsc*, ErrorFunction, const Firebird::Exception* = nullptr);
 double CVT_power_of_ten(const int);
 SLONG CVT_get_long(const dsc*, SSHORT, Firebird::DecimalStatus, ErrorFunction);
 bool CVT_get_boolean(const dsc*, ErrorFunction);
@@ -96,12 +96,8 @@ Firebird::Decimal128 CVT_get_dec128(const dsc*, Firebird::DecimalStatus, ErrorFu
 Firebird::Int128 CVT_get_int128(const dsc*, SSHORT, Firebird::DecimalStatus, ErrorFunction);
 Firebird::Int128 CVT_hex_to_int128(const char* str, USHORT len);
 USHORT CVT_make_string(const dsc*, TTypeId, const char**, vary*, USHORT, Firebird::DecimalStatus, ErrorFunction);
-void CVT_make_null_string(const dsc*, TTypeId, const char**, vary*, USHORT, Firebird::DecimalStatus, ErrorFunction);
 void CVT_move_common(const dsc*, dsc*, Firebird::DecimalStatus, Firebird::Callbacks*);
 void CVT_move(const dsc*, dsc*, Firebird::DecimalStatus, ErrorFunction);
-SSHORT CVT_decompose(const char*, USHORT, SSHORT*, ErrorFunction);
-SSHORT CVT_decompose(const char*, USHORT, SLONG*, ErrorFunction);
-SSHORT CVT_decompose(const char*, USHORT, SINT64*, ErrorFunction);
 SSHORT CVT_decompose(const char*, USHORT, Firebird::Int128*, ErrorFunction);
 USHORT CVT_get_string_ptr(const dsc*, TTypeId*, UCHAR**, vary*, USHORT, Firebird::DecimalStatus, ErrorFunction);
 USHORT CVT_get_string_ptr_common(const dsc*, TTypeId*, UCHAR**, vary*, USHORT, Firebird::DecimalStatus, Firebird::Callbacks*);

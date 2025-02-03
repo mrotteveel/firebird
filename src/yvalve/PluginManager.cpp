@@ -347,7 +347,7 @@ namespace
 			return NULL;
 		}
 
-		const char* getName() const throw()
+		const char* getName() const noexcept
 		{
 			return name.nullStr();
 		}
@@ -484,7 +484,7 @@ namespace
 			return findPluginConfig(pluginLoaderConfig, confName);
 		}
 
-		const PluginModule* getPluggedModule() const throw()
+		const PluginModule* getPluggedModule() const noexcept
 		{
 			return module;
 		}
@@ -496,7 +496,7 @@ namespace
 			return plugName.c_str();
 		}
 
-		void setReleaseDelay(ISC_UINT64 microSeconds) throw()
+		void setReleaseDelay(ISC_UINT64 microSeconds) noexcept
 		{
 #ifdef DEBUG_PLUGINS
 			fprintf(stderr, "Set delay for ConfiguredPlugin %s:%p\n", plugName.c_str(), this);
@@ -605,7 +605,7 @@ namespace
 		FbLocalStatus ls;
 		IPluginBase* plugin = module->getPlugin(regPlugin).factory->createPlugin(&ls, par);
 
-		if (!(ls->getState() & Firebird::IStatus::STATE_ERRORS))
+		if (plugin && !(ls->getState() & Firebird::IStatus::STATE_ERRORS))
 		{
 			plugin->setOwner(par);
 			return plugin;

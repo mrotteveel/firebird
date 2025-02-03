@@ -57,6 +57,7 @@ public:
 	static const USHORT NATIVE_ORDER	= 0x04;
 	static const USHORT NO_COMMENTS		= 0x08;
 	static const USHORT CUSTOM_MACROS	= 0x10;
+	static const USHORT REGEXP_SUPPORT	= 0x20;
 
 	// enum to distinguish ctors
 	enum UseText {USE_TEXT};
@@ -78,10 +79,10 @@ public:
 	{
 		Parameter(MemoryPool& p, const Parameter& par)
 			: AutoStorage(p), name(getPool(), par.name), value(getPool(), par.value),
-			  sub(par.sub), line(par.line)
+			  sub(par.sub), line(par.line), hasValue(par.hasValue)
 		{ }
 		Parameter()
-			: AutoStorage(), name(getPool()), value(getPool()), line(0)
+			: AutoStorage(), name(getPool()), value(getPool()), line(0), hasValue(false)
 		{ }
 
 		SINT64 asInteger() const;
@@ -91,6 +92,7 @@ public:
 		String value;
 		Firebird::RefPtr<ConfigFile> sub;
 		unsigned int line;
+		bool hasValue;
 
 		static const KeyType* generate(const Parameter* item)
 		{
@@ -143,6 +145,8 @@ private:
 	void include(const char* currentFileName, const Firebird::PathName& path);
 	bool wildCards(const char* currentFileName, const Firebird::PathName& pathPrefix, FilesArray& components);
 	bool substituteStandardDir(const String& from, String& to) const;
+	void adjustMacroReplacePositions(const String& value, const String& macro, String::size_type& from, String::size_type& to) const;
+	unsigned getDirSeparatorLength(const String& value, size_t subFrom) const;
 };
 
 #endif	// CONFIG_CONFIG_FILE_H

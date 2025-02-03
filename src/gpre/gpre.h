@@ -1415,7 +1415,8 @@ enum tra_flags_vals {
 	TRA_read_committed	= 32,
 	TRA_autocommit		= 64,
 	TRA_rec_version		= 128,
-	TRA_no_auto_undo	= 256
+	TRA_no_auto_undo	= 256,
+	TRA_auto_release_temp_blobid = 512
 };
 
 const int MAX_TRA_OPTIONS	= 8;
@@ -1625,7 +1626,7 @@ public:
 	{
 		fb_utils::copy_terminate(msg, errmsg, sizeof(msg));
 	}
-	const char* what() const throw()
+	const char* what() const noexcept
 	{
 		return msg[0] ? msg : "gpre_exception";
 	}

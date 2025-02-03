@@ -48,6 +48,11 @@ namespace Firebird
 			return refCnt;
 		}
 
+		void assertNonZero()
+		{
+			fb_assert(m_refCnt.value() > 0);
+		}
+
 	protected:
 		RefCounted() : m_refCnt(0) {}
 
@@ -116,13 +121,13 @@ namespace Firebird
 			}
 		}
 
-		RefPtr(RefPtr&& r)
+		RefPtr(RefPtr&& r) noexcept
 			: ptr(r.ptr)
 		{
 			r.ptr = nullptr;
 		}
 
-		RefPtr(MemoryPool&, RefPtr&& r)
+		RefPtr(MemoryPool&, RefPtr&& r) noexcept
 			: ptr(r.ptr)
 		{
 			r.ptr = nullptr;
@@ -258,10 +263,7 @@ namespace Firebird
 	class AnyRef : public T, public RefCounted
 	{
 	public:
-		inline AnyRef() : T() {}
-		inline AnyRef(const T& v) : T(v) {}
-		inline explicit AnyRef(MemoryPool& p) : T(p) {}
-		inline AnyRef(MemoryPool& p, const T& v) : T(p, v) {}
+		using T::T;
 	};
 } // namespace
 

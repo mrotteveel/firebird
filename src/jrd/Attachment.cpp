@@ -50,6 +50,7 @@
 #include "../jrd/replication/Applier.h"
 #include "../jrd/replication/Manager.h"
 
+#include "../dsql/DsqlBatch.h"
 #include "../dsql/DsqlStatementCache.h"
 
 #include "../common/classes/fb_string.h"
@@ -246,9 +247,6 @@ Jrd::Attachment::~Attachment()
 
 	delete att_trace_manager;
 
-	for (unsigned n = 0; n < att_batches.getCount(); ++n)
-		att_batches[n]->resetHandle();
-
 	// For normal attachments that happens in release_attachment(),
 	// but for special ones like GC should be done also in dtor -
 	// they do not (and should not) call release_attachment().
@@ -390,6 +388,12 @@ void Jrd::Attachment::storeBinaryBlob(thread_db* tdbb, jrd_tra* transaction,
 	blob->BLB_close(tdbb);
 }
 
+void Jrd::Attachment::releaseBatches()
+{
+	while (att_batches.hasData())
+		delete att_batches.pop();
+}
+
 void Jrd::Attachment::resetSession(thread_db* tdbb, jrd_tra** traHandle)
 {
 	jrd_tra* oldTran = traHandle ? *traHandle : nullptr;
@@ -487,6 +491,12 @@ void Jrd::Attachment::resetSession(thread_db* tdbb, jrd_tra** traHandle)
 	}
 	catch (const Exception& ex)
 	{
+		if (att_ext_call_depth && !shutAtt)
+		{
+			flags.release(ATT_resetting);		// reset is incomplete - keep state
+			shutAtt = true;
+		}
+
 		if (shutAtt)
 			signalShutdown(isc_ses_reset_failed);
 
@@ -522,11 +532,15 @@ void Jrd::Attachment::signalShutdown(ISC_STATUS code)
 }
 
 
-void Jrd::Attachment::mergeStats()
+void Jrd::Attachment::mergeStats(bool pageStatsOnly)
 {
 	MutexLockGuard guard(att_database->dbb_stats_mutex, FB_FUNCTION);
-	att_database->dbb_stats.adjust(att_base_stats, att_stats, true);
-	att_base_stats.assign(att_stats);
+	att_database->dbb_stats.adjustPageStats(att_base_stats, att_stats);
+	if (!pageStatsOnly)
+	{
+		att_database->dbb_stats.adjust(att_base_stats, att_stats, true);
+		att_base_stats.assign(att_stats);
+	}
 }
 
 
@@ -790,7 +804,7 @@ void StableAttachmentPart::doOnIdleTimer(TimerImpl*)
 	JRD_shutdown_attachment(att);
 }
 
-JAttachment* Attachment::getInterface() throw()
+JAttachment* Attachment::getInterface() noexcept
 {
 	return att_stable->getInterface();
 }
@@ -857,10 +871,12 @@ void Attachment::checkReplSetLock(thread_db* tdbb)
 
 void Attachment::invalidateReplSet(thread_db* tdbb, bool broadcast)
 {
+
 	att_flags |= ATT_repl_reset;
 
 	att_database->dbb_mdc->invalidateReplSet(tdbb);
 
+/* !!!!!!!!!!!!!!!!!!!!!!!
 	if (broadcast)
 	{
 		// Signal other attachments about the changed state
@@ -870,7 +886,21 @@ void Attachment::invalidateReplSet(thread_db* tdbb, bool broadcast)
 			LCK_convert(tdbb, att_repl_lock, LCK_EX, LCK_WAIT);
 	}
 
-	LCK_release(tdbb, att_repl_lock);
+	if (att_flags & ATT_repl_reset)
+		return;
+
+	att_flags |= ATT_repl_reset;
+
+	if (att_relations)
+	{
+		for (auto relation : *att_relations)
+		{
+			if (relation)
+				relation->rel_repl_state.reset();
+		}
+	}
+
+	LCK_release(tdbb, att_repl_lock); */
 }
 
 int Attachment::blockingAstReplSet(void* ast_object)
@@ -899,12 +929,30 @@ ProfilerManager* Attachment::getProfilerManager(thread_db* tdbb)
 	return profilerManager;
 }
 
+ProfilerManager* Attachment::getActiveProfilerManagerForNonInternalStatement(thread_db* tdbb)
+{
+	const auto request = tdbb->getRequest();
+
+	return isProfilerActive() && !request->hasInternalStatement() ?
+		getProfilerManager(tdbb) :
+		nullptr;
+}
+
 bool Attachment::isProfilerActive()
 {
 	return att_profiler_manager && att_profiler_manager->isActive();
 }
 
-void Attachment::releaseProfilerManager()
+void Attachment::releaseProfilerManager(thread_db* tdbb)
 {
-	att_profiler_manager.reset();
+	if (!att_profiler_manager)
+		return;
+
+	if (att_profiler_manager->haveListener())
+	{
+		EngineCheckout cout(tdbb, FB_FUNCTION);
+		att_profiler_manager.reset();
+	}
+	else
+		att_profiler_manager.reset();
 }

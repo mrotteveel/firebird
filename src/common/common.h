@@ -51,6 +51,7 @@
 #define COMMON_COMMON_H
 
 #include <string.h>
+#include <string>
 
 #ifdef HAVE_STDLIB_H
 #include <stdlib.h>
@@ -142,6 +143,10 @@
 #ifdef RISCV64
 #define FB_CPU CpuRiscV64
 #endif /* RISCV64 */
+
+#ifdef LOONGARCH
+#define FB_CPU CpuLoongArch
+#endif /* LOONGARCH */
 
 #ifdef sparc
 #define FB_CPU CpuUltraSparc
@@ -968,7 +973,8 @@ const int HIGH_WORD		= 0;
 #endif
 #endif
 
-static const TEXT FB_SHORT_MONTHS[][4] =
+
+inline const TEXT FB_SHORT_MONTHS[][4] =
 {
 	"Jan", "Feb", "Mar",
 	"Apr", "May", "Jun",
@@ -977,7 +983,7 @@ static const TEXT FB_SHORT_MONTHS[][4] =
 	"\0"
 };
 
-static const TEXT* const FB_LONG_MONTHS_UPPER[] =
+inline const TEXT* const FB_LONG_MONTHS_UPPER[] =
 {
 	"JANUARY",
 	"FEBRUARY",
@@ -994,11 +1000,37 @@ static const TEXT* const FB_LONG_MONTHS_UPPER[] =
 	0
 };
 
+// Starts with SUNDAY cuz tm.tm_wday starts with it
+inline const TEXT FB_SHORT_DAYS[][4] =
+{
+	"Sun",
+	"Mon",
+	"Tue",
+	"Wed",
+	"Thu",
+	"Fri",
+	"Sat",
+	"\0"
+};
+
+// Starts with SUNDAY cuz tm.tm_wday starts with it
+inline const TEXT* const FB_LONG_DAYS_UPPER[] =
+{
+	"SUNDAY",
+	"MONDAY",
+	"TUESDAY",
+	"WEDNESDAY",
+	"THURSDAY",
+	"FRIDAY",
+	"SATURDAY",
+	"\0"
+};
+
 const FB_SIZE_T FB_MAX_SIZEOF = ~FB_SIZE_T(0); // Assume FB_SIZE_T is unsigned
 
-inline FB_SIZE_T fb_strlen(const char* str)
+inline constexpr FB_SIZE_T fb_strlen(const char* str)
 {
-	return static_cast<FB_SIZE_T>(strlen(str));
+	return static_cast<FB_SIZE_T>(std::char_traits<char>::length(str));
 }
 
 namespace Firebird {

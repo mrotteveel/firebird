@@ -52,8 +52,19 @@ namespace Jrd
 {
 	bool Database::onRawDevice() const
 	{
-		const PageSpace* const pageSpace = dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
+		const auto pageSpace = dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
 		return pageSpace->onRawDevice();
+	}
+
+	ULONG Database::getIOBlockSize() const
+	{
+		const auto pageSpace = dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
+		fb_assert(pageSpace && pageSpace->file);
+
+		if ((pageSpace->file->fil_flags & FIL_no_fs_cache) || pageSpace->onRawDevice())
+			return DIRECT_IO_BLOCK_SIZE;
+
+		return PAGE_ALIGNMENT;
 	}
 
 	AttNumber Database::generateAttachmentId()
@@ -371,18 +382,6 @@ namespace Jrd
 			dbb_modules.add(module);
 	}
 
-	void Database::ensureGuid(thread_db* tdbb)
-	{
-		if (readOnly())
-			return;
-
-		if (!dbb_guid.Data1) // It would be better to full check but one field should be enough
-		{
-			GenerateGuid(&dbb_guid);
-			PAG_set_db_guid(tdbb, dbb_guid);
-		}
-	}
-
 	FB_UINT64 Database::getReplSequence(thread_db* tdbb)
 	{
 		USHORT length = sizeof(FB_UINT64);
@@ -429,14 +428,14 @@ namespace Jrd
 			}
 		}
 
-		return dbb_repl_state.value;
+		return dbb_repl_state.asBool();
 	}
 
 	void Database::invalidateReplState(thread_db* tdbb, bool broadcast)
 	{
 		SyncLockGuard guard(&dbb_repl_sync, SYNC_EXCLUSIVE, FB_FUNCTION);
 
-		dbb_repl_state.invalidate();
+		dbb_repl_state.reset();
 
 		if (broadcast)
 		{
@@ -481,15 +480,25 @@ namespace Jrd
 	// Find an inactive incarnation of a system request.
 	Request* Database::findSystemRequest(thread_db* tdbb, USHORT id, InternalRequest which)
 	{
-		fb_assert(which == IRQ_REQUESTS || which == DYN_REQUESTS);
+		fb_assert(which == IRQ_REQUESTS || which == DYN_REQUESTS || which == CACHED_REQUESTS);
 
 		//Database::CheckoutLockGuard guard(this, dbb_cmp_clone_mutex);
 
-		// If the request hasn't been compiled or isn't active, there're nothing to do.
 		auto* stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
+		if (which == CACHED_REQUESTS)
+		{
+			auto readAccessor = dbb_internal_cached_statements.readAccessor();
+			if (id >= readAccessor->getCount())
+				return nullptr;
+
+			stPtr = &(readAccessor->value(id));
+		}
+
 		Statement* statement = stPtr->load(std::memory_order_relaxed);
+
+		// If the request hasn't been compiled, there're nothing to do.
 		if (!statement)
-			return NULL;
+			return nullptr;
 
 		return statement->findRequest(tdbb);
 	}
@@ -500,7 +509,20 @@ namespace Jrd
 		bool ok = req->setUsed();
 		fb_assert(ok);
 
-		auto* const stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
+		MutexEnsureUnlock g(dbb_internal_cached_mutex, FB_FUNCTION);
+
+		auto* stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
+		if (which == CACHED_REQUESTS)
+		{
+			g.enter();
+			auto writeAccessor = dbb_internal_cached_statements.writeAccessor();
+			if (id >= writeAccessor->getCount())
+			{
+				dbb_internal_cached_statements.grow(id + 1, true);
+				writeAccessor = dbb_internal_cached_statements.writeAccessor();
+			}
+			stPtr = &(writeAccessor->value(id));
+		}
 
 		Statement* existingStmt = stPtr->load(std::memory_order_acquire);
 		Statement* const compiledStmt = req->getStatement();
@@ -522,6 +544,65 @@ namespace Jrd
 		compiledStmt->release(tdbb);
 
 		return existingStmt->findRequest(tdbb);
+	}
+
+	// Methods encapsulating operations with vectors of known pages
+
+	ULONG Database::getKnownPagesCount(SCHAR ptype)
+	{
+		fb_assert(ptype == pag_transactions || ptype == pag_ids);
+
+		SyncLockGuard guard(&dbb_pages_sync, SYNC_SHARED, FB_FUNCTION);
+
+		const auto vector =
+			(ptype == pag_transactions) ? dbb_tip_pages :
+			(ptype == pag_ids) ? dbb_gen_pages :
+			nullptr;
+
+		return vector ? (ULONG) vector->count() : 0;
+	}
+
+	ULONG Database::getKnownPage(SCHAR ptype, ULONG sequence)
+	{
+		fb_assert(ptype == pag_transactions || ptype == pag_ids);
+
+		SyncLockGuard guard(&dbb_pages_sync, SYNC_SHARED, FB_FUNCTION);
+
+		const auto vector =
+			(ptype == pag_transactions) ? dbb_tip_pages :
+			(ptype == pag_ids) ? dbb_gen_pages :
+			nullptr;
+
+		if (!vector || sequence >= vector->count())
+			return 0;
+
+		return (*vector)[sequence];
+	}
+
+	void Database::setKnownPage(SCHAR ptype, ULONG sequence, ULONG value)
+	{
+		fb_assert(ptype == pag_transactions || ptype == pag_ids);
+
+		SyncLockGuard guard(&dbb_pages_sync, SYNC_EXCLUSIVE, FB_FUNCTION);
+
+		auto& rvector = (ptype == pag_transactions) ? dbb_tip_pages : dbb_gen_pages;
+
+		rvector = vcl::newVector(*dbb_permanent, rvector, sequence + 1);
+
+		(*rvector)[sequence] = value;
+	}
+
+	void Database::copyKnownPages(SCHAR ptype, ULONG count, ULONG* data)
+	{
+		fb_assert(ptype == pag_transactions || ptype == pag_ids);
+
+		SyncLockGuard guard(&dbb_pages_sync, SYNC_EXCLUSIVE, FB_FUNCTION);
+
+		auto& rvector = (ptype == pag_transactions) ? dbb_tip_pages : dbb_gen_pages;
+
+		rvector = vcl::newVector(*dbb_permanent, rvector, count);
+
+		memcpy(rvector->memPtr(), data, count * sizeof(ULONG));
 	}
 
 	// Database::Linger class implementation
@@ -607,6 +688,8 @@ namespace Jrd
 		m_replMgr = nullptr;
 
 		delete entry;
+
+		fb_assert(m_tempCacheUsage == 0);
 	}
 
 	LockManager* Database::GlobalObjectHolder::getLockManager()
@@ -687,9 +770,47 @@ namespace Jrd
 		dbb_dyn_req.grow(drq_MAX);
 	}
 
+	bool Database::GlobalObjectHolder::incTempCacheUsage(FB_SIZE_T size)
+	{
+		if (m_tempCacheUsage + size > m_tempCacheLimit)
+			return false;
+
+		const auto old = m_tempCacheUsage.fetch_add(size);
+		if (old + size > m_tempCacheLimit)
+		{
+			m_tempCacheUsage.fetch_sub(size);
+			return false;
+		}
+
+		return true;
+	}
+
+	void Database::GlobalObjectHolder::decTempCacheUsage(FB_SIZE_T size)
+	{
+		fb_assert(m_tempCacheUsage >= size);
+
+		m_tempCacheUsage.fetch_sub(size);
+	}
 
 	GlobalPtr<Database::GlobalObjectHolder::DbIdHash>
 		Database::GlobalObjectHolder::g_hashTable;
 	GlobalPtr<Mutex> Database::GlobalObjectHolder::g_mutex;
+
+	void Database::releaseSystemRequests(thread_db* tdbb)
+	{
+		for (auto& itr : dbb_internal)
+		{
+			auto* stmt = itr.load(std::memory_order_relaxed);
+			if (stmt)
+				stmt->release(tdbb);
+		}
+
+		for (auto& itr : dbb_dyn_req)
+		{
+			auto* stmt = itr.load(std::memory_order_relaxed);
+			if (stmt)
+				stmt->release(tdbb);
+		}
+	}
 
 } // namespace

@@ -357,15 +357,8 @@ void CppGenerator::generate()
 
 			fprintf(out, "\n\t\t");
 
-			string statusName;
-
-			if (!method->parameters.empty() &&
-				parser->exceptionInterface &&
-				method->parameters.front()->typeRef.token.text == parser->exceptionInterface->name)
-			{
-				statusName = method->parameters.front()->name;
+			if (!method->statusName.empty())
 				fprintf(out, "template <typename StatusType> ");
-			}
 
 			fprintf(out, "%s %s(",
 				convertType(method->returnTypeRef).c_str(), method->name.c_str());
@@ -379,7 +372,7 @@ void CppGenerator::generate()
 				if (k != method->parameters.begin())
 					fprintf(out, ", ");
 
-				if (k == method->parameters.begin() && !statusName.empty())
+				if (k == method->parameters.begin() && !method->statusName.empty())
 					fprintf(out, "StatusType* %s", parameter->name.c_str());
 				else
 				{
@@ -397,7 +390,7 @@ void CppGenerator::generate()
 				fprintf(out, "\t\t\t{\n");
 
 				const string exceptionClass("StatusType");
-				ActionParametersBlock apb = {out, LANGUAGE_CPP, prefix, exceptionClass, statusName, interface, method};
+				ActionParametersBlock apb = {out, LANGUAGE_CPP, prefix, exceptionClass, interface, method};
 
 				if (method->notImplementedAction)
 					method->notImplementedAction->generate(apb, 4);
@@ -419,11 +412,11 @@ void CppGenerator::generate()
 				fprintf(out, "\t\t\t}\n");
 			}
 
-			if (!statusName.empty())
+			if (!method->statusName.empty())
 			{
 				fprintf(out, "\t\t\t");
 
-				fprintf(out, "StatusType::clearException(%s)", statusName.c_str());
+				fprintf(out, "StatusType::clearException(%s)", method->statusName.c_str());
 
 				fprintf(out, ";\n");
 			}
@@ -694,7 +687,19 @@ void CppGenerator::generate()
 				}
 			}
 
-			fprintf(out, ")%s = 0;\n", (method->isConst ? " const" : ""));
+			fprintf(out, ")%s", (method->isConst ? " const" : ""));
+
+			if (method->stubAction)
+			{
+				const string exceptionClass("StatusType");
+				ActionParametersBlock apb = {out, LANGUAGE_CPP, prefix, exceptionClass, interface, method};
+
+				fprintf(out, "\n\t\t{\n");
+				method->stubAction->generate(apb, 3);
+				fprintf(out, "\t\t}\n");
+			}
+			else
+				fprintf(out, " = 0;\n");
 		}
 
 		fprintf(out, "\t};\n");
@@ -711,11 +716,16 @@ void CppGenerator::generate()
 
 
 CHeaderGenerator::CHeaderGenerator(const string& filename, const string& prefix, Parser* parser,
-		const string& headerGuard)
+		const string& headerGuard, const std::string& parMacro)
 	: CBasedGenerator(filename, prefix, false),
 	  parser(parser),
-	  headerGuard(headerGuard)
+	  headerGuard(headerGuard),
+	  macro(false)
 {
+	if (parMacro.length() > 0 && parMacro != "macro")
+			throw runtime_error("Last (#6) param should be exactly 'macro' or missing");
+
+	macro = parMacro.length() > 0;
 }
 
 void CHeaderGenerator::generate()
@@ -819,14 +829,24 @@ void CHeaderGenerator::generate()
 		{
 			Method* method = *j;
 
-			fprintf(out, "CLOOP_EXTERN_C %s %s%s_%s(%sstruct %s%s* self",
-				convertType(method->returnTypeRef).c_str(),
-				prefix.c_str(),
-				interface->name.c_str(),
-				method->name.c_str(),
-				(method->isConst ? "const " : ""),
-				prefix.c_str(),
-				interface->name.c_str());
+			if (macro)
+			{
+				fprintf(out, "#define %s%s_%s(self",
+					prefix.c_str(),
+					interface->name.c_str(),
+					method->name.c_str());
+			}
+			else
+			{
+				fprintf(out, "CLOOP_EXTERN_C %s %s%s_%s(%sstruct %s%s* self",
+					convertType(method->returnTypeRef).c_str(),
+					prefix.c_str(),
+					interface->name.c_str(),
+					method->name.c_str(),
+					(method->isConst ? "const " : ""),
+					prefix.c_str(),
+					interface->name.c_str());
+			}
 
 			for (vector<Parameter*>::iterator k = method->parameters.begin();
 				 k != method->parameters.end();
@@ -834,11 +854,39 @@ void CHeaderGenerator::generate()
 			{
 				Parameter* parameter = *k;
 
-				fprintf(out, ", %s %s",
-					convertType(parameter->typeRef).c_str(), parameter->name.c_str());
+				if (macro)
+				{
+					fprintf(out, ", %s",
+						parameter->name.c_str());
+				}
+				else
+				{
+					fprintf(out, ", %s %s",
+						convertType(parameter->typeRef).c_str(), parameter->name.c_str());
+				}
 			}
 
-			fprintf(out, ");\n");
+			if (macro)
+			{
+				fprintf(out, ") %s(self)->vtable->%s(self",
+					method->returnTypeRef.token.type != Token::TYPE_VOID ? "(" : "",
+					method->name.c_str());
+
+				for (vector<Parameter*>::iterator k = method->parameters.begin();
+					 k != method->parameters.end();
+					 ++k)
+				{
+					Parameter* parameter = *k;
+
+					fprintf(out, ", (%s)",
+						parameter->name.c_str());
+				}
+
+				fprintf(out, ")%s\n",
+					method->returnTypeRef.token.type != Token::TYPE_VOID ? ")" : "");
+			}
+			else
+				fprintf(out, ");\n");
 		}
 
 		fprintf(out, "\n");
@@ -1136,6 +1184,12 @@ void PascalGenerator::generate()
 			if (!isProcedure)
 				fprintf(out, ": %s", convertType(method->returnTypeRef).c_str());
 
+			// Methods that present in TObject should be "reintroduce"d.
+			// So far there is just one case. For more cases better solution required.
+
+			if (method->name == "toString")
+				fprintf(out, "; reintroduce");
+
 			fprintf(out, ";\n");
 		}
 
@@ -1178,7 +1232,10 @@ void PascalGenerator::generate()
 			if (!isProcedure)
 				fprintf(out, ": %s", convertType(method->returnTypeRef).c_str());
 
-			fprintf(out, "; virtual; abstract;\n");
+			fprintf(out, "; virtual;");
+			if (!method->stubAction)
+				fprintf(out, " abstract;");
+			fprintf(out, "\n");
 		}
 
 		fprintf(out, "\tend;\n\n");
@@ -1202,15 +1259,6 @@ void PascalGenerator::generate()
 
 			bool isProcedure = method->returnTypeRef.token.type == Token::TYPE_VOID &&
 				 !method->returnTypeRef.isPointer;
-
-			string statusName;
-
-			if (!method->parameters.empty() &&
-				parser->exceptionInterface &&
-				method->parameters.front()->typeRef.token.text == parser->exceptionInterface->name)
-			{
-				statusName = method->parameters.front()->name;
-			}
 
 			fprintf(out, "%s %s.%s(",
 				(isProcedure ? "procedure" : "function"),
@@ -1242,8 +1290,7 @@ void PascalGenerator::generate()
 			{
 				fprintf(out, "\tif (vTable.version < %d) then begin\n", method->version);
 
-				ActionParametersBlock apb = {out, LANGUAGE_PASCAL, prefix, exceptionClass,
-					statusName, interface, method};
+				ActionParametersBlock apb = {out, LANGUAGE_PASCAL, prefix, exceptionClass, interface, method};
 
 				if (method->notImplementedAction)
 					method->notImplementedAction->generate(apb, 2);
@@ -1284,8 +1331,8 @@ void PascalGenerator::generate()
 			if (ident > 1)
 				fprintf(out, "\tend;\n");
 
-			if (!statusName.empty() && !exceptionClass.empty())
-				fprintf(out, "\t%s.checkException(%s);\n", exceptionClass.c_str(), escapeName(statusName).c_str());
+			if (!method->statusName.empty() && !exceptionClass.empty())
+				fprintf(out, "\t%s.checkException(%s);\n", exceptionClass.c_str(), escapeName(method->statusName).c_str());
 
 			fprintf(out, "end;\n\n");
 		}
@@ -1309,6 +1356,8 @@ void PascalGenerator::generate()
 			bool isProcedure = method->returnTypeRef.token.type == Token::TYPE_VOID &&
 				 !method->returnTypeRef.isPointer;
 
+			ActionParametersBlock apb = {out, LANGUAGE_PASCAL, prefix, exceptionClass, interface, method};
+
 			fprintf(out, "%s %sImpl_%sDispatcher(this: %s",
 				(isProcedure ? "procedure" : "function"),
 				escapeName(interface->name, true).c_str(),
@@ -1331,6 +1380,7 @@ void PascalGenerator::generate()
 
 			fprintf(out, "; cdecl;\n");
 			fprintf(out, "begin\n");
+			DefAction(DefAction::DEF_IGNORE).generate(apb, 1);
 
 			if (!exceptionClass.empty())
 				fprintf(out, "\ttry\n\t");
@@ -1372,8 +1422,35 @@ void PascalGenerator::generate()
 
 				fprintf(out, "\tend\n");
 			}
-
 			fprintf(out, "end;\n\n");
+
+			if (method->stubAction)
+			{
+				fprintf(out, "%s %sImpl.%s(",
+					(isProcedure ? "procedure" : "function"),
+					escapeName(interface->name, true).c_str(),
+					escapeName(method->name).c_str());
+
+				for (vector<Parameter*>::iterator k = method->parameters.begin();
+					 k != method->parameters.end();
+					 ++k)
+				{
+					Parameter* parameter = *k;
+
+					fprintf(out, "%s%s",
+						k == method->parameters.begin() ? "" : "; ",
+						convertParameter(*parameter).c_str());
+				}
+
+				fprintf(out, ")");
+				if (!isProcedure)
+					fprintf(out, ": %s", convertType(method->returnTypeRef).c_str());
+				fprintf(out, ";\n");
+
+				fprintf(out, "begin\n");
+				method->stubAction->generate(apb, 1);
+				fprintf(out, "end;\n\n");
+			}
 		}
 
 		fprintf(out, "var\n");

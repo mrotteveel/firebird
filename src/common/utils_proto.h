@@ -29,11 +29,15 @@
 #ifndef INCLUDE_UTILS_PROTO_H
 #define INCLUDE_UTILS_PROTO_H
 
+#include <cctype>
 #include <string.h>
+#include <type_traits>
+
 #include "../common/classes/fb_string.h"
 #include "../common/classes/array.h"
 #include "iberror.h"
 #include "firebird/Interface.h"
+#include "memory_routines.h"
 
 #ifdef SFIO
 #include <stdio.h>
@@ -99,6 +103,13 @@ namespace fb_utils
 #endif
 	}
 
+	// std::isspace behavior is undefined with char and signed char.
+	// https://en.cppreference.com/w/cpp/string/byte/isspace
+	static inline int isspace(const char c)
+	{
+		return std::isspace((int)(UCHAR)c);
+	}
+
 #ifdef WIN_NT
 	bool prefix_kernel_object_name(char* name, size_t bufsize);
 	bool isGlobalKernelPrefix();
@@ -160,22 +171,22 @@ namespace fb_utils
 	}
 
 	unsigned int copyStatus(ISC_STATUS* const to, const unsigned int space,
-							const ISC_STATUS* const from, const unsigned int count) throw();
-	void copyStatus(Firebird::CheckStatusWrapper* to, const Firebird::IStatus* from) throw();
-	unsigned int mergeStatus(ISC_STATUS* const to, unsigned int space, const Firebird::IStatus* from) throw();
-	void setIStatus(Firebird::CheckStatusWrapper* to, const ISC_STATUS* from) throw();
-	unsigned int statusLength(const ISC_STATUS* const status) throw();
+							const ISC_STATUS* const from, const unsigned int count) noexcept;
+	void copyStatus(Firebird::CheckStatusWrapper* to, const Firebird::IStatus* from) noexcept;
+	unsigned int mergeStatus(ISC_STATUS* const to, unsigned int space, const Firebird::IStatus* from) noexcept;
+	void setIStatus(Firebird::CheckStatusWrapper* to, const ISC_STATUS* from) noexcept;
+	unsigned int statusLength(const ISC_STATUS* const status) noexcept;
 	unsigned int subStatus(const ISC_STATUS* in, unsigned int cin,
-						   const ISC_STATUS* sub, unsigned int csub) throw();
-	bool cmpStatus(unsigned int len, const ISC_STATUS* a, const ISC_STATUS* b) throw();
-	const ISC_STATUS* nextCode(const ISC_STATUS* v) throw();
+						   const ISC_STATUS* sub, unsigned int csub) noexcept;
+	bool cmpStatus(unsigned int len, const ISC_STATUS* a, const ISC_STATUS* b) noexcept;
+	const ISC_STATUS* nextCode(const ISC_STATUS* v) noexcept;
 
-	inline unsigned nextArg(const ISC_STATUS v) throw()
+	inline unsigned nextArg(const ISC_STATUS v) noexcept
 	{
 		return v == isc_arg_cstring ? 3 : 2;
 	}
 
-	inline bool isStr(const ISC_STATUS v) throw()
+	inline bool isStr(const ISC_STATUS v) noexcept
 	{
 		switch (v)
 		{
@@ -262,6 +273,51 @@ namespace fb_utils
 
 	// Frequently used actions with clumplets
 	bool isBpbSegmented(unsigned parLength, const unsigned char* par);
+
+
+	// Workaround, to be removed with C++ 23
+	template <typename... T>
+	constexpr bool fb_always_false_v = false;
+
+	// Put integer value into info buffer
+	template<typename T>
+	inline unsigned char* putInfoItemInt(const unsigned char item, T value,
+		unsigned char* ptr, const unsigned char* end)
+	{
+		static_assert(std::is_integral_v<T>, "Integral type expected");
+
+		constexpr auto len = sizeof(T);
+
+		if (ptr + len + 1 + 2 > end)
+		{
+			if (ptr < end)
+			{
+				*ptr++ = isc_info_truncated;
+				if (ptr < end)
+					*ptr++ = isc_info_end;
+			}
+			return nullptr;
+		}
+
+		*ptr++ = item;
+		*ptr++ = len;
+		*ptr++ = 0;
+
+		if constexpr (len == sizeof(SINT64))
+			put_vax_int64(ptr, value);
+		else if constexpr (len == sizeof(SLONG))
+			put_vax_long(ptr, value);
+		else if constexpr (len == sizeof(SSHORT))
+			put_vax_short(ptr, value);
+		else if constexpr (len == sizeof(char))
+			*ptr = value;
+		else
+			static_assert(fb_always_false_v<T>, "unknown data type");
+
+		ptr += len;
+		return ptr;
+	}
+
 
 	// RAII to call fb_shutdown() in utilities
 	class FbShutdown

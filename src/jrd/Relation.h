@@ -22,18 +22,19 @@
 #ifndef JRD_RELATION_H
 #define JRD_RELATION_H
 
-#include "../common/classes/RefCounted.h"
-
 #include "../jrd/vec.h"
+#include <optional>
+// ???????????????????? #include "../jrd/jrd.h"
 #include "../jrd/btr.h"
 #include "../jrd/lck.h"
 #include "../jrd/pag.h"
 #include "../jrd/val.h"
 #include "../jrd/Attachment.h"
-#include "../jrd/HazardPtr.h"
+#include "../jrd/CacheVector.h"
 #include "../jrd/ExtEngineManager.h"
 #include "../jrd/met_proto.h"
 #include "../jrd/Resources.h"
+#include "../common/classes/TriState.h"
 
 namespace Jrd
 {
@@ -110,19 +111,18 @@ class Trigger
 public:
 	Firebird::HalfStaticArray<UCHAR, 128> blr;			// BLR code
 	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
-	Statement* statement;							// Compiled statement
-	bool		releaseInProgress;
-	bool		sysTrigger;
-	FB_UINT64	type;						// Trigger type
-	USHORT		flags;						// Flags as they are in RDB$TRIGGERS table
-	jrd_rel*	relation;					// Trigger parent relation
-	MetaName	name;				// Trigger name
-	MetaName	engine;				// External engine name
-	Firebird::string	entryPoint;			// External trigger entrypoint
-	Firebird::string	extBody;			// External trigger body
-	ExtEngineManager::Trigger* extTrigger;	// External trigger
-	Nullable<bool> ssDefiner;
-	MetaName	owner;				// Owner for SQL SECURITY
+	Statement* statement = nullptr;						// Compiled statement
+	bool releaseInProgress = false;
+	FB_UINT64 type = 0;					// Trigger type
+	USHORT flags = 0;					// Flags as they are in RDB$TRIGGERS table
+	jrd_rel* relation = nullptr;		// Trigger parent relation
+	MetaName name;						// Trigger name
+	MetaName engine;					// External engine name
+	MetaName owner;						// Owner for SQL SECURITY
+	Firebird::string entryPoint;		// External trigger entrypoint
+	Firebird::string extBody;			// External trigger body
+	Firebird::TriState ssDefiner;		// SQL SECURITY
+	std::unique_ptr<ExtEngineManager::Trigger> extTrigger;	// External trigger
 
 	MemoryPool& getPool();
 
@@ -132,20 +132,8 @@ public:
 	void free(thread_db*, bool force);		// Try to free trigger request
 
 	explicit Trigger(MemoryPool& p)
-		: blr(p),
-		  debugInfo(p),
-		  releaseInProgress(false),
-		  name(p),
-		  engine(p),
-		  entryPoint(p),
-		  extBody(p),
-		  extTrigger(NULL)
+		: blr(p), debugInfo(p), entryPoint(p), extBody(p)
 	{}
-
-	virtual ~Trigger()
-	{
-		delete extTrigger;
-	}
 };
 
 // Set of triggers (use separate arrays for triggers of different types)
@@ -438,6 +426,16 @@ friend class RelationPermanent;
 };
 
 
+// Index status
+
+enum IndexStatus
+{
+	MET_object_active,
+	MET_object_deferred_active,
+	MET_object_inactive,
+	MET_object_unknown
+};
+
 // Index block
 
 class IndexPermanent : public Firebird::PermanentStorage
@@ -556,9 +554,9 @@ public:
 		return perm;
 	}
 
-	bool getActive()
+	IndexStatus getActive()
 	{
-		return !idv_inactive;
+		return idv_active;
 	}
 
 private:
@@ -568,7 +566,7 @@ private:
 	SSHORT idv_segmentCount = 0;
 	SSHORT idv_type = 0;
 	MetaName idv_foreignKey;						// FOREIGN RELATION NAME
-	bool idv_inactive = false;
+	IndexStatus idv_active = MET_object_active;
 
 public:
 	ValueExprNode* idv_expression = nullptr;		// node tree for index expression
@@ -598,9 +596,10 @@ public:
 	RseNode*		rel_view_rse;		// view record select expression
 	ViewContexts	rel_view_contexts;	// sorted array of view contexts
 
-	Nullable<bool>	rel_ss_definer;
-
 	TrigArray rel_triggers;
+
+	Firebird::TriState	rel_ss_definer;
+	Firebird::TriState	rel_repl_state;			// replication state
 
 	bool hasData() const;
 	const char* c_name() const override;
@@ -612,6 +611,11 @@ public:
 	bool isSystem() const;
 	bool isReplicating(thread_db* tdbb);
 
+	ObjectType getObjectType() const
+	{
+		return isView() ? obj_view : obj_relation;
+	}
+
 	bool scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
 	MetaName getName() const;
 	MemoryPool& getPool() const;
@@ -622,7 +626,7 @@ public:
 	static void destroy(thread_db* tdbb, jrd_rel *rel);
 	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, Cached::Relation* perm);
 
-	static Lock* makeLock(thread_db*, MemoryPool&)
+	static Lock* makeLock(thread_db*, MemoryPool&) // ????????????????
 	{
 		return nullptr;		// ignored
 	}
@@ -650,15 +654,13 @@ public:
 
 const ULONG REL_system					= 0x0001;
 const ULONG REL_get_dependencies		= 0x0002;	// New relation needs dependencies during scan
-const ULONG REL_sys_triggers			= 0x0004;	// The relation has system triggers to compile
-const ULONG REL_sql_relation			= 0x0008;	// Relation defined as sql table
-const ULONG REL_check_partners			= 0x0010;	// Rescan primary dependencies and foreign references
-const ULONG REL_sys_trigs_being_loaded	= 0x0020;	// System triggers being loaded
-const ULONG REL_temp_tran				= 0x0040;	// relation is a GTT delete rows
-const ULONG REL_temp_conn				= 0x0080;	// relation is a GTT preserve rows
-const ULONG REL_virtual					= 0x0100;	// relation is virtual
-const ULONG REL_jrd_view				= 0x0200;	// relation is VIEW
-const ULONG REL_format					= 0x0400;	// new format version to be built
+const ULONG REL_sql_relation			= 0x0004;	// Relation defined as sql table
+const ULONG REL_check_partners			= 0x0008;	// Rescan primary dependencies and foreign references
+const ULONG REL_temp_tran				= 0x0010;	// relation is a GTT delete rows
+const ULONG REL_temp_conn				= 0x0020;	// relation is a GTT preserve rows
+const ULONG REL_virtual					= 0x0040;	// relation is virtual
+const ULONG REL_jrd_view				= 0x0080;	// relation is VIEW
+const ULONG REL_format					= 0x0100;	// new format version to be built
 
 class GCLock
 {
@@ -773,6 +775,7 @@ public:
 	void extFile(thread_db* tdbb, const TEXT* file_name);		// impl in ext.cpp
 
 	IndexVersion* lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	IndexVersion* lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 
@@ -894,7 +897,7 @@ public:
 	MetaName		rel_security_name;	// security class name for relation
 	ULONG			rel_flags;			// flags
 
-	TriState		rel_repl_state;		// replication state
+	Firebird::TriState	rel_repl_state;	// replication state
 
 	PrimaryDeps*	rel_primary_dpnds = nullptr;	// foreign dependencies on this relation's primary key
 	ForeignDeps*	rel_foreign_refs = nullptr;		// foreign references to other relations' primary keys
@@ -1065,7 +1068,7 @@ public:
 	MetaName	fld_security_name;	// security class name for field
 	MetaName	fld_generator_name;	// identity generator name
 	MetaNamePair	fld_source_rel_field;	// Relation/field source name
-	Nullable<IdentityType> fld_identity_type;
+	std::optional<IdentityType> fld_identity_type;
 	USHORT fld_flags;
 
 public:

@@ -32,7 +32,6 @@
 #define CLASSES_AUTO_PTR_H
 
 #include <stdio.h>
-#include <functional>
 
 namespace Firebird {
 
@@ -103,11 +102,11 @@ class AutoPtr
 private:
 	Where* ptr;
 public:
-	AutoPtr(Where* v = NULL)
+	AutoPtr(Where* v = nullptr) noexcept
 		: ptr(v)
 	{}
 
-	AutoPtr(AutoPtr&& v)
+	AutoPtr(AutoPtr&& v) noexcept
 		: ptr(v.ptr)
 	{
 		v.ptr = nullptr;
@@ -125,7 +124,7 @@ public:
 		return *this;
 	}
 
-	AutoPtr& operator=(AutoPtr&& r)
+	AutoPtr& operator=(AutoPtr&& r) noexcept
 	{
 		if (this != &r)
 		{
@@ -136,12 +135,22 @@ public:
 		return *this;
 	}
 
-	Where* get() const
+	const Where* get() const
 	{
 		return ptr;
 	}
 
-	operator Where*() const
+	operator const Where*() const
+	{
+		return ptr;
+	}
+
+	Where* get()
+	{
+		return ptr;
+	}
+
+	operator Where*()
 	{
 		return ptr;
 	}
@@ -182,25 +191,11 @@ private:
 	void operator=(AutoPtr&);
 };
 
+template <typename T>
+using AutoDispose = AutoPtr<T, SimpleDispose>;
 
-template <typename Where>
-class AutoDispose : public AutoPtr<Where, SimpleDispose>
-{
-public:
-	AutoDispose(Where* v = nullptr)
-		: AutoPtr<Where, SimpleDispose>(v)
-	{ }
-};
-
-
-template <typename Where>
-class AutoRelease : public AutoPtr<Where, SimpleRelease>
-{
-public:
-	AutoRelease(Where* v = nullptr)
-		: AutoPtr<Where, SimpleRelease>(v)
-	{ }
-};
+template <typename T>
+using AutoRelease = AutoPtr<T, SimpleRelease>;
 
 
 template <typename T>
@@ -259,6 +254,12 @@ public:
 		*value |= oldValue;
 	}
 
+	void release(T cleanBit)
+	{
+		bit &= ~cleanBit;
+		oldValue &= ~cleanBit;
+	}
+
 private:
 	// copying is prohibited
 	AutoSetRestoreFlag(const AutoSetRestoreFlag&);
@@ -302,11 +303,11 @@ private:
 	T oldValue;
 };
 
-
+template <typename F>
 class Cleanup
 {
 public:
-	Cleanup(std::function<void()> clFunc)
+	Cleanup(F&& clFunc)
 		: clean(clFunc)
 	{ }
 
@@ -316,7 +317,25 @@ public:
 	}
 
 private:
-	std::function<void()> clean;
+	F clean;
+};
+
+class CleanupFunction
+{
+	typedef void Func();
+
+public:
+	CleanupFunction(Func* clFunc)
+		: clean(clFunc)
+	{ }
+
+	~CleanupFunction()
+	{
+		clean();
+	}
+
+private:
+	Func* clean;
 };
 
 } //namespace Firebird

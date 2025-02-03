@@ -110,8 +110,7 @@ Manager::Manager(const string& dbId,
 	const auto tdbb = JRD_get_thread_data();
 	const auto dbb = tdbb->getDatabase();
 
-	dbb->ensureGuid(tdbb);
-	const Guid& guid = dbb->dbb_guid;
+	const auto& guid = dbb->dbb_guid.value();
 	m_sequence = dbb->dbb_repl_sequence;
 
 	if (config->journalDirectory.hasData())
@@ -129,39 +128,18 @@ Manager::Manager(const string& dbId,
 
 	for (const auto& iter : m_config->syncReplicas)
 	{
-		string database = iter;
-		string login, password;
-
-		auto pos = database.find('@');
-		if (pos != string::npos)
-		{
-			const string temp = database.substr(0, pos);
-			database = database.substr(pos + 1);
-
-			pos = temp.find(':');
-			if (pos != string::npos)
-			{
-				login = temp.substr(0, pos);
-				password = temp.substr(pos + 1);
-			}
-			else
-			{
-				login = temp;
-			}
-		}
-
 		ClumpletWriter dpb(ClumpletReader::dpbList, MAX_DPB_SIZE);
 		dpb.insertByte(isc_dpb_no_db_triggers, 1);
 
-		if (login.hasData())
+		if (iter.username.hasData())
 		{
-			dpb.insertString(isc_dpb_user_name, login);
+			dpb.insertString(isc_dpb_user_name, iter.username);
 
-			if (password.hasData())
-				dpb.insertString(isc_dpb_password, password);
+			if (iter.password.hasData())
+				dpb.insertString(isc_dpb_password, iter.password);
 		}
 
-		const auto attachment = provider->attachDatabase(&localStatus, database.c_str(),
+		const auto attachment = provider->attachDatabase(&localStatus, iter.database.c_str(),
 												   	     dpb.getBufferLength(), dpb.getBuffer());
 		if (localStatus->getState() & IStatus::STATE_ERRORS)
 		{
@@ -187,10 +165,8 @@ Manager::Manager(const string& dbId,
 Manager::~Manager()
 {
 	fb_assert(m_shutdown);
+	fb_assert(m_queue.isEmpty());
 	fb_assert(m_replicas.isEmpty());
-
-	for (auto buffer : m_queue)
-		delete buffer;
 
 	for (auto buffer : m_buffers)
 		delete buffer;
@@ -207,6 +183,16 @@ void Manager::shutdown()
 	m_cleanupSemaphore.enter();
 
 	MutexLockGuard guard(m_queueMutex, FB_FUNCTION);
+
+	// Clear the processing queue
+
+	for (auto buffer : m_queue)
+	{
+		if (buffer)
+			releaseBuffer(buffer);
+	}
+
+	m_queue.clear();
 
 	// Detach from synchronous replicas
 

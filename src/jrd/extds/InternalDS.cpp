@@ -172,7 +172,7 @@ void InternalConnection::attach(thread_db* tdbb)
 
 	memset(m_features, false, sizeof(m_features));
 	static const info_features features[] = ENGINE_FEATURES;
-	for (int i = 0; i < FB_NELEM(features); i++)
+	for (FB_SIZE_T i = 0; i < FB_NELEM(features); i++)
 		setFeature(features[i]);
 }
 
@@ -197,6 +197,9 @@ void InternalConnection::doDetach(thread_db* tdbb)
 			EngineCallbackGuard guard(tdbb, *this, FB_FUNCTION);
 			att->detach(&status);
 		}
+
+		if (!(status->getState() & IStatus::STATE_ERRORS))
+			att.clear();
 
 		if (status->getErrors()[1] == isc_att_shutdown || status->getErrors()[1] == isc_shutdown)
 		{
@@ -468,23 +471,31 @@ void InternalStatement::doPrepare(thread_db* tdbb, const string& sql)
 		if (statement && statement->parentStatement)
 			statement = statement->parentStatement;
 
-		if (statement && statement->triggerInvoker)
-			tran->getHandle()->tra_caller_name = CallerName(obj_trigger,
-															statement->triggerName,
-															statement->triggerInvoker->getUserName());
-		else if (statement && (routine = statement->getRoutine()) &&
-			routine->getName().identifier.hasData())
+		if (statement)
 		{
-			const MetaString& userName = routine->invoker ? routine->invoker->getUserName() : "";
-			if (routine->getName().package.isEmpty())
+			if (statement->triggerInvoker)
 			{
-				tran->getHandle()->tra_caller_name = CallerName(routine->getObjectType(),
-					routine->getName().identifier, userName);
+				tran->getHandle()->tra_caller_name =
+					CallerName(obj_trigger, statement->triggerName, statement->triggerInvoker->getUserName());
 			}
-			else
+			else if (statement->triggerName.hasData())
 			{
-				tran->getHandle()->tra_caller_name = CallerName(obj_package_header,
-					routine->getName().package, userName);
+				tran->getHandle()->tra_caller_name =
+					CallerName(obj_trigger, statement->triggerName, "");
+			}
+			else if ((routine = statement->getRoutine()) && routine->getName().identifier.hasData())
+			{
+				const MetaString& userName = routine->invoker ? routine->invoker->getUserName() : "";
+				if (routine->getName().package.isEmpty())
+				{
+					tran->getHandle()->tra_caller_name = CallerName(routine->getObjectType(),
+						routine->getName().identifier, userName);
+				}
+				else
+				{
+					tran->getHandle()->tra_caller_name = CallerName(obj_package_header,
+						routine->getName().package, userName);
+				}
 			}
 		}
 		else

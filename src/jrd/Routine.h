@@ -26,12 +26,11 @@
 #include "../common/classes/BlrReader.h"
 #include "../jrd/MetaName.h"
 #include "../jrd/QualifiedName.h"
-#include "../jrd/HazardPtr.h"
+#include "../jrd/CacheVector.h"
 #include "../jrd/Resources.h"
 #include "../common/classes/NestConst.h"
 #include "../common/MsgMetadata.h"
 #include "../common/classes/auto.h"
-#include "../common/classes/Nullable.h"
 #include "../common/ThreadStart.h"
 
 namespace Jrd

@@ -50,8 +50,10 @@ const unsigned WORKER_IDLE_TIMEOUT = 60;	// 1 minute
 
 /// class WorkerStableAttachment
 
-WorkerStableAttachment::WorkerStableAttachment(FbStatusVector* status, Jrd::Attachment* attachment) :
-	SysStableAttachment(attachment)
+WorkerStableAttachment::WorkerStableAttachment(FbStatusVector* status, Jrd::Attachment* attachment,
+											   WorkerAttachment* workers) :
+	SysStableAttachment(attachment),
+	m_workers(workers)
 {
 	UserId user;
 	user.setUserName("<Worker>");
@@ -70,6 +72,7 @@ WorkerStableAttachment::WorkerStableAttachment(FbStatusVector* status, Jrd::Atta
 	Monitoring::publishAttachment(tdbb);
 
 	initDone();
+	m_workers->incWorkers();
 }
 
 WorkerStableAttachment::~WorkerStableAttachment()
@@ -77,16 +80,17 @@ WorkerStableAttachment::~WorkerStableAttachment()
 	fini();
 }
 
-WorkerStableAttachment* WorkerStableAttachment::create(FbStatusVector* status, Jrd::Database* dbb)
+WorkerStableAttachment* WorkerStableAttachment::create(FbStatusVector* status, Database* dbb,
+	JProvider* provider, WorkerAttachment* workers)
 {
 	Attachment* attachment = NULL;
 	try
 	{
-		attachment = Attachment::create(dbb, NULL);
+		attachment = Attachment::create(dbb, provider);
 		attachment->att_filename = dbb->dbb_filename;
 		attachment->att_flags |= ATT_worker;
 
-		WorkerStableAttachment* sAtt = FB_NEW WorkerStableAttachment(status, attachment);
+		WorkerStableAttachment* sAtt = FB_NEW WorkerStableAttachment(status, attachment, workers);
 		return sAtt;
 	}
 	catch (const Exception& ex)
@@ -121,11 +125,15 @@ void WorkerStableAttachment::fini()
 		BackgroundContextHolder tdbb(dbb, attachment, &status_vector, FB_FUNCTION);
 
 		Monitoring::cleanupAttachment(tdbb);
+		dbb->dbb_extManager->closeAttachment(tdbb, attachment);
+
 		attachment->releaseLocks(tdbb);
 		LCK_fini(tdbb, LCK_OWNER_attachment);
 	}
 
 	destroy(attachment);
+
+	m_workers->decWorkers();
 }
 
 /// class WorkerAttachment
@@ -136,8 +144,7 @@ bool WorkerAttachment::m_shutdown = false;
 
 WorkerAttachment::WorkerAttachment() :
 	m_idleAtts(*getDefaultMemoryPool()),
-	m_activeAtts(*getDefaultMemoryPool()),
-	m_cntUserAtts(0)
+	m_activeAtts(*getDefaultMemoryPool())
 {
 }
 
@@ -172,6 +179,30 @@ void WorkerAttachment::decUserAtts(const PathName& dbname)
 		if (tryClear)
 			item->clear(true);
 	}
+}
+
+void WorkerAttachment::incWorkers()
+{
+	fb_assert(Config::getServerMode() == MODE_SUPER);
+
+	MutexLockGuard guard(m_mutex, FB_FUNCTION);
+	++m_cntWorkers;
+}
+
+void WorkerAttachment::decWorkers()
+{
+	fb_assert(Config::getServerMode() == MODE_SUPER);
+
+	MutexLockGuard guard(m_mutex, FB_FUNCTION);
+	if (--m_cntWorkers == 0)
+		m_noWorkers.notifyAll();
+}
+
+void WorkerAttachment::waitForWorkers()
+{
+	MutexLockGuard guard(m_mutex, FB_FUNCTION);
+	while (m_cntWorkers != 0)
+		m_noWorkers.wait(m_mutex);
 }
 
 WorkerAttachment* WorkerAttachment::getByName(const PathName& dbname)
@@ -227,13 +258,17 @@ void WorkerAttachment::shutdownDbb(Database* dbb)
 	if (Config::getServerMode() != MODE_SUPER)
 		return;
 
-	MutexLockGuard guard(m_mapMutex, FB_FUNCTION);
-
 	WorkerAttachment* item = NULL;
-	if (!m_map->get(dbb->dbb_filename, item))
-		return;
+
+	{
+		MutexLockGuard guard(m_mapMutex, FB_FUNCTION);
+
+		if (!m_map->get(dbb->dbb_filename, item))
+			return;
+	}
 
 	item->clear(false);
+	item->waitForWorkers();
 }
 
 StableAttachmentPart* WorkerAttachment::getAttachment(FbStatusVector* status, Database* dbb)
@@ -298,7 +333,7 @@ StableAttachmentPart* WorkerAttachment::getAttachment(FbStatusVector* status, Da
 
 		MutexUnlockGuard unlock(item->m_mutex, FB_FUNCTION);
 		status->init();
-		sAtt = doAttach(status, dbb);
+		sAtt = item->doAttach(status, dbb);
 		if (!sAtt)
 		{
 			// log error ?
@@ -432,17 +467,16 @@ StableAttachmentPart* WorkerAttachment::doAttach(FbStatusVector* status, Databas
 {
 	StableAttachmentPart* sAtt = NULL;
 
+	AutoPlugin<JProvider> jInstance(JProvider::getInstance());
+	//jInstance->setDbCryptCallback(&status, tdbb->getAttachment()->att_crypt_callback);
+
 	if (Config::getServerMode() == MODE_SUPER)
-		sAtt = WorkerStableAttachment::create(status, dbb);
+		sAtt = WorkerStableAttachment::create(status, dbb, jInstance, this);
 	else
 	{
 		ClumpletWriter dpb(ClumpletReader::Tagged, MAX_DPB_SIZE, isc_dpb_version1);
 		dpb.insertString(isc_dpb_trusted_auth, DBA_USER_NAME);
 		dpb.insertInt(isc_dpb_worker_attach, 1);
-
-		AutoPlugin<JProvider> jInstance(JProvider::getInstance());
-
-		//jInstance->setDbCryptCallback(&status, tdbb->getAttachment()->att_crypt_callback);
 
 		JAttachment* jAtt = jInstance->attachDatabase(status, dbb->dbb_filename.c_str(),
 			dpb.getBufferLength(), dpb.getBuffer());
@@ -455,6 +489,7 @@ StableAttachmentPart* WorkerAttachment::doAttach(FbStatusVector* status, Databas
 	{
 		sAtt->addRef(); // !!
 		sAtt->getHandle()->setIdleTimeout(WORKER_IDLE_TIMEOUT);
+		jInstance->addRef();
 	}
 
 	return sAtt;
@@ -463,6 +498,15 @@ StableAttachmentPart* WorkerAttachment::doAttach(FbStatusVector* status, Databas
 void WorkerAttachment::doDetach(FbStatusVector* status, StableAttachmentPart* sAtt)
 {
 	status->init();
+
+	AutoPlugin<JProvider> provider;
+	{
+		AttSyncLockGuard guard(*sAtt->getSync(), FB_FUNCTION);
+
+		Attachment* attachment = sAtt->getHandle();
+		if (attachment)
+			provider.reset(attachment->getProvider());
+	}
 
 	// if (att->att_flags & ATT_system)
 	if (Config::getServerMode() == MODE_SUPER)

@@ -24,8 +24,8 @@
  *  Contributor(s): ______________________________________.
  */
 
-#ifndef JRD_UNICODE_UTIL_H
-#define JRD_UNICODE_UTIL_H
+#ifndef COMMON_UNICODE_UTIL_H
+#define COMMON_UNICODE_UTIL_H
 
 #include "intlobj_new.h"
 #include "../common/IntlUtil.h"
@@ -40,7 +40,7 @@
 struct UCollator;
 struct USet;
 
-namespace Jrd {
+namespace Firebird {
 
 class UnicodeUtil
 {
@@ -66,14 +66,6 @@ public:
 
 		UChar32 (U_EXPORT2* utf8_nextCharSafeBody) (const uint8_t* s, int32_t* pi, int32_t length, UChar32 c, UBool strict);
 
-		void (U_EXPORT2* UCNV_FROM_U_CALLBACK_STOP) (
-                const void *context,
-                UConverterFromUnicodeArgs *fromUArgs,
-                const UChar* codeUnits,
-                int32_t length,
-                UChar32 codePoint,
-                UConverterCallbackReason reason,
-                UErrorCode * err);
 		void (U_EXPORT2* UCNV_TO_U_CALLBACK_STOP) (
                 const void *context,
                 UConverterToUnicodeArgs *toUArgs,
@@ -262,6 +254,6 @@ public:
 	friend class Utf16Collation;
 };
 
-}	// namespace Jrd
+}	// namespace Firebird
 
-#endif	// JRD_UNICODE_UTIL_H
+#endif	// COMMON_UNICODE_UTIL_H

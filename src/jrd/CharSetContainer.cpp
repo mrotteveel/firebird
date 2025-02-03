@@ -74,7 +74,23 @@ void CharSetContainer::releaseLocks(thread_db* tdbb)
 	LCK_release(tdbb, cs_lock);
 }
 
+bool CharSetContainer::destroy(thread_db* tdbb, CharSetContainer* container)
+{
+	container->cs->destroy();
+	return false;
+}
+
 int CharSetVers::objectType()
 {
 	return obj_charset;
+}
+
+const char* CharSetContainer::c_name() const
+{
+	return cs->getName();
+}
+
+MetaName CharSetContainer::getName() const
+{
+	return cs->getName();
 }

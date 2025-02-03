@@ -31,23 +31,30 @@
 #define JRD_COLLATION_H
 
 #include "../common/TextType.h"
-#include "../jrd/HazardPtr.h"
+#include "../jrd/CacheVector.h"
 #include "../jrd/Resources.h"
+
+namespace Firebird {
+
+class CharSet;
+
+}
 
 
 namespace Jrd {
 
 class Lock;
 class BaseSubstringSimilarMatcher;
+class PatternMatcher;
 
-class Collation : public TextType
+class Collation : public Firebird::TextType
 {
 public:
-	static Collation* createInstance(MemoryPool& pool, TTypeId id, texttype* tt, USHORT attributes, CharSet* cs);
-	typedef const char* Key;
+	static Collation* createInstance(MemoryPool& pool, TTypeId id, texttype* tt,
+		USHORT attributes, Firebird::CharSet* cs);
 
 protected:
-	Collation(TTypeId id, texttype *a_tt, USHORT a_attributes, CharSet* a_cs)
+	Collation(TTypeId id, texttype *a_tt, USHORT a_attributes, Firebird::CharSet* a_cs)
 		: TextType(id, a_tt, a_attributes, a_cs),
 		  obsolete(false)
 	{

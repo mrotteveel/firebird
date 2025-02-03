@@ -96,6 +96,7 @@
 #include "../common/classes/Hash.h"
 #include "../common/classes/MsgPrint.h"
 #include "../jrd/Function.h"
+#include "../jrd/trace/TraceJrdHelpers.h"
 
 
 #ifdef HAVE_CTYPE_H
@@ -111,16 +112,15 @@ using namespace Jrd;
 using namespace Firebird;
 
 static ULONG get_rel_flags_from_FLAGS(USHORT);
-static void get_trigger(thread_db*, jrd_rel*, bid*, bid*, Triggers&, const TEXT*, FB_UINT64, bool,
-	USHORT, const MetaName&, const string&, const bid*, Nullable<bool> ssDefiner);
-// !!!!!!!!!!!!!! static bool get_type(thread_db*, USHORT*, const UCHAR*, const TEXT*);
+static void get_trigger(thread_db*, jrd_rel*, bid*, bid*, Triggers&, const TEXT*, FB_UINT64,
+	USHORT, const MetaName&, const string&, const bid*, TriState ssDefiner);
 static void lookup_view_contexts(thread_db*, jrd_rel*);
 static void make_relation_scope_name(const TEXT*, const USHORT, string& str);
 static ValueExprNode* parse_field_default_blr(thread_db* tdbb, bid* blob_id);
 static BoolExprNode* parse_field_validation_blr(thread_db* tdbb, bid* blob_id, const MetaName name);
 static void save_trigger_data(thread_db*, Triggers&, jrd_rel*, Statement*, blb*, blb*,
-	const TEXT*, FB_UINT64, bool, USHORT, const MetaName&, const string&,
-	const bid*, Nullable<bool> ssDefiner);
+	const TEXT*, FB_UINT64, USHORT, const MetaName&, const string&,
+	const bid*, TriState ssDefiner);
 static bool verify_TRG_ignore_perm(thread_db*, const MetaName&);
 
 
@@ -512,119 +512,101 @@ void MetadataCache::clear(thread_db* tdbb)
 /* !!!!!!!!!!!!!!!!!!! force remove old versions
 
 	SET_TDBB(tdbb);
-	verify_cache(tdbb);
+#ifdef DEV_BUILD
+	MET_verify_cache(tdbb);
+#endif
 
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
-	MutexLockGuard guard(mdc->mdc_use_mutex, FB_FUNCTION);
+	Attachment* const att = tdbb->getAttachment();
 
 	// Release global (db-level and DDL) triggers
 
 	for (unsigned i = 0; i < DB_TRIGGER_MAX; i++)
-		MET_release_triggers(tdbb, &mdc->mdc_triggers[i], false);
+		MET_release_triggers(tdbb, &att->att_triggers[i], false);
 
-	MET_release_triggers(tdbb, &mdc->mdc_ddl_triggers, false);
+	MET_release_triggers(tdbb, &att->att_ddl_triggers, false);
 
 	// Release relation triggers
 
-	for (auto relation : mdc->mdc_relations)
+	vec<jrd_rel*>* const relations = att->att_relations;
+	if (relations)
 	{
-		if (!relation)
-			continue;
+		vec<jrd_rel*>::iterator ptr, end;
+		for (ptr = relations->begin(), end = relations->end(); ptr < end; ++ptr)
+		{
+			jrd_rel* const relation = *ptr;
+			if (!relation)
+				continue;
 
-		relation->releaseTriggers(tdbb, false);
+			relation->releaseTriggers(tdbb, false);
+		}
 	}
+
+	const auto walkProcFunc = [&att](std::function<void (Routine*)> func)
+	{
+		for (const auto routine : att->att_procedures)
+		{
+			if (routine)
+				func(routine);
+		}
+
+		for (const auto routine : att->att_functions)
+		{
+			if (routine)
+				func(routine);
+		}
+	};
 
 	// Walk routines and calculate internal dependencies.
 
-	for (auto routine : mdc->mdc_procedures)
+	walkProcFunc([](Routine* routine)
 	{
-		if (routine && routine->getStatement() &&
+		if (routine->getStatement() &&
 			!(routine->flags & Routine::FLAG_OBSOLETE) )
 		{
 			inc_int_use_count(routine->getStatement());
 		}
-	}
-
-	for (auto routine : mdc->mdc_functions)
-	{
-		if (routine && routine->getStatement() &&
-			!(routine->flags & Routine::FLAG_OBSOLETE) )
-		{
-			inc_int_use_count(routine->getStatement());
-		}
-	}
+	});
 
 	// Walk routines again and adjust dependencies for routines which will not be removed.
 
-	for (auto routine : mdc->mdc_procedures)
+	walkProcFunc([](Routine* routine)
 	{
-		if (routine && routine->getStatement() &&
+		if (routine->getStatement() &&
 			!(routine->flags & Routine::FLAG_OBSOLETE) &&
-			routine->getUseCount() != routine->intUseCount )
+			routine->useCount != routine->intUseCount )
 		{
-			routine->adjust_dependencies();
+			adjust_dependencies(routine);
 		}
-	}
-
-	for (auto routine : mdc->mdc_functions)
-	{
-		if (routine && routine->getStatement() &&
-			!(routine->flags & Routine::FLAG_OBSOLETE) &&
-			routine->getUseCount() != routine->intUseCount )
-		{
-			routine->adjust_dependencies();
-		}
-	}
+	});
 
 	// Deallocate all used requests.
 
-	for (auto routine : mdc->mdc_procedures)
+	walkProcFunc([&tdbb](Routine* routine)
 	{
-		if (routine)
+		if (routine->getStatement() && !(routine->flags & Routine::FLAG_OBSOLETE) &&
+			routine->intUseCount >= 0 &&
+			routine->useCount == routine->intUseCount)
 		{
-			if (routine->getStatement() && !(routine->flags & Routine::FLAG_OBSOLETE) &&
-				routine->intUseCount >= 0 &&
-				routine->getUseCount() == routine->intUseCount)
-			{
-				routine->releaseStatement(tdbb);
+			routine->releaseStatement(tdbb);
 
-				if (routine->existenceLock)
-					routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
-				routine->flags |= Routine::FLAG_OBSOLETE;
-			}
-
-			// Leave it in state 0 to avoid extra pass next time to clear it
-			// Note: we need to adjust intUseCount for all routines
-			// in cache because any of them may have been affected from
-			// dependencies earlier. Even routines that were not scanned yet !
-			routine->intUseCount = 0;
+			if (routine->existenceLock)
+				LCK_release(tdbb, routine->existenceLock);
+			routine->existenceLock = NULL;
+			routine->flags |= Routine::FLAG_OBSOLETE;
 		}
-	}
 
-	for (auto routine : mdc->mdc_functions)
-	{
-		if (routine)
-		{
-			if (routine->getStatement() && !(routine->flags & Routine::FLAG_OBSOLETE) &&
-				routine->intUseCount >= 0 &&
-				routine->getUseCount() == routine->intUseCount)
-			{
-				routine->releaseStatement(tdbb);
+		// Leave it in state 0 to avoid extra pass next time to clear it
+		// Note: we need to adjust intUseCount for all routines
+		// in cache because any of them may have been affected from
+		// dependencies earlier. Even routines that were not scanned yet !
+		routine->intUseCount = 0;
+	});
 
-				if (routine->existenceLock)
-					routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::CloseCache);
-				routine->flags |= Routine::FLAG_OBSOLETE;
-			}
+#ifdef DEV_BUILD
+	MET_verify_cache(tdbb);
+#endif
 
-			// Leave it in state 0 to avoid extra pass next time to clear it
-			// Note: we need to adjust intUseCount for all routines
-			// in cache because any of them may have been affected from
-			// dependencies earlier. Even routines that were not scanned yet !
-			routine->intUseCount = 0;
-		}
-	}
-
-	verify_cache(tdbb); */
+ */
 }
 
 
@@ -1532,7 +1514,6 @@ void MET_get_shadow_files(thread_db* tdbb, bool delete_files)
 	FOR(REQUEST_HANDLE handle) X IN RDB$FILES
 		WITH X.RDB$SHADOW_NUMBER NOT MISSING
 			AND X.RDB$SHADOW_NUMBER NE 0
-			AND X.RDB$FILE_SEQUENCE EQ 0
 	{
 		if ((X.RDB$FILE_FLAGS & FILE_shadow) && !(X.RDB$FILE_FLAGS & FILE_inactive))
 		{
@@ -1701,9 +1682,6 @@ void MET_load_trigger(thread_db* tdbb,
 
 	if (relation)
 	{
-		if (getPermanent(relation)->rel_flags & REL_sys_trigs_being_loaded)
-			return;
-
 		// No need to load table triggers for ReadOnly databases,
 		// since INSERT/DELETE/UPDATE statements are not going to be allowed
 		// hvlad: GTT with ON COMMIT DELETE ROWS clause is writable
@@ -1756,7 +1734,7 @@ void MET_load_trigger(thread_db* tdbb,
 		if (!TRG.RDB$ENTRYPOINT.NULL)	// ODS_12_0
 			entryPoint = TRG.RDB$ENTRYPOINT;
 
-		Nullable<bool> ssDefiner;
+		TriState ssDefiner;
 
 		// If SQL SECURITY for relation was not specified it will re-use DB default so we should not care about it
 		if (!TRG.RDB$SQL_SECURITY.NULL)
@@ -1766,18 +1744,19 @@ void MET_load_trigger(thread_db* tdbb,
 
 		if (TRG.RDB$RELATION_NAME.NULL)
 		{
+			fb_assert(!relation);
+
 			if ((TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DB ||
 				(TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL)
 			{
-				// this is a database trigger
+				// this is a database or DDL trigger
 				get_trigger(tdbb,
 							relation,
 							&TRG.RDB$TRIGGER_BLR,
 							&debug_blob_id,
 							triggers(0),
 							TRG.RDB$TRIGGER_NAME,
-							TRG.RDB$TRIGGER_TYPE & ~TRIGGER_TYPE_MASK,
-							(bool) TRG.RDB$SYSTEM_FLAG,
+							TRG.RDB$TRIGGER_TYPE,
 							trig_flags,
 							engine,
 							entryPoint,
@@ -1798,7 +1777,6 @@ void MET_load_trigger(thread_db* tdbb,
 							triggers(trigger_action),
 							TRG.RDB$TRIGGER_NAME,
 							(UCHAR) trigger_action,
-							(bool) TRG.RDB$SYSTEM_FLAG,
 							trig_flags,
 							engine,
 							entryPoint,
@@ -2306,20 +2284,38 @@ void MET_lookup_index_expression(thread_db* tdbb, Cached::Relation* relation, in
 }
 
 
-void MET_lookup_index_expression_blr(thread_db* tdbb, MetaName index_name, bid& blob_id)
+bool MET_lookup_index_expr_cond_blr(thread_db* tdbb, const MetaName& index_name, bid& expr_blob_id, bid& cond_blob_id)
 {
+/**************************************
+ *
+ *      M E T _ l o o k u p _ i n d e x _ e x p r _ c o n d _ b l r
+ *
+ **************************************
+ *
+ * Functional description
+ *		Lookup index expression and\or condition blob ID to use it later by many
+ *		attachments and avoid of run of same lookup queries by all of them.
+ *		Used by parallel index creation code.
+ *
+ **************************************/
+
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 
+	bool found = false;
 	AutoCacheRequest request(tdbb, irq_l_exp_index_blr, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request)
 		IDX IN RDB$INDICES WITH
 		IDX.RDB$INDEX_NAME EQ index_name.c_str()
 	{
-		blob_id = IDX.RDB$EXPRESSION_BLR;
+		found = !IDX.RDB$EXPRESSION_BLR.NULL || !IDX.RDB$CONDITION_BLR.NULL;
+		expr_blob_id = IDX.RDB$EXPRESSION_BLR;
+		cond_blob_id = IDX.RDB$CONDITION_BLR;
 	}
 	END_FOR;
+
+	return found;
 }
 
 
@@ -2658,83 +2654,6 @@ DmlNode* MET_parse_blob(thread_db*					tdbb,
 }
 
 
-void MET_parse_sys_trigger(thread_db* tdbb, jrd_rel* relation)
-{
-/**************************************
- *
- *      M E T _ p a r s e _ s y s _ t r i g g e r
- *
- **************************************
- *
- * Functional description
- *      Parse the blr for a system relation's triggers.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
-
-	getPermanent(relation)->rel_flags &= ~REL_sys_triggers;
-
-	// Release any triggers in case of a rescan
-
-	relation->releaseTriggers(tdbb, true);
-
-	// No need to load triggers for ReadOnly databases, since
-	// INSERT/DELETE/UPDATE statements are not going to be allowed
-	// hvlad: GTT with ON COMMIT DELETE ROWS clause is writable
-
-	if (dbb->readOnly() && !(getPermanent(relation)->rel_flags & REL_temp_tran))
-		return;
-
-	AutoSetRestoreFlag loadSysTrigs(&getPermanent(relation)->rel_flags, REL_sys_trigs_being_loaded, true);
-
-	AutoCacheRequest request(tdbb, irq_s_triggers2, IRQ_REQUESTS);
-
-	FOR (REQUEST_HANDLE request)
-		TRG IN RDB$TRIGGERS
-		WITH TRG.RDB$RELATION_NAME = relation->c_name()
-		AND TRG.RDB$SYSTEM_FLAG = 1
-	{
-		const FB_UINT64 type = TRG.RDB$TRIGGER_TYPE;
-		const USHORT trig_flags = TRG.RDB$FLAGS;
-		const TEXT* name = TRG.RDB$TRIGGER_NAME;
-
-		auto ptr = type < TRIGGER_MAX ? &(relation->rel_triggers[type]) : nullptr;
-		if (ptr)
-		{
-			blb* blob = blb::open(tdbb, attachment->getSysTransaction(), &TRG.RDB$TRIGGER_BLR);
-			ULONG length = blob->blb_length + 10;
-			HalfStaticArray<UCHAR, 128> blr;
-			length = blob->BLB_get_data(tdbb, blr.getBuffer(length), length);
-
-			USHORT par_flags = (USHORT) ((trig_flags & TRG_ignore_perm) ? csb_ignore_perm : 0);
-			if (type & 1)
-				par_flags |= csb_pre_trigger;
-			else
-				par_flags |= csb_post_trigger;
-
-			Statement* statement = NULL;
-
-			{
-				Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
-				PAR_blr(tdbb, getPermanent(relation), blr.begin(), length, NULL, NULL, &statement, true, par_flags);
-			}
-
-			statement->triggerName = name;
-
-			statement->flags |= Statement::FLAG_SYS_TRIGGER | Statement::FLAG_INTERNAL;
-			if (trig_flags & TRG_ignore_perm)
-				statement->flags |= Statement::FLAG_IGNORE_PERM;
-
-			save_trigger_data(tdbb, *ptr, relation, statement, NULL, NULL, NULL, type, true, 0, "",
-				"", NULL, Nullable<bool>());
-		}
-	}
-	END_FOR
-}
-
-
 void MET_prepare(thread_db* tdbb, jrd_tra* transaction, USHORT length, const UCHAR* msg)
 {
 /**************************************
@@ -2807,8 +2726,8 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 					(P.RDB$PACKAGE_NAME.NULL ? "" : P.RDB$PACKAGE_NAME));
 			}
 
-			Nullable<bool> ssDefiner;
 			MetaName secClass;
+			TriState ssDefiner;
 
 			if (!P.RDB$SECURITY_CLASS.NULL)
 				secClass = P.RDB$SECURITY_CLASS;
@@ -2832,7 +2751,7 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 			if (getPermanent()->securityName.length() == 0)
 				getPermanent()->securityName = secClass;
 
-			if (!ssDefiner.specified)
+			if (ssDefiner.isUnknown())
 			{
 				if (!P.RDB$SQL_SECURITY.NULL)
 					ssDefiner = (bool) P.RDB$SQL_SECURITY;
@@ -2843,7 +2762,7 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 			if (getPermanent()->owner.length() == 0)
 				getPermanent()->owner = P.RDB$OWNER_NAME;
 
-			if (ssDefiner.orElse(false))
+			if (ssDefiner.asBool())
 				invoker = attachment->getUserId(getPermanent()->owner);
 
 			setImplemented(true);
@@ -2989,16 +2908,21 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 					}
 					else
 					{
+						const string name = getName().toString();
+
 						try
 						{
+							TraceProcCompile trace(tdbb, name);
+
 							parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 								P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
+
+							trace.finish(getStatement(), ITracePlugin::RESULT_SUCCESS);
 						}
 						catch (const Exception& ex)
 						{
 							StaticStatusVector temp_status;
 							ex.stuffException(temp_status);
-							const string name = getName().toString();
 							(Arg::Gds(isc_bad_proc_BLR) << Arg::Str(name)
 								<< Arg::StatusVector(temp_status.begin())).raise();
 						}
@@ -3227,7 +3151,6 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	}
 
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;
-	bool sys_triggers = (rel_perm->rel_flags & REL_sys_triggers) ? true : false;
 
 	// If anything errors, cleanup to reset the flag.
 	// This will ensure that the error will be caught if the operation is tried again.
@@ -3235,28 +3158,11 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		if (dependencies)
 			rel_perm->rel_flags |= REL_get_dependencies;
 
-		if (sys_triggers)
-			rel_perm->rel_flags |= REL_sys_triggers;
-
 		if (blob)
 			blob->BLB_close(tdbb);
 	});
 
-	rel_perm->rel_flags &= ~(REL_get_dependencies | REL_sys_triggers);
-
-	// REL_sys_triggers flag is set only for system relations in INI_init.
-	// Process that task here and do nothing else for that relations
-
-	if (getId() < rel_MAX)
-	{
-		if (sys_triggers)
-		{
-			MET_parse_sys_trigger(tdbb, this);
-			sys_triggers = false;
-		}
-		return true;
-	}
-	fb_assert(!sys_triggers);
+	rel_perm->rel_flags &= ~REL_get_dependencies;
 
 	// Do we need new format version?
 	if (rel_perm->rel_flags & REL_format)
@@ -3468,8 +3374,8 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 					DmlNode* nod = dependencies ?
 						MET_get_dependencies(tdbb, this, p, length, csb, NULL, NULL, NULL,
-							field->fld_name, obj_computed, 0, trans) :
-						PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, 0);
+							field->fld_name, obj_computed, csb_computed_field, trans) :
+						PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, csb_computed_field);
 
 					field->fld_computation = static_cast<ValueExprNode*>(nod);
 				}
@@ -3524,7 +3430,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 			case RSR_field_generator_name:
 				field->fld_generator_name = (const TEXT*) p;
-				if (!field->fld_identity_type.specified)
+				if (!field->fld_identity_type.has_value())
 					field->fld_identity_type = IDENT_TYPE_BY_DEFAULT;
 				break;
 
@@ -3551,7 +3457,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
 
 	rel_current_format = NULL;
-	dependencies = sys_triggers = false;
+	dependencies = false;
 
 	return getName().hasData();
 }
@@ -3858,10 +3764,9 @@ ULONG MET_get_rel_flags_from_TYPE(USHORT type)
 
 static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 						bid* blob_id, bid* debug_blob_id, Triggers& triggers,
-						const TEXT* name, FB_UINT64 type,
-						bool sys_trigger, USHORT flags,
+						const TEXT* name, FB_UINT64 type, USHORT flags,
 						const MetaName& engine, const string& entryPoint,
-						const bid* body, Nullable<bool> ssDefiner)
+						const bid* body, TriState ssDefiner)
 {
 /**************************************
  *
@@ -3889,7 +3794,7 @@ static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 		debugInfoBlob = blb::open(tdbb, attachment->getSysTransaction(), debug_blob_id);
 
 	save_trigger_data(tdbb, triggers, relation, NULL, blrBlob, debugInfoBlob,
-					  name, type, sys_trigger, flags, engine, entryPoint, body, ssDefiner);
+					  name, type, flags, engine, entryPoint, body, ssDefiner);
 }
 
 /* !!!!!!!!!!!!!!!!!!!!
@@ -4268,10 +4173,9 @@ bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relation,
 							  Statement* statement, blb* blrBlob, blb* debugInfoBlob,
-							  const TEXT* name, FB_UINT64 type,
-							  bool sys_trigger, USHORT flags,
+							  const TEXT* name, FB_UINT64 type, USHORT flags,
 							  const MetaName& engine, const string& entryPoint,
-							  const bid* body, Nullable<bool> ssDefiner)
+							  const bid* body, TriState ssDefiner)
 {
 /**************************************
  *
@@ -4319,7 +4223,6 @@ static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relati
 
 	t->type = type;
 	t->flags = flags;
-	t->sysTrigger = sys_trigger;
 	t->statement = statement;
 	t->relation = relation;			// trigger can't exist longer than relation
 	t->engine = engine;
@@ -4465,10 +4368,7 @@ void MET_store_dependencies(thread_db* tdbb,
 	SET_TDBB(tdbb);
 
 	const Trigger* t = nullptr;
-	const bool checkTableScope =
-		(dependency_type == obj_computed) ||
-		(dependency_type == obj_trigger) && dep_rel &&
-		(t = dep_rel->findTrigger(object_name)) && t && (t->sysTrigger);
+	const bool checkTableScope = (dependency_type == obj_computed);
 
 	while (dependencies.hasData())
 	{
@@ -4695,11 +4595,6 @@ static bool verify_TRG_ignore_perm(thread_db* tdbb, const MetaName& trig_name)
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 
-	// See if this is a system trigger, with the flag set as TRG_ignore_perm
-
-	if (INI_get_trig_flags(trig_name) & TRG_ignore_perm)
-		return true;
-
 	// See if this is a RI trigger
 
 	AutoCacheRequest request(tdbb, irq_c_trg_perm, IRQ_REQUESTS);
@@ -4759,7 +4654,7 @@ int MET_get_linger(thread_db* tdbb)
 	return rc;
 }
 
-Nullable<bool> MET_get_ss_definer(Jrd::thread_db* tdbb)
+TriState MET_get_ss_definer(Jrd::thread_db* tdbb)
 {
 /**************************************
  *
@@ -4773,7 +4668,7 @@ Nullable<bool> MET_get_ss_definer(Jrd::thread_db* tdbb)
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
-	Nullable<bool> r;
+	TriState r;
 
 	AutoCacheRequest request(tdbb, irq_dbb_ss_definer, IRQ_REQUESTS);
 
@@ -4927,7 +4822,7 @@ void MetadataCache::invalidateReplSet(thread_db* tdbb)
 	for (auto relation : mdc_relations)
 	{
 		if (relation)
-			relation->rel_repl_state.invalidate();
+			relation->rel_repl_state.reset();
 	}
 }
 
@@ -4949,85 +4844,77 @@ const Triggers* MetadataCache::getTriggers(thread_db* tdbb, MetaId triggerId)
 	return nullptr;
 }
 
-/*
-bool Trigger::isActive() const ?????????????????????
-{
-	return statement && statement->isActive();
-}
-*/
-
 void Trigger::compile(thread_db* tdbb)
 {
-	SET_TDBB(tdbb);
-
-	Database* dbb = tdbb->getDatabase();
-	Jrd::Attachment* const att = tdbb->getAttachment();
-
-	if (extTrigger)
+	if (extTrigger || statement)
 		return;
 
-	if (!statement)
+	const auto dbb = tdbb->getDatabase();
+	const auto att = tdbb->getAttachment();
+
+	// Allocate statement memory pool
+	MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
+
+	// Trigger request is not compiled yet. Lets do it now
+	USHORT par_flags = (USHORT) (flags & TRG_ignore_perm) ? csb_ignore_perm : 0;
+
+	if (type & 1)
+		par_flags |= csb_pre_trigger;
+	else
+		par_flags |= csb_post_trigger;
+
+	try
 	{
-		// Allocate statement memory pool
-		MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
-		// Trigger request is not compiled yet. Lets do it now
-		USHORT par_flags = (USHORT) (flags & TRG_ignore_perm) ? csb_ignore_perm : 0;
-		if (type & 1)
-			par_flags |= csb_pre_trigger;
+		Jrd::ContextPoolHolder context(tdbb, new_pool);
+
+		AutoPtr<CompilerScratch> auto_csb(FB_NEW_POOL(*new_pool) CompilerScratch(*new_pool));
+		CompilerScratch* csb = auto_csb;
+
+		csb->csb_g_flags |= par_flags;
+
+		if (engine.isEmpty())
+		{
+			TraceTrigCompile trace(tdbb, this);
+
+			if (debugInfo.hasData())
+			{
+				DBG_parse_debug_info((ULONG) debugInfo.getCount(), debugInfo.begin(),
+									 *csb->csb_dbg_info);
+			}
+
+			PAR_blr(tdbb, getPermanent(relation), blr.begin(), (ULONG) blr.getCount(), NULL,
+					&csb, &statement, (relation ? true : false), par_flags);
+
+			trace.finish(statement, ITracePlugin::RESULT_SUCCESS);
+		}
 		else
-			par_flags |= csb_post_trigger;
-
-		try
 		{
-			Jrd::ContextPoolHolder context(tdbb, new_pool);
-
-			AutoPtr<CompilerScratch> auto_csb(FB_NEW_POOL(*new_pool) CompilerScratch(*new_pool));
-			CompilerScratch* csb = auto_csb;
-
-			csb->csb_g_flags |= par_flags;
-
-			if (engine.isEmpty())
-			{
-				if (debugInfo.hasData())
-				{
-					DBG_parse_debug_info((ULONG) debugInfo.getCount(), debugInfo.begin(),
-										 *csb->csb_dbg_info);
-				}
-
-				PAR_blr(tdbb, getPermanent(relation), blr.begin(), (ULONG) blr.getCount(), NULL, &csb, &statement,
-					(relation ? true : false), par_flags);
-			}
-			else
-			{
-				dbb->dbb_extManager->makeTrigger(tdbb, csb, this, engine, entryPoint, extBody.c_str(),
-					(relation ?
-						(type & 1 ? IExternalTrigger::TYPE_BEFORE : IExternalTrigger::TYPE_AFTER) :
-						IExternalTrigger::TYPE_DATABASE));
-			}
+			dbb->dbb_extManager->makeTrigger(tdbb, csb, this, engine, entryPoint, extBody.c_str(),
+				(relation ?
+					(type & 1 ? IExternalTrigger::TYPE_BEFORE : IExternalTrigger::TYPE_AFTER) :
+					IExternalTrigger::TYPE_DATABASE));
 		}
-		catch (const Exception&)
-		{
-			if (statement)
-			{
-				statement->release(tdbb);
-				statement = NULL;
-			}
-			else
-				dbb->deletePool(new_pool);
-
-			throw;
-		}
-
-		statement->triggerName = name;
-		if (ssDefiner.orElse(false))
-			statement->triggerInvoker = att->getUserId(owner);
-
-		if (sysTrigger)
-			statement->flags |= Statement::FLAG_SYS_TRIGGER | Statement::FLAG_INTERNAL;
-
-		if (flags & TRG_ignore_perm)
-			statement->flags |= Statement::FLAG_IGNORE_PERM;
 	}
+	catch (const Exception&)
+	{
+		if (statement)
+		{
+			statement->release(tdbb);
+			statement = NULL;
+		}
+		else
+			dbb->deletePool(new_pool);
+
+		throw;
+	}
+
+	statement->triggerName = name;
+
+	if (ssDefiner.asBool())
+		statement->triggerInvoker = att->getUserId(owner);
+
+	if (flags & TRG_ignore_perm)
+		statement->flags |= Statement::FLAG_IGNORE_PERM;
 }
 
 Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
@@ -5275,7 +5162,9 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		idv_segmentCount = IND.RDB$SEGMENT_COUNT;
 		idv_type = IND.RDB$INDEX_TYPE;
 		idv_foreignKey = IND.RDB$FOREIGN_KEY;
-		idv_inactive = IND.RDB$INDEX_INACTIVE.NULL ? false : IND.RDB$INDEX_INACTIVE;
+
+		idv_active = IND.RDB$INDEX_INACTIVE.NULL || (IND.RDB$INDEX_INACTIVE == 0) ? MET_object_active :
+			IND.RDB$INDEX_INACTIVE == 3 ? MET_object_deferred_active : MET_object_inactive;
 
 		if (!IND.RDB$EXPRESSION_BLR.NULL)
 			expression = IND.RDB$EXPRESSION_BLR;
@@ -5286,7 +5175,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (idv_name.isEmpty())
 	{
-		idv_inactive = true;
+		idv_active = MET_object_inactive;
 		return false;
 	}
 	perm->idp_name = idv_name;
@@ -5325,6 +5214,46 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	return true;
 }
 
+IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)
+{
+	SET_TDBB(tdbb);
+
+	Attachment* attachment = tdbb->getAttachment();
+
+	// See if we already know the index by name
+	auto* idp = rel_indices.lookup(tdbb, [tdbb, name, flags](Cached::Index* idp)->Cached::Index* {
+		if (idp->getName() == name)
+		{
+			auto* idv = idp->getObject(tdbb, flags);
+			if (idv && idv->getName() == name)
+				return idp;
+		}
+		return nullptr;
+	});
+
+	if (idp)
+		return idp->getObject(tdbb, flags);
+	if (!(flags & CacheFlag::AUTOCREATE))
+		return nullptr;
+
+	// We need to look up the index in RDB$INDICES
+	AutoCacheRequest request(tdbb, irq_get_index_by_name, IRQ_REQUESTS);
+	IndexVersion* idv = nullptr;
+
+	FOR(REQUEST_HANDLE request)
+		IDX IN RDB$INDICES WITH IDX.RDB$INDEX_NAME EQ name.c_str()
+			AND IDX.RDB$RELATION_NAME EQ c_name()
+	{
+		if (!idv)
+			idv = rel_indices.getObject(tdbb, IDX.RDB$INDEX_ID - 1, flags);
+		else
+			fb_assert(false);
+	}
+	END_FOR
+
+	return idv;
+}
+
 Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
@@ -5352,9 +5281,7 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 				idp = getPermanent(idv);
 		}
 		else
-		{
 			fb_assert(false);
-		}
 	}
 	END_FOR
 

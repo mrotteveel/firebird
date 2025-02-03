@@ -26,7 +26,7 @@
 #include "../common/classes/NestConst.h"
 #include "../jrd/val.h"
 #include "../dsql/Nodes.h"
-#include "../jrd/HazardPtr.h"
+#include "../jrd/CacheVector.h"
 #include "../jrd/lck.h"
 
 namespace Jrd
@@ -35,7 +35,7 @@ namespace Jrd
 	class QualifiedName;
 	class Function;
 
-	class Function : public Routine
+	class Function final : public Routine
 	{
 		static const char* const EXCEPTION_MESSAGE;
 
@@ -83,7 +83,6 @@ namespace Jrd
 			return "function";
 		}
 
-
 	public:
 		int getObjectType() const override
 		{
@@ -98,7 +97,7 @@ namespace Jrd
 		static int objectType();
 
 	private:
-		virtual ~Function()
+		~Function() override
 		{
 			delete fun_external;
 		}

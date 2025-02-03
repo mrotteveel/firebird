@@ -133,8 +133,8 @@ jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	  rel_fields(nullptr),
 	  rel_view_rse(nullptr),
 	  rel_view_contexts(p),
-	  rel_ss_definer(false),
-	  rel_triggers(p)
+	  rel_triggers(p),
+	  rel_ss_definer(false)
 { }
 
 RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* /*makeLock*/, NoData)
@@ -221,7 +221,7 @@ bool RelationPermanent::isReplicating(thread_db* tdbb)
 	if (rel_repl_state.isUnknown())
 		rel_repl_state = MET_get_repl_state(tdbb, getName());
 
-	return rel_repl_state.value;
+	return rel_repl_state.asBool();
 }
 
 RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tran, bool allocPages)
@@ -487,18 +487,7 @@ void RelationPermanent::RelPagesSnapshot::clear()
 /* ?????????????
 bool jrd_rel::hasTriggers() const
 {
-	typedef const TrigVector* ctv;
-	ctv trigs[6] = // non-const array, don't want optimization tricks by the compiler.
-	{
-		rel_pre_erase,
-		rel_post_erase,
-		rel_pre_modify,
-		rel_post_modify,
-		rel_pre_store,
-		rel_post_store
-	};
-
-	for (int i = 0; i < 6; ++i)
+	for (int i = 1; i <= 6; ++i)
 	{
 		if (trigs[i] && trigs[i]->getCount())
 			return true;
@@ -616,24 +605,6 @@ void Triggers::release(thread_db* tdbb, bool destroy)
 		Triggers::destroy(tdbb, this);
 		return;
 	}
-
-/*	TrigVector* vector = vector_ptr->load(); !!!!!!!!!!!!!!!!!!!!!!!!!
-
-	if (!vector)
-		return;
-
-	if (!destroy)
-	{
-		vector->decompile(tdbb);
-		return;
-	}
-
-	*vector_ptr = NULL;
-
-	if (vector->hasActive())
-		return;
-
-	vector->release(tdbb); */
 }
 
 Lock* RelationPermanent::createLock(thread_db* tdbb, lck_t lckType, bool noAst)
@@ -965,21 +936,9 @@ void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 
 void Trigger::free(thread_db* tdbb, bool force)
 {
-	if (extTrigger)
-	{
-		delete extTrigger;
-		extTrigger = nullptr;
-	}
+	extTrigger.reset();
 
-	// dimitr:	We should never release triggers created by MET_parse_sys_trigger().
-	//			System triggers do have BLR, but it's not stored inside the trigger object.
-	//			However, triggers backing RI constraints are also marked as system,
-	//			but they are loaded in a regular way and their BLR is present here.
-	//			This is why we cannot simply check for sysTrigger, sigh.
-
-	const bool sysTableTrigger = (blr.isEmpty() && engine.isEmpty());
-
-	if ((sysTableTrigger && !force) || !statement || releaseInProgress)
+	if (!statement /* ????????????????? || statement->isActive() */|| releaseInProgress)
 		return;
 
 	AutoSetRestore<bool> autoProgressFlag(&releaseInProgress, true);

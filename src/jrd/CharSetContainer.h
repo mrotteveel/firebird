@@ -27,11 +27,19 @@
 #define JRD_CHARSETCONTAINER_H
 
 #include "../jrd/MetaName.h"
-#include "../jrd/HazardPtr.h"
+#include "../jrd/CacheVector.h"
 #include "../jrd/Collation.h"
 #include "../jrd/Resources.h"
 #include "../jrd/met_proto.h"
 #include "../common/classes/alloc.h"
+
+
+namespace Firebird {
+
+class CharSet;
+class CsConvert;
+
+}
 
 
 namespace Jrd {
@@ -43,21 +51,16 @@ class CharSetContainer : public Firebird::PermanentStorage
 public:
 	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, MakeLock* makeLock, NoData);
 
-	static bool destroy(thread_db* tdbb, CharSetContainer* container)
-	{
-		container->cs->destroy();
-		return false;
-	}
-
+	static bool destroy(thread_db* tdbb, CharSetContainer* container);
 	static CharSetContainer* create(thread_db* tdbb, MetaId id);
 	static int blockingAst(void* ast_object);
 
-	CharSet* getCharSet()
+	Firebird::CharSet* getCharSet()
 	{
 		return cs;
 	}
 
-	CsConvert lookupConverter(thread_db* tdbb, CSetId to_cs);
+	Firebird::CsConvert lookupConverter(thread_db* tdbb, CSetId to_cs);
 
 	static CharSetContainer* lookupCharset(thread_db* tdbb, TTypeId ttype);
 
@@ -66,16 +69,8 @@ public:
 		return cs != nullptr;
 	}
 
-	const char* c_name() const
-	{
-		return cs->getName();
-	}
-
-	MetaName getName() const
-	{
-		return cs->getName();
-	}
-
+	const char* c_name() const;
+	MetaName getName() const;
 	MetaId getId();
 
 	Lock* getLock()
@@ -92,7 +87,7 @@ public:
 	CharsetVariants names;
 
 private:
-	CharSet* cs;
+	Firebird::CharSet* cs;
 	Lock* cs_lock;
 };
 

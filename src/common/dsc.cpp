@@ -70,9 +70,9 @@ static const USHORT _DSC_convert_to_text_length[DTYPE_TYPE_MAX] =
 	42,							// dtype_dec128		+-  .   e   +-  coeff  + exp
 	47,							// dtype_int128
 	14 + TimeZoneUtil::MAX_LEN,	// dtype_sql_time_tz      HH:MM:SS.MMMM +NN:NN
-	25 + TimeZoneUtil::MAX_LEN,	// dtype_timestamp_tz     YYYY-MM-DD HH:MM:SS.MMMM +NN:NN
+	26 + TimeZoneUtil::MAX_LEN,	// dtype_timestamp_tz     YYYY-MM-DD HH:MM:SS.MMMM +NN:NN
 	14 + TimeZoneUtil::MAX_LEN,	// dtype_ex_time_tz       HH:MM:SS.MMMM +NN:NN
-	25 + TimeZoneUtil::MAX_LEN	// dtype_ex_timestamp_tz  YYYY-MM-DD HH:MM:SS.MMMM +NN:NN
+	26 + TimeZoneUtil::MAX_LEN	// dtype_ex_timestamp_tz  YYYY-MM-DD HH:MM:SS.MMMM +NN:NN
 };
 
 // Unimplemented names are in lowercase & <brackets>
@@ -1356,7 +1356,7 @@ static bool validate_dsc_tables();
 
 
 
-int dsc::getStringLength() const
+USHORT dsc::getStringLength() const
 {
 	return DSC_string_length(this);
 }
@@ -1533,7 +1533,7 @@ bool DSC_make_descriptor(DSC* desc,
 }
 
 
-int DSC_string_length(const dsc* desc)
+USHORT DSC_string_length(const dsc* desc)
 {
 /**************************************
  *
@@ -1561,10 +1561,10 @@ int DSC_string_length(const dsc* desc)
 		return desc->dsc_length - sizeof(USHORT);
 	default:
  		if (!DTYPE_IS_EXACT(desc->dsc_dtype) || desc->dsc_scale == 0)
- 			return (int) _DSC_convert_to_text_length[desc->dsc_dtype];
+ 			return _DSC_convert_to_text_length[desc->dsc_dtype];
  		if (desc->dsc_scale < 0)
-			return (int) _DSC_convert_to_text_length[desc->dsc_dtype] + 1;
-		return (int) _DSC_convert_to_text_length[desc->dsc_dtype] + desc->dsc_scale;
+			return _DSC_convert_to_text_length[desc->dsc_dtype] + 1;
+		return _DSC_convert_to_text_length[desc->dsc_dtype] + desc->dsc_scale;
 	}
 }
 

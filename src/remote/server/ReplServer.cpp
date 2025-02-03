@@ -81,11 +81,8 @@ namespace
 
 	int shutdownHandler(const int, const int, void*)
 	{
-		if (activeThreads.value())
+		if (!shutdownFlag && activeThreads.value())
 		{
-			gds__log("Shutting down the replication server with %d replicated database(s)",
-					 (int) activeThreads.value());
-
 			shutdownFlag = true;
 			shutdownSemaphore.release(activeThreads.value() + 1);
 
@@ -157,15 +154,12 @@ namespace
 					TransactionList& transactions)
 			: AutoFile(init(directory, guid))
 		{
-			char guidStr[GUID_BUFF_SIZE];
-			GuidToString(guidStr, &guid);
-
-			const PathName filename = directory + guidStr;
+			const PathName filename = directory + guid.toPathName();
 
 #ifdef WIN_NT
 			string name;
-			name.printf("firebird_replctl_%s", guidStr);
-			m_mutex = CreateMutex(NULL, FALSE, name.c_str());
+			name.printf("firebird_replctl_%s", guid.toString().c_str());
+			m_mutex = CreateMutex(ISC_get_security_desc(), FALSE, name.c_str());
 			if (WaitForSingleObject(m_mutex, INFINITE) != WAIT_OBJECT_0)
 #else // POSIX
 #ifdef HAVE_FLOCK
@@ -315,10 +309,7 @@ namespace
 #else
 			const mode_t ACCESS_MODE = 0664;
 #endif
-			char guidStr[GUID_BUFF_SIZE];
-			GuidToString(guidStr, &guid);
-
-			const PathName filename = directory + guidStr;
+			const PathName filename = directory + guid.toPathName();
 
 			const int fd = os_utils::open(filename.c_str(),
 				O_CREAT | O_RDWR | O_BINARY, ACCESS_MODE);
@@ -368,13 +359,7 @@ namespace
 
 		bool checkGuid(const Guid& guid)
 		{
-			if (!m_config->sourceGuid.Data1)
-				return true;
-
-			if (!memcmp(&guid, &m_config->sourceGuid, sizeof(Guid)))
-				return true;
-
-			return false;
+			return (!m_config->sourceGuid.has_value() || m_config->sourceGuid.value() == guid);
 		}
 
 		FB_UINT64 initReplica()
@@ -562,30 +547,12 @@ namespace
 			(SINT64) finish.value().timestamp_time / 10;
 
 		const SINT64 delta = finishMsec - startMsec;
+		const double seconds = (double) delta / 1000;
 
 		string value;
-
-		if (delta < 1000) // less than 1 second
-			value.printf("%u ms", (unsigned) delta);
-		else if (delta < 60 * 1000) // less than 1 minute
-			value.printf("%u second(s)", (unsigned) (delta / 1000));
-		else if (delta < 60 * 60 * 1000) // less than 1 hour
-			value.printf("%u minute(s)", (unsigned) (delta / 1000 / 60));
-		else if (delta < 24 * 60 * 60 * 1000) // less than 1 day
-			value.printf("%u hour(s)", (unsigned) (delta / 1000 / 60 / 60));
-		else
-			value.printf("%u day(s)", (unsigned) (delta / 1000 / 60 / 60 / 24));
+		value.printf("%.3lfs", seconds);
 
 		return value;
-	}
-
-	void readConfig(TargetList& targets)
-	{
-		Array<Replication::Config*> replicas;
-		Replication::Config::enumerate(replicas);
-
-		for (auto replica : replicas)
-			targets.add(FB_NEW Target(replica));
 	}
 
 	bool validateHeader(const SegmentHeader* header)
@@ -607,17 +574,20 @@ namespace
 		return true;
 	}
 
+	enum ActionType { REPLICATE, REPLAY, FAST_FORWARD };
+
 	void replicate(Target* target,
 				   TransactionList& transactions,
 				   FB_UINT64 sequence, ULONG offset,
 				   ULONG length, const UCHAR* data,
-				   bool rewind)
+				   ActionType action)
 	{
 		const Block* const header = (Block*) data;
 
 		const auto traNumber = header->traNumber;
 
-		if (!rewind || !traNumber || transactions.exist(traNumber))
+		if (action == REPLICATE ||
+			(action == REPLAY && (!traNumber || transactions.exist(traNumber))))
 		{
 			target->replicate(sequence, offset, length, data);
 		}
@@ -630,7 +600,7 @@ namespace
 				if (transactions.find(traNumber, pos))
 					transactions.remove(pos);
 			}
-			else if (!rewind)
+			else if (action != REPLAY)
 			{
 				transactions.clear();
 			}
@@ -639,7 +609,7 @@ namespace
 		{
 			fb_assert(traNumber);
 
-			if (!rewind && !transactions.exist(traNumber))
+			if (action != REPLAY && !transactions.exist(traNumber))
 				transactions.add(ActiveTransaction(traNumber, sequence));
 		}
 	}
@@ -740,13 +710,11 @@ namespace
 					continue;
 				}
 
-				if (!target->checkGuid(header.hdr_guid))
+				const Guid guid(header.hdr_guid);
+				if (!target->checkGuid(guid))
 				{
-					char buff[GUID_BUFF_SIZE];
-					GuidToString(buff, &header.hdr_guid);
-					const string guidStr(buff);
 					target->verbose("Skipping file (%s) due to GUID mismatch (found %s)",
-									filename.c_str(), guidStr.c_str());
+									filename.c_str(), guid.toString().c_str());
 					continue;
 				}
 /*
@@ -758,12 +726,11 @@ namespace
 
 			if (queue.isEmpty())
 			{
-				target->verbose("No new segments found, suspending for %u seconds",
-								config->applyIdleTimeout);
+				target->verbose("No new segments found, suspending");
 				return ret;
 			}
 
-			target->verbose("Added %u segment(s) to the processing queue", (ULONG) queue.getCount());
+			target->verbose("Added %u segment(s) to the queue", (ULONG) queue.getCount());
 
 			// Second pass: replicate the chain of contiguous segments
 
@@ -773,15 +740,15 @@ namespace
 			const FB_UINT64 max_sequence = queue.back()->header.hdr_sequence;
 			FB_UINT64 next_sequence = 0;
 			const bool restart = target->isShutdown();
+			auto action = REPLICATE;
 
-			for (Segment** iter = queue.begin(); iter != queue.end(); ++iter)
+			for (auto segment : queue)
 			{
 				if (shutdownFlag)
 					return PROCESS_SHUTDOWN;
 
-				Segment* const segment = *iter;
 				const FB_UINT64 sequence = segment->header.hdr_sequence;
-				const Guid& guid = segment->header.hdr_guid;
+				const Guid guid(segment->header.hdr_guid);
 
 				ControlFile control(target->getDirectory(), guid, sequence, transactions);
 
@@ -791,29 +758,55 @@ namespace
 				const FB_UINT64 db_sequence = target->initReplica();
 				const FB_UINT64 last_db_sequence = control.getDbSequence();
 
-				if (sequence <= db_sequence)
-				{
-					target->verbose("Deleting segment %" UQUADFORMAT " due to fast forward", sequence);
-					segment->remove();
-					continue;
-				}
-
 				if (db_sequence != last_db_sequence)
 				{
-					target->verbose("Resetting replication to continue from segment %" UQUADFORMAT, db_sequence + 1);
-					control.saveDbSequence(db_sequence);
-					transactions.clear();
-					control.saveComplete(db_sequence, transactions);
-					last_sequence = db_sequence;
-					last_offset = 0;
+					if (sequence == db_sequence + 1)
+					{
+						if (const auto oldest = findOldest(transactions))
+						{
+							const TraNumber oldest_trans = oldest->tra_id;
+							const FB_UINT64 oldest_sequence = oldest ? oldest->sequence : 0;
+							target->verbose("Resetting replication to continue from segment %" UQUADFORMAT
+											" (new OAT: %" UQUADFORMAT " in segment %" UQUADFORMAT ")",
+											db_sequence + 1, oldest_trans, oldest_sequence);
+						}
+						else
+						{
+							target->verbose("Resetting replication to continue from segment %" UQUADFORMAT,
+											db_sequence + 1);
+						}
+
+						control.saveDbSequence(db_sequence);
+						return PROCESS_SHUTDOWN; // this enforces restart from OAT
+					}
+
+					if (action != FAST_FORWARD)
+					{
+						if (segment != queue.front())
+						{
+							fb_assert(false);
+							return PROCESS_SHUTDOWN;
+						}
+
+						if (db_sequence > max_sequence)
+						{
+							target->verbose("Database sequence has been changed to %" UQUADFORMAT
+											", waiting for appropriate segment", db_sequence);
+							return PROCESS_SUSPEND;
+						}
+
+						target->verbose("Database sequence has been changed to %" UQUADFORMAT
+										", preparing for replication reset", db_sequence);
+
+						action = FAST_FORWARD;
+					}
 				}
 
 				// If no new segments appeared since our last attempt,
 				// then there's no point in replaying the whole sequence
 				if (max_sequence == last_sequence && !last_offset)
 				{
-					target->verbose("No new segments found, suspending for %u seconds",
-									config->applyIdleTimeout);
+					target->verbose("No new segments found, suspending");
 					return ret;
 				}
 
@@ -881,8 +874,10 @@ namespace
 
 					if (blockLength)
 					{
-						const bool rewind = (sequence < last_sequence ||
+						const bool replay = (sequence < last_sequence ||
 							(sequence == last_sequence && (!last_offset || totalLength < last_offset)));
+						if (action != FAST_FORWARD)
+							action = replay ? REPLAY : REPLICATE;
 
 						UCHAR* const data = buffer.getBuffer(length);
 						memcpy(data, &header, sizeof(Block));
@@ -890,8 +885,7 @@ namespace
 						if (read(file, data + sizeof(Block), blockLength) != blockLength)
 							raiseError("Journal file %s read failed (error %d)", segment->filename.c_str(), ERRNO);
 
-						replicate(target, transactions, sequence, totalLength,
-								  length, data, rewind);
+						replicate(target, transactions, sequence, totalLength, length, data, action);
 					}
 
 					totalLength += length;
@@ -910,20 +904,23 @@ namespace
 				oldest_sequence = oldest ? oldest->sequence : 0;
 				next_sequence = sequence + 1;
 
-				string extra;
+				string actionName, extra;
+				actionName = (action == FAST_FORWARD) ? "scanned" :
+					(action == REPLAY) ? "replayed" : "replicated";
+
 				if (oldest)
 				{
 					const TraNumber oldest_trans = oldest->tra_id;
-					extra.printf("preserving the file due to %u active transaction(s) (oldest: %" UQUADFORMAT " in segment %" UQUADFORMAT ")",
-								 (unsigned) transactions.getCount(), oldest_trans, oldest_sequence);
+					extra.printf("preserving (OAT: %" UQUADFORMAT " in segment %" UQUADFORMAT ")",
+								 oldest_trans, oldest_sequence);
 				}
 				else
 				{
-					extra += "deleting the file";
+					extra = "deleting";
 				}
 
-				target->verbose("Segment %" UQUADFORMAT " (%u bytes) is replicated in %s, %s",
-								sequence, totalLength, interval.c_str(), extra.c_str());
+				target->verbose("Segment %" UQUADFORMAT " (%u bytes) is %s in %s, %s",
+								sequence, totalLength, actionName.c_str(), interval.c_str(), extra.c_str());
 
 				if (!oldest_sequence)
 					segment->remove();
@@ -945,8 +942,8 @@ namespace
 								break;
 
 							target->verbose("Deleting segment %" UQUADFORMAT " as no longer needed", sequence);
-
 							segment->remove();
+
 						} while (pos < queue.getCount());
 					}
 				}
@@ -973,7 +970,7 @@ namespace
 
 			target->logError(message);
 
-			target->verbose("Suspending for %u seconds", config->applyErrorTimeout);
+			target->verbose("Disconnecting and suspending");
 
 			ret = PROCESS_ERROR;
 		}
@@ -988,14 +985,15 @@ namespace
 	{
 		AutoPtr<Target> target(static_cast<Target*>(arg));
 		const auto config = target->getConfig();
+		const auto dbName = config->dbName.c_str();
 
-		target->verbose("Started replication thread");
+		AutoMemoryPool workingPool(MemoryPool::createPool(ALLOC_ARGS0));
+		ContextPoolHolder threadContext(workingPool);
+
+		target->verbose("Started replication for database %s", dbName);
 
 		while (!shutdownFlag)
 		{
-			AutoMemoryPool workingPool(MemoryPool::createPool(ALLOC_ARGS0));
-			ContextPoolHolder threadContext(workingPool);
-
 			const ProcessStatus ret = process_archive(*workingPool, target);
 
 			if (ret == PROCESS_CONTINUE)
@@ -1003,10 +1001,7 @@ namespace
 
 			target->shutdown();
 
-			if (ret == PROCESS_SHUTDOWN)
-				break;
-
-			if (!shutdownFlag)
+			if (ret != PROCESS_SHUTDOWN)
 			{
 				const ULONG timeout =
 					(ret == PROCESS_SUSPEND) ? config->applyIdleTimeout : config->applyErrorTimeout;
@@ -1015,7 +1010,7 @@ namespace
 			}
 		}
 
-		target->verbose("Finished replication thread");
+		target->verbose("Finished replication for database %s", dbName);
 		--activeThreads;
 
 		return 0;
@@ -1023,17 +1018,15 @@ namespace
 }
 
 
-bool REPL_server(CheckStatusWrapper* status, bool wait)
+bool REPL_server(CheckStatusWrapper* status, const Replication::Config::ReplicaList& replicas, bool wait)
 {
 	try
 	{
-		fb_shutdown_callback(0, shutdownHandler, fb_shut_finish, 0);
+		fb_shutdown_callback(0, shutdownHandler, fb_shut_preproviders, 0);
 
-		TargetList targets;
-		readConfig(targets);
-
-		for (auto target : targets)
+		for (const auto replica : replicas)
 		{
+			const auto target = FB_NEW Target(replica);
 			Thread::start(process_thread, target, THREAD_medium, NULL);
 			++activeThreads;
 		}

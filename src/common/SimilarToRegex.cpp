@@ -74,7 +74,7 @@ namespace
 		{
 			if (!(flags & COMP_FLAG_LATIN) && !(flags & COMP_FLAG_WELLFORMED))
 			{
-				if (!Jrd::UnicodeUtil::utf8WellFormed(patternLen, reinterpret_cast<const UCHAR*>(patternStr), nullptr))
+				if (!UnicodeUtil::utf8WellFormed(patternLen, reinterpret_cast<const UCHAR*>(patternStr), nullptr))
 					status_exception::raise(Arg::Gds(isc_malformed_string));
 			}
 
@@ -82,7 +82,7 @@ namespace
 			{
 				if (!(flags & COMP_FLAG_LATIN) && !(flags & COMP_FLAG_WELLFORMED))
 				{
-					if (!Jrd::UnicodeUtil::utf8WellFormed(escapeLen, reinterpret_cast<const UCHAR*>(escapeStr), nullptr))
+					if (!UnicodeUtil::utf8WellFormed(escapeLen, reinterpret_cast<const UCHAR*>(escapeStr), nullptr))
 						status_exception::raise(Arg::Gds(isc_malformed_string));
 				}
 
@@ -410,7 +410,7 @@ namespace
 						if (!hasPatternChar() || getPatternChar() != ']')
 							status_exception::raise(Arg::Gds(isc_invalid_similar_pattern));
 
-						for (item.clazz = 0; item.clazz < FB_NELEM(classes); ++item.clazz)
+						for (item.clazz = 0; static_cast<FB_SIZE_T>(item.clazz) < FB_NELEM(classes); ++item.clazz)
 						{
 							if (fb_utils::strnicmp(patternStr + charSavePos,
 									classes[item.clazz].similarClass, len) == 0)
@@ -419,7 +419,7 @@ namespace
 							}
 						}
 
-						if (item.clazz >= FB_NELEM(classes))
+						if (static_cast<FB_SIZE_T>(item.clazz) >= FB_NELEM(classes))
 							status_exception::raise(Arg::Gds(isc_invalid_similar_pattern));
 					}
 					else
