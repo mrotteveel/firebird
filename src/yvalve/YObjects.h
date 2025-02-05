@@ -475,6 +475,9 @@ public:
 	YBatch* createBatch(Firebird::CheckStatusWrapper* status, Firebird::IMessageMetadata* inMetadata,
 		unsigned parLength, const unsigned char* par);
 
+	unsigned getMaxInlineBlobSize(Firebird::CheckStatusWrapper* status) override;
+	void setMaxInlineBlobSize(Firebird::CheckStatusWrapper* status, unsigned size) override;
+
 public:
 	AtomicAttPtr attachment;
 	Firebird::Mutex statementMutex;
@@ -576,6 +579,11 @@ public:
 		unsigned stmtLength, const char* sqlStmt, unsigned dialect,
 		Firebird::IMessageMetadata* inMetadata, unsigned parLength, const unsigned char* par);
 	YReplicator* createReplicator(Firebird::CheckStatusWrapper* status);
+
+	unsigned getMaxBlobCacheSize(Firebird::CheckStatusWrapper* status) override;
+	void setMaxBlobCacheSize(Firebird::CheckStatusWrapper* status, unsigned size) override;
+	unsigned getMaxInlineBlobSize(Firebird::CheckStatusWrapper* status) override;
+	void setMaxInlineBlobSize(Firebird::CheckStatusWrapper* status, unsigned size) override;
 
 public:
 	Firebird::IProvider* provider;
