@@ -209,7 +209,7 @@ private:
 	Firebird::Array<UCHAR> initialBuffer;
 	bool initiallyDynamic;
 
-	typedef Firebird::BePlusTree<Segment, offset_t, MemoryPool, Segment> FreeSegmentTree;
+	typedef Firebird::BePlusTree<Segment, offset_t, Segment> FreeSegmentTree;
 	FreeSegmentTree freeSegments;
 
 	static Firebird::GlobalPtr<Firebird::Mutex> initMutex;
