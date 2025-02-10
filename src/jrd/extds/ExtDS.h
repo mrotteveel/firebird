@@ -262,8 +262,7 @@ protected:
 		}
 	};
 
-	typedef Firebird::BePlusTree<AttToConn, AttToConn, Firebird::MemoryPool,
-								 AttToConn, AttToConn>
+	typedef Firebird::BePlusTree<AttToConn, AttToConn, AttToConn, AttToConn>
 		AttToConnMap;
 
 	AttToConnMap m_connections;

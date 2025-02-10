@@ -255,7 +255,7 @@ private:
 		bool initialize(Firebird::SharedMemoryBase* sm, bool initFlag);
 	};
 
-	typedef Firebird::BePlusTree<StatusBlockData*, TpcBlockNumber, Firebird::MemoryPool, StatusBlockData> BlocksMemoryMap;
+	typedef Firebird::BePlusTree<StatusBlockData*, TpcBlockNumber, StatusBlockData> BlocksMemoryMap;
 
 	static const ULONG TPC_VERSION = 1;
 	static const int SAFETY_GAP_BLOCKS = 1;

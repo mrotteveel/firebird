@@ -142,7 +142,7 @@ const unsigned int MAX_DIFFERENCES	= 1024;	// Max length of generated Difference
 
 // List of active blobs controlled by request
 
-typedef Firebird::BePlusTree<ULONG, ULONG, MemoryPool> TempBlobIdTree;
+typedef Firebird::BePlusTree<ULONG, ULONG> TempBlobIdTree;
 
 // Affected rows counter class
 
@@ -316,7 +316,7 @@ public:
 		: statement(aStatement),
 		  req_pool(statement->pool),
 		  req_memory_stats(parent_stats),
-		  req_blobs(req_pool),
+		  req_blobs(*req_pool),
 		  req_stats(*req_pool),
 		  req_base_stats(*req_pool),
 		  req_ext_stmt(NULL),
