@@ -207,15 +207,15 @@ Connection* Manager::getConnection(thread_db* tdbb, const string& dataSource,
 
 	Provider* prv = getProvider(prvName);
 
-	const bool isCurrent = (prvName == INTERNAL_PROVIDER_NAME) &&
+	const bool isCurrentAtt = (prvName == INTERNAL_PROVIDER_NAME) &&
 		isCurrentAccount(att->att_user, user, pwd, role);
 
 	ClumpletWriter dpb(ClumpletReader::dpbList, MAX_DPB_SIZE);
-	if (!isCurrent)
+	if (!isCurrentAtt)
 		prv->generateDPB(tdbb, dpb, user, pwd, role);
 
 	// look up at connections already bound to current attachment
-	Connection* conn = prv->getBoundConnection(tdbb, dbName, dpb, tra_scope);
+	Connection* conn = prv->getBoundConnection(tdbb, dbName, dpb, tra_scope, isCurrentAtt);
 	if (conn)
 		return conn;
 
@@ -226,7 +226,7 @@ Connection* Manager::getConnection(thread_db* tdbb, const string& dataSource,
 
 	ULONG hash = 0;
 
-	if (!isCurrent)
+	if (!isCurrentAtt)
 	{
 		CryptHash ch(att->att_crypt_callback);
 		hash = DefaultHash<UCHAR>::hash(dbName.c_str(), dbName.length(), MAX_ULONG) +
@@ -255,7 +255,7 @@ Connection* Manager::getConnection(thread_db* tdbb, const string& dataSource,
 	{
 		// finally, create new connection
 		conn = prv->createConnection(tdbb, dbName, dpb, tra_scope);
-		if (!isCurrent)
+		if (!isCurrentAtt)
 			m_connPool->addConnection(tdbb, conn, hash);
 	}
 
@@ -358,7 +358,10 @@ Connection* Provider::createConnection(thread_db* tdbb,
 	const PathName& dbName, ClumpletReader& dpb, TraScope tra_scope)
 {
 	Connection* conn = doCreateConnection();
-	conn->setup(dbName, dpb, tdbb->getAttachment()->att_crypt_callback);
+	conn->setup(dbName, dpb);
+	if (!conn->isCurrent())
+		conn->setCallbackRedirect(tdbb->getAttachment()->att_crypt_callback);
+
 	try
 	{
 		conn->attach(tdbb);
@@ -390,11 +393,13 @@ void Provider::bindConnection(thread_db* tdbb, Connection* conn)
 
 Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 	const Firebird::PathName& dbName, Firebird::ClumpletReader& dpb,
-	TraScope tra_scope)
+	TraScope tra_scope, bool isCurrentAtt)
 {
 	Database* dbb = tdbb->getDatabase();
 	Attachment* att = tdbb->getAttachment();
-	CryptHash ch(att->att_crypt_callback);
+	CryptHash ch;
+	if (!isCurrentAtt)
+		ch.assign(att->att_crypt_callback);
 
 	MutexLockGuard guard(m_mutex, FB_FUNCTION);
 
@@ -590,14 +595,12 @@ Connection::Connection(Provider& prov) :
 {
 }
 
-void Connection::setup(const PathName& dbName, const ClumpletReader& dpb, ICryptKeyCallback* attCallback)
+void Connection::setup(const PathName& dbName, const ClumpletReader& dpb)
 {
 	m_dbName = dbName;
 
 	m_dpb.clear();
 	m_dpb.add(dpb.getBuffer(), dpb.getBufferLength());
-
-	m_cryptCallbackRedir.setRedirect(attCallback);
 }
 
 void Connection::deleteConnection(thread_db* tdbb, Connection* conn)
@@ -2668,7 +2671,7 @@ void CryptHash::assign(ICryptKeyCallback* callback)
 
 bool CryptHash::operator==(const CryptHash& h) const
 {
-	return isValid() && h.isValid() && m_value == h.m_value;
+	return (isValid() == h.isValid()) && (m_value == h.m_value);
 }
 
 

@@ -192,7 +192,7 @@ public:
 	// get available connection already bound to the current attachment
 	Connection* getBoundConnection(Jrd::thread_db* tdbb,
 		const Firebird::PathName& dbName, Firebird::ClumpletReader& dpb,
-		TraScope tra_scope);
+		TraScope tra_scope, bool isCurrent);
 
 	// Connection gets unused, release it into pool or delete it immediately
 	virtual void releaseConnection(Jrd::thread_db* tdbb, Connection& conn, bool inPool = true);
@@ -491,7 +491,12 @@ protected:
 	virtual ~Connection();
 
 	static void deleteConnection(Jrd::thread_db* tdbb, Connection* conn);
-	void setup(const Firebird::PathName& dbName, const Firebird::ClumpletReader& dpb, Firebird::ICryptKeyCallback* attCallback);
+	void setup(const Firebird::PathName& dbName, const Firebird::ClumpletReader& dpb);
+
+	void setCallbackRedirect(Firebird::ICryptKeyCallback* attCallback)
+	{
+		m_cryptCallbackRedir.setRedirect(attCallback);
+	}
 
 	void setBoundAtt(Jrd::Attachment* att) { m_boundAtt = att; }
 
