@@ -968,3 +968,8 @@ FB_IMPL_MSG(JRD, 965, ods_upgrade_err, -901, "HY", "000", "ODS upgrade failed wh
 FB_IMPL_MSG(JRD, 966, bad_par_workers, -924, "HY", "000", "Wrong parallel workers value @1, valid range are from 1 to @2")
 FB_IMPL_MSG(JRD, 967, idx_expr_not_found, -902, "42", "000", "Definition of index expression is not found for index @1")
 FB_IMPL_MSG(JRD, 968, idx_cond_not_found, -902, "42", "000", "Definition of index condition is not found for index @1")
+// Codes 969..987 are used in v6
+FB_IMPL_MSG(JRD, 988, sweep_unable_to_run, -901, "42", "000", "Unable to run sweep")
+FB_IMPL_MSG(JRD, 989, sweep_concurrent_instance, -901, "42", "000", "Another instance of sweep is already running")
+FB_IMPL_MSG(JRD, 990, sweep_read_only, -901, "42", "000", "Database in read only state")
+FB_IMPL_MSG(JRD, 991, sweep_attach_no_cleanup, -901, "42", "000", "Attachment has no cleanup flag set")
