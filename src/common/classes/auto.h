@@ -233,11 +233,11 @@ public:
 };
 
 
-template <typename T>
+template <typename T, typename T2 = T>
 class AutoSetRestoreFlag
 {
 public:
-	AutoSetRestoreFlag(T* aValue, T newBit, bool set)
+	AutoSetRestoreFlag(T* aValue, T2 newBit, bool set)
 		: value(aValue),
 		  bit(newBit),
 		  oldValue((*value) & bit)
@@ -254,7 +254,7 @@ public:
 		*value |= oldValue;
 	}
 
-	void release(T cleanBit)
+	void release(T2 cleanBit)
 	{
 		bit &= ~cleanBit;
 		oldValue &= ~cleanBit;
@@ -266,7 +266,7 @@ private:
 	AutoSetRestoreFlag& operator =(const AutoSetRestoreFlag&);
 
 	T* value;
-	T bit;
+	T2 bit;
 	T oldValue;
 };
 
