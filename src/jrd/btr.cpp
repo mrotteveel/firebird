@@ -1042,7 +1042,7 @@ void BTR_create(thread_db* tdbb,
 
 	// Index is created.  Go back to the index root page and update it to
 	// point to the index.
-	WIN window(getPermanent(relation)->getIndexRootPage(tdbb));
+	WIN window(relation->getPermanent()->getIndexRootPage(tdbb));
 	index_root_page* const root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 	CCH_MARK(tdbb, &window);
 
@@ -1089,13 +1089,15 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id)
 		index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
 
 		CCH_MARK(tdbb, window);
-		const PageNumber next(window->win_page.getPageSpaceID(), irt_desc->getRoot());
-		bool tree_exists = (irt_desc->getRoot() != 0);
+		const auto rootPage = irt_desc->getRoot();
+		const PageNumber next(window->win_page.getPageSpaceID(), rootPage);
+		bool tree_exists = (rootPage != 0);
 
 		// remove the pointer to the top-level index page before we delete it
 		irt_desc->setEmpty();
 		const PageNumber prior(window->win_page);
-		const MetaId relation_id = root->irt_relation;
+		const USHORT relation_id = root->irt_relation;
+
 		CCH_RELEASE(tdbb, window);
 
 		delete_tree(tdbb, relation_id, id, next, prior);
@@ -1318,11 +1320,12 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_ro
 
 	const index_root_page::irt_repeat* irt_desc = &root->irt_rpt[id];
 
-	if (irt_desc->getRoot() == 0)
+	const ULONG rootPage = irt_desc->getRoot();
+	if (!rootPage)
 		return false;
 
 	idx->idx_id = id;
-	idx->idx_root = irt_desc->getRoot();
+	idx->idx_root = rootPage;
 	idx->idx_count = irt_desc->irt_keys;
 	idx->idx_flags = irt_desc->irt_flags;
 	idx->idx_runtime_flags = 0;
@@ -2906,13 +2909,13 @@ void BTR_selectivity(thread_db* tdbb, Cached::Relation* relation, MetaId id, Sel
 	if (!root)
 		return;
 
-	ULONG page;
-	if (id >= root->irt_count || !(page = root->irt_rpt[id].getRoot()))
+	if (id >= root->irt_count || !root->irt_rpt[id].getRoot())
 	{
 		CCH_RELEASE(tdbb, &window);
 		return;
 	}
 
+	ULONG page = root->irt_rpt[id].getRoot();
 	const bool descending = (root->irt_rpt[id].irt_flags & irt_descending);
 	const ULONG segments = root->irt_rpt[id].irt_keys;
 

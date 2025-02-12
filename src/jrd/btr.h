@@ -84,7 +84,7 @@ struct index_desc
 	ULONG	idx_root;						// Index root
 	float	idx_selectivity;				// selectivity of index
 	MetaId	idx_id;
-	UCHAR	idx_flags;
+	USHORT	idx_flags;
 	UCHAR	idx_runtime_flags;				// flags used at runtime, not stored on disk
 	MetaId	idx_primary_index;				// id for primary key partner index
 	MetaId	idx_primary_relation;			// id for primary key partner relation
@@ -134,16 +134,16 @@ const int idx_first_intl_string	= 64;	// .. MAX (short) Range of computed key st
 
 const int idx_offset_intl_range	= (0x7FFF + idx_first_intl_string);
 
-// these flags must match the irt_flags (see ods.h)
+// these flags match the irt_flags in ods.h
 
-const UCHAR idx_unique		= 1;
-const UCHAR idx_descending	= 2;
-//const UCHAR idx_state_a	= 4;
-const UCHAR idx_foreign		= 8;
-const UCHAR idx_primary		= 16;
-const UCHAR idx_expression	= 32;
-const UCHAR idx_condition	= 64;
-//const UCHAR idx_state_b	= 128;
+const USHORT idx_unique		= 1;
+const USHORT idx_descending	= 2;
+//const USHORT idx_state_a	= 4;
+const USHORT idx_foreign		= 8;
+const USHORT idx_primary		= 16;
+const USHORT idx_expression	= 32;
+const USHORT idx_condition	= 64;
+//const USHORT idx_state_b	= 128;
 
 // these flags are for idx_runtime_flags
 
