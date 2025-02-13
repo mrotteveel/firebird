@@ -173,10 +173,6 @@ set FBBUILD_INSTALL_IMAGES=%FB_ROOT_PATH%\builds\install_images
   set FBBUILD_PROD_STATUS=DEV
 )
 
-:: if we do not have any external documentation we should not mark the build as production
-if not defined FB_EXTERNAL_DOCS set FBBUILD_PROD_STATUS=DEV
-
-
 @if "%FB_TARGET_PLATFORM%"=="x64" (
   set FBBUILD_FILE_ID=%PRODUCT_VER_STRING%-%FBBUILD_PACKAGE_NUMBER%%FBBUILD_FILENAME_SUFFIX%-windows-x64
 ) else (
