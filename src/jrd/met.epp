@@ -3129,7 +3129,9 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		// on any attempt to use modified relation
 		// or on transaction commit.
 
-		AutoRequest request;
+		static const CachedRequestId requestCacheId;
+		AutoCacheRequest request(tdbb, requestCacheId);
+
 		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
 			REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
 		{
