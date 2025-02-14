@@ -612,6 +612,19 @@ public:
 		return true;
 	}
 
+	Versioned* makeObject(thread_db* tdbb, ObjectBase::Flag fl)
+	{
+		auto obj = Versioned::create(tdbb, Permanent::getPool(), this);
+		if (!obj)
+			(Firebird::Arg::Gds(isc_random) << "Object create failed in makeObject()").raise();
+
+		if (storeObject(tdbb, obj, fl))
+			return obj;
+
+		Versioned::destroy(tdbb, obj);
+		return nullptr;
+	}
+
 	void commit(thread_db* tdbb)
 	{
 		HazardPtr<ListEntry<Versioned>> current(list);
@@ -879,15 +892,7 @@ public:
 				StoredElement::cleanup(tdbb, newData);
 		}
 
-		auto obj = Versioned::create(tdbb, getPool(), *ptr);
-		if (!obj)
-			(Firebird::Arg::Gds(isc_random) << "Object create failed in makeObject()").raise();
-
-		if (data->storeObject(tdbb, obj, fl))
-			return obj;
-
-		Versioned::destroy(tdbb, obj);
-		return nullptr;
+		return data->makeObject(tdbb, fl);
 	}
 
 	template <typename F>
