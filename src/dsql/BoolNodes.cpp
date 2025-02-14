@@ -1272,7 +1272,9 @@ string InListBoolNode::internalPrint(NodePrinter& printer) const
 {
 	BoolExprNode::internalPrint(printer);
 
+#ifndef TRIVIAL_NODE_PRINTER
 	NODE_PRINT(printer, blrOp);
+#endif
 	NODE_PRINT(printer, arg);
 	NODE_PRINT(printer, list);
 
