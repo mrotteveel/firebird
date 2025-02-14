@@ -20,14 +20,14 @@ using namespace Firebird;
 using namespace Jrd;
 
 
-void Resources::transfer(thread_db* tdbb, VersionedObjects* to)
+void Resources::transfer(thread_db* tdbb, VersionedObjects* to, bool internal)
 {
-	charSets.transfer(tdbb, to);
-	relations.transfer(tdbb, to);
-	procedures.transfer(tdbb, to);
-	functions.transfer(tdbb, to);
-	triggers.transfer(tdbb, to);
-	indices.transfer(tdbb, to);
+	charSets.transfer(tdbb, to, internal);
+	relations.transfer(tdbb, to, internal);
+	procedures.transfer(tdbb, to, internal);
+	functions.transfer(tdbb, to, internal);
+	triggers.transfer(tdbb, to, internal);
+	indices.transfer(tdbb, to, internal);
 }
 
 Resources::~Resources()

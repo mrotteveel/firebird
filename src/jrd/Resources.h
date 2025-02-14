@@ -147,7 +147,7 @@ public:
 
 	OBJ* operator()(thread_db* tdbb) const
 	{
-		return cacheElement ? cacheElement->getObject(tdbb, CacheFlag::AUTOCREATE) : nullptr;
+		return cacheElement ? cacheElement->getObject(tdbb, CacheFlag::NOSCAN) : nullptr;
 	}
 
 	CacheElement<OBJ, PERM>* operator()() const
@@ -215,17 +215,20 @@ public:
 			return this->getElement(pos);
 		}
 
-		void transfer(thread_db* tdbb, VersionedObjects* to)
+		void transfer(thread_db* tdbb, VersionedObjects* to, bool internal)
 		{
 			for (auto& resource : *this)
-				to->put(resource.getOffset(), resource()->getObject(tdbb, CacheFlag::AUTOCREATE));
+			{
+				to->put(resource.getOffset(), resource()->getObject(tdbb,
+					internal ? CacheFlag::NOSCAN : CacheFlag::AUTOCREATE));
+			}
 		}
 
 	private:
 		FB_SIZE_T& versionCurrentPosition;
 	};
 
-	void transfer(thread_db* tdbb, VersionedObjects* to);
+	void transfer(thread_db* tdbb, VersionedObjects* to, bool internal);
 	void release(thread_db* tdbb);
 
 #ifdef DEV_BUILD

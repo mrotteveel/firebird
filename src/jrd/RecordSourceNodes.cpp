@@ -587,7 +587,8 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookupRelation(tdbb, id, CacheFlag::AUTOCREATE);
+			rel = MetadataCache::lookupRelation(tdbb, id,
+				CacheFlag::AUTOCREATE | (csb->csb_g_flags & csb_internal ? CacheFlag::NOSCAN : 0));
 			if (!rel)
 				name.printf("id %d", id);
 			break;

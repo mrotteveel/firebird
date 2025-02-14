@@ -101,6 +101,8 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		mapFieldInfo.takeOwnership(csb->csb_map_field_info);
 
 		// versioned metadata support
+		if (csb->csb_g_flags & csb_internal)
+			flags |= FLAG_INTERNAL;
 		loadResources(tdbb, nullptr);
 
 		impureSize = csb->csb_impure;
@@ -196,7 +198,7 @@ void Statement::loadResources(thread_db* tdbb, Request* req)
 			resources->functions.getCount() + resources->triggers.getCount();
 
 		latest = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
-		resources->transfer(tdbb, latest);
+		resources->transfer(tdbb, latest, flags & FLAG_INTERNAL);
 	}
 
 	if (req && req->getResources() != latest)
