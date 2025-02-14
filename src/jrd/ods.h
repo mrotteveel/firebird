@@ -490,7 +490,6 @@ inline void index_root_page::irt_repeat::setState(UCHAR newState)
 
 inline bool index_root_page::irt_repeat::isUsed() const
 {
-	fb_assert(irt_transaction != 0 || irt_page != 0);
 	return getState() != irt_unused;
 }
 
