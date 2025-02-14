@@ -990,7 +990,7 @@ void INI_init_sys_relations(thread_db* tdbb)
 		}
 
 		if (needsRdbRuntime)
-			 MetadataCache::newVersion<Cached::Relation>(tdbb, relId);
+			relation->makeObject(tdbb, 0);
 	}
 }
 
