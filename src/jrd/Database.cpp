@@ -811,6 +811,14 @@ namespace Jrd
 			if (stmt)
 				stmt->release(tdbb);
 		}
+
+		auto writeAccessor = dbb_internal_cached_statements.writeAccessor();
+		for (unsigned int n = 0; n < writeAccessor->getCount(); ++n)
+		{
+			auto* stmt = writeAccessor->value(n).load(std::memory_order_relaxed);
+			if (stmt)
+				stmt->release(tdbb);
+		}
 	}
 
 } // namespace

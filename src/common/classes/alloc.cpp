@@ -2058,8 +2058,8 @@ MemPool::~MemPool(void)
 
 #ifdef MEM_DEBUG
 #ifdef DEBUG_LOST_POOLS
-	if (child)
-		fprintf(stderr, "child = %p\n", child);
+	for (auto* c = child; c; c = c->child)
+		fprintf(stderr, "%p: child = %p\n", this, c);
 #endif
 
 	fb_assert(!child);
