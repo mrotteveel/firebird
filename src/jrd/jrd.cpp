@@ -753,9 +753,19 @@ namespace
 	class DefaultCallback : public AutoIface<ICryptKeyCallbackImpl<DefaultCallback, CheckStatusWrapper> >
 	{
 	public:
-		unsigned int callback(unsigned int, const void*, unsigned int, void*)
+		unsigned int callback(unsigned int, const void*, unsigned int, void*) override
 		{
 			return 0;
+		}
+
+		int getHashLength(Firebird::CheckStatusWrapper* status) override
+		{
+			return 0;
+		}
+
+		void getHashData(Firebird::CheckStatusWrapper* status, void* h) override
+		{
+			fb_assert(false);
 		}
 	};
 
@@ -1301,7 +1311,7 @@ private:
 
 static void			check_database(thread_db* tdbb, bool async = false);
 static void			commit(thread_db*, jrd_tra*, const bool);
-static bool			drop_files(const jrd_file*);
+static bool			drop_file(Database*, const jrd_file*);
 static void			find_intl_charset(thread_db*, Jrd::Attachment*, const DatabaseOptions*);
 static void			init_database_lock(thread_db*);
 static void			run_commit_triggers(thread_db* tdbb, jrd_tra* transaction);
@@ -1406,12 +1416,14 @@ static void successful_completion(CheckStatusWrapper* s, ISC_STATUS acceptCode =
 
 // Stuff exception transliterated to the client charset.
 static ISC_STATUS transliterateException(thread_db* tdbb, const Exception& ex, FbStatusVector* vector,
-	const char* func) noexcept
+	const char* func, std::function<bool (const FbStatusVector* vector)> avoidTrace = {}) noexcept
 {
 	ex.stuffException(vector);
 
 	Jrd::Attachment* attachment = tdbb->getAttachment();
-	if (func && attachment && attachment->att_trace_manager->needs(ITraceFactory::TRACE_EVENT_ERROR))
+
+	if ((!avoidTrace || !avoidTrace(vector)) && func &&
+		attachment && attachment->att_trace_manager->needs(ITraceFactory::TRACE_EVENT_ERROR))
 	{
 		TraceConnectionImpl conn(attachment);
 		TraceStatusVectorImpl traceStatus(vector, TraceStatusVectorImpl::TS_ERRORS);
@@ -1831,7 +1843,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				dbb->dbb_crypto_manager = FB_NEW_POOL(*dbb->dbb_permanent) CryptoManager(tdbb);
 				dbb->dbb_monitoring_data = FB_NEW_POOL(*dbb->dbb_permanent) MonitoringData(dbb);
 
-				PAG_init2(tdbb, 0);
+				PAG_init2(tdbb);
 				PAG_header(tdbb, false, newForceWrite);
 				dbb->dbb_page_manager.initTempPageSpace(tdbb);
 				dbb->dbb_crypto_manager->attach(tdbb, attachment);
@@ -3552,11 +3564,9 @@ void JAttachment::internalDropDatabase(CheckStatusWrapper* user_status)
 				// This point on database is useless
 
 				// drop the files here
-				bool err = drop_files(file);
+				bool err = drop_file(dbb, file);
 				for (; shadow; shadow = shadow->sdw_next)
-				{
-					err = drop_files(shadow->sdw_file) || err;
-				}
+					err = drop_file(dbb, shadow->sdw_file) || err;
 
 				tdbb->setDatabase(NULL);
 				Database::destroy(dbb);
@@ -5308,6 +5318,28 @@ IReplicator* JAttachment::createReplicator(CheckStatusWrapper* user_status)
 	return jr;
 }
 
+unsigned JAttachment::getMaxBlobCacheSize(CheckStatusWrapper* status)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+	return 0;
+}
+
+void JAttachment::setMaxBlobCacheSize(CheckStatusWrapper* status, unsigned size)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+}
+
+unsigned JAttachment::getMaxInlineBlobSize(CheckStatusWrapper* status)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+	return 0;
+}
+
+void JAttachment::setMaxInlineBlobSize(CheckStatusWrapper* status, unsigned size)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+}
+
 
 int JResultSet::fetchNext(CheckStatusWrapper* user_status, void* buffer)
 {
@@ -5685,7 +5717,13 @@ JStatement* JAttachment::prepare(CheckStatusWrapper* user_status, ITransaction* 
 		}
 		catch (const Exception& ex)
 		{
-			transliterateException(tdbb, ex, user_status, "JStatement::prepare");
+			transliterateException(tdbb, ex, user_status, "JStatement::prepare",
+				[&](const FbStatusVector* vector)
+				{
+					return (flags & IStatement::PREPARE_REQUIRE_SEMICOLON) &&
+						fb_utils::containsErrorCode(vector->getErrors(), isc_command_end_err2);
+				});
+
 			if (statement)
 			{
 				try
@@ -6070,7 +6108,6 @@ JBatch* JStatement::createBatch(Firebird::CheckStatusWrapper* status, Firebird::
 			batch = FB_NEW JBatch(dsqlBatch, this, inMetadata);
 			batch->addRef();
 			dsqlBatch->setInterfacePtr(batch);
-			tdbb->getAttachment()->registerBatch(batch);
 		}
 		catch (const Exception& ex)
 		{
@@ -6088,6 +6125,17 @@ JBatch* JStatement::createBatch(Firebird::CheckStatusWrapper* status, Firebird::
 
 	successful_completion(status);
 	return batch;
+}
+
+unsigned JStatement::getMaxInlineBlobSize(CheckStatusWrapper* status)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+	return 0;
+}
+
+void JStatement::setMaxInlineBlobSize(CheckStatusWrapper* status, unsigned size)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
 }
 
 
@@ -6146,9 +6194,6 @@ void JBatch::freeEngineData(Firebird::CheckStatusWrapper* user_status)
 
 		try
 		{
-			Attachment* att = getAttachment()->getHandle();
-			if (att)
-				att->deregisterBatch(this);
 			delete batch;
 			batch = nullptr;
 		}
@@ -6801,31 +6846,28 @@ static void commit(thread_db* tdbb, jrd_tra* transaction, const bool retaining_f
 }
 
 
-static bool drop_files(const jrd_file* file)
+static bool drop_file(Database* dbb, const jrd_file* file)
 {
 /**************************************
  *
- *	d r o p _ f i l e s
+ *	d r o p _ f i l e
  *
  **************************************
  *
  * Functional description
- *	drop a linked list of files
+ *	Drop a file.
  *
  **************************************/
 	FbLocalStatus status;
 
-	for (; file; file = file->fil_next)
+	if (unlink(file->fil_string))
 	{
-		if (unlink(file->fil_string))
-		{
-			ERR_build_status(&status, Arg::Gds(isc_io_error) << Arg::Str("unlink") <<
-							   								   Arg::Str(file->fil_string) <<
-									 Arg::Gds(isc_io_delete_err) << SYS_ERR(errno));
-			Database* dbb = GET_DBB();
-			PageSpace* pageSpace = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
-			iscDbLogStatus(pageSpace->file->fil_string, &status);
-		}
+		ERR_build_status(&status, Arg::Gds(isc_io_error) << Arg::Str("unlink") <<
+														   Arg::Str(file->fil_string) <<
+								 Arg::Gds(isc_io_delete_err) << SYS_ERR(errno));
+
+		PageSpace* pageSpace = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
+		iscDbLogStatus(pageSpace->file->fil_string, &status);
 	}
 
 	return status->getState() & IStatus::STATE_ERRORS ? true : false;
@@ -7726,6 +7768,8 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 	if (attachment->att_event_session)
 		dbb->eventManager()->deleteSession(attachment->att_event_session);
 
+	attachment->releaseBatches();
+
     // CMP_release() changes att_requests.
 	while (attachment->att_requests.hasData())
 		CMP_release(tdbb, attachment->att_requests.back());
@@ -7762,14 +7806,26 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 
 	Sync sync(&dbb->dbb_sync, "jrd.cpp: release_attachment");
 
+	// dummy mutex is used to avoid races with crypto thread
+	XThreadMutex dummy_mutex;
+	XThreadEnsureUnlock dummyGuard(dummy_mutex, FB_FUNCTION);
+
 	// avoid races with special threads
 	// take into an account lock earlier taken in DROP DATABASE
 	XThreadEnsureUnlock threadGuard(dbb->dbb_thread_mutex, FB_FUNCTION);
 	XThreadEnsureUnlock* activeThreadGuard = dropGuard;
 	if (!activeThreadGuard)
 	{
-		threadGuard.enter();
-		activeThreadGuard = &threadGuard;
+		if (dbb->dbb_crypto_manager
+			&& Thread::isCurrent(Thread::getIdFromHandle(dbb->dbb_crypto_manager->getCryptThreadHandle())))
+		{
+			activeThreadGuard = &dummyGuard;
+		}
+		else
+		{
+			activeThreadGuard = &threadGuard;
+		}
+		activeThreadGuard->enter();
 	}
 
 	sync.lock(SYNC_EXCLUSIVE);
@@ -9117,7 +9173,7 @@ bool TimeoutTimer::expired() const
 		return false;
 
 	const SINT64 t = currTime();
-	return t >= m_start + m_value;
+	return t >= m_start + m_value - 1;
 }
 
 unsigned int TimeoutTimer::timeToExpire() const
