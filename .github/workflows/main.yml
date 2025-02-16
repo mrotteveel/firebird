@@ -219,16 +219,7 @@ jobs:
 
       - name: Prepare - Install tools
         run: |
-          brew install automake libtool ninja
-
-      # libcxx build is not working with python >= 3.12
-      - name: Do not use preinstalled python >= 3.12
-        run: |
-          brew uninstall --ignore-dependencies python@3.12
-          [ -e /Library/Frameworks/Python.framework ] && \
-            sudo mv /Library/Frameworks/Python.framework /Library/Frameworks/Python.framework.dont-look-at-this
-          brew install python@3.11
-          ln -s "$(brew --prefix python@3.11)/bin/python3" "$(brew --prefix python@3.11)/bin/python"
+          brew install automake libtool ninja python-setuptools
 
       - name: Cache - libc++ install
         id: cache-libcxx-install-macos
