@@ -857,7 +857,7 @@ void GCLock::forcedRelease(thread_db* tdbb)
 
 void GCLock::enable(thread_db* tdbb, Lock* tempLock)
 {
-	if (!lck || !lck->lck_id)
+	if (!(tempLock && tempLock->lck_id))
 		return;
 
 	fb_assert(flags.load() & GC_disabled);
