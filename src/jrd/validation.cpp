@@ -3035,7 +3035,7 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 
 	// If it's a view, external file or virtual table, skip this
 
-	if (relation->rel_view_rse || relation->getExtFile() || relation->isVirtual()) {
+	if (relation->isView() || relation->getExtFile() || relation->isVirtual()) {
 		return rtn_ok;
 	}
 
