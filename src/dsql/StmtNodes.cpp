@@ -253,7 +253,7 @@ void AssignmentNode::validateTarget(thread_db* tdbb, CompilerScratch* csb, const
 			if (field && tail->csb_relation)
 				fieldName = string(tail->csb_relation()->rel_name.c_str()) + "." + fieldName;
 
-			ERR_post(Arg::Gds(isc_read_only_field) << fieldName.c_str());
+			ERR_post(Arg::Gds(isc_read_only_field) << fieldName);
 		}
 	}
 	else if (!(nodeIs<ParameterNode>(target) || nodeIs<VariableNode>(target) || nodeIs<NullNode>(target)))
@@ -8626,6 +8626,16 @@ bool StoreNode::pass1Store(thread_db* tdbb, CompilerScratch* csb, StoreNode* nod
 		tail->csb_flags |= csb_store;
 
 		jrd_rel* const relation = tail->csb_relation(tdbb);
+		if (!relation)
+		{
+			MetaName relName;
+			if (tail->csb_relation)
+				relName = tail->csb_relation()->c_name();
+			else
+				relName = "*** unknown ***";
+
+			ERR_post(Arg::Gds(isc_relnotdef) << relName);
+		}
 		view = relation->isView() ? relation : view;
 
 		if (!parent)
