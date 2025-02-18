@@ -366,26 +366,25 @@ struct index_root_page
 	pag irt_header;
 	USHORT irt_relation;			// relation id (for consistency)
 	USHORT irt_count;				// number of indices
-	ULONG irt_unused;				// so far used as a padding to ensure the same
+	ULONG irt_dummy;				// so far used as a padding to ensure the same
 									// alignment between 32-bit and 64-bit builds
 	struct irt_repeat
 	{
 		friend class index_root_page;	// to allow offset check for private members
+
 	private:
-		union
-		{
-			FB_UINT64 irt_transaction;	// transaction in progress
-			struct
-			{
-				ULONG irt_page_num;			// page number
-				ULONG irt_page_space_id;	// page space
-			} irt_root;						// index root page
-		};
+		FB_UINT64 irt_transaction;		// transaction in progress
+		ULONG irt_page_num;				// page number
+		ULONG irt_page_space_id;		// page space
 	public:
 		USHORT irt_desc;				// offset to key descriptions
 		USHORT irt_flags;				// index flags
+		UCHAR irt_state;				// index state
 		UCHAR irt_keys;					// number of keys in index
+	private:
+		USHORT irt_dummy;				// alignment to 8-byte boundary
 
+	public:
 		TraNumber inProgress() const;
 		void setInProgress(TraNumber traNumber);
 
@@ -396,15 +395,17 @@ struct index_root_page
 		void setEmpty();
 	} irt_rpt[1];
 
-	static_assert(sizeof(struct irt_repeat) == 16, "struct irt_repeat size mismatch");
+	static_assert(sizeof(struct irt_repeat) == 24, "struct irt_repeat size mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_transaction) == 0, "irt_transaction offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_root) == 0, "irt_root offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_desc) == 8, "irt_desc offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_flags) == 10, "irt_flags offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_keys) == 12, "irt_keys offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_page_num) == 8, "irt_root offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_page_space_id) == 12, "irt_root offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_desc) == 16, "irt_desc offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_flags) == 18, "irt_flags offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_state) == 20, "irt_state offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_keys) == 21, "irt_keys offset mismatch");
 };
 
-static_assert(sizeof(struct index_root_page) == 40, "struct index_root_page size mismatch");
+static_assert(sizeof(struct index_root_page) == 48, "struct index_root_page size mismatch");
 static_assert(offsetof(struct index_root_page, irt_header) == 0, "irt_header offset mismatch");
 static_assert(offsetof(struct index_root_page, irt_relation) == 16, "irt_relation offset mismatch");
 static_assert(offsetof(struct index_root_page, irt_count) == 18, "irt_count offset mismatch");
@@ -427,45 +428,65 @@ static_assert(offsetof(struct irtd, irtd_selectivity) == 4, "irtd_selectivity of
 // irt_flags, must match the idx_flags (see btr.h)
 inline constexpr USHORT irt_unique			= 1;
 inline constexpr USHORT irt_descending		= 2;
-inline constexpr USHORT irt_in_progress		= 4;
-inline constexpr USHORT irt_foreign			= 8;
-inline constexpr USHORT irt_primary			= 16;
-inline constexpr USHORT irt_expression		= 32;
-inline constexpr USHORT irt_condition		= 64;
+inline constexpr USHORT irt_foreign			= 4;
+inline constexpr USHORT irt_primary			= 8;
+inline constexpr USHORT irt_expression		= 16;
+inline constexpr USHORT irt_condition		= 32;
+
+// possible index states
+inline constexpr UCHAR irt_unused		= 0;	// empty slot
+inline constexpr UCHAR irt_in_progress	= 1;	// under construction - sort & merge
+inline constexpr UCHAR irt_rollback		= 2;	// index to be removed when irt_transaction dead (rolled back)
+inline constexpr UCHAR irt_normal		= 3;	// normal working state of index
+inline constexpr UCHAR irt_kill			= 4;	// index to be removed when irt_transaction ended (both commit/rollback)
+inline constexpr UCHAR irt_commit		= 5;	// start index removal (switch to irt_drop) when irt_transaction committed
+inline constexpr UCHAR irt_drop			= 6;	// index to be removed when OAT > irt_transaction
 
 inline bool index_root_page::irt_repeat::isUsed() const
 {
-	return (irt_flags & irt_in_progress) || (irt_root.irt_page_num != 0);
+	return (irt_state != irt_unused);
 }
 
 inline void index_root_page::irt_repeat::setEmpty()
 {
 	irt_transaction = 0;
-	fb_assert(irt_root.irt_page_num == 0 && irt_root.irt_page_space_id == 0);
+	irt_page_num = 0;
+	irt_page_space_id = 0;
 	irt_flags = 0;
+	irt_state = irt_unused;
 }
 
 inline TraNumber index_root_page::irt_repeat::inProgress() const
 {
-	return (irt_flags & irt_in_progress) ? irt_transaction : 0;
+	return irt_transaction;
 }
 
 inline void index_root_page::irt_repeat::setInProgress(TraNumber traNumber)
 {
+	fb_assert(irt_state == irt_unused);
+	fb_assert(!irt_page_num && !irt_page_space_id);
+
 	irt_transaction = traNumber;
-	irt_flags |= irt_in_progress;
+	irt_page_num = 0;
+	irt_page_space_id = 0;
+	irt_state = irt_in_progress;
 }
 
 inline ULONG index_root_page::irt_repeat::getRoot() const
 {
-	return (irt_flags & irt_in_progress) ? 0 : irt_root.irt_page_num;
+	return (irt_state == irt_unused) ? 0 : irt_page_num;
 }
 
 inline void index_root_page::irt_repeat::setRoot(ULONG rootPage)
 {
-	irt_root.irt_page_num = rootPage;
-	irt_root.irt_page_space_id = 0;
-	irt_flags &= ~irt_in_progress;
+	fb_assert(irt_state == irt_in_progress);
+	fb_assert(!irt_page_num && !irt_page_space_id);
+	fb_assert(rootPage);
+
+	irt_transaction = 0;
+	irt_page_num = rootPage;
+	irt_page_space_id = 0;
+	irt_state = irt_normal;
 }
 
 
