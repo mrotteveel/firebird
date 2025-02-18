@@ -423,7 +423,8 @@ Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 					continue;
 #endif
 
-				conn->resetRedirect(att->att_crypt_callback);
+				if (!isCurrentAtt)
+					conn->resetRedirect(att->att_crypt_callback);
 				return conn;
 			}
 		} while (acc.getNext());
@@ -2689,11 +2690,12 @@ void CryptCallbackRedirector::resetRedirect(Firebird::ICryptKeyCallback* newCall
 {
 #ifdef DEV_BUILD
 	CryptHash ch(newCallback);
-	fb_assert(isValid() && ch.isValid());
+	fb_assert(m_hash.isValid() == ch.isValid());
 	fb_assert(m_hash == ch);
 #endif
 
-	m_keyCallback = newCallback;
+	if (m_hash.isValid())
+		m_keyCallback = newCallback;
 }
 
 bool CryptCallbackRedirector::operator==(const CryptHash& ch) const
