@@ -1452,18 +1452,18 @@ static void analyze_blob(dba_rel* relation, const blh* blob, int length)
 
 	if (blob->blh_level != 0)
 	{
-		const int slots = (length - BLH_SIZE) / static_cast<int>(sizeof(SLONG));
+		const unsigned slots = (length - BLH_SIZE) / static_cast<int>(sizeof(ULONG));
 		ULONG blobPages = slots;
 
 		if (blob->blh_level == 2)
 		{
-			SLONG pages[MAX_PAGE_SIZE / sizeof(SLONG)];
-			memcpy(pages, blob->blh_page, slots * sizeof(SLONG));
+			ULONG pages[MAX_PAGE_SIZE / sizeof(ULONG)];
+			memcpy(pages, blob->blh_page, slots * sizeof(ULONG));
 
-			for (int i = 0; i < slots; i++)
+			for (unsigned i = 0; i < slots; i++)
 			{
-				const blob_page* bpage = (const blob_page*) db_read(pages[i]);
-				blobPages += bpage->blp_length / sizeof(SLONG);
+				const auto bpage = (const blob_page*) db_read(pages[i]);
+				blobPages += bpage->blp_length / sizeof(ULONG);
 			}
 		}
 

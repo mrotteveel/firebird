@@ -63,12 +63,7 @@ public:
 	}
 };
 
-typedef Firebird::BePlusTree<
-	SecurityClass*,
-	MetaNamePair,
-	Firebird::MemoryPool,
-	SecurityClass
-> SecurityClassList;
+typedef Firebird::BePlusTree<SecurityClass*, MetaNamePair, SecurityClass> SecurityClassList;
 
 
 const SecurityClass::flags_t SCL_select			= 1;		// SELECT access

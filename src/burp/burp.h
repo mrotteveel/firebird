@@ -1291,6 +1291,15 @@ public:
 		stmt = tdgbl->db_handle->prepare(&tdgbl->throwStatus, tdgbl->tr_handle, 0, sql, 3, 0);
 	}
 
+	~BurpSql()
+	{
+		if (stmt)
+		{
+			stmt->free(&tdgbl->status_vector);
+			stmt->release();
+		}
+	}
+
 	template <typename M>
 	void singleSelect(Firebird::ITransaction* trans, M* msg)
 	{

@@ -754,9 +754,19 @@ namespace
 	class DefaultCallback : public AutoIface<ICryptKeyCallbackImpl<DefaultCallback, CheckStatusWrapper> >
 	{
 	public:
-		unsigned int callback(unsigned int, const void*, unsigned int, void*)
+		unsigned int callback(unsigned int, const void*, unsigned int, void*) override
 		{
 			return 0;
+		}
+
+		int getHashLength(Firebird::CheckStatusWrapper* status) override
+		{
+			return 0;
+		}
+
+		void getHashData(Firebird::CheckStatusWrapper* status, void* h) override
+		{
+			fb_assert(false);
 		}
 	};
 
@@ -5218,6 +5228,28 @@ IReplicator* JAttachment::createReplicator(CheckStatusWrapper* user_status)
 	return jr;
 }
 
+unsigned JAttachment::getMaxBlobCacheSize(CheckStatusWrapper* status)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+	return 0;
+}
+
+void JAttachment::setMaxBlobCacheSize(CheckStatusWrapper* status, unsigned size)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+}
+
+unsigned JAttachment::getMaxInlineBlobSize(CheckStatusWrapper* status)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+	return 0;
+}
+
+void JAttachment::setMaxInlineBlobSize(CheckStatusWrapper* status, unsigned size)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+}
+
 
 int JResultSet::fetchNext(CheckStatusWrapper* user_status, void* buffer)
 {
@@ -6003,6 +6035,17 @@ JBatch* JStatement::createBatch(Firebird::CheckStatusWrapper* status, Firebird::
 
 	successful_completion(status);
 	return batch;
+}
+
+unsigned JStatement::getMaxInlineBlobSize(CheckStatusWrapper* status)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
+	return 0;
+}
+
+void JStatement::setMaxInlineBlobSize(CheckStatusWrapper* status, unsigned size)
+{
+	status->setErrors(Arg::Gds(isc_wish_list).value());
 }
 
 
@@ -9025,7 +9068,7 @@ bool TimeoutTimer::expired() const
 		return false;
 
 	const SINT64 t = currTime();
-	return t >= m_start + m_value;
+	return t >= m_start + m_value - 1;
 }
 
 unsigned int TimeoutTimer::timeToExpire() const

@@ -370,19 +370,19 @@ struct index_root_page
 									// alignment between 32-bit and 64-bit builds
 	struct irt_repeat
 	{
-		friend struct index_root_page;	// to allow offset check for private members
+		friend class index_root_page;	// to allow offset check for private members
 
 	private:
 		FB_UINT64 irt_transaction;		// transaction in progress
-		ULONG irt_page;					// page number
-		ULONG irt_page_space;			// page space ID
+		ULONG irt_page_num;				// page number
+		ULONG irt_page_space_id;		// page space
 	public:
-		USHORT irt_desc;				// offset to key descriptions	(except upper bit -> irt_condition flag)
-		UCHAR irt_flags;				// index flags
+		USHORT irt_desc;				// offset to key descriptions
+		USHORT irt_flags;				// index flags
 		UCHAR irt_state;				// index state
 		UCHAR irt_keys;					// number of keys in index
 	private:
-		UCHAR irt_dummy[3];				// alignment to 8-byte boundary
+		USHORT irt_dummy;				// alignment to 8-byte boundary
 
 	private:
 		void setState(UCHAR newState);
@@ -407,10 +407,12 @@ struct index_root_page
 
 	static_assert(sizeof(struct irt_repeat) == 24, "struct irt_repeat size mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_transaction) == 0, "irt_transaction offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_page) == 8, "irt_page offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_page_num) == 8, "irt_root offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_page_space_id) == 12, "irt_root offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_desc) == 16, "irt_desc offset mismatch");
 	static_assert(offsetof(struct irt_repeat, irt_flags) == 18, "irt_flags offset mismatch");
-	static_assert(offsetof(struct irt_repeat, irt_keys) == 20, "irt_keys offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_state) == 20, "irt_state offset mismatch");
+	static_assert(offsetof(struct irt_repeat, irt_keys) == 21, "irt_keys offset mismatch");
 };
 
 static_assert(sizeof(struct index_root_page) == 48, "struct index_root_page size mismatch");
@@ -443,12 +445,12 @@ inline constexpr UCHAR irt_commit		= 5;	// start index removal (switch to irt_dr
 inline constexpr UCHAR irt_drop			= 6;	// index to be removed when OAT > irt_transaction
 
 // irt_flags, must match the idx_flags (see btr.h)
-inline constexpr UCHAR irt_unique		= 0x1;
-inline constexpr UCHAR irt_descending	= 0x2;
-inline constexpr UCHAR irt_foreign		= 0x4;
-inline constexpr UCHAR irt_primary		= 0x8;
-inline constexpr UCHAR irt_expression	= 0x10;
-inline constexpr UCHAR irt_condition	= 0x20;
+inline constexpr USHORT irt_unique			= 1;
+inline constexpr USHORT irt_descending		= 2;
+inline constexpr USHORT irt_foreign			= 4;
+inline constexpr USHORT irt_primary			= 8;
+inline constexpr USHORT irt_expression		= 16;
+inline constexpr USHORT irt_condition		= 32;
 
 /*
 	How does index state change:
@@ -497,21 +499,27 @@ inline void index_root_page::irt_repeat::setEmpty()
 {
 	setState(irt_unused);
 	irt_transaction = 0;
-	irt_page = 0;
+	irt_page_num = 0;
+	irt_page_space_id = 0;
+	irt_flags = 0;
+	irt_state = irt_unused;
 }
 
 inline void index_root_page::irt_repeat::setRoot(ULONG rootPage)
 {
-	fb_assert(irt_page);
+	fb_assert(irt_page_num);
 	fb_assert(rootPage);
 
-	irt_page = rootPage;
+	irt_page_num = rootPage;
+	irt_page_space_id = 0;
 }
 
 inline void index_root_page::irt_repeat::setProgress(TraNumber traNumber)
 {
 	fb_assert(getState() == irt_unused);
-	irt_page = 0;
+
+	irt_page_num = 0;
+	irt_page_space_id = 0;
 	irt_transaction = traNumber;
 	setState(irt_in_progress);
 }
@@ -520,9 +528,10 @@ inline void index_root_page::irt_repeat::setRollback(ULONG rootPage, TraNumber t
 {
 	fb_assert(getState() == irt_in_progress);
 	fb_assert(traNumber == irt_transaction);
-	fb_assert(!irt_page);
+	fb_assert(!irt_page_num);
 
-	irt_page = rootPage;
+	irt_page_num = rootPage;
+	irt_page_space_id = 0;
 	irt_transaction = traNumber;
 	setState(irt_rollback);
 }
@@ -531,7 +540,7 @@ inline void index_root_page::irt_repeat::setRollback(TraNumber traNumber)
 {
 	fb_assert(getState() == irt_kill);
 	fb_assert(traNumber == irt_transaction);
-	fb_assert(irt_page);
+	fb_assert(irt_page_num);
 
 	irt_transaction = traNumber;
 	setState(irt_rollback);
@@ -540,7 +549,7 @@ inline void index_root_page::irt_repeat::setRollback(TraNumber traNumber)
 inline void index_root_page::irt_repeat::setKill(TraNumber traNumber)
 {
 	fb_assert(getState() == irt_rollback);
-	fb_assert(irt_page);
+	fb_assert(irt_page_num);
 	fb_assert(traNumber == irt_transaction);
 
 	irt_transaction = traNumber;
@@ -555,7 +564,7 @@ inline void index_root_page::irt_repeat::setNormal()
 			|| getState() == irt_commit
 			// deleted not long ago
 			|| getState() == irt_drop);
-	fb_assert(irt_page);
+	fb_assert(irt_page_num);
 	fb_assert(irt_transaction);
 
 	irt_transaction = 0;
@@ -566,18 +575,19 @@ inline void index_root_page::irt_repeat::setNormal(ULONG rootPage)
 {
 			//create index mode AtOnce
 	fb_assert(getState() == irt_in_progress);
-	fb_assert(!irt_page);
+	fb_assert(!irt_page_num);
 	fb_assert(rootPage);
 
 	irt_transaction = 0;
-	irt_page = rootPage;
+	irt_page_num = rootPage;
+	irt_page_space_id = 0;
 	setState(irt_normal);
 }
 
 inline void index_root_page::irt_repeat::setCommit(TraNumber traNumber)
 {
 	fb_assert(getState() == irt_normal);
-	fb_assert(irt_page);
+	fb_assert(irt_page_num);
 
 	irt_transaction = traNumber;
 	setState(irt_commit);
@@ -586,7 +596,7 @@ inline void index_root_page::irt_repeat::setCommit(TraNumber traNumber)
 inline void index_root_page::irt_repeat::setDrop(TraNumber traNumber)
 {
 	fb_assert(getState() == irt_commit);
-	fb_assert(irt_page);
+	fb_assert(irt_page_num);
 	irt_transaction = traNumber;
 	setState(irt_drop);
 }
@@ -598,7 +608,7 @@ inline UCHAR index_root_page::irt_repeat::getState() const
 
 inline ULONG index_root_page::irt_repeat::getRoot() const
 {
-	return getState() == irt_unused ? 0 : irt_page;
+	return getState() == irt_unused ? 0 : irt_page_num;
 }
 
 inline TraNumber index_root_page::irt_repeat::getTransaction() const

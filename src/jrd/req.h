@@ -174,7 +174,7 @@ const USHORT RPB_CLEAR_FLAGS	= (RPB_UNDO_FLAGS | RPB_just_deleted);
 
 // List of active blobs controlled by request
 
-typedef Firebird::BePlusTree<ULONG, ULONG, MemoryPool> TempBlobIdTree;
+typedef Firebird::BePlusTree<ULONG, ULONG> TempBlobIdTree;
 
 // Affected rows counter class
 

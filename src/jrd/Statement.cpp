@@ -1007,7 +1007,7 @@ Request::Request(Firebird::AutoMemoryPool& pool, Database* dbb, /*const*/ Statem
 	  req_inUse(false),
 	  req_pool(pool),
 	  req_memory_stats(&aStatement->pool->getStatsGroup()),
-	  req_blobs(req_pool),
+	  req_blobs(*req_pool),
 	  req_stats(*req_pool),
 	  req_base_stats(*req_pool),
 	  req_ext_stmt(NULL),
