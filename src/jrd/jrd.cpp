@@ -1910,7 +1910,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 			if (!options.dpb_sec_attach)
 			{
 				bool attachment_succeeded = true;
-				if (dbb->dbb_ast_flags & DBB_shutdown_single)
+				if (dbb->isShutdown(shut_mode_single))
 					attachment_succeeded = CCH_exclusive_attachment(tdbb, LCK_none, -1, NULL);
 				else
 					CCH_exclusive_attachment(tdbb, LCK_none, LCK_WAIT, NULL);
@@ -1919,7 +1919,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				{
 					const ISC_STATUS err = jAtt->getStable()->getShutError();
 
-					if (dbb->dbb_ast_flags & DBB_shutdown)
+					if (dbb->isShutdown())
 						ERR_post(Arg::Gds(isc_shutdown) << Arg::Str(org_filename));
 
 					if (err)
@@ -1937,19 +1937,19 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 			if (dbb->dbb_ast_flags & (DBB_shut_attach | DBB_shut_tran))
 				ERR_post(Arg::Gds(isc_shutinprog) << Arg::Str(org_filename));
 
-			if (dbb->dbb_ast_flags & DBB_shutdown)
+			if (dbb->isShutdown())
 			{
 				// Allow only SYSDBA/owner to access database that is shut down
 				bool allow_access = attachment->locksmith(tdbb, ACCESS_SHUTDOWN_DATABASE);
 				// Handle special shutdown modes
 				if (allow_access)
 				{
-					if (dbb->dbb_ast_flags & DBB_shutdown_full)
+					if (dbb->isShutdown(shut_mode_full))
 					{
 						// Full shutdown. Deny access always
 						allow_access = false;
 					}
-					else if (dbb->dbb_ast_flags & DBB_shutdown_single)
+					else if (dbb->isShutdown(shut_mode_single))
 					{
 						// Single user maintenance. Allow access only if we were able to take exclusive lock
 						// Note that logic below this exclusive lock differs for SS and CS builds:
@@ -3289,7 +3289,7 @@ void JAttachment::freeEngineData(CheckStatusWrapper* user_status, bool forceFree
 				flags |= PURGE_FORCE;
 
 			if (forceFree ||
-				(dbb->dbb_ast_flags & DBB_shutdown) ||
+				dbb->isShutdown() ||
 				(attachment->att_flags & ATT_shutdown))
 			{
 				flags |= PURGE_NOCHECK;
@@ -3300,7 +3300,7 @@ void JAttachment::freeEngineData(CheckStatusWrapper* user_status, bool forceFree
 				reason = 0;
 			else if (engineShutdown)
 				reason = isc_att_shut_engine;
-			else if (dbb->dbb_ast_flags & DBB_shutdown)
+			else if (dbb->isShutdown())
 				reason = isc_att_shut_db_down;
 
 			attachment->signalShutdown(reason);
@@ -3394,7 +3394,7 @@ void JAttachment::internalDropDatabase(CheckStatusWrapper* user_status)
 				{
 					const ISC_STATUS err = getStable()->getShutError();
 
-					if (dbb->dbb_ast_flags & DBB_shutdown)
+					if (dbb->isShutdown())
 						ERR_post(Arg::Gds(isc_shutdown) << Arg::Str(file_name));
 
 					if (err)
@@ -6697,10 +6697,11 @@ static void check_database(thread_db* tdbb, bool async)
 
 	if ((attachment->att_flags & ATT_shutdown) &&
 		(attachment->att_purge_tid != Thread::getId()) ||
-		((dbb->dbb_ast_flags & DBB_shutdown) &&
-			((dbb->dbb_ast_flags & DBB_shutdown_full) || !attachment->locksmith(tdbb, ACCESS_SHUTDOWN_DATABASE))))
+			(dbb->isShutdown() &&
+				(dbb->isShutdown(shut_mode_full) ||
+				!attachment->locksmith(tdbb, ACCESS_SHUTDOWN_DATABASE))))
 	{
-		if (dbb->dbb_ast_flags & DBB_shutdown)
+		if (dbb->isShutdown())
 		{
 			const PathName& filename = attachment->att_filename;
 			status_exception::raise(Arg::Gds(isc_shutdown) << Arg::Str(filename));
@@ -7564,10 +7565,8 @@ static void check_single_maintenance(thread_db* tdbb)
 
 	PIO_header(tdbb, header_page_buffer, headerSize);
 
-	if ((header_page->hdr_flags & Ods::hdr_shutdown_mask) == Ods::hdr_shutdown_single)
-	{
+	if (header_page->hdr_shutdown_mode == Ods::hdr_shutdown_single)
 		ERR_post(Arg::Gds(isc_shutdown) << Arg::Str(tdbb->getAttachment()->att_filename));
-	}
 }
 
 
@@ -7939,7 +7938,7 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 
 	// Database linger
 	if ((flags & SHUT_DBB_LINGER) &&
-		(!(engineShutdown || (dbb->dbb_ast_flags & DBB_shutdown))) &&
+		(!(engineShutdown || dbb->isShutdown())) &&
 		(dbb->dbb_linger_seconds > 0) &&
 		(dbb->dbb_config->getServerMode() != MODE_CLASSIC) &&
 		(dbb->dbb_flags & DBB_shared))
@@ -9165,7 +9164,7 @@ ISC_STATUS thread_db::getCancelState(ISC_STATUS* secondary)
 	{
 		if (attachment->att_flags & ATT_shutdown)
 		{
-			if (database->dbb_ast_flags & DBB_shutdown)
+			if (database->isShutdown())
 				return isc_shutdown;
 
 			if (secondary)
