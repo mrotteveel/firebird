@@ -7931,9 +7931,6 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 			return false;
 	}
 
-	// Release the system requests
-	dbb->releaseSystemRequests(tdbb);
-
 	// Database linger
 	if ((flags & SHUT_DBB_LINGER) &&
 		(!(engineShutdown || (dbb->dbb_ast_flags & DBB_shutdown))) &&
@@ -7951,6 +7948,9 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 
 		return false;
 	}
+
+	// Release the system requests
+	dbb->releaseSystemRequests(tdbb);
 
 	// Reset provider unload delay if needed
 	dbb->dbb_linger_end = 0;
