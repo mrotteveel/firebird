@@ -3117,14 +3117,13 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 	blb* blob = NULL;
 
-//	fb_assert(tdbb->getTransaction() || getId() < rel_MAX);
 	jrd_tra* trans = tdbb->getTransaction() ?
 		tdbb->getTransaction() : attachment->getSysTransaction();
 
 	if (flags & CacheFlag::NOCOMMIT)
 	{
 		// New version of relation is created currently.
-		// Perform onle very basic scan - may be more changes to come.
+		// Perform only very basic scan - may be more changes to come.
 		// scan() will be called automatically w/o NOCOMMIT
 		// on any attempt to use modified relation
 		// or on transaction commit.

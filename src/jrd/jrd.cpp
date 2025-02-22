@@ -89,6 +89,7 @@
 #include "../common/isc_f_proto.h"
 #include "../common/isc_proto.h"
 #include "../jrd/jrd_proto.h"
+#include "../jrd/dpm_proto.h"
 
 #include "../jrd/lck.h"
 #include "../jrd/met_proto.h"
@@ -1761,6 +1762,11 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				// Initialize TIP cache. We do this late to give SDW a chance to
 				// work while we read states for all interesting transactions
 				dbb->dbb_tip_cache = TipCache::create(tdbb);
+				if (dbb->dbb_flags & DBB_rescan_pages)
+				{
+					dbb->dbb_flags &= ~DBB_rescan_pages;
+					DPM_scan_pages(tdbb);
+				}
 
 				// linger
 				dbb->dbb_linger_seconds = MET_get_linger(tdbb);

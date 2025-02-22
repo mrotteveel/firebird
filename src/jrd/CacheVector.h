@@ -528,8 +528,11 @@ public:
 
 	Versioned* getObject(thread_db* tdbb, ObjectBase::Flag fl)
 	{
-		TraNumber cur = TransactionNumber::current(tdbb);
+		return getObject(tdbb, TransactionNumber::current(tdbb), fl);
+	}
 
+	Versioned* getObject(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
+	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		if (!listEntry)
 		{
@@ -545,7 +548,7 @@ public:
 			ListEntry<Versioned>* newEntry = nullptr;
 			try
 			{
-				newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, cur, fl);
+				newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, traNum, fl);
 			}
 			catch (const Firebird::Exception&)
 			{
@@ -562,7 +565,7 @@ public:
 					},
 				fl);
 				if (! (fl & CacheFlag::NOCOMMIT))
-					newEntry->commit(tdbb, cur, TransactionNumber::next(tdbb));
+					newEntry->commit(tdbb, traNum, TransactionNumber::next(tdbb));
 				return obj;
 			}
 
@@ -570,7 +573,7 @@ public:
 			delete newEntry;
 			fb_assert(list.load());
 		}
-		return ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl);
+		return ListEntry<Versioned>::getObject(tdbb, listEntry, traNum, fl);
 	}
 
 	// return latest committed version or nullptr when does not exist

@@ -192,23 +192,30 @@ namespace
 		temporary_key jumpKey;
 	};
 
-	int indexCacheState(thread_db* tdbb, TraNumber descTrans, Cached::Relation* rel, MetaId idxId, bool creating)
+	inline int indexCacheState(thread_db* tdbb, TraNumber descTrans, Cached::Relation* rel, MetaId idxId, bool creating)
 	{
-		int rc = TPC_cache_state(tdbb, descTrans);
-		if (rc == tra_committed)		// too old dead transaction may be reported as committed
+		auto checkPresence = [tdbb, rel, idxId]()->bool
 		{
-			// check presence of record for this index in RDB$INDICES
-			// use metadata cache for better performance
 			auto* index = rel->lookup_index(tdbb, idxId, CacheFlag::AUTOCREATE);
-			bool indexPresent = index && index->getActive() == MET_object_active;
+			return index && index->getActive() == MET_object_active;
+		};
 
-			// if index really created => record should be present
-			// if index really dropped => record should be missing
-			// otherwise transaction is dead, not committed
-			if (indexPresent != creating)
-				return tra_dead;
-		}
-		return rc;
+		return TipCache::traState(tdbb, descTrans, checkPresence, creating);
+	}
+
+	inline int transactionState(thread_db* tdbb, TraNumber descTrans, Cached::Relation* rel, MetaId idxId, bool creating)
+	{
+		auto checkPresence = [tdbb, rel, idxId]()->bool
+		{
+			auto* iperm = rel->lookupIndex(tdbb, idxId, CacheFlag::AUTOCREATE);
+			if (!iperm)
+				return false;
+
+			auto* ivar = iperm->getObject(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE);
+			return ivar && ivar->getActive() == MET_object_active;
+		};
+
+		return TipCache::traState(tdbb, descTrans, checkPresence, creating);
 	}
 
 } // namespace
@@ -952,7 +959,6 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 		CCH_RELEASE(tdbb, &window);
 	});
 
-	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
 	for (MetaId id = 0; id < root->irt_count; id++)
 	{
 		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
@@ -2488,8 +2494,8 @@ static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* i
 		break;
 
 	case irt_drop:
-		// drop index when OAT > irtTrans
-		if (oldestActive <= irtTrans)
+		// drop index when OAT >= irtTrans
+		if (oldestActive < irtTrans)
 			return false;
 		CCH_RELEASE(tdbb, window);
 		break;
@@ -2532,7 +2538,7 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 		return ModifyIrtRepeatValue::Relock;
 
 	case irt_rollback:
-		switch (indexCacheState(tdbb, irtTrans, relation, indexId, true))
+		switch (transactionState(tdbb, irtTrans, relation, indexId, true))
 		{
 		case tra_committed:	// switch to normal state
 			CCH_MARK(tdbb, window);
@@ -2560,7 +2566,7 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 		break;
 
 	case irt_commit:
-		switch (indexCacheState(tdbb, irtTrans, relation, indexId, false))
+		switch (transactionState(tdbb, irtTrans, relation, indexId, false))
 		{
 		case tra_committed:	// switch to drop state
 			CCH_MARK(tdbb, window);
@@ -2579,8 +2585,8 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 		return ModifyIrtRepeatValue::Skip;
 
 	case irt_drop:
-		// drop index when OAT > irtTrans
-		if (oldestActive > irtTrans)
+		// drop index when OAT >= irtTrans
+		if (oldestActive >= irtTrans)
 			break;
 		return ModifyIrtRepeatValue::Skip;
 

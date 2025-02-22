@@ -61,6 +61,7 @@
 #include "../jrd/mov_proto.h"
 #include "../jrd/ods_proto.h"
 #include "../jrd/pag_proto.h"
+#include "../jrd/tpc_proto.h"
 #include "../jrd/replication/Publisher.h"
 #include "../common/StatusArg.h"
 
@@ -75,6 +76,12 @@ using namespace Jrd;
 using namespace Ods;
 using namespace Firebird;
 
+inline constexpr SSHORT MRK_commit = pag_max + 256;		// Table to go into pag_drop after transaction commit
+inline constexpr SSHORT MRK_drop = pag_max + 257;		// Table to be dropped after transaction commit
+inline constexpr SSHORT MRK_rollback = pag_max + 256;	// Table to be dropped after transaction rollback
+
+static void table_marker(thread_db*, SSHORT, SSHORT, TraNumber);
+static TraNumber getTransactionFromMarker(ULONG sequence, ULONG page);
 static void check_swept(thread_db*, record_param*);
 static USHORT compress(thread_db*, data_page*);
 static void delete_tail(thread_db*, rhdf*, const USHORT, USHORT);
@@ -100,6 +107,17 @@ namespace
 			ERR_punt();
 
 		return lock.release();
+	}
+
+	inline int transactionState(thread_db* tdbb, TraNumber markedTran, Cached::Relation* rel, bool creating)
+	{
+		auto checkPresence = [tdbb, rel]()->bool
+		{
+			auto* jrel = rel->getObject(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE);
+			return jrel != nullptr;
+		};
+
+		return TipCache::traState(tdbb, markedTran, checkPresence, creating);
 	}
 }
 
@@ -573,6 +591,13 @@ void DPM_create_relation( thread_db* tdbb, Cached::Relation* relation)
 			  (*relPages->rel_pages)[0] /*window.win_page*/);
 	DPM_pages(tdbb, relation->getId(), pag_root, (ULONG) 0,
 			  relPages->rel_index_root /*root_window.win_page*/);
+
+	// Special record directing remove table when transaction rolled back
+	if (auto tra = tdbb->getTransaction())
+	{
+		if (auto num = tra->tra_number)
+			table_marker(tdbb, relation->getId(), MRK_rollback, num);
+	}
 }
 
 
@@ -1903,6 +1928,21 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 }
 
 
+static void table_marker(thread_db* tdbb, SSHORT rel_id, SSHORT type, TraNumber transaction)
+{
+	fb_assert(type >= MRK_commit && type <= MRK_rollback);
+
+	DPM_pages(tdbb, rel_id, type, transaction >> 32, transaction & 0xFFFFFFFF);
+}
+
+
+static TraNumber getTransactionFromMarker(ULONG sequence, ULONG page)
+{
+	return (TraNumber(sequence) << 32) + page;
+}
+
+
+
 void DPM_pages(thread_db* tdbb, SSHORT rel_id, int type, ULONG sequence, ULONG page)
 {
 /**************************************
@@ -2081,8 +2121,7 @@ void DPM_scan_pages( thread_db* tdbb)
 	// infinite recursion from this internal request when RDB$PAGES
 	// has been extended with another pointer page.
 
-	RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, 0u,
-		CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+	auto* relation = MetadataCache::lookupRelation(tdbb, 0u, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 	RelationPages* relPages = relation->getBasePages();
 
 	vcl** address = &relPages->rel_pages;
@@ -2103,6 +2142,7 @@ void DPM_scan_pages( thread_db* tdbb)
 
 	HalfStaticArray<ULONG, 256> tipSeqList;
 	HalfStaticArray<ULONG, 4> genSeqList;
+	HalfStaticArray<MetaId, 4> deleteList;
 
 	AutoCacheRequest request(tdbb, irq_r_pages, IRQ_REQUESTS);
 
@@ -2136,6 +2176,24 @@ void DPM_scan_pages( thread_db* tdbb)
 			genSeqList[sequence] = X.RDB$PAGE_NUMBER;
 			break;
 
+		//case MRK_commit:
+		//case MRK_drop:
+
+		case MRK_rollback:
+			if (!dbb->dbb_tip_cache)
+			{
+				dbb->dbb_flags |= DBB_rescan_pages;
+				break;
+			}
+			if (transactionState(tdbb, getTransactionFromMarker(X.RDB$PAGE_SEQUENCE, X.RDB$PAGE_NUMBER),
+				relation, true) == tra_dead)
+			{
+				deleteList.push(X.RDB$RELATION_ID);
+			}
+			else
+				ERASE X;
+			break;
+
 		default:
 			CORRUPT(257);		// msg 257 bad record in RDB$PAGES
 		}
@@ -2147,6 +2205,12 @@ void DPM_scan_pages( thread_db* tdbb)
 
 	if (const auto count = genSeqList.getCount())
 		dbb->copyKnownPages(pag_ids, count, genSeqList.begin());
+
+	for (auto id : deleteList)
+	{
+		auto* relation = MetadataCache::lookupRelation(tdbb, id, CacheFlag::NOSCAN);
+		DPM_delete_relation(tdbb, relation);
+	}
 }
 
 
