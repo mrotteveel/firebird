@@ -158,6 +158,11 @@ public:
 	{
 		return instance;
 	}
+
+	operator bool() throw()
+	{
+		return instance;
+	}
 };
 
 // InitMutex - executes static void C::init() once and only once

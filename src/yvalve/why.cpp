@@ -6031,7 +6031,10 @@ void Dispatcher::shutdown(CheckStatusWrapper* userStatus, unsigned int timeout, 
 			}
 
 			if (hasThreads)
+			{
+				PluginManager::deleteDelayed();
 				continue;
+			}
 
 			Stack<YAttachment*, 64> attStack;
 			{
@@ -6061,6 +6064,7 @@ void Dispatcher::shutdown(CheckStatusWrapper* userStatus, unsigned int timeout, 
 				attachment->release();
 			}
 
+			PluginManager::deleteDelayed();
 		}
 
 		// ... and wait for all providers to go away
