@@ -36,6 +36,7 @@
 #include "../common/classes/fb_string.h"
 #include "../common/classes/init.h"
 #include "../common/classes/semaphore.h"
+#include "../common/classes/RefMutex.h"
 #include "../common/config/config.h"
 #include "../common/config/config_file.h"
 #include "../common/utils_proto.h"
@@ -455,7 +456,7 @@ namespace
 						 const PathName& pplugName)
 			: module(pmodule), regPlugin(preg), pluginLoaderConfig(pconfig),
 			  confName(getPool(), pconfName), plugName(getPool(), pplugName),
-			  delay(DEFAULT_DELAY)
+			  processingDelayedDelete(false), delay(DEFAULT_DELAY)
 		{
 			if (pluginLoaderConfig.hasData())
 			{
@@ -472,7 +473,7 @@ namespace
 #ifdef DEBUG_PLUGINS
 			RegisteredPlugin& r(module->getPlugin(regPlugin));
 			fprintf(stderr, " ConfiguredPlugin %s module %s registered as %s type %d order %d\n",
-					plugName.c_str(), module->getName(), r.name, r.type, regPlugin);
+					plugName.c_str(), module->getName(), r.name.c_str(), r.type, regPlugin);
 #endif
 		}
 
@@ -516,6 +517,8 @@ namespace
 		{ }
 
 		int release();
+		static void processDelayedDelete();
+
 	private:
 		~ConfiguredPlugin() {}
 		void destroy();
@@ -525,6 +528,7 @@ namespace
 		RefPtr<ConfigFile> pluginLoaderConfig;
 		PathName confName;
 		PathName plugName;
+		bool processingDelayedDelete;
 
 		static const FB_UINT64 DEFAULT_DELAY = 1000000 * 60;		// 1 min
 		FB_UINT64 delay;
@@ -587,7 +591,7 @@ namespace
 		~FactoryParameter()
 		{
 #ifdef DEBUG_PLUGINS
-			fprintf(stderr, "~FactoryParameter places configuredPlugin %s in unload query for %d seconds\n",
+			fprintf(stderr, "~FactoryParameter places configuredPlugin %s in unload query for %lld seconds\n",
 				configuredPlugin->getPlugName(), configuredPlugin->getReleaseDelay() / 1000000);
 #endif
 			FbLocalStatus ls;
@@ -696,6 +700,9 @@ namespace
 #endif
 	}
 
+	typedef HalfStaticArray<ConfiguredPlugin*, 16> DelayedDelete;
+	static GlobalPtr<DelayedDelete> delayedDelete;
+
 	int ConfiguredPlugin::release()
 	{
 		int x = --refCounter;
@@ -711,6 +718,15 @@ namespace
 				if (refCounter != 0)
 					return 1;
 
+				if (Why::timerThreadStopped() && !processingDelayedDelete && delayedDelete)
+				{
+					// delay delete
+					addRef();
+					delayedDelete->push(this);
+
+					return 1;
+				}
+
 				destroy();
 			}
 
@@ -721,6 +737,26 @@ namespace
 		}
 
 		return 1;
+	}
+
+	void ConfiguredPlugin::processDelayedDelete()
+	{
+		DelayedDelete& dd(delayedDelete);
+		MutexEnsureUnlock g(plugins->mutex, FB_FUNCTION);
+		g.enter();
+		for (unsigned n = 0; n < dd.getCount(); ++n)
+		{
+			ConfiguredPlugin* ptr = dd[n];
+			if (ptr)
+			{
+				g.leave();
+				ptr->processingDelayedDelete = true;
+				ptr->release();
+				g.enter();
+			}
+			dd[n] = nullptr;
+		}
+		delayedDelete->clear();
 	}
 
 	PluginModule* modules = NULL;
@@ -1213,6 +1249,10 @@ void PluginManager::threadDetach()
 		modules->threadDetach();
 }
 
+void PluginManager::deleteDelayed()
+{
+	ConfiguredPlugin::processDelayedDelete();
+}
 
 }	// namespace Firebird
 
