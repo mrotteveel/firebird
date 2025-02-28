@@ -1161,16 +1161,15 @@ namespace
 
 static const deferred_task task_table[] =
 {
-/*
+
 	{ dfw_add_shadow, add_shadow },
-*/
 	{ dfw_delete_index, delete_index },
 /*
 	{ dfw_delete_rfr, delete_rfr },
 	{ dfw_delete_relation, delete_relation },
+*/
 	{ dfw_delete_shadow, delete_shadow },
 	{ dfw_delete_shadow_nodelete, delete_shadow },
-*/
 	{ dfw_create_field, create_field },
 	{ dfw_delete_field, delete_field },
 	{ dfw_modify_field, modify_field },
@@ -1202,6 +1201,7 @@ static const deferred_task task_table[] =
 	{ dfw_delete_collation, delete_collation },
 /*
 	{ dfw_delete_exception, delete_exception },
+*/
 	{ dfw_set_generator, set_generator },
 	{ dfw_delete_generator, delete_generator },
 	{ dfw_add_difference, add_difference },
@@ -1209,13 +1209,16 @@ static const deferred_task task_table[] =
 	{ dfw_begin_backup, begin_backup },
 	{ dfw_end_backup, end_backup },
 	{ dfw_user_management, user_management },
+/*
 	{ dfw_check_not_null, check_not_null },
 	{ dfw_store_view_context_type, store_view_context_type },
+*/
 	{ dfw_db_crypt, db_crypt },
 	{ dfw_set_linger, set_linger },
+/*
 	{ dfw_clear_cache, clear_cache },
-	{ dfw_change_repl_state, change_repl_state },
 */
+	{ dfw_change_repl_state, change_repl_state },
 	{ dfw_null, NULL }
 };
 
@@ -1875,7 +1878,6 @@ void DFW_update_index(const TEXT* name, USHORT id, const SelectivityList& select
 }
 
 
-#ifdef NEVERDEF
 static bool add_shadow(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
 {
 /**************************************
@@ -1970,6 +1972,36 @@ static bool add_shadow(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		}
 		END_FOR
 
+		break;
+	}
+
+	return false;
+}
+
+static bool delete_shadow(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra*)
+{
+/**************************************
+ *
+ *	d e l e t e _ s h a d o w
+ *
+ **************************************
+ *
+ * Functional description
+ *	Provide deferred work interface to
+ *	MET_delete_shadow.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		MET_delete_shadow(tdbb, work->dfw_id);
 		break;
 	}
 
@@ -2172,6 +2204,180 @@ static bool set_linger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 	return false;
 }
 
+static bool set_generator(thread_db* tdbb,
+						  SSHORT phase,
+						  DeferredWork* work,
+						  jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	s e t _ g e n e r a t o r
+ *
+ **************************************
+ *
+ * Functional description
+ *	Set the generator to the given value.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		{
+			const SLONG id = MET_lookup_generator(tdbb, work->dfw_name);
+			if (id >= 0)
+			{
+				fb_assert(id == work->dfw_id);
+				SINT64 value = 0;
+				if (transaction->getGenIdCache()->get(id, value))
+				{
+					transaction->getGenIdCache()->remove(id);
+					DPM_gen_id(tdbb, id, true, value);
+				}
+			}
+#ifdef DEV_BUILD
+			else // This is a test only
+				status_exception::raise(Arg::Gds(isc_cant_modify_sysobj) << "generator" << work->dfw_name);
+#endif
+		}
+		break;
+	}
+
+	return false;
+}
+
+static bool delete_generator(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ g e n e r a t o r
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check if it is allowable to delete
+ *	a generator, and if so, clean up after it.
+ * CVC: This function was modelled after delete_exception.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+	const char* gen_name = work->dfw_name.c_str();
+
+	switch (phase)
+	{
+	case 1:
+		DFW_check_dependencies(tdbb, gen_name, NULL, NULL, obj_generator, transaction);
+		break;
+	}
+
+	return false;
+}
+
+static bool user_management(thread_db* /*tdbb*/, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	u s e r _ m a n a g e m e n t
+ *
+ **************************************
+ *
+ * Commit in security database
+ *
+ **************************************/
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		transaction->getUserManagement()->execute(work->dfw_id);
+		return true;
+
+	case 4:
+		transaction->getUserManagement()->commit();	// safe to be called multiple times
+		break;
+	}
+
+	return false;
+}
+
+static bool change_repl_state(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra*)
+{
+/**************************************
+ *
+ *	c h a n g e _ r e p l _ s t a t e
+ *
+ **************************************
+ *
+ * Functional description
+ *	Signal other processes to refresh their replication state.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Database* const dbb = tdbb->getDatabase();
+	Attachment* const attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+	case 3:
+		return true;
+
+	case 4:
+		if (work->dfw_id == 0)
+		{
+			// replication state is changed
+			dbb->invalidateReplState(tdbb, true);
+		}
+		else
+		{
+			// replication set is changed
+			attachment->invalidateReplSet(tdbb, true);
+		}
+		break;
+	}
+
+	return false;
+}
+
+static void check_filename(const Firebird::string& name, bool shareExpand)
+{
+/**************************************
+ *
+ *	c h e c k _ f i l e n a m e
+ *
+ **************************************
+ *
+ * Functional description
+ *	Make sure that a file path doesn't contain an
+ *	inet node name.
+ *
+ **************************************/
+	const Firebird::PathName file_name(name.ToPathName());
+	const bool valid = file_name.find("::") == Firebird::PathName::npos;
+
+	if (!valid || ISC_check_if_remote(file_name, shareExpand)) {
+		ERR_post(Arg::Gds(isc_no_meta_update) <<
+				 Arg::Gds(isc_node_name_err));
+		// Msg305: A node name is not permitted in a secondary, shadow, or log file name
+	}
+
+	if (!JRD_verify_database_access(file_name)) {
+		ERR_post(Arg::Gds(isc_conf_access_denied) << Arg::Str("additional database file") <<
+													 Arg::Str(name));
+	}
+}
+
+#ifdef NEVERDEF
 static bool clear_cache(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra*)
 {
 /**************************************
@@ -2423,37 +2629,6 @@ static bool store_view_context_type(thread_db* tdbb, SSHORT phase, DeferredWork*
 			}
 			END_FOR
 		}
-		break;
-	}
-
-	return false;
-}
-
-
-static bool user_management(thread_db* /*tdbb*/, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
-{
-/**************************************
- *
- *	u s e r _ m a n a g e m e n t
- *
- **************************************
- *
- * Commit in security database
- *
- **************************************/
-
-	switch (phase)
-	{
-	case 1:
-	case 2:
-		return true;
-
-	case 3:
-		transaction->getUserManagement()->execute(work->dfw_id);
-		return true;
-
-	case 4:
-		transaction->getUserManagement()->commit();	// safe to be called multiple times
 		break;
 	}
 
@@ -2802,135 +2977,6 @@ static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
 				 Arg::Gds(isc_circular_computed));
-	}
-}
-
-
-static void check_dependencies(thread_db* tdbb,
-							   const TEXT* dpdo_name,
-							   const TEXT* field_name,
-							   const TEXT* package_name,
-							   int dpdo_type,
-							   jrd_tra* transaction)
-{
-/**************************************
- *
- *	c h e c k _ d e p e n d e n c i e s
- *
- **************************************
- *
- * Functional description
- *	Check the dependency list for relation or relation.field
- *	before deleting such.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-
-	const MetaName packageName(package_name);
-
-	SLONG dep_counts[obj_type_MAX];
-	for (int i = 0; i < obj_type_MAX; i++)
-		dep_counts[i] = 0;
-
-	if (field_name)
-	{
-		AutoCacheRequest request(tdbb, irq_ch_f_dpd, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			DEP IN RDB$DEPENDENCIES
-				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
-				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
-				AND DEP.RDB$FIELD_NAME EQ field_name
-				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
-				REDUCED TO DEP.RDB$DEPENDENT_NAME
-		{
-			// If the found object is also being deleted, there's no dependency
-
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
-									0, transaction))
-			{
-				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
-			}
-		}
-		END_FOR
-	}
-	else
-	{
-		AutoCacheRequest request(tdbb, irq_ch_dpd, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			DEP IN RDB$DEPENDENCIES
-				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
-				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
-				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
-				REDUCED TO DEP.RDB$DEPENDENT_NAME
-		{
-			// If the found object is also being deleted, there's no dependency
-
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
-									0, transaction))
-			{
-				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
-			}
-		}
-		END_FOR
-	}
-
-	SLONG total = 0;
-	for (int i = 0; i < obj_type_MAX; i++)
-		total += dep_counts[i];
-
-	if (!total)
-		return;
-
-	if (field_name)
-	{
-		string fld_name(dpdo_name);
-		fld_name.append(".");
-		fld_name.append(field_name);
-
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_no_delete) <<						// Msg353: can not delete
-				 Arg::Gds(isc_field_name) << Arg::Str(fld_name) <<
-				 Arg::Gds(isc_dependency) << Arg::Num(total));	// Msg310: there are %ld dependencies
-	}
-	else
-	{
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_no_delete) <<						// can not delete
-				 Arg::Gds(getErrorCodeByObjectType(dpdo_type)) <<
-				 	Arg::Str(QualifiedName(dpdo_name, packageName).toString()) <<
-				 Arg::Gds(isc_dependency) << Arg::Num(total));	// there are %ld dependencies
-	}
-}
-
-
-static void check_filename(const Firebird::string& name, bool shareExpand)
-{
-/**************************************
- *
- *	c h e c k _ f i l e n a m e
- *
- **************************************
- *
- * Functional description
- *	Make sure that a file path doesn't contain an
- *	inet node name.
- *
- **************************************/
-	const Firebird::PathName file_name(name.ToPathName());
-	const bool valid = file_name.find("::") == Firebird::PathName::npos;
-
-	if (!valid || ISC_check_if_remote(file_name, shareExpand)) {
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_node_name_err));
-		// Msg305: A node name is not permitted in a secondary, shadow, or log file name
-	}
-
-	if (!JRD_verify_database_access(file_name)) {
-		ERR_post(Arg::Gds(isc_conf_access_denied) << Arg::Str("additional database file") <<
-													 Arg::Str(name));
 	}
 }
 
