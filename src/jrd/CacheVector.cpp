@@ -53,7 +53,7 @@ TraNumber TransactionNumber::oldestActive(thread_db* tdbb)
 
 TraNumber TransactionNumber::next(thread_db* tdbb)
 {
-	return tdbb->getDatabase()->dbb_next_transaction;
+	return tdbb->getDatabase()->dbb_next_transaction + 1;
 }
 
 bool TransactionNumber::isNotActive(thread_db* tdbb, TraNumber traNumber)

@@ -29,23 +29,12 @@
 #ifndef JRD_CACHEVECTOR_H
 #define JRD_CACHEVECTOR_H
 
-#include "../jrd/SharedReadVector.h"
+#include <condition_variable>
 
-/*
-#include "../common/classes/alloc.h"
-#include "../common/classes/array.h"
-#include "../common/gdsassert.h"
-*/
 #include "../common/ThreadStart.h"
 #include "../common/StatusArg.h"
 
-#include <condition_variable>
-/*
-#include <utility>
-
-#include "../jrd/tdbb.h"
-#include "../jrd/Database.h"
- */
+#include "../jrd/SharedReadVector.h"
 #include "../jrd/constants.h"
 #include "../jrd/tra_proto.h"
 
@@ -249,6 +238,13 @@ public:
 	// find appropriate object in cache
 	static OBJ* getObject(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag fl)
 	{
+		auto entry = getEntry(tdbb, listEntry, currentTrans, fl);
+		return entry ? entry->getObject() : nullptr;
+	}
+
+	// find appropriate object in cache
+	static HazardPtr<ListEntry> getEntry(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag fl)
+	{
 		for (; listEntry; listEntry.set(listEntry->next))
 		{
 			ObjectBase::Flag f(listEntry->getFlags());
@@ -266,7 +262,7 @@ public:
 					if (fl & CacheFlag::ERASED)
 						continue;
 
-					return nullptr;		// object dropped
+					return HazardPtr<ListEntry>(nullptr);		// object dropped
 				}
 
 				// required entry found in the list
@@ -278,13 +274,13 @@ public:
 					fl);
 
 					if ((!(fl & CacheFlag::NOSCAN)) && (!(listEntry->bar.isReady())))
-						return nullptr;
+						return HazardPtr<ListEntry>(nullptr);		// object scan() error
 				}
-				return obj;
+				return listEntry;
 			}
 		}
 
-		return nullptr;	// object created (not by us) and not committed yet
+		return HazardPtr<ListEntry>(nullptr);	// object created (not by us) and not committed yet
 	}
 
 	bool isBusy(TraNumber currentTrans) const noexcept
@@ -292,9 +288,19 @@ public:
 		return !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
 	}
 
+	bool isReady()
+	{
+		return bar.isReady();
+	}
+
 	ObjectBase::Flag getFlags() const noexcept
 	{
 		return cacheFlags.load(atomics::memory_order_relaxed);
+	}
+
+	OBJ* getObject()
+	{
+		return object;
 	}
 
 	// add new entry to the list
@@ -376,15 +382,14 @@ public:
 	// return true if object was erased
 	bool commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
 	{
-		// following assert is OK in general but breaks CREATE DATABASE
-		// commented out till better solution
-		// fb_assert((getFlags() & CacheFlag::COMMITTED) == 0);
-
-		fb_assert(traNumber == currentTrans);
+		TraNumber oldNumber = traNumber;
 
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
 		auto flags = cacheFlags.fetch_or(CacheFlag::COMMITTED);
+
+		fb_assert((flags & CacheFlag::COMMITTED ? nextTrans : currentTrans) == oldNumber);
+
 		return flags & CacheFlag::ERASED;
 	}
 
@@ -531,13 +536,32 @@ public:
 		return getObject(tdbb, TransactionNumber::current(tdbb), fl);
 	}
 
+	bool isReady(thread_db* tdbb)
+	{
+		auto entry = getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN | CacheFlag::NOCOMMIT);
+		return entry && entry->isReady();
+	}
+
+	ObjectBase::Flag getFlags(thread_db* tdbb)
+	{
+		auto entry = getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN | CacheFlag::NOCOMMIT);
+		return entry ? entry->getFlags() : 0;
+	}
+
 	Versioned* getObject(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
+	{
+		auto entry = getEntry(tdbb, traNum, fl);
+		return entry ? entry->getObject() : nullptr;
+	}
+
+private:
+	HazardPtr<ListEntry<Versioned>> getEntry(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
 		if (!listEntry)
 		{
 			if (!(fl & CacheFlag::AUTOCREATE))
-				return nullptr;
+				return listEntry;		// nullptr
 
 			fb_assert(tdbb);
 
@@ -566,16 +590,17 @@ public:
 				fl);
 				if (! (fl & CacheFlag::NOCOMMIT))
 					newEntry->commit(tdbb, traNum, TransactionNumber::next(tdbb));
-				return obj;
+				return HazardPtr<ListEntry<Versioned>>(newEntry);
 			}
 
 			newEntry->cleanup(tdbb);
 			delete newEntry;
 			fb_assert(list.load());
 		}
-		return ListEntry<Versioned>::getObject(tdbb, listEntry, traNum, fl);
+		return ListEntry<Versioned>::getEntry(tdbb, listEntry, traNum, fl);
 	}
 
+public:
 	// return latest committed version or nullptr when does not exist
 	Versioned* getLatestObject(thread_db* tdbb) const
 	{
