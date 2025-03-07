@@ -73,6 +73,7 @@
 #include "../jrd/tra_proto.h"
 #include "../jrd/mov_proto.h"
 #include "../jrd/ini.h"
+#include "../jrd/GarbageCollector.h"
 
 namespace Jrd {
 
@@ -9736,10 +9737,14 @@ void DropRelationNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {
-	MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
 
-	const dsql_rel* relation = METD_get_relation(transaction, dsqlScratch, name);
+	auto* rel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+	if (!rel && silent)
+		return;
 
+	const dsql_rel* relation = rel ? METD_get_relation(transaction, dsqlScratch, name) : nullptr;
 	if (!relation && silent)
 		return;
 
@@ -9766,6 +9771,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 
 	const int ddlTriggerAction = (view ? DDL_TRIGGER_DROP_VIEW : DDL_TRIGGER_DROP_TABLE);
+	MetaId relId = rel->getId();
 
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
@@ -9781,6 +9787,12 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		found = true;
 	}
 	END_FOR
+
+	if (!found)
+	{
+		// msg 61: "Relation not found"
+		status_exception::raise(Arg::PrivateDyn(61));
+	}
 
 	request.reset(tdbb, drq_e_rel_con2, DYN_REQUESTS);
 
@@ -9879,12 +9891,6 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 	END_FOR
 
-	if (!found)
-	{
-		// msg 61: "Relation not found"
-		status_exception::raise(Arg::PrivateDyn(61));
-	}
-
 	// Triggers must be deleted after check constraints
 
 	MetaName triggerName;
@@ -9938,13 +9944,103 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 	END_FOR
 
-	if (found)
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
-	else
+	bool rolledBack = false;
+
+	try
 	{
-		// msg 61: "Relation not found"
-		status_exception::raise(Arg::PrivateDyn(61));
+		// Mark relation in the cache as dropped
+		MetadataCache::erase<Cached::Relation>(tdbb, relId);
+
+		// The sweep and garbage collector threads have no more than
+		// a single record latency in responding to the flagged relation
+		// deletion. Nevertheless, as a defensive programming measure,
+		// don't wait forever if something has gone awry and the sweep
+		// count doesn't run down.
+
+		for (int wait = 0; wait < 60; wait++)
+		{
+			fb_assert(rel->getPermanent()->isDropped());
+
+			if (!rel->getPermanent()->rel_gc_lock.getSweepCount())
+				break;
+
+			EngineCheckout cout(tdbb, FB_FUNCTION);
+			Thread::sleep(1 * 1000);
+		}
+
+		if (rel->getPermanent()->rel_gc_lock.getSweepCount())
+			DFW_raiseRelationInUseError(rel->getPermanent());
+
+		// Free any memory associated with the relation's garbage collection bitmap
+		if (dbb->dbb_garbage_collector)
+			dbb->dbb_garbage_collector->removeRelation(rel->getId());
+
+/*		if (auto* ext = rel->getPermanent()->getExtFile())   .... only when deleted !!!!!!!!!!!!!!!
+		    ext->release();
+
+		if (relation->isTemporary())
+		{
+			// release pages, allocated for current GTT instance
+			AutoSetRestoreFlag<ULONG> tmpSpace(&tdbb->tdbb_flags, TDBB_use_db_page_space, false);
+			rel->getPermanent()->delPages(tdbb);
+		}
+*/
+		RelationPages* const relPages = rel->getPermanent()->getBasePages();
+		if (relPages->rel_index_root)
+			IDX_mark_indices(tdbb, rel->getPermanent(), relPages);
+
+		if (relPages->rel_pages)
+			DPM_mark_relation(tdbb, rel->getPermanent());
+
+		// if this is a view (or even if we don't know), delete dependency lists
+
+		if (rel->getPermanent()->isView() || !rel->getPermanent()->isReady(tdbb))
+			MET_delete_dependencies(tdbb, name, obj_view, transaction);
+
+		// Now that the data, pointer, and index pages are gone,
+		// get rid of the relation itself
+
+		AutoRequest request2;
+		request2.reset();
+
+		FOR(REQUEST_HANDLE request2) X IN RDB$FORMATS WITH
+			X.RDB$RELATION_ID EQ rel->getId()
+		{
+			ERASE X;
+		}
+		END_FOR
+/*
+		// Release relation locks				.... only when deleted !!!!!!!!!!!!!!!
+		if (relation->rel_existence_lock) {
+			LCK_release(tdbb, relation->rel_existence_lock);
+		}
+		if (relation->rel_partners_lock) {
+			LCK_release(tdbb, relation->rel_partners_lock);
+		}
+		if (relation->rel_rescan_lock) {
+			LCK_release(tdbb, relation->rel_rescan_lock);
+		}
+
+		// Release relation triggers
+		relation->releaseTriggers(tdbb, true);
+*/
 	}
+	catch(const Exception&)
+	{
+		auto* relation = rel->getPermanent();//MetadataCache::lookupRelation(tdbb, relId, CacheFlags::NOSCAN);
+		if (!relation)
+			return;
+/*					.... only when deleted !!!!!!!!!!!!!!!
+		if (relation->rel_existence_lock && !(relation->rel_flags & REL_deleted))
+		{
+			LCK_convert(tdbb, relation->rel_existence_lock, LCK_SR, transaction->getLockWait());
+		}
+ */
+		if (relation->isDropped())
+			relation->rollback(tdbb);
+	}
+
+	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 
 	savePoint.release();	// everything is ok
 
@@ -11903,7 +11999,7 @@ MetaId AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tra
 	if (create)
 		IDX_activate_index(tdbb, rel, idxId.value());
 	else
-		IDX_delete_index(tdbb, rel, idxId.value());
+		IDX_mark_index(tdbb, rel, idxId.value());
 
 	return idxId.value();
 }
@@ -12114,7 +12210,7 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 		(relPages->rel_instance_id != 0);
 
 
-	IDX_delete_index(tdbb, rel, idxId);
+	IDX_mark_index(tdbb, rel, idxId);
 
 /*	!!!!!!!!!!!!!!!! back to DFW?
 	DFW_check_dependencies(tdbb, indexName.c_str(), NULL, NULL, obj_index, transaction);

@@ -720,7 +720,8 @@ public:
 	void enable(thread_db* tdbb, Lock* tempLock);
 	bool disable(thread_db* tdbb, int wait, Lock*& tempLock);
 
-	unsigned getSweepCount() const;		// violates rules of atomic counters - ok ONLY for ASSERT
+	unsigned getSweepCount() const;		// violates rules of atomic counters
+										// but OK for zerocheck when count can not grow
 
 	static int ast(void* self)
 	{

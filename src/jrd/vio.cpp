@@ -4411,9 +4411,9 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 			relation = MetadataCache::lookup_relation_id(tdbb, i, CacheFlag::AUTOCREATE);
 
 			if (relation &&
-				!(getPermanent(relation)->isDropped()) &&
+				!(relation->getPermanent()->isDropped()) &&
 				!relation->isTemporary() &&
-				getPermanent(relation)->getPages(tdbb)->rel_pages)
+				relation->getPermanent()->getPages(tdbb)->rel_pages)
 			{
 				GCLock::Shared gcGuard(tdbb, getPermanent(relation));
 				if (!gcGuard.gcEnabled())
@@ -4424,7 +4424,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 
 				rpb.rpb_relation = relation;
 				rpb.rpb_number.setValue(BOF_NUMBER);
-				rpb.rpb_org_scans = getPermanent(relation)->rel_scan_count++;
+				rpb.rpb_org_scans = relation->getPermanent()->rel_scan_count++;
 
 				traceSweep->beginSweepRelation(relation);
 
@@ -4436,7 +4436,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 				{
 					CCH_RELEASE(tdbb, &rpb.getWindow(tdbb));
 
-					if (getPermanent(relation)->isDropped())
+					if (relation->getPermanent()->isDropped())
 						break;
 
 					JRD_reschedule(tdbb);
@@ -4448,7 +4448,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 
 				traceSweep->endSweepRelation();
 
-				--getPermanent(relation)->rel_scan_count;
+				relation->getPermanent()->rel_scan_count--;
 			}
 		}
 

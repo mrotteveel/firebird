@@ -982,7 +982,7 @@ void IDX_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 }
 
 
-void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
+void IDX_mark_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 {
 /**************************************
  *
@@ -1013,6 +1013,45 @@ void IDX_delete_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 
 
 void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPages* relPages)
+{
+/**************************************
+ *
+ *	I D X _ d e l e t e _ i n d i c e s
+ *
+ **************************************
+ *
+ * Functional description
+ *	Delete all known indices in preparation for deleting a
+ *	complete relation.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+
+	fb_assert(relPages->rel_index_root);
+
+	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
+	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+
+//	const bool is_temp = (relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0);
+
+	for (USHORT i = 0; i < root->irt_count; i++)
+	{
+		const bool tree_exists = BTR_delete_index(tdbb, &window, i);
+		root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+/* !!!!!!!!!!!!!!
+		if (is_temp && tree_exists)
+		{
+			IndexPermanent* idx_lock = relation->getIndexLock(tdbb, i);
+			if (idx_lock)
+				idx_lock->unlockAll(tdbb);
+		}*/
+	}
+
+	CCH_RELEASE(tdbb, &window);
+}
+
+
+void IDX_mark_indices(thread_db* tdbb, RelationPermanent* relation, RelationPages* relPages)
 {
 /**************************************
  *

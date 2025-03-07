@@ -26,6 +26,7 @@
 
 #include "../jrd/btr.h"		// defines SelectivityList
 #include "../jrd/intl.h"	// defined TTypeId
+#include "../jrd/Resources.h"
 
 namespace Jrd
 {
@@ -49,9 +50,10 @@ Jrd::DeferredWork* DFW_post_work(Jrd::jrd_tra*, Jrd::dfw_t, const Firebird::stri
 	const Jrd::MetaName& package = NULL);
 Jrd::DeferredWork* DFW_post_work_arg(Jrd::jrd_tra*, Jrd::DeferredWork*, const dsc*, USHORT);
 Jrd::DeferredWork* DFW_post_work_arg(Jrd::jrd_tra*, Jrd::DeferredWork*, const dsc*, USHORT, Jrd::dfw_t);
-void DFW_update_index(const TEXT*, USHORT, const Jrd::SelectivityList&, Jrd::jrd_tra*);
+void DFW_raiseRelationInUseError(const Jrd::Cached::Relation*);
 void DFW_reset_icu(Jrd::thread_db*);
 bool DFW_setupCollationAttributes(const Firebird::string& collationName, const Firebird::string& charSetName,
     const Firebird::string& oldSpecificAttributes, Firebird::string& newSpecificAttributes, bool dropIcuInfo = false);
+void DFW_update_index(const TEXT*, USHORT, const Jrd::SelectivityList&, Jrd::jrd_tra*);
 
 #endif // JRD_DFW_PROTO_H

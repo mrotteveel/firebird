@@ -76,12 +76,11 @@ using namespace Jrd;
 using namespace Ods;
 using namespace Firebird;
 
-inline constexpr SSHORT MRK_commit = pag_max + 256;		// Table to go into pag_drop after transaction commit
-inline constexpr SSHORT MRK_drop = pag_max + 257;		// Table to be dropped after transaction commit
-inline constexpr SSHORT MRK_rollback = pag_max + 256;	// Table to be dropped after transaction rollback
+inline constexpr SSHORT MRK_commit = 256;		// Table to go into pag_drop after transaction commit
+inline constexpr SSHORT MRK_drop = 257;			// Table to be dropped when OAT >= next transaction at mark-set time
+inline constexpr SSHORT MRK_rollback = 258;		// Table to be dropped after transaction rollback
 
-static void table_marker(thread_db*, SSHORT, SSHORT, TraNumber);
-static TraNumber getTransactionFromMarker(ULONG sequence, ULONG page);
+static void set_marker(thread_db*, SSHORT, SSHORT, TraNumber);
 static void check_swept(thread_db*, record_param*);
 static USHORT compress(thread_db*, data_page*);
 static void delete_tail(thread_db*, rhdf*, const USHORT, USHORT);
@@ -118,6 +117,21 @@ namespace
 		};
 
 		return TipCache::traState(tdbb, markedTran, checkPresence, creating);
+	}
+
+	inline ULONG seqPart(TraNumber transaction)
+	{
+		return transaction >> 32;
+	}
+
+	inline ULONG numPart(TraNumber transaction)
+	{
+		return transaction & 0xFFFFFFFF;
+	}
+
+	inline TraNumber transactionFromMarker(ULONG sequence, ULONG number)
+	{
+		return (TraNumber(sequence) << 32) + number;
 	}
 }
 
@@ -596,7 +610,33 @@ void DPM_create_relation( thread_db* tdbb, Cached::Relation* relation)
 	if (auto tra = tdbb->getTransaction())
 	{
 		if (auto num = tra->tra_number)
-			table_marker(tdbb, relation->getId(), MRK_rollback, num);
+			set_marker(tdbb, relation->getId(), MRK_rollback, num);
+	}
+}
+
+
+void DPM_mark_relation( thread_db* tdbb, Cached::Relation* relation)
+{
+/**************************************
+ *
+ *	D P M _ m a r k _ r e l a t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Mark relation for commit.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+
+	// Add special record directing switch to MRK_drop state when transaction committed
+	if (auto tra = tdbb->getTransaction())
+	{
+		if (auto num = tra->tra_number)
+		{
+			DPM_scan_marker(tdbb, relation->getId());
+			set_marker(tdbb, relation->getId(), MRK_commit, num);
+		}
 	}
 }
 
@@ -1928,19 +1968,12 @@ bool DPM_next(thread_db* tdbb, record_param* rpb, USHORT lock_type, FindNextReco
 }
 
 
-static void table_marker(thread_db* tdbb, SSHORT rel_id, SSHORT type, TraNumber transaction)
+static void set_marker(thread_db* tdbb, SSHORT rel_id, SSHORT type, TraNumber transaction)
 {
 	fb_assert(type >= MRK_commit && type <= MRK_rollback);
 
-	DPM_pages(tdbb, rel_id, type, transaction >> 32, transaction & 0xFFFFFFFF);
+	DPM_pages(tdbb, rel_id, type, seqPart(transaction), numPart(transaction));
 }
-
-
-static TraNumber getTransactionFromMarker(ULONG sequence, ULONG page)
-{
-	return (TraNumber(sequence) << 32) + page;
-}
-
 
 
 void DPM_pages(thread_db* tdbb, SSHORT rel_id, int type, ULONG sequence, ULONG page)
@@ -2142,7 +2175,7 @@ void DPM_scan_pages( thread_db* tdbb)
 
 	HalfStaticArray<ULONG, 256> tipSeqList;
 	HalfStaticArray<ULONG, 4> genSeqList;
-	HalfStaticArray<MetaId, 4> deleteList;
+	HalfStaticArray<MetaId, 8> markList;
 
 	AutoCacheRequest request(tdbb, irq_r_pages, IRQ_REQUESTS);
 
@@ -2176,22 +2209,13 @@ void DPM_scan_pages( thread_db* tdbb)
 			genSeqList[sequence] = X.RDB$PAGE_NUMBER;
 			break;
 
-		//case MRK_commit:
-		//case MRK_drop:
-
+		case MRK_commit:
+		case MRK_drop:
 		case MRK_rollback:
 			if (!dbb->dbb_tip_cache)
-			{
 				dbb->dbb_flags |= DBB_rescan_pages;
-				break;
-			}
-			if (transactionState(tdbb, getTransactionFromMarker(X.RDB$PAGE_SEQUENCE, X.RDB$PAGE_NUMBER),
-				relation, true) == tra_dead)
-			{
-				deleteList.push(X.RDB$RELATION_ID);
-			}
 			else
-				ERASE X;
+				markList.push(X.RDB$RELATION_ID);
 			break;
 
 		default:
@@ -2206,11 +2230,99 @@ void DPM_scan_pages( thread_db* tdbb)
 	if (const auto count = genSeqList.getCount())
 		dbb->copyKnownPages(pag_ids, count, genSeqList.begin());
 
-	for (auto id : deleteList)
+	for (auto id : markList)
+		DPM_scan_marker(tdbb, id);
+}
+
+
+void DPM_scan_marker(thread_db* tdbb, MetaId relId)
+{
+/**************************************
+ *
+ *	D P M _ s c a n _ m a r k e r
+ *
+ **************************************
+ *
+ * Functional description
+ *	Scan marker for particular relation.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+	fb_assert(dbb->dbb_tip_cache);
+
+	bool doDel = false;
+	auto relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+
+	static CachedRequestId id1;
+	AutoCacheRequest request(tdbb, id1);
+
+	FOR(REQUEST_HANDLE request) X IN RDB$PAGES
+		WITH X.RDB$RELATION_ID EQ relId
+		 AND X.RDB$PAGE_TYPE GT MAX_UCHAR
 	{
-		auto* relation = MetadataCache::lookupRelation(tdbb, id, CacheFlag::NOSCAN);
-		DPM_delete_relation(tdbb, relation);
+		switch (X.RDB$PAGE_TYPE)
+		{
+		case MRK_commit:
+			switch (transactionState(tdbb, transactionFromMarker(X.RDB$PAGE_SEQUENCE, X.RDB$PAGE_NUMBER),
+				relation, true))
+			{
+			case tra_dead:
+				ERASE X;
+				break;
+			case tra_committed:
+				MODIFY X USING
+				{
+					auto traNum = TransactionNumber::next(tdbb);
+					X.RDB$PAGE_TYPE = MRK_drop;
+					X.RDB$PAGE_SEQUENCE = seqPart(traNum);
+					X.RDB$PAGE_NUMBER = numPart(traNum);
+				}
+				END_MODIFY
+				break;
+			}
+			break;
+
+		case MRK_drop:
+			if (!dbb->dbb_tip_cache)
+			{
+				dbb->dbb_flags |= DBB_rescan_pages;
+				break;
+			}
+			if (tdbb->getDatabase()->dbb_oldest_active >=
+				transactionFromMarker(X.RDB$PAGE_SEQUENCE, X.RDB$PAGE_NUMBER))
+			{
+				doDel = true;
+			}
+			break;
+
+		case MRK_rollback:
+			if (!dbb->dbb_tip_cache)
+			{
+				dbb->dbb_flags |= DBB_rescan_pages;
+				break;
+			}
+			switch (transactionState(tdbb, transactionFromMarker(X.RDB$PAGE_SEQUENCE, X.RDB$PAGE_NUMBER),
+				relation, true))
+			{
+			case tra_dead:
+				doDel = true;
+				break;
+			case tra_committed:
+				ERASE X;
+				break;
+			}
+			break;
+
+		default:
+			CORRUPT(257);		// msg 257 bad record in RDB$PAGES
+		}
 	}
+	END_FOR
+
+	if (doDel)
+		DPM_delete_relation(tdbb, relation);
 }
 
 
