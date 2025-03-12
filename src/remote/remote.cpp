@@ -989,7 +989,8 @@ void Rtr::setupInlineBlob(P_INLINE_BLOB* p_blob)
 	fb_assert(blb->rbl_data.getCount() <= MAX_USHORT);
 
 	blb->rbl_buffer_length = MIN(MAX_USHORT, blb->rbl_data.getCapacity());
-	if (!rtr_rdb->incBlobCache(blb->getCachedSize()))
+	const ULONG cachedSize = blb->getCachedSize();
+	if (!rtr_rdb->incBlobCache(cachedSize))
 	{
 		delete blb;
 		return;
@@ -1005,7 +1006,7 @@ void Rtr::setupInlineBlob(P_INLINE_BLOB* p_blob)
 		fb_assert(blb != old);
 		delete blb;
 
-		rtr_rdb->decBlobCache(blb->getCachedSize());
+		rtr_rdb->decBlobCache(cachedSize);
 		return;
 	}
 
