@@ -546,6 +546,17 @@ PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
 }
 
 
+void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
+{
+	auto* relation = MetadataCache::lookupRelation(tdbb, name,
+		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
+	fb_assert(relation);
+
+	if (relation)
+		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relation->getId());
+}
+
+
 const char* IndexPermanent::c_name() const
 {
 	// Here we use MetaName feature - pointers in it are DBB-lifetime stable

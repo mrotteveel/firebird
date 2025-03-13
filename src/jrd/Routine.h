@@ -183,7 +183,6 @@ namespace Jrd
 
 	public:
 		bool flReload;
-		StartupBarrier startup;
 
 	public:
 		Jrd::UserId* invoker;		// Invoker ID

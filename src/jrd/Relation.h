@@ -889,6 +889,8 @@ public:
 	static int rescan_ast_relation(void* ast_object);
 	static int blocking_ast_relation(void* ast_object);
 
+	static void tagForUpdate(thread_db* tdbb, const MetaName name);
+
 	vec<Format*>*	rel_formats;		// Known record formats
 	Indices			rel_indices;		// Active indices
 	MetaName		rel_name;			// ascii relation name

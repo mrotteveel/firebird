@@ -370,26 +370,12 @@ public:
 	}
 
 	template <typename C>
-	static void updateFormat(thread_db* tdbb, MetaId id)
+	static void tagForUpdate(thread_db* tdbb, MetaId id)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
+		vector.tagForUpdate(tdbb, id);
 	}
-/*
-	template <typename C>
-	static C* modifyVersion(thread_db* tdbb, MetaId id)
-	{
-		auto& vector = Vector<C, void>::get(getCache(tdbb));
-		{
-			Firebird::AutoSetRestore2<jrd_tra*, thread_db> nullifyTransaction(
-				tdbb, &thread_db::getTransaction, &thread_db::setTransaction, nullptr);
-			auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
-			fb_assert(vrsn);
-		}
-		auto* vrsn = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
-		return vrsn ? getPermanent(vrsn) : nullptr;
-	}
- */
+
 	template <typename C>
 	static C* erase(thread_db* tdbb, MetaId id)
 	{

@@ -113,10 +113,10 @@ public:
 };
 
 
-class StartupBarrier
+class VersionStartup
 {
 public:
-	StartupBarrier()
+	VersionStartup()
 		: thd(0), flg(INITIAL)
 	{ }
 
@@ -273,7 +273,7 @@ public:
 						[&](bool rld) { return scanCallback(tdbb, obj, rld, fl); },
 					fl);
 
-					if ((!(fl & CacheFlag::NOSCAN)) && (!(listEntry->bar.isReady())))
+					if ((!(fl & CacheFlag::NOSCAN)) && (!(listEntry->vStart.isReady())))
 						return HazardPtr<ListEntry>(nullptr);		// object scan() error
 				}
 				return listEntry;
@@ -290,7 +290,7 @@ public:
 
 	bool isReady()
 	{
-		return bar.isReady();
+		return vStart.isReady();
 	}
 
 	ObjectBase::Flag getFlags() const noexcept
@@ -428,7 +428,7 @@ public:
 	void scanObject(F&& scanFunction, ObjectBase::Flag fl)
 	{
 		if (!(fl & CacheFlag::NOSCAN))
-			bar.scanBar(std::forward<F>(scanFunction));
+			vStart.scanBar(std::forward<F>(scanFunction));
 	}
 
 	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
@@ -442,7 +442,7 @@ public:
 
 	bool scanInProgress() const
 	{
-		return bar.scanInProgress();
+		return vStart.scanInProgress();
 	}
 
 private:
@@ -454,7 +454,7 @@ private:
 	//		nill	|	object dropped	|	cache to be loaded
 	//	not nill	|	prohibited		|	cache is actual
 
-	StartupBarrier bar;
+	VersionStartup vStart;
 	OBJ* object;
 	atomics::atomic<ListEntry*> next = nullptr;
 	TraNumber traNumber;		// when COMMITTED not set - stores transaction that created this list element
@@ -521,11 +521,12 @@ public:
 		TraNumber cur = TransactionNumber::current(tdbb);
 		if (listEntry)
 		{
-			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, 0);
+			fl &= ~CacheFlag::AUTOCREATE;
+			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl);
 			if (obj)
 			{
 				listEntry->scanObject(
-					[&](bool rld) { return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, 0); },
+					[&](bool rld) { return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl); },
 				fl);
 			}
 		}
@@ -923,8 +924,30 @@ public:
 		return data->makeObject(tdbb, fl);
 	}
 
+	void tagForUpdate(thread_db* tdbb, MetaId id)
+	{
+		auto constexpr fl = CacheFlag::NOCOMMIT | CacheFlag::NOSCAN;
+
+		fb_assert(id < getCount());
+		if (id < getCount())
+		{
+			auto ptr = getDataPointer(id);
+			fb_assert(ptr);
+
+			StoredElement* data = ptr->load(atomics::memory_order_acquire);
+			if (data)
+			{
+				if (data->isReady(tdbb) && !data->scanInProgress())
+					data->makeObject(tdbb, fl);
+				return;
+			}
+		}
+
+		makeObject(tdbb, id, fl);
+	}
+
 	template <typename F>
-	StoredElement* lookup(thread_db* tdbb, F&& cmp) const
+	StoredElement* lookup(thread_db* tdbb, F&& cmp, ObjectBase::Flag fl) const
 	{
 		auto a = m_objects.readAccessor();
 		for (FB_SIZE_T i = 0; i < a->getCount(); ++i)
@@ -938,7 +961,7 @@ public:
 				StoredElement* ptr = end->load(atomics::memory_order_relaxed);
 				if (ptr && cmp(ptr))
 				{
-					ptr->reload(tdbb, 0);
+					ptr->reload(tdbb, fl);
 					return ptr;
 				}
 			}

@@ -724,13 +724,15 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 	AutoCacheRequest request(tdbb, irq_m_fields, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request)
-		X IN RDB$RELATION_FIELDS WITH
-			X.RDB$FIELD_SOURCE EQ field_source->dsc_address
+		X IN RDB$RELATION_FIELDS
+		CROSS R IN RDB$RELATIONS
+		OVER RDB$RELATION_NAME
+		WITH X.RDB$FIELD_SOURCE EQ field_source->dsc_address
 	{
 		relation_name.makeText(sizeof(X.RDB$RELATION_NAME) - 1, CS_METADATA,
 			(UCHAR*) X.RDB$RELATION_NAME);
 		SCL_check_relation(tdbb, &relation_name, SCL_alter);
-		// ?????????????///// dw = DFW_post_work(transaction, dfw _update_format, &relation_name, 0);
+		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
 
 		AutoCacheRequest request2(tdbb, irq_m_fields4, IRQ_REQUESTS);
 
@@ -2433,7 +2435,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 	// See if we already know the procedure by name
 
 	auto* proc = mdc->mdc_procedures.lookup(tdbb,
-		[name] (Cached::Procedure* proc) { return proc->getName() == name; });
+		[name] (Cached::Procedure* proc) { return proc->getName() == name; }, flags);
 	if (proc)
 		return proc->getObject(tdbb, flags);
 
@@ -2502,7 +2504,7 @@ Function* MetadataCache::lookup_function(thread_db* tdbb, const QualifiedName& n
 	// See if we already know the function by name
 
 	auto* func = mdc->mdc_functions.lookup(tdbb,
-		[name] (Cached::Function* func) { return func->getName() == name; });
+		[name] (Cached::Function* func) { return func->getName() == name; }, flags);
 	if (func)
 		return func->getObject(tdbb, flags);
 
@@ -2537,7 +2539,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName&
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
 	// See if we already know the relation by name
-	auto* rc = mdc->mdc_relations.lookup(tdbb, [name](RelationPermanent* rel) { return rel->rel_name == name; });
+	auto* rc = mdc->mdc_relations.lookup(tdbb, [name](RelationPermanent* rel) { return rel->rel_name == name; }, flags);
 
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
@@ -3167,7 +3169,10 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	// Do we need new format version?
 	if (rel_perm->rel_flags & REL_format)
+	{
 		RelationNode::makeVersion(tdbb, trans, rel_perm->getName());
+		rel_perm->rel_flags &= ~REL_format;
+	}
 
 	// Since this can be called recursively, find an inactive clone of the request
 
@@ -4014,7 +4019,8 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 			[name](CharSetContainer* csc)
 			{
 				return csc->names.exist(name);
-			}
+			},
+			0
 		);
 
 		if (!cs)
@@ -4951,7 +4957,7 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const Qualifi
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
 	// See if we already know the relation by name
-	auto* rc = mdc->mdc_procedures.lookup(tdbb, [name](RoutinePermanent* proc) { return proc->name == name; });
+	auto* rc = mdc->mdc_procedures.lookup(tdbb, [name](RoutinePermanent* proc) { return proc->name == name; }, flags);
 
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
@@ -4979,7 +4985,7 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, const Qualified
 	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
 	// See if we already know the function by name
-	auto* rc = mdc->mdc_functions.lookup(tdbb, [name](RoutinePermanent* func) { return func->name == name; });
+	auto* rc = mdc->mdc_functions.lookup(tdbb, [name](RoutinePermanent* func) { return func->name == name; }, flags);
 
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
@@ -5222,15 +5228,18 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 	Attachment* attachment = tdbb->getAttachment();
 
 	// See if we already know the index by name
-	auto* idp = rel_indices.lookup(tdbb, [tdbb, name, flags](Cached::Index* idp)->Cached::Index* {
-		if (idp->getName() == name)
+	auto* idp = rel_indices.lookup(tdbb,
+		[tdbb, name, flags](Cached::Index* idp)->Cached::Index*
 		{
-			auto* idv = idp->getObject(tdbb, flags);
-			if (idv && idv->getName() == name)
-				return idp;
-		}
-		return nullptr;
-	});
+			if (idp->getName() == name)
+			{
+				auto* idv = idp->getObject(tdbb, flags);
+				if (idv && idv->getName() == name)
+					return idp;
+			}
+			return nullptr;
+		},
+		flags);
 
 	if (idp)
 		return idp->getObject(tdbb, flags);
@@ -5262,9 +5271,12 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 	Attachment* attachment = tdbb->getAttachment();
 
 	// See if we already know the relation by name
-	auto* idp = rel_indices.lookup(tdbb, [tdbb, name, flags](Cached::Index* idp) {
-		return idp->getName() == name ? idp : nullptr;
-	});
+	auto* idp = rel_indices.lookup(tdbb,
+		[tdbb, name, flags](Cached::Index* idp)
+		{
+			return idp->getName() == name ? idp : nullptr;
+		},
+		flags);
 
 	if (idp || !(flags & CacheFlag::AUTOCREATE))
 		return idp;

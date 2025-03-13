@@ -244,7 +244,7 @@ static void define_default_class(thread_db* tdbb,
 
 	save_security_class(tdbb, default_class, acl, transaction);
 
-	MetadataCache::updateFormat<Cached::Relation>(tdbb, relation->getId());
+	MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relation->getId());
 }
 
 
@@ -697,11 +697,14 @@ static SecurityClass::flags_t save_field_privileges(thread_db* tdbb,
 
 	AutoCacheRequest request(tdbb, irq_grant6, IRQ_REQUESTS);
 	AutoRequest request2, request3;
+	MetaId relId;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		FLD IN RDB$RELATION_FIELDS CROSS
-			PRV IN RDB$USER_PRIVILEGES
+		FLD IN RDB$RELATION_FIELDS
+			CROSS PRV IN RDB$USER_PRIVILEGES
 			OVER RDB$RELATION_NAME, RDB$FIELD_NAME
+			CROSS REL IN RDB$RELATIONS
+			OVER RDB$RELATION_NAME
 			WITH PRV.RDB$OBJECT_TYPE EQ obj_relation AND
 			PRV.RDB$RELATION_NAME EQ relation_name AND
 			PRV.RDB$FIELD_NAME NOT MISSING AND
@@ -710,6 +713,7 @@ static SecurityClass::flags_t save_field_privileges(thread_db* tdbb,
 	{
 		fb_utils::exact_name_limit(PRV.RDB$USER, sizeof(PRV.RDB$USER));
 		fb_utils::exact_name_limit(PRV.RDB$FIELD_NAME, sizeof(PRV.RDB$FIELD_NAME));
+		relId = REL.RDB$RELATION_ID;
 
 		// create a control break on field_name,user
 
@@ -833,14 +837,7 @@ static SecurityClass::flags_t save_field_privileges(thread_db* tdbb,
 		finish_security_class(field_acl, (field_public | public_priv));
 		save_security_class(tdbb, s_class, field_acl, transaction);
 
-		dsc desc;
-		desc.dsc_dtype = dtype_text;
-		desc.dsc_sub_type = 0;
-		desc.dsc_scale = 0;
-		desc.setTextType(ttype_metadata);
-		desc.dsc_address = (UCHAR *) relation_name;
-		desc.dsc_length = static_cast<USHORT>(strlen(relation_name));
-		// ????????????????????????? DFW_post_work(transaction, dfw _update_format, &desc, 0);
+		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relId);
 	}
 
 	return aggregate_public;
