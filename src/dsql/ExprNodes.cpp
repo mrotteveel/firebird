@@ -9067,6 +9067,8 @@ WindowClause* WindowClause::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 				Arg::Gds(isc_sqlerr) << Arg::Num(-204) <<
 				Arg::Gds(isc_dsql_window_cant_overr_frame) << *name);
 		}
+
+		window = window->dsqlPass(dsqlScratch);
 	}
 	else
 		window = this;
