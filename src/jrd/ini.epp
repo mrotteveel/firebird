@@ -867,21 +867,34 @@ void INI_init(thread_db* tdbb)
 		relation->rel_flags |= MET_get_rel_flags_from_TYPE(relfld[RFLD_R_TYPE]);
 		relation->rel_name = names[relfld[RFLD_R_NAME]];
 
-		HalfStaticArray<const char*, 64> fieldNames;
+		struct Field
+		{
+			const char* name;
+			const gfld* gfield;
+
+			Field(const char* name, const gfld& gfield)
+				: name(name), gfield(&gfield)
+			{ }
+			Field() = default;
+		};
+		HalfStaticArray<Field, 64> localFields;
 		for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
 		{
-			fieldNames.add(names[fld[RFLD_F_NAME]]);
+			localFields.add(Field(names[fld[RFLD_F_NAME]], gfields[fld[RFLD_F_ID]]));
 		}
 
-		const auto fields = vec<jrd_fld*>::newVector(*pool, fieldNames.getCount());
+		const auto fields = vec<jrd_fld*>::newVector(*pool, localFields.getCount());
 		relVers->rel_fields = fields;
 
 		ULONG fieldPos = 0;
 		for (auto iter = fields->begin(); iter != fields->end(); ++iter)
 		{
 			const auto field = FB_NEW_POOL(*pool) jrd_fld(*pool);
-			field->fld_name = fieldNames[fieldPos++];
+			field->fld_name = localFields[fieldPos].name;
+			field->fld_source_name = names[localFields[fieldPos].gfield->gfld_name];
+			field->fld_length = localFields[fieldPos].gfield->gfld_length;
 			*iter = field;
+			++fieldPos;
 		}
 
 		relation->rel_formats = vec<Format*>::newVector(*pool, 1);
@@ -1005,7 +1018,7 @@ void INI_init_dsql(thread_db* tdbb, dsql_dbb* database)
 
 	const auto majorVersion = dbb->dbb_ods_version;
 	const auto minorVersion = dbb->dbb_minor_version;
-
+/*
 	// Load relation and fields.
 
 	const int* fld;
@@ -1074,7 +1087,7 @@ void INI_init_dsql(thread_db* tdbb, dsql_dbb* database)
 		database->dbb_relations.put(relation->rel_name, relation);
 		MetadataCache::dsql_cache_use(tdbb, SYM_relation, relation->rel_name);
 	}
-
+*/
 	// Load internal character sets and collations, necessary for engine operation.
 
 	for (const IntlManager::CharSetDefinition* csDef = IntlManager::defaultCharSets;
@@ -1350,7 +1363,7 @@ void INI_upgrade(thread_db* tdbb)
 			   attachment->att_filename.c_str(),
 			   majorVersion, minorVersion, majorVersion, ODS_CURRENT);
 	gds__log(msg.c_str());
-
+/* ??????????????????
 	// Invalidate new/modified relations in the DSQL metadata cache,
 	// thus forcing them to be reloaded on demand
 
@@ -1381,7 +1394,7 @@ void INI_upgrade(thread_db* tdbb)
 				dbb->dbb_relations.remove(relName);
 			}
 		}
-	}
+	} */
 }
 
 

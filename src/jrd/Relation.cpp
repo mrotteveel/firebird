@@ -552,7 +552,9 @@ void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
 		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
 	fb_assert(relation);
 
-	if (relation)
+		printf("tagForUpdate %s %d\n", name.c_str(), relation->getId());
+
+	if (relation && relation->getId())		// ???????????????????????
 		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relation->getId());
 }
 
@@ -934,6 +936,51 @@ int jrd_rel::objectType()
 {
 	return obj_relation;
 }
+
+const Format* jrd_rel::currentFormat()
+{
+/**************************************
+ *
+ *      M E T _ c u r r e n t
+ *
+ **************************************
+ *
+ * Functional description
+ *      Get the current format for a relation.  The current format is the
+ *      format in which new records are to be stored.
+ *
+ **************************************/
+
+	// dimitr:	rel_current_format may sometimes get out of sync,
+	//			e.g. after DFW error raised during ALTER TABLE command.
+	//			Thus it makes sense to validate it before usage and
+	//			fetch the proper one if something is suspicious.
+	//
+	// AP:		no reasons for rel_current_format to be wrong with versioned cache
+	//			but better check it carefully
+
+	fb_assert(rel_current_format && (rel_current_format->fmt_version == rel_current_fmt));
+
+	if (rel_current_format && (rel_current_format->fmt_version == rel_current_fmt))
+	{
+		return rel_current_format;
+	}
+
+	thread_db* tdbb = JRD_get_thread_data();
+
+	// Usually, format numbers start with one and they are present in RDB$FORMATS.
+	// However, system tables have zero as their initial format and they don't have
+	// any related records in RDB$FORMATS, instead their rel_formats[0] is initialized
+	// directly (see ini.epp). Every other case of zero format number found for an already
+	// scanned table must be catched here and investigated.
+	fb_assert(rel_current_fmt || isSystem());
+
+	rel_current_format = MET_format(tdbb, getPermanent(), rel_current_fmt);
+
+	return rel_current_format;
+}
+
+
 
 void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 {

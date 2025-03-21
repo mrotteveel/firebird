@@ -590,6 +590,7 @@ public:
 	Cached::Relation*	rel_perm;
 	USHORT			rel_current_fmt;	// Current format number
 	Format*			rel_current_format;	// Current record format
+	USHORT			rel_dbkey_length;	// RDB$DBKEY length
 
 	vec<jrd_fld*>*	rel_fields;			// vector of field blocks
 
@@ -643,6 +644,7 @@ public:
 	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
 	const Trigger* findTrigger(const MetaName trig_name) const;
+	const Format* currentFormat();
 
 	decltype(rel_perm) getPermanent() const
 	{
@@ -1066,12 +1068,16 @@ public:
 	ValueExprNode*	fld_computation;	// computation for virtual field
 	ValueExprNode*	fld_source;			// source for view fields
 	ValueExprNode*	fld_default_value;	// default value, if any
-	ArrayField*	fld_array;			// array description, if array
-	MetaName	fld_name;	// Field name
-	MetaName	fld_security_name;	// security class name for field
-	MetaName	fld_generator_name;	// identity generator name
+	ArrayField*	fld_array;				// array description, if array
+	MetaName	fld_name;				// Field name
+	MetaName	fld_security_name;		// security class name for field
+	MetaName	fld_generator_name;		// identity generator name
+	MetaName	fld_source_name;		// RDB%FIELD name
 	MetaNamePair	fld_source_rel_field;	// Relation/field source name
 	std::optional<IdentityType> fld_identity_type;
+	USHORT fld_length;
+	USHORT fld_segment_length;
+	USHORT fld_character_length;
 	USHORT fld_flags;
 
 public:

@@ -925,47 +925,6 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 }
 
 
-Format* MET_current(thread_db* tdbb, jrd_rel* relation)
-{
-/**************************************
- *
- *      M E T _ c u r r e n t
- *
- **************************************
- *
- * Functional description
- *      Get the current format for a relation.  The current format is the
- *      format in which new records are to be stored.
- *
- **************************************/
-
-	// dimitr:	rel_current_format may sometimes get out of sync,
-	//			e.g. after DFW error raised during ALTER TABLE command.
-	//			Thus it makes sense to validate it before usage and
-	//			fetch the proper one if something is suspicious.
-
-	if (relation->rel_current_format &&
-		relation->rel_current_format->fmt_version == relation->rel_current_fmt)
-	{
-		return relation->rel_current_format;
-	}
-
-	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-
-	// Usually, format numbers start with one and they are present in RDB$FORMATS.
-	// However, system tables have zero as their initial format and they don't have
-	// any related records in RDB$FORMATS, instead their rel_formats[0] is initialized
-	// directly (see ini.epp). Every other case of zero format number found for an already
-	// scanned table must be catched here and investigated.
-	fb_assert(relation->rel_current_fmt || relation->isSystem());
-
-	relation->rel_current_format = MET_format(tdbb, getPermanent(relation), relation->rel_current_fmt);
-
-	return relation->rel_current_format;
-}
-
-
 void MET_delete_dependencies(thread_db* tdbb,
 							 const MetaName& object_name,
 							 int dependency_type,
@@ -3190,9 +3149,14 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			rel_perm->rel_flags |= MET_get_rel_flags_from_TYPE(REL.RDB$RELATION_TYPE);
 
 		// Pick up relation level stuff
+		rel_dbkey_length = REL.RDB$DBKEY_LENGTH;
+		fb_assert(rel_dbkey_length % 8 == 0);
+		if (!rel_dbkey_length)
+			rel_dbkey_length = 8;
+
 		rel_current_fmt = REL.RDB$FORMAT;
 		vec<jrd_fld*>* vector = rel_fields =
-			vec<jrd_fld*>::newVector(*rel_pool, rel_fields, REL.RDB$FIELD_ID + 1);
+			vec<jrd_fld*>::newVector(*rel_pool, rel_fields, REL.RDB$FIELD_ID);
 		if (rel_perm->rel_security_name.isEmpty() && !REL.RDB$SECURITY_CLASS.NULL)
 			rel_perm->rel_security_name = REL.RDB$SECURITY_CLASS;
 
@@ -3326,15 +3290,13 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 					if (field->fld_name == reinterpret_cast<char*>(p))
 						break;
-
-					field->fld_name = reinterpret_cast<char*>(p);
 				}
 				else
 				{
 					field = FB_NEW_POOL(*rel_pool) jrd_fld(*rel_pool);
 					(*vector)[field_id] = field;
-					field->fld_name = reinterpret_cast<char*>(p);
 				}
+				field->fld_name = reinterpret_cast<char*>(p);
 
 				// CVC: Be paranoid and allow the possible trigger(s) to have a
 				//   not null security class to work on, even if we only take it
@@ -3344,6 +3306,10 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 					field->fld_security_name = REL.RDB$DEFAULT_CLASS;
 				}
 
+				break;
+
+			case RSR_field_source:
+				field->fld_source_name = reinterpret_cast<char*>(p);
 				break;
 
 			case RSR_view_context:
@@ -3444,6 +3410,18 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				field->fld_identity_type = static_cast<IdentityType>(n);
 				break;
 
+			case RSR_field_length:
+				field->fld_length = n;
+				break;
+
+			case RSR_segment_length:
+				field->fld_segment_length = n;
+				break;
+
+			case RSR_character_length:
+				field->fld_character_length = n;
+				break;
+
 			default:    // Shut up compiler warning
 				break;
 			}
@@ -3460,10 +3438,10 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	delete csb;
 
-	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
-
-	rel_current_format = NULL;
+	rel_current_format = MET_format(tdbb, rel_perm, rel_current_fmt);
 	dependencies = false;
+
+	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
 
 	return getName().hasData();
 }

@@ -1186,7 +1186,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 
 const Format* Applier::findFormat(thread_db* tdbb, jrd_rel* relation, ULONG length)
 {
-	auto format = MET_current(tdbb, relation);
+	auto format = relation->currentFormat();
 
 	while (format->fmt_length != length && format->fmt_version)
 		format = MET_format(tdbb, relation->rel_perm, format->fmt_version - 1);

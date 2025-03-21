@@ -65,7 +65,7 @@ using namespace Firebird;
 DATABASE DB = STATIC "yachts.lnk";
 
 static void convert_dtype(TypeClause*, SSHORT);
-static void free_relation(dsql_rel*);
+//static void free_relation(dsql_rel*); ???????????????///
 
 namespace
 {
@@ -258,7 +258,7 @@ void METD_drop_relation(jrd_tra* transaction, const MetaName& name)
  *      accessing it.
  *
  **************************************/
-	thread_db* tdbb = JRD_get_thread_data();
+/*	thread_db* tdbb = JRD_get_thread_data();
 	dsql_dbb* dbb = transaction->getDsqlAttachment();
 
 	dsql_rel* relation;
@@ -268,7 +268,7 @@ void METD_drop_relation(jrd_tra* transaction, const MetaName& name)
 		MetadataCache::dsql_cache_use(tdbb, SYM_relation, name);
 		relation->rel_flags |= REL_dropped;
 		dbb->dbb_relations.remove(name);
-	}
+	} */
 }
 
 
@@ -1202,18 +1202,40 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
  *  If it does, fetch field information as well.
  *
  **************************************/
+
+	printf("%s: tra=%llu\n", name.c_str(), transaction->tra_number);
 	thread_db* tdbb = JRD_get_thread_data();
 
 	validateTransaction(transaction);
 
-	dsql_dbb* dbb = transaction->getDsqlAttachment();
-
 	// See if the relation is the one currently being defined in this statement
 
-	dsql_rel* temp = dsqlScratch->relation;
+	auto* temp = dsqlScratch->relation;
 	if (temp != NULL && temp->rel_name == name)
+	{
+		printf("%s: dsqlScratch->relation\n", name.c_str());
 		return temp;
+	}
 
+	if (dsqlScratch->rels.get(name, temp))
+	{
+		printf("%s: dsqlScratch->rels\n", name.c_str());
+		return temp;
+	}
+
+	auto* jrel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+	if (!jrel)
+		return nullptr;
+
+	//dsql_dbb* dbb = transaction->getDsqlAttachment();
+	temp = FB_NEW_POOL(dsqlScratch->getPool()) dsql_rel(dsqlScratch->getPool(), jrel);
+	dsqlScratch->rels.put(temp->rel_name, temp);
+
+	printf("%s: cached\n", name.c_str());
+	return temp;
+
+
+/*
 	// Start by seeing if symbol is already defined
 
 	if (dbb->dbb_relations.get(name, temp) && !(temp->rel_flags & REL_dropped))
@@ -1221,7 +1243,10 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 		if (MetadataCache::dsql_cache_use(tdbb, SYM_relation, name))
 			temp->rel_flags |= REL_dropped;
 		else
+		{
+			printf("%s: dbb_relations\n", name.c_str());
 			return temp;
+		}
 	}
 
 	// Ensure IDs were assigned for new relation
@@ -1371,6 +1396,7 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	if (dbb->dbb_relations.get(name, temp) && !(temp->rel_flags & REL_dropped))
 	{
+		printf("%s: dbb_relations-2\n", name.c_str());
 		free_relation(relation);
 		return temp;
 	}
@@ -1385,7 +1411,8 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	else
 		relation->rel_flags |= REL_new_relation;
 
-	return relation;
+	printf("%s: cached\n", name.c_str());
+	return relation;*/
 }
 
 
@@ -1677,10 +1704,10 @@ static void free_procedure(dsql_prc* procedure)
 }
 #endif	// NOT_USED_OR_REPLACED
 
-
+/* ??????????????????
 static void free_relation(dsql_rel* relation)
 {
-/**************************************
+ **************************************
  *
  *  f r e e _ r e l a t i o n
  *
@@ -1689,7 +1716,7 @@ static void free_relation(dsql_rel* relation)
  * Functional description
  *  Free memory allocated for a relation block and fields
  *
- **************************************/
+ **************************************
 
 	// release the field blocks
 
@@ -1704,3 +1731,5 @@ static void free_relation(dsql_rel* relation)
 
 	delete relation;
 }
+*/
+

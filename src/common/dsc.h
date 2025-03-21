@@ -225,6 +225,11 @@ typedef struct dsc
 		return dsc_dtype == dtype_unknown;
 	}
 
+	UCHAR getType() const
+	{
+		return dsc_dtype;
+	}
+
 	SSHORT getBlobSubType() const
 	{
 		if (isBlob())
@@ -299,6 +304,11 @@ typedef struct dsc
 	CollId getCollation() const
 	{
 		return CollId(getTextType());
+	}
+
+	UCHAR getScale() const
+	{
+		return dsc_scale;
 	}
 
 	void clear()

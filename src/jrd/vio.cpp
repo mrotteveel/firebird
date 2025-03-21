@@ -2859,7 +2859,7 @@ Record* VIO_gc_record(thread_db* tdbb, jrd_rel* relation)
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	const Format* const format = MET_current(tdbb, relation);
+	const Format* const format = relation->currentFormat();
 
 	// Set the active flag on an inactive garbage collect record block and return it
 
@@ -4548,7 +4548,7 @@ WriteLockResult VIO_writelock(thread_db* tdbb, record_param* org_rpb, jrd_tra* t
 	new_rpb.rpb_transaction_nr = transaction->tra_number;
 
 	AutoPtr<Record> new_record;
-	const Format* const new_format = MET_current(tdbb, relation);
+	const Format* const new_format = relation->currentFormat();
 
 	// If the fetched record is not in the latest format, upgrade it.
 	// To do that, allocate new record buffer and make the new record

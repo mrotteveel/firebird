@@ -422,7 +422,7 @@ void SortedStream::mapData(thread_db* tdbb, Request* request, UCHAR* data) const
 			// BEWARE:	This check depends on the fact that ID_DBKEY_VALID flags are stored
 			//			*after* real fields and ID_TRANS / ID_DBKEY values.
 			if (relation && !rpb->rpb_number.isValid())
-				VIO_record(tdbb, rpb, MET_current(tdbb, relation), tdbb->getDefaultPool());
+				VIO_record(tdbb, rpb, relation->currentFormat(), tdbb->getDefaultPool());
 		}
 
 		const auto record = rpb->rpb_record;
@@ -451,7 +451,7 @@ void SortedStream::mapData(thread_db* tdbb, Request* request, UCHAR* data) const
 
 		// Ensure the record is still in the most recent format
 		const auto record =
-			VIO_record(tdbb, rpb, MET_current(tdbb, relation), tdbb->getDefaultPool());
+			VIO_record(tdbb, rpb, relation->currentFormat(), tdbb->getDefaultPool());
 
 		// Set all fields to NULL if the stream was originally marked as invalid
 		if (!rpb->rpb_number.isValid())

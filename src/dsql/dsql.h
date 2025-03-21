@@ -116,7 +116,7 @@ namespace Jrd {
 class dsql_dbb : public pool_alloc<dsql_type_dbb>
 {
 public:
-	Firebird::LeftPooledMap<MetaName, class dsql_rel*> dbb_relations;		// known relations in database
+	//Firebird::LeftPooledMap<MetaName, class dsql_rel*> dbb_relations;		// known relations in database
 	Firebird::LeftPooledMap<QualifiedName, class dsql_prc*> dbb_procedures;	// known procedures in database
 	Firebird::LeftPooledMap<QualifiedName, class dsql_udf*> dbb_functions;	// known functions in database
 	Firebird::LeftPooledMap<MetaName, class dsql_intlsym*> dbb_charsets;	// known charsets in database
@@ -145,6 +145,11 @@ public:
 		  rel_owner(p)
 	{
 	}
+
+	dsql_rel(MemoryPool& p, class jrd_rel* jrel);
+
+	dsql_rel(const dsql_rel&) = delete;
+	dsql_rel(dsql_rel&&) = delete;
 
 	dsql_fld* rel_fields;			// Field block
 	//dsql_rel* rel_base_relation;	// base relation for an updatable view

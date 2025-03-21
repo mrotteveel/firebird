@@ -99,7 +99,8 @@ public:
 		  ctes(p),
 		  cteAliases(p),
 		  subFunctions(p),
-		  subProcedures(p)
+		  subProcedures(p),
+		  rels(p)
 	{
 	}
 
@@ -311,6 +312,9 @@ private:
 	bool psql = false;
 	Firebird::LeftPooledMap<MetaName, DeclareSubFuncNode*> subFunctions;
 	Firebird::LeftPooledMap<MetaName, DeclareSubProcNode*> subProcedures;
+
+public:
+	Firebird::LeftPooledMap<MetaName, class dsql_rel*> rels;     // known relations
 };
 
 class PsqlChanger

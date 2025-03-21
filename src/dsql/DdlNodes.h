@@ -1567,9 +1567,6 @@ protected:
 	void stuffMatchingBlr(Constraint& constraint, BlrDebugWriter& blrWriter);
 	void stuffTriggerFiringCondition(const Constraint& constraint, BlrDebugWriter& blrWriter);
 
-	// former DFW
-	void createRelation(thread_db* tdbb, jrd_tra* transaction);
-
 public:
 	static void makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName relName);
 

@@ -847,6 +847,10 @@ public:
 
 	Versioned* getObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
+
+	if (id == 31)
+		printf("v=%p id=%d fl=%x\n", this, id, fl);
+
 //		In theory that should be endless cycle - object may arrive/disappear again and again.
 //		But in order to faster find devel problems we run it very limited number of times.
 #ifdef DEV_BUILD

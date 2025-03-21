@@ -418,7 +418,7 @@ bool EVL_field(jrd_rel* relation, Record* record, USHORT id, dsc* desc)
 		{
 			thread_db* tdbb = JRD_get_thread_data();
 
-			const Format* const currentFormat = MET_current(tdbb, relation);
+			const Format* const currentFormat = relation->currentFormat();
 
 			while (id >= format->fmt_defaults.getCount() ||
 				 format->fmt_defaults[id].vlu_desc.isUnknown())
@@ -429,7 +429,7 @@ bool EVL_field(jrd_rel* relation, Record* record, USHORT id, dsc* desc)
 					break;
 				}
 
-				format = MET_format(tdbb, relation->rel_perm, format->fmt_version + 1);
+				format = MET_format(tdbb, relation->getPermanent(), format->fmt_version + 1);
 				fb_assert(format);
 			}
 

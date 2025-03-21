@@ -68,7 +68,11 @@ enum rsr_t : UCHAR {
 	RSR_field_sub_type,
 	RSR_field_not_null,
 	RSR_field_generator_name,
-	RSR_field_identity_type
+	RSR_field_identity_type,
+
+	RSR_segment_length,			// Needed for DSQL
+	RSR_field_source,
+	RSR_character_length
 };
 
 // Temporary field block
