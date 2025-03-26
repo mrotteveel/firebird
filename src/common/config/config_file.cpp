@@ -649,6 +649,12 @@ void ConfigFile::parse(Stream* stream)
 				previous = &parameters[n];
 			}
 
+			if (!previous)
+			{
+				badLine(streamName, "master parameter is missing before subconfig start '{'");
+				return;
+			}
+
 			{ // subconf scope
 				SubStream subStream(stream->getFileName());
 				int level = 1;
@@ -692,7 +698,7 @@ void ConfigFile::parse(Stream* stream)
 				}
 
 				if (level > 0)
-					badLine(streamName, "< missed closing bracket '}' >");
+					badLine(streamName, "missed closing bracket '}'");
 
 				previous->sub = FB_NEW_POOL(getPool())
 					ConfigFile(getPool(), &subStream, flags);
