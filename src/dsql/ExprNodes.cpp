@@ -12301,7 +12301,8 @@ DmlNode* SysFuncCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScrat
 		// Special handling for system function MAKE_DBKEY:
 		// convert constant relation name into ID at the parsing time
 
-		auto literal = nodeAs<LiteralNode>(node->args->items[0]);
+		auto literal = node->args->items.getCount() ? 
+			nodeAs<LiteralNode>(node->args->items[0]) : nullptr;
 
 		if (literal && literal->litDesc.isText())
 		{
