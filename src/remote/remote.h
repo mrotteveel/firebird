@@ -225,13 +225,98 @@ public:
 };
 
 
+// forward decl
+struct Rbl;
+
+// BePlusTree based container, allow to add few blobs with same blob_id.
+class BlobsContainer
+{
+public:
+	BlobsContainer(Firebird::MemoryPool& pool) :
+		m_tree(pool)
+	{
+	}
+
+	bool add(Rbl* blob)
+	{
+		return m_tree.add(Item(blob));
+	}
+
+	bool remove(Rbl* blob)
+	{
+		const Item item(blob);
+
+		if (m_tree.isPositioned(item) || m_tree.locate(item))
+		{
+			m_tree.fastRemove();
+			return true;
+		}
+
+		return false;
+	}
+
+	void clear()
+	{
+		m_tree.clear();
+	}
+
+
+	Rbl* locate(SQUAD blob_id);
+
+	Rbl* getFirst()
+	{
+		if (m_tree.getFirst())
+			return m_tree.current().m_blob;
+
+		return nullptr;
+	}
+
+	Rbl* getNext()
+	{
+		if (m_tree.getNext())
+			return m_tree.current().m_blob;
+
+		return nullptr;
+	}
+
+private:
+
+	struct Item
+	{
+		Item()
+		  : m_id(NULL_BLOB), m_blob(nullptr)
+		{
+		}
+
+		explicit Item(SQUAD blob_id)
+			: m_id(blob_id), m_blob(nullptr)
+		{
+		}
+
+		explicit Item(Rbl* blob);
+
+		bool operator==(const Item& other) const
+		{
+			return m_id == other.m_id && m_blob == other.m_blob;
+		}
+
+		bool operator>(const Item& other) const
+		{
+			return (m_id > other.m_id) || (m_id == other.m_id && m_blob > other.m_blob);
+		}
+
+		SQUAD m_id;
+		Rbl* m_blob;
+	};
+
+	Firebird::BePlusTree<Item> m_tree;
+};
+
 struct Rtr : public Firebird::GlobalStorage, public TypedHandle<rem_type_rtr>
 {
-	using BlobsTree = Firebird::BePlusTree<struct Rbl*, SQUAD, struct Rbl>;
-
 	Rdb*			rtr_rdb;
 	Rtr*			rtr_next;
-	BlobsTree		rtr_blobs;
+	BlobsContainer	rtr_blobs;
 	ServTransaction	rtr_iface;
 	USHORT			rtr_id;
 	bool			rtr_limbo;
@@ -315,7 +400,8 @@ public:
 		SEGMENT = 0x02,
 		EOF_PENDING = 0x04,
 		CREATE = 0x08,
-		CACHED = 0x10
+		CACHED = 0x10,			// Blob is fully cached
+		USED = 0x20,			// Cached blob is in use by application
 	};
 
 public:
@@ -340,9 +426,26 @@ public:
 
 	bool isCached() const { return rbl_flags & CACHED; }
 	unsigned getCachedSize() const { return sizeof(Rbl) + rbl_data.getCapacity(); }
-
-	static const SQUAD& generate(const void*, const Rbl* item) { return item->rbl_blob_id; }
 };
+
+
+inline Rbl* BlobsContainer::locate(SQUAD blob_id)
+{
+	Rbl* blob = nullptr;
+	if (m_tree.locate(Firebird::LocType::locGreat, Item(blob_id)))
+	{
+		blob = m_tree.current().m_blob;
+		if (blob->rbl_blob_id == blob_id)
+			return blob;
+	}
+
+	return nullptr;
+}
+
+inline BlobsContainer::Item::Item(Rbl* blob)
+	: m_id(blob->rbl_blob_id), m_blob(blob)
+{
+}
 
 
 struct Rvnt : public Firebird::GlobalStorage, public TypedHandle<rem_type_rev>

@@ -5898,18 +5898,30 @@ IBlob* Attachment::openBlob(CheckStatusWrapper* status, ITransaction* apiTra, IS
 		Rtr* transaction = remoteTransaction(apiTra);
 		CHECK_HANDLE(transaction, isc_bad_trans_handle);
 
-		if (transaction->rtr_blobs.locate(*id))
+		for (Rbl* blob = transaction->rtr_blobs.locate(*id); blob;
+			 blob = transaction->rtr_blobs.getNext())
 		{
-			Rbl* blob = transaction->rtr_blobs.current();
+			if (blob->rbl_blob_id != *id)
+				break;
 
-			if (!bpb_length)
+			if (!(blob->rbl_flags & Rbl::CACHED))
+				continue;
+
+			if (bpb_length)
 			{
-				Blob* iBlob = FB_NEW Blob(blob);
-				iBlob->addRef();
-				return iBlob;
+				if (!(blob->rbl_flags & Rbl::USED))
+					release_blob(blob);
+				break;
 			}
 
-			release_blob(blob);
+			if (blob->rbl_flags & Rbl::USED)
+				break;
+
+			blob->rbl_flags |= Rbl::USED;
+
+			Blob* iBlob = FB_NEW Blob(blob);
+			iBlob->addRef();
+			return iBlob;
 		}
 
 		// Validate data length
@@ -9509,9 +9521,7 @@ static void release_blob( Rbl* blob)
 	else
 		rdb->rdb_port->releaseObject(blob->rbl_id);
 
-	if (transaction->rtr_blobs.locate(blob->rbl_blob_id))
-		transaction->rtr_blobs.fastRemove();
-
+	transaction->rtr_blobs.remove(blob);
 	delete blob;
 }
 
@@ -9668,8 +9678,8 @@ static void release_transaction( Rtr* transaction)
 	Rdb* rdb = transaction->rtr_rdb;
 	rdb->rdb_port->releaseObject(transaction->rtr_id);
 
-	while (transaction->rtr_blobs.getFirst())
-		release_blob(transaction->rtr_blobs.current());
+	while (Rbl* blob = transaction->rtr_blobs.getFirst())
+		release_blob(blob);
 
 	for (Rtr** p = &rdb->rdb_transactions; *p; p = &(*p)->rtr_next)
 	{

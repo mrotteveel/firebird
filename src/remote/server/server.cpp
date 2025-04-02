@@ -5824,8 +5824,7 @@ static void release_blob(Rbl* blob)
 
 	rdb->rdb_port->releaseObject(blob->rbl_id);
 
-	if (transaction->rtr_blobs.locate(blob->rbl_blob_id))
-		transaction->rtr_blobs.fastRemove();
+	transaction->rtr_blobs.remove(blob);
 
 #ifdef DEBUG_REMOTE_MEMORY
 	printf("release_blob(server)      free blob        %x\n", blob);
@@ -5971,8 +5970,8 @@ static void release_transaction( Rtr* transaction)
 	Rdb* rdb = transaction->rtr_rdb;
 	rdb->rdb_port->releaseObject(transaction->rtr_id);
 
-	while (transaction->rtr_blobs.getFirst())
-		release_blob(transaction->rtr_blobs.current());
+	while (Rbl* blob = transaction->rtr_blobs.getFirst())
+		release_blob(blob);
 
 	while (transaction->rtr_cursors.hasData())
 	{
