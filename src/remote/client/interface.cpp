@@ -215,6 +215,8 @@ private:
 	void freeClientData(CheckStatusWrapper* status, bool force = false);
 	void internalCancel(CheckStatusWrapper* status);
 	void internalClose(CheckStatusWrapper* status);
+	// seek in cached blob
+	int seekCached(int mode, int offset);
 
 	Rbl* blob;
 };
@@ -6862,9 +6864,7 @@ int Blob::seek(CheckStatusWrapper* status, int mode, int offset)
 		CHECK_HANDLE(blob, isc_bad_segstr_handle);
 
 		if (blob->isCached())
-		{
-			Arg::Gds(isc_wish_list).raise();
-		}
+			return seekCached(mode, offset);
 
 		Rdb* rdb = blob->rbl_rdb;
 		CHECK_HANDLE(rdb, isc_bad_db_handle);
@@ -6900,6 +6900,57 @@ int Blob::seek(CheckStatusWrapper* status, int mode, int offset)
 	return 0;
 }
 
+
+int Blob::seekCached(int mode, int offset)
+{
+	// Segmented blobs does not support seek
+	if (blob->rbl_info.blob_type == 0)
+		Arg::Gds(isc_bad_segstr_type).raise();
+
+	if (mode == 1)						// seek from current position
+		offset += blob->rbl_offset;
+	else if (mode == 2)					// seek from end of blob
+		offset = blob->rbl_info.total_length + offset;
+
+	if (offset < 0)
+		offset = 0;
+
+	// Engine allows to set seek position to the total length of the blob,
+	// but it's not documented and seems to be wrong. See blb::BLB_lseek().
+	// Here this behavior is supported for compatibility with the engine.
+	if (offset > blob->rbl_info.total_length)
+		offset = blob->rbl_info.total_length;
+
+	fb_assert(blob->rbl_info.total_length <= MAX_USHORT);
+
+	blob->rbl_offset = offset;
+	if (!blob->rbl_data.isEmpty())
+	{
+		if (offset == blob->rbl_info.total_length)
+		{
+			blob->rbl_ptr = blob->rbl_data.end();
+			blob->rbl_fragment_length = blob->rbl_length = 0;
+		}
+		else
+		{
+			const auto seg = offset / blob->rbl_info.max_segment + 1;
+			fb_assert(seg <= blob->rbl_info.num_segments);
+
+			blob->rbl_ptr = blob->rbl_buffer + offset + 2 * seg;
+			fb_assert(blob->rbl_ptr < blob->rbl_data.end());
+
+			blob->rbl_length = blob->rbl_data.end() - blob->rbl_ptr;
+
+			if (seg < blob->rbl_info.num_segments)
+				blob->rbl_fragment_length = blob->rbl_info.max_segment - offset % blob->rbl_info.max_segment;
+			else
+				blob->rbl_fragment_length = blob->rbl_length;
+		}
+	}
+
+	blob->rbl_flags &= ~(Rbl::EOF_SET | Rbl::SEGMENT);
+	return blob->rbl_offset;
+}
 
 void Request::send(CheckStatusWrapper* status, int level, unsigned int msg_type,
 				   unsigned int /*length*/, const void* msg)
