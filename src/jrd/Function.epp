@@ -105,7 +105,7 @@ int Function::blockingAst(void* ast_object)
 	return 0;
 }
 
-bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
+ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* sysTransaction = attachment->getSysTransaction();
@@ -113,6 +113,7 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 	MetadataCache* mdc = dbb->dbb_mdc;
 
 	MemoryPool& pool = getPermanent()->getPool();
+	bool found = false;
 
 	//try
 	{
@@ -122,6 +123,8 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 			X IN RDB$FUNCTIONS
 			WITH X.RDB$FUNCTION_ID EQ getPermanent()->getId()
 		{
+			found = true;
+
 			getPermanent()->setName(QualifiedName(X.RDB$FUNCTION_NAME,
 				(X.RDB$PACKAGE_NAME.NULL ? nullptr : X.RDB$PACKAGE_NAME)));
 			getPermanent()->owner = X.RDB$OWNER_NAME;
@@ -412,14 +415,16 @@ bool Function::scan(thread_db* tdbb, ObjectBase::Flag)
 		END_FOR
 	}
 
-	return !(this->flReload);
+	return found ? (this->flReload ? ScanResult::REPEAT : ScanResult::COMPLETE) : ScanResult::MISS;
 }
 
-bool Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
+ScanResult Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	AutoCacheRequest request(tdbb, irq_l_funct_blr, IRQ_REQUESTS);
+
+	bool found = false;
 
 	FOR(REQUEST_HANDLE request)
 		X IN RDB$FUNCTIONS
@@ -427,6 +432,8 @@ bool Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 	{
 		if (X.RDB$FUNCTION_BLR.NULL)
 			continue;
+
+		found = true;
 
 		MemoryPool* const csb_pool = dbb->createPool(ALLOC_ARGS0);
 		Jrd::ContextPoolHolder context(tdbb, csb_pool);
@@ -458,7 +465,7 @@ bool Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 	}
 	END_FOR
 
-	return false;
+	return found ? ScanResult::COMPLETE : ScanResult::MISS;
 }
 
 int Function::objectType()

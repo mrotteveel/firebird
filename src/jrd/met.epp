@@ -1515,7 +1515,7 @@ void MET_get_shadow_files(thread_db* tdbb, bool delete_files)
 }
 
 
-bool DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
+ScanResult DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 /********************************************
  *
@@ -1534,27 +1534,26 @@ bool DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	CHECK_DBB(dbb);
 
 	auto type = perm->getId();
+	bool found = false;
 
-	if (!(flags & CacheFlag::NOSCAN))
+	AutoRequest trigger_request;
+
+	FOR(REQUEST_HANDLE trigger_request)
+		TRG IN RDB$TRIGGERS
+		WITH TRG.RDB$RELATION_NAME MISSING AND
+			 TRG.RDB$TRIGGER_INACTIVE EQ 0
+		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 	{
-		AutoRequest trigger_request;
-
-		FOR(REQUEST_HANDLE trigger_request)
-			TRG IN RDB$TRIGGERS
-			WITH TRG.RDB$RELATION_NAME MISSING AND
-				 TRG.RDB$TRIGGER_INACTIVE EQ 0
-			SORTED BY TRG.RDB$TRIGGER_SEQUENCE
+		if ((TRG.RDB$TRIGGER_TYPE == type | TRIGGER_TYPE_DB) ||
+			(type == DB_TRIGGER_MAX && (TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL))
 		{
-			if ((TRG.RDB$TRIGGER_TYPE == type | TRIGGER_TYPE_DB) ||
-				(type == DB_TRIGGER_MAX && (TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL))
-			{
-				MET_load_trigger(tdbb, nullptr, TRG.RDB$TRIGGER_NAME, [this](int)->Triggers& {return *this;});
-			}
+			found = true;
+			MET_load_trigger(tdbb, nullptr, TRG.RDB$TRIGGER_NAME, [this](int)->Triggers& {return *this;});
 		}
-		END_FOR
 	}
+	END_FOR
 
-	return true;
+	return found ? ScanResult::COMPLETE : ScanResult::MISS;
 }
 
 
@@ -1599,12 +1598,13 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 		DbTriggers* triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
 		try
 		{
-			if (!cacheElement->storeObject(tdbb, triggers, 0))
+			if (cacheElement->storeObject(tdbb, triggers, 0) == StoreResult::DUP)
 				DbTriggers::destroy(tdbb, triggers);
 		}
 		catch(const Exception&)
 		{
 			DbTriggers::destroy(tdbb, triggers);
+			throw;
 		}
 	}
 }
@@ -2669,11 +2669,12 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
 	return FB_NEW_POOL(perm->getPool()) jrd_prc(perm);
 }
 
-bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
+ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	MetadataCache* mdc = dbb->dbb_mdc;
+	bool found = false;
 
 	{
 		AutoCacheRequest request(tdbb, irq_r_procedure, IRQ_REQUESTS);
@@ -2681,6 +2682,8 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 		FOR(REQUEST_HANDLE request)
 			P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ getId()
 		{
+			found = true;
+
 			if (getName().toString().length() == 0)
 			{
 				getPermanent()->name = QualifiedName(P.RDB$PROCEDURE_NAME,
@@ -2932,7 +2935,7 @@ bool jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 		END_FOR
 	}
 
-	return !flReload;
+	return found ? (this->flReload ? ScanResult::REPEAT : ScanResult::COMPLETE) : ScanResult::MISS;
 }
 
 void jrd_prc::checkReload(thread_db* tdbb) const
@@ -2941,7 +2944,7 @@ void jrd_prc::checkReload(thread_db* tdbb) const
 		getPermanent()->reload(tdbb, 0);
 }
 
-bool jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
+ScanResult jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 {
 	fb_assert(flReload);
 
@@ -2963,7 +2966,7 @@ bool jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 				this->parseBlr(tdbb, csb, &P.RDB$PROCEDURE_BLR,
 					P.RDB$DEBUG_INFO.NULL ? NULL : &P.RDB$DEBUG_INFO);
 
-				return !flReload;
+				return flReload ? ScanResult::REPEAT : ScanResult::COMPLETE;
 			}
 			catch (const Exception& ex)
 			{
@@ -2983,7 +2986,7 @@ bool jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 	}
 	END_FOR
 
-	return false;
+	return ScanResult::MISS;
 }
 
 
@@ -3059,7 +3062,7 @@ void MET_scan_partners(thread_db* tdbb, RelationPermanent* relation)
 }
 
 
-bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
+ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 /**************************************
  *
@@ -3077,6 +3080,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Database* dbb = tdbb->getDatabase();
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 	blb* blob = NULL;
+	bool found = false;
 
 	jrd_tra* trans = tdbb->getTransaction() ?
 		tdbb->getTransaction() : attachment->getSysTransaction();
@@ -3109,7 +3113,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		fb_assert(rel_perm->rel_flags & REL_format);
 
 		// Next time reload() will be called
-		return false;
+		return ScanResult::REPEAT;
 	}
 
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;
@@ -3141,6 +3145,8 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
 		REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
 	{
+		found = true;
+
 		if (getName().isEmpty())
 			rel_perm->rel_name = REL.RDB$RELATION_NAME;
 
@@ -3443,7 +3449,7 @@ bool jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
 
-	return getName().hasData();
+	return found ? ScanResult::COMPLETE : ScanResult::MISS;
 }
 
 
@@ -4052,7 +4058,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 }
 
 
-bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
+ScanResult CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	fb_assert(perm->hasData());
 
@@ -4152,7 +4158,8 @@ bool CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	}
 	END_FOR
 
-	return true;
+//	return found ? ScanResult::COMPLETE : ScanResult::REPEAT;
+	return ScanResult::COMPLETE;
 }
 
 
@@ -5121,16 +5128,18 @@ void MetadataCache::objectCleanup(TraNumber traNum, ElementBase* toClean)
 	mdc_cleanup_queue.enqueue(traNum, toClean);
 }
 
-bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
+ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	jrd_tra* transaction = tdbb->getTransaction() ? tdbb->getTransaction() : attachment->getSysTransaction();
+
 	bid expression, condition;
 	expression.clear();
 	condition.clear();
 	MetaId relId = getPermanent()->getRelation()->getId();
+	bool found = false;
 
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 
@@ -5142,6 +5151,8 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		WITH IND.RDB$INDEX_ID EQ getId() + 1
 			AND REL.RDB$RELATION_ID EQ relId
 	{
+		found = true;
+
 		idv_name = IND.RDB$INDEX_NAME;
 		idv_uniqFlag = IND.RDB$UNIQUE_FLAG;
 		idv_segmentCount = IND.RDB$SEGMENT_COUNT;
@@ -5161,7 +5172,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	if (idv_name.isEmpty())
 	{
 		idv_active = MET_object_inactive;
-		return false;
+		return ScanResult::MISS;
 	}
 	perm->idp_name = idv_name;
 
@@ -5196,7 +5207,7 @@ bool IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		stmtPool.release();
 	}
 
-	return true;
+	return found ? ScanResult::COMPLETE : ScanResult::MISS;
 }
 
 IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)

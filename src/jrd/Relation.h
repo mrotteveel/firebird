@@ -226,9 +226,9 @@ public:
 	}
 
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
 
-	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
 	}
@@ -517,9 +517,9 @@ public:
 		return nullptr;
 	}
 
-	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
 
-	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
 	}
@@ -617,7 +617,7 @@ public:
 		return isView() ? obj_view : obj_relation;
 	}
 
-	bool scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
@@ -632,7 +632,7 @@ public:
 		return nullptr;		// ignored
 	}
 
-	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
 	}

@@ -305,11 +305,11 @@ void dumpIndexRoot(const char* up, const char* from, thread_db* tdbb, WIN* windo
 	}
 }
 
-#else
+#else // DEBUG_INDEX_ROOT
 
 void dumpIndexRoot(...) { }
 
-#endif
+#endif // DEBUG_INDEX_ROOT
 }
 
 static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* irt_desc,
@@ -328,7 +328,7 @@ index_root_page* BTR_fetch_root_for_update(const char* from, thread_db* tdbb, WI
 
 const index_root_page* BTR_fetch_root(const char* from, thread_db* tdbb, WIN* window)
 {
-	const index_root_page* root = (index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
+	const index_root_page* root = (const index_root_page*) CCH_FETCH(tdbb, window, LCK_read, pag_root);
 
 	dumpIndexRoot("", from, tdbb, window, root);
 

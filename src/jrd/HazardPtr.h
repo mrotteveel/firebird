@@ -29,18 +29,12 @@
 #ifndef JRD_HAZARDPTR_H
 #define JRD_HAZARDPTR_H
 
-/*
-#include "../common/classes/alloc.h"
-#include "../common/classes/array.h"
-#include "../common/classes/auto.h"
- */
 #include "../common/gdsassert.h"
 
 #include <cds/gc/dhp.h>
 #include <cds/algo/atomic.h>
 
 #include <type_traits>
-//#include <utility>
 
 namespace Jrd {
 

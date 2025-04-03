@@ -162,7 +162,7 @@ private:
 public:
 	static jrd_prc* create(thread_db* tdbb, MemoryPool& p, Cached::Procedure* perm);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	bool scan(thread_db* tdbb, ObjectBase::Flag);
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag);
 
 	void releaseExternal() override
 	{
@@ -180,7 +180,7 @@ public:
 		return "procedure";
 	}
 
-	bool reload(thread_db* tdbb, ObjectBase::Flag fl);
+	ScanResult reload(thread_db* tdbb, ObjectBase::Flag fl);
 	void checkReload(thread_db* tdbb) const override;
 
 	static int objectType();

@@ -1580,8 +1580,8 @@ private:
 	static bool validateTextType(thread_db* tdbb, const TemporaryField* tfb);
 	static void setupArray(thread_db* tdbb, blb* blob, const TEXT* field_name, USHORT n, TemporaryField* tfb);
 	static void getArrayDesc(thread_db* tdbb, const TEXT* field_name, Ods::InternalArrayDesc* desc);
-	static Format* makeFormat(thread_db* tdbb, Cached::Relation* relation, USHORT* version,
-		TemporaryField* stack);
+	static Format* makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::Relation* relation,
+		USHORT* version, TemporaryField* stack);
 	static void raiseTooManyVersionsError(const int obj_type, const MetaName& obj_name);
 
 public:

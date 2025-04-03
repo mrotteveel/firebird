@@ -54,8 +54,7 @@
  *	but when between RPB setup and actual modification garbage was collected (this
  *	was noticed with GC thread active, but may happen due to any read of the record),
  *	BUGCHECK(291) took place. To avoid that issue, it was decided not to modify data
- *	in system transaction. An exception is RDB$FORMATS relation, which is always modified
- *	by transaction zero. Also an aspect of 'dirty' access from system transaction was
+ *	in system transaction. Also an aspect of 'dirty' access from system transaction was
  *	taken into an account in make_version() and create_index().
  *
  */

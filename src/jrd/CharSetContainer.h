@@ -121,9 +121,9 @@ public:
 	static void destroy(thread_db* tdbb, CharSetVers* csv);
 	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::CharSet* perm);
 	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	bool scan(thread_db* tdbb, ObjectBase::Flag flags);
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
 
-	bool reload(thread_db* tdbb, ObjectBase::Flag flags)
+	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
 	}

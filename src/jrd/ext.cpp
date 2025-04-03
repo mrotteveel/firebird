@@ -560,7 +560,7 @@ void ExternalFile::traDetach() noexcept
 
 void ExternalFile::release()
 {
-	// lock not needed, database is closing
+	// lock not needed, closing
 	if (ext_ifi)
 	{
 		fclose(ext_ifi);

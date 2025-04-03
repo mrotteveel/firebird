@@ -240,38 +240,6 @@ void METD_drop_procedure(jrd_tra* transaction, const QualifiedName& name)
 }
 
 
-void METD_drop_relation(jrd_tra* transaction, const MetaName& name)
-{
-/**************************************
- *
- *  M E T D _ d r o p _ r e l a t i o n
- *
- **************************************
- *
- * Functional description
- *  Drop a relation from our metadata, and
- *  rely on the next guy who wants it to
- *  look up the new version.
- *
- *      Dropping will be achieved by marking the relation
- *      as dropped.  Anyone with current access can continue
- *      accessing it.
- *
- **************************************/
-/*	thread_db* tdbb = JRD_get_thread_data();
-	dsql_dbb* dbb = transaction->getDsqlAttachment();
-
-	dsql_rel* relation;
-
-	if (dbb->dbb_relations.get(name, relation))
-	{
-		MetadataCache::dsql_cache_use(tdbb, SYM_relation, name);
-		relation->rel_flags |= REL_dropped;
-		dbb->dbb_relations.remove(name);
-	} */
-}
-
-
 dsql_intlsym* METD_get_collation(jrd_tra* transaction, const MetaName& name, CSetId charset_id)
 {
 /**************************************
@@ -1203,7 +1171,6 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
  *
  **************************************/
 
-	printf("%s: tra=%llu\n", name.c_str(), transaction->tra_number);
 	thread_db* tdbb = JRD_get_thread_data();
 
 	validateTransaction(transaction);
@@ -1213,13 +1180,11 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	auto* temp = dsqlScratch->relation;
 	if (temp != NULL && temp->rel_name == name)
 	{
-		printf("%s: dsqlScratch->relation\n", name.c_str());
 		return temp;
 	}
 
 	if (dsqlScratch->rels.get(name, temp))
 	{
-		printf("%s: dsqlScratch->rels\n", name.c_str());
 		return temp;
 	}
 
@@ -1227,11 +1192,9 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	if (!jrel)
 		return nullptr;
 
-	//dsql_dbb* dbb = transaction->getDsqlAttachment();
 	temp = FB_NEW_POOL(dsqlScratch->getPool()) dsql_rel(dsqlScratch->getPool(), jrel);
 	dsqlScratch->rels.put(temp->rel_name, temp);
 
-	printf("%s: cached\n", name.c_str());
 	return temp;
 
 
@@ -1244,7 +1207,6 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 			temp->rel_flags |= REL_dropped;
 		else
 		{
-			printf("%s: dbb_relations\n", name.c_str());
 			return temp;
 		}
 	}
@@ -1396,7 +1358,6 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	if (dbb->dbb_relations.get(name, temp) && !(temp->rel_flags & REL_dropped))
 	{
-		printf("%s: dbb_relations-2\n", name.c_str());
 		free_relation(relation);
 		return temp;
 	}
@@ -1411,7 +1372,6 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	else
 		relation->rel_flags |= REL_new_relation;
 
-	printf("%s: cached\n", name.c_str());
 	return relation;*/
 }
 

@@ -7911,7 +7911,8 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 				blob->BLB_close(tdbb);
 				USHORT version = REL.RDB$FORMAT.NULL ? 0 : REL.RDB$FORMAT;
 				version++;
-				relation->rel_current_format = makeFormat(tdbb, getPermanent(relation), &version, stack);
+				relation->rel_current_format = makeFormat(tdbb, transaction, getPermanent(relation),
+					&version, stack);
 				REL.RDB$FORMAT.NULL = FALSE;
 				REL.RDB$FORMAT = version;
 
@@ -7970,7 +7971,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 			}
 			END_FOR
 
-			makeFormat(tdbb, getPermanent(relation), 0, external);
+			makeFormat(tdbb, transaction, getPermanent(relation), 0, external);
 		}
 
 		// signal others about new format presence
@@ -8275,7 +8276,8 @@ void RelationNode::getArrayDesc(thread_db* tdbb, const TEXT* field_name, Ods::In
 }
 
 
-Format* RelationNode::makeFormat(thread_db* tdbb, Cached::Relation* relation, USHORT* version, TemporaryField* stack)
+Format* RelationNode::makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::Relation* relation,
+	USHORT* version, TemporaryField* stack)
 {
 /**************************************
  *
@@ -8414,12 +8416,12 @@ Format* RelationNode::makeFormat(thread_db* tdbb, Cached::Relation* relation, US
 
 	AutoCacheRequest request(tdbb, irq_format3, IRQ_REQUESTS);
 
-	STORE(REQUEST_HANDLE request)
+	STORE(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		FMTS IN RDB$FORMATS
 	{
 		FMTS.RDB$FORMAT = format->fmt_version;
 		FMTS.RDB$RELATION_ID = relation->getId();
-		blb* blob = blb::create(tdbb, sysTransaction, &FMTS.RDB$DESCRIPTOR);
+		blb* blob = blb::create(tdbb, transaction, &FMTS.RDB$DESCRIPTOR);
 
 		// Use generic representation of formats with 32-bit offsets
 
@@ -8754,10 +8756,6 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 		name, NULL);
 
 	savePoint.release();	// everything is ok
-
-	// Update DSQL cache
-	METD_drop_relation(transaction, name);
-	MetadataCache::dsql_cache_release(tdbb, SYM_relation, name);
 }
 
 // Starting from the elements in a table definition, locate the PK columns if given in a
@@ -9204,15 +9202,10 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 
 		savePoint.release();	// everything is ok
 
-		// Update DSQL cache
-		METD_drop_relation(transaction, name);
-		MetadataCache::dsql_cache_release(tdbb, SYM_relation, name);
-
 		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
 	}
 	catch (const Exception&)
 	{
-		METD_drop_relation(transaction, name);
 		dsqlScratch->relation = NULL;
 		throw;
 	}
@@ -9747,14 +9740,12 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	if (!rel && silent)
 		return;
 
-	const dsql_rel* relation = rel ? METD_get_relation(transaction, dsqlScratch, name) : nullptr;
-	if (!relation && silent)
-		return;
+	auto* relation = getPermanent(rel);
 
 	// Check that DROP TABLE is dropping a table and that DROP VIEW is dropping a view.
 	if (view)
 	{
-		if (!relation || (relation && !(relation->rel_flags & REL_view)))
+		if (!relation || (relation && !(relation->isView())))
 		{
 			status_exception::raise(
 				Arg::Gds(isc_sqlerr) << Arg::Num(-607) <<
@@ -9764,7 +9755,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 	else
 	{
-		if (!relation || (relation && (relation->rel_flags & REL_view)))
+		if (!relation || (relation && (relation->isView())))
 		{
 			status_exception::raise(
 				Arg::Gds(isc_sqlerr) << Arg::Num(-607) <<
@@ -9962,42 +9953,39 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 
 		for (int wait = 0; wait < 60; wait++)
 		{
-			fb_assert(rel->getPermanent()->isDropped());
+			fb_assert(relation->isDropped());
 
-			if (!rel->getPermanent()->rel_gc_lock.getSweepCount())
+			if (!relation->rel_gc_lock.getSweepCount())
 				break;
 
 			EngineCheckout cout(tdbb, FB_FUNCTION);
 			Thread::sleep(1 * 1000);
 		}
 
-		if (rel->getPermanent()->rel_gc_lock.getSweepCount())
-			DFW_raiseRelationInUseError(rel->getPermanent());
+		if (relation->rel_gc_lock.getSweepCount())
+			DFW_raiseRelationInUseError(relation);
 
 		// Free any memory associated with the relation's garbage collection bitmap
 		if (dbb->dbb_garbage_collector)
 			dbb->dbb_garbage_collector->removeRelation(rel->getId());
-
-/*		if (auto* ext = rel->getPermanent()->getExtFile())   .... only when deleted !!!!!!!!!!!!!!!
-		    ext->release();
-
+// ?????????????????
 		if (relation->isTemporary())
 		{
 			// release pages, allocated for current GTT instance
 			AutoSetRestoreFlag<ULONG> tmpSpace(&tdbb->tdbb_flags, TDBB_use_db_page_space, false);
-			rel->getPermanent()->delPages(tdbb);
+			relation->delPages(tdbb);
 		}
-*/
-		RelationPages* const relPages = rel->getPermanent()->getBasePages();
+//
+		RelationPages* const relPages = relation->getBasePages();
 		if (relPages->rel_index_root)
-			IDX_mark_indices(tdbb, rel->getPermanent(), relPages);
+			IDX_mark_indices(tdbb, relation, relPages);
 
 		if (relPages->rel_pages)
-			DPM_mark_relation(tdbb, rel->getPermanent());
+			DPM_mark_relation(tdbb, relation);
 
 		// if this is a view (or even if we don't know), delete dependency lists
 
-		if (rel->getPermanent()->isView() || !rel->getPermanent()->isReady(tdbb))
+		if (relation->isView() || !relation->isReady(tdbb))
 			MET_delete_dependencies(tdbb, name, obj_view, transaction);
 
 		// Now that the data, pointer, and index pages are gone,
@@ -10006,7 +9994,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		AutoRequest request2;
 		request2.reset();
 
-		FOR(REQUEST_HANDLE request2) X IN RDB$FORMATS WITH
+		FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction) X IN RDB$FORMATS WITH
 			X.RDB$RELATION_ID EQ rel->getId()
 		{
 			ERASE X;
@@ -10030,7 +10018,6 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 	catch(const Exception&)
 	{
-		auto* relation = rel->getPermanent();//MetadataCache::lookupRelation(tdbb, relId, CacheFlags::NOSCAN);
 		if (!relation)
 			return;
 /*					.... only when deleted !!!!!!!!!!!!!!!
@@ -10046,9 +10033,6 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 
 	savePoint.release();	// everything is ok
-
-	METD_drop_relation(transaction, name.c_str());
-	MetadataCache::dsql_cache_release(tdbb, SYM_relation, name);
 }
 
 
@@ -10649,10 +10633,6 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 
 	savePoint.release();	// everything is ok
-
-	// Update DSQL cache
-	METD_drop_relation(transaction, name);
-	MetadataCache::dsql_cache_release(tdbb, SYM_relation, name);
 }
 
 // Generate a trigger to implement the WITH CHECK OPTION clause for a VIEW.

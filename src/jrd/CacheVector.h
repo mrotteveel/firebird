@@ -113,104 +113,17 @@ public:
 };
 
 
-class VersionStartup
-{
-public:
-	VersionStartup()
-		: thd(0), flg(INITIAL)
-	{ }
+enum class ScanResult { COMPLETE, MISS, SKIP, REPEAT };
 
-	bool scanInProgress() const
-	{
-		if (flg == READY)
-			return false;
-
-		if ((thd == Thread::getId()) && (flg == SCANNING))
-			return true;
-
-		return false;
-	}
-
-	template <typename F>
-	void scanBar(F&& objScan)
-	{
-		// no need opening barrier twice
-		if (flg == READY)
-			return;
-
-		// enable recursive no-action pass by scanning thread
-		// if thd is current thread flg is not going to be changed - current thread holds mutex
-		if ((thd == Thread::getId()) && (flg == SCANNING))
-			return;
-
-		std::unique_lock<std::mutex> g(mtx);
-		for(;;)
-		{
-			bool reason = true;
-			switch (flg)
-			{
-			case INITIAL: 		// Our thread becomes scanning thread
-				reason = false;
-				// fall through...
-			case RELOAD: 		// may be because object body reload required.
-				thd = Thread::getId();
-				flg = SCANNING;
-
-				try
-				{
-					if (!objScan(reason))
-					{
-						// scan complete but reload was requested
-						flg = RELOAD;
-						thd = 0;
-						cond.notify_all();		// avoid deadlock in other threads
-
-						return;
-					}
-				}
-				catch(...)		// scan failed - give up
-				{
-					flg = INITIAL;
-					thd = 0;
-					cond.notify_all();		// avoid deadlock in other threads
-
-					throw;
-				}
-
-				flg = READY;
-				cond.notify_all();			// other threads may proceed successfully
-				return;
-
-			case SCANNING:		// somebody is already scanning object
-				cond.wait(g, [this]{ return flg != SCANNING; });
-				continue;		// repeat check of FLG value
-
-			case READY:
-				return;
-			}
-		}
-	}
-
-	bool isReady()
-	{
-		return (flg == READY) || ((thd == Thread::getId()) && (flg == SCANNING));
-	}
-
-private:
-	std::condition_variable cond;
-	std::mutex mtx;
-	ThreadId thd;
-
-public:
-	enum { INITIAL, RELOAD, SCANNING, READY } flg;
-};
 
 template <class OBJ>
 class ListEntry : public HazardObject
 {
 public:
-	ListEntry(OBJ* obj, TraNumber currentTrans, ObjectBase::Flag fl)
-		: object(obj), traNumber(currentTrans), cacheFlags(fl)
+	enum State { INITIAL, RELOAD, SCANNING, READY };
+
+	ListEntry(OBJ* object, TraNumber traNumber, ObjectBase::Flag fl)
+		: object(object), traNumber(traNumber), cacheFlags(fl), state(INITIAL)
 	{ }
 
 	~ListEntry()
@@ -218,7 +131,7 @@ public:
 		fb_assert(!object);
 	}
 
-	void cleanup(thread_db* tdbb)
+	void cleanup(thread_db* tdbb, bool withObject = true)
 	{
 		if (object)		// be careful with ERASED entries
 		{
@@ -229,7 +142,7 @@ public:
 		auto* ptr = next.load(atomics::memory_order_relaxed);
 		if (ptr)
 		{
-			ptr->cleanup(tdbb);
+			ptr->cleanup(tdbb, withObject);
 			delete ptr;
 			next.store(nullptr, atomics::memory_order_relaxed);
 		}
@@ -266,15 +179,19 @@ public:
 				}
 
 				// required entry found in the list
-				auto* obj = listEntry->object;
-				if (obj)
+				if (listEntry->object)
 				{
-					listEntry->scanObject(
-						[&](bool rld) { return scanCallback(tdbb, obj, rld, fl); },
-					fl);
+					switch (listEntry->scan(tdbb, fl))
+					{
+					case ScanResult::COMPLETE:
+					case ScanResult::REPEAT:		// scan complete but reload was requested - 
+					case ScanResult::SKIP:			// scan skipped due to NOSCAN flag
+						break;
 
-					if ((!(fl & CacheFlag::NOSCAN)) && (!(listEntry->vStart.isReady())))
-						return HazardPtr<ListEntry>(nullptr);		// object scan() error
+					case ScanResult::MISS:			// no object
+					default:
+						return HazardPtr<ListEntry>(nullptr);
+					}
 				}
 				return listEntry;
 			}
@@ -286,11 +203,6 @@ public:
 	bool isBusy(TraNumber currentTrans) const noexcept
 	{
 		return !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
-	}
-
-	bool isReady()
-	{
-		return vStart.isReady();
 	}
 
 	ObjectBase::Flag getFlags() const noexcept
@@ -424,28 +336,111 @@ public:
 		fb_assert(getFlags() & CacheFlag::COMMITTED);
 	}
 
-	template <typename F>
-	void scanObject(F&& scanFunction, ObjectBase::Flag fl)
+private:
+	static ScanResult scan(thread_db* tdbb, OBJ* obj, ObjectBase::Flag fl, bool rld = false)
 	{
-		if (!(fl & CacheFlag::NOSCAN))
-			vStart.scanBar(std::forward<F>(scanFunction));
-	}
+		if ((fl & CacheFlag::NOSCAN) || (!obj))
+			return ScanResult::SKIP;
 
-	static bool scanCallback(thread_db* tdbb, OBJ* obj, bool rld, ObjectBase::Flag fl)
-	{
-		fb_assert(obj);
 		auto* flags = TransactionNumber::getFlags(tdbb);
 		Firebird::AutoSetRestoreFlag readCommitted(flags,
 			(*flags) & TRA_degree3 ? 0 : TRA_read_committed | TRA_rec_version, true);
+
 		return rld ? obj->reload(tdbb, fl) : obj->scan(tdbb, fl);
+	}
+
+public:
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag fl)
+	{
+		// no need opening barrier twice
+		// explicitly done first cause will be done in 99.99%
+		if (state == READY)
+			return ScanResult::COMPLETE;
+
+		// enable recursive no-action pass by scanning thread
+		// if thd is current thread state is not going to be changed - current thread holds mutex
+		if ((thd == Thread::getId()) && (state == SCANNING))
+			return ScanResult::COMPLETE;
+
+		std::unique_lock<std::mutex> g(mtx);
+		for(;;)
+		{
+			bool reason = true;
+			auto savedState = state;
+
+			switch (state)
+			{
+			case INITIAL: 		// Our thread becomes scanning thread
+				reason = false;
+				// fall through...
+			case RELOAD: 		// may be because object body reload required.
+				thd = Thread::getId();
+				state = SCANNING;
+
+				try
+				{
+					auto result = scan(tdbb, object, fl, reason);
+					switch (result)
+					{
+					case ScanResult::COMPLETE:
+						state = READY;
+						break;
+
+					case ScanResult::SKIP:
+						state = savedState;
+						break;
+
+					case ScanResult::REPEAT:	// scan complete but reload was requested
+						state = RELOAD;
+						break;
+
+					case ScanResult::MISS:		// Hey, we scan existing object? What a hell...
+						state = savedState;
+						break;
+
+					default:
+						fb_assert(false);
+						state = savedState;
+						break;
+					}
+
+					thd = 0;
+					cond.notify_all();			// other threads may proceed successfully
+					return result;
+
+				}
+				catch(...)		// scan failed - give up
+				{
+					state = savedState;
+					thd = 0;
+					cond.notify_all();		// avoid deadlock in other threads
+
+					throw;
+				}
+
+
+			case SCANNING:		// other thread is already scanning object
+				cond.wait(g, [this]{ return state != SCANNING; });
+				continue;		// repeat check of FLG value
+
+			case READY:
+				return ScanResult::COMPLETE;
+			}
+		}
+	}
+
+	bool isReady()
+	{
+		return (state == READY) || ((thd == Thread::getId()) && (state == SCANNING));
 	}
 
 	bool scanInProgress() const
 	{
-		return vStart.scanInProgress();
+		return state == READY ? false : (thd == Thread::getId()) && (state == SCANNING);
 	}
 
 private:
+
 	// object (nill/not nill) & ERASED bit in cacheFlags together control state of cache element
 	//				|				 ERASED
 	//----------------------------------|-----------------------------
@@ -454,15 +449,22 @@ private:
 	//		nill	|	object dropped	|	cache to be loaded
 	//	not nill	|	prohibited		|	cache is actual
 
-	VersionStartup vStart;
+	std::condition_variable cond;
+	std::mutex mtx;
 	OBJ* object;
 	atomics::atomic<ListEntry*> next = nullptr;
 	TraNumber traNumber;		// when COMMITTED not set - stores transaction that created this list element
 								// when COMMITTED is set - stores transaction after which older elements are not needed
 								// traNumber to be changed BEFORE setting COMMITTED
+
 	MdcVersion version = 0;		// version of metadata cache when object was added
+	ThreadId thd = 0;			// thread that performs object scan()
 	atomics::atomic<ObjectBase::Flag> cacheFlags;
+	State state;				// current entry state
 };
+
+
+enum class StoreResult { DUP, DONE, MISS, SKIP };
 
 
 typedef class Lock* MakeLock(thread_db*, MemoryPool&);
@@ -524,11 +526,7 @@ public:
 			fl &= ~CacheFlag::AUTOCREATE;
 			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl);
 			if (obj)
-			{
-				listEntry->scanObject(
-					[&](bool rld) { return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl); },
-				fl);
-			}
+				listEntry->scan(tdbb, fl);
 		}
 	}
 
@@ -569,7 +567,7 @@ private:
 			// create almost empty object ...
 			Versioned* obj = Versioned::create(tdbb, this->getPool(), this);
 
-			// ... and new entry to store it in cache
+			// make new entry to store it in cache
 			ListEntry<Versioned>* newEntry = nullptr;
 			try
 			{
@@ -577,26 +575,36 @@ private:
 			}
 			catch (const Firebird::Exception&)
 			{
-				Versioned::destroy(tdbb, obj);
+				if (obj)
+					Versioned::destroy(tdbb, obj);
 				throw;
 			}
 
 			if (ListEntry<Versioned>::replace(list, newEntry, nullptr))
 			{
-				newEntry->scanObject(
-					[&](bool rld)
-					{
-						return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl);
-					},
-				fl);
+				auto sr = newEntry->scan(tdbb, fl);
 				if (! (fl & CacheFlag::NOCOMMIT))
 					newEntry->commit(tdbb, traNum, TransactionNumber::next(tdbb));
+
+				switch (sr)
+				{
+				case ScanResult::COMPLETE:
+				case ScanResult::REPEAT:
+					break;
+
+				case ScanResult::MISS:
+				case ScanResult::SKIP:
+				default:
+					return listEntry;	// nullptr
+				}
+
 				return HazardPtr<ListEntry<Versioned>>(newEntry);
 			}
 
 			newEntry->cleanup(tdbb);
 			delete newEntry;
 			fb_assert(list.load());
+			listEntry = list;
 		}
 		return ListEntry<Versioned>::getEntry(tdbb, listEntry, traNum, fl);
 	}
@@ -612,7 +620,7 @@ public:
 		return ListEntry<Versioned>::getObject(tdbb, listEntry, MAX_TRA_NUMBER, 0);
 	}
 
-	bool storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl)
+	StoreResult storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl)
 	{
 		TraNumber oldest = TransactionNumber::oldestActive(tdbb);
 		TraNumber oldResetAt = resetAt.load(atomics::memory_order_acquire);
@@ -623,22 +631,33 @@ public:
 		ListEntry<Versioned>* newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, cur, fl);
 		if (!ListEntry<Versioned>::add(tdbb, list, newEntry))
 		{
-			newEntry->cleanup(tdbb);
+			newEntry->cleanup(tdbb, false);
 			delete newEntry;
-			return false;
+			return StoreResult::DUP;
+		}
+		setNewResetAt(oldResetAt, cur);
+
+		auto rc = StoreResult::SKIP;
+		if (obj && !(fl & CacheFlag::NOSCAN))
+		{
+			auto sr = newEntry->scan(tdbb, fl);
+			switch (sr)
+			{
+			case ScanResult::COMPLETE:
+			case ScanResult::REPEAT:
+				rc = StoreResult::DONE;
+				break;
+
+			case ScanResult::MISS:
+				rc = StoreResult::MISS;
+				break;
+			}
 		}
 
-		setNewResetAt(oldResetAt, cur);
-		if (obj)
-		{
-			newEntry->scanObject(
-				[&](bool rld) { return ListEntry<Versioned>::scanCallback(tdbb, obj, rld, fl); },
-			fl);
-		}
-		if (! (fl & CacheFlag::NOCOMMIT))
+		if (!(fl & CacheFlag::NOCOMMIT))
 			newEntry->commit(tdbb, cur, TransactionNumber::next(tdbb));
 
-		return true;
+		return rc;
 	}
 
 	Versioned* makeObject(thread_db* tdbb, ObjectBase::Flag fl)
@@ -647,10 +666,20 @@ public:
 		if (!obj)
 			(Firebird::Arg::Gds(isc_random) << "Object create failed in makeObject()").raise();
 
-		if (storeObject(tdbb, obj, fl))
+		switch (storeObject(tdbb, obj, fl))
+		{
+		case StoreResult::DUP:
+			Versioned::destroy(tdbb, obj);
+			break;
+
+		case StoreResult::SKIP:
+		case StoreResult::DONE:
 			return obj;
 
-		Versioned::destroy(tdbb, obj);
+		case StoreResult::MISS:
+			break;
+		}
+
 		return nullptr;
 	}
 
@@ -682,7 +711,7 @@ public:
 		case ElementBase::ResetType::Recompile:
 			{
 				Versioned* newObj = Versioned::create(tdbb, CachePool::get(tdbb), this);
-				if (!storeObject(tdbb, newObj, CacheFlag::NOCOMMIT))
+				if (storeObject(tdbb, newObj, CacheFlag::NOCOMMIT) == StoreResult::DUP)
 				{
 					Versioned::destroy(tdbb, newObj);
 					busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
@@ -692,8 +721,7 @@ public:
 
 		case ElementBase::ResetType::Mark:
 			// used in AST, therefore ignore error when saving empty object
-			if (storeObject(tdbb, nullptr, 0))
-				commit(tdbb);
+			storeObject(tdbb, nullptr, 0);
 			break;
 
 		case ElementBase::ResetType::Commit:
@@ -713,7 +741,7 @@ public:
 		if (!l)
 			return nullptr;
 
-		if (!storeObject(tdbb, nullptr, CacheFlag::ERASED | CacheFlag::NOCOMMIT))
+		if (storeObject(tdbb, nullptr, CacheFlag::ERASED | CacheFlag::NOCOMMIT) == StoreResult::DUP)
 		{
 			Versioned* oldObj = getObject(tdbb, 0);
 			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
@@ -847,9 +875,6 @@ public:
 
 	Versioned* getObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
-
-	if (id == 31)
-		printf("v=%p id=%d fl=%x\n", this, id, fl);
 
 //		In theory that should be endless cycle - object may arrive/disappear again and again.
 //		But in order to faster find devel problems we run it very limited number of times.

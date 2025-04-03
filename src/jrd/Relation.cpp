@@ -197,11 +197,15 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 		rel->rel_rescan_lock = nullptr;
 	}
 
-	delete rel->rel_file;
+	if (rel->rel_file)
+	{
+		rel->rel_file->release();
+		delete rel->rel_file;
+	}
 
 	rel->rel_indices.cleanup(tdbb);
 /*
-	// delete by pool
+	// delete by pool ????????????????/
 	auto& pool = rel->getPool();
 	tdbb->getDatabase()->deletePool(&pool);
 
@@ -465,6 +469,7 @@ void RelationPermanent::fillPagesSnapshot(RelPagesSnapshot& snapshot, const bool
 		snapshot.add(&rel_pages_base);
 }
 
+
 void RelationPermanent::RelPagesSnapshot::clear()
 {
 #ifdef DEV_BUILD
@@ -483,18 +488,6 @@ void RelationPermanent::RelPagesSnapshot::clear()
 
 	inherited::clear();
 }
-
-/* ?????????????
-bool jrd_rel::hasTriggers() const
-{
-	for (int i = 1; i <= 6; ++i)
-	{
-		if (trigs[i] && trigs[i]->getCount())
-			return true;
-	}
-	return false;
-}
- */
 
 
 IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
@@ -552,9 +545,7 @@ void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
 		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
 	fb_assert(relation);
 
-		printf("tagForUpdate %s %d\n", name.c_str(), relation->getId());
-
-	if (relation && relation->getId())		// ???????????????????????
+	if (relation && relation->getId())
 		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relation->getId());
 }
 
