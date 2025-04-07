@@ -411,18 +411,6 @@ void Statement::restartRequests(thread_db* tdbb, jrd_tra* trans)
 	}
 }
 
-/*/ Determine if any request of this statement are active.
-bool Statement::isActive() const
-{
-	for (auto request : requests)
-	{
-		if (request && request->isUsed())
-			return true;
-	}
-
-	return false;
-} ?????????/// */
-
 Request* Statement::findRequest(thread_db* tdbb, bool unique)
 {
 	SET_TDBB(tdbb);

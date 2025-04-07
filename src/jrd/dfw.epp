@@ -370,6 +370,7 @@ static bool delete_shadow(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool compute_security(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool create_index(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_index(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool commit_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool create_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool scan_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
@@ -1162,9 +1163,7 @@ static const deferred_task task_table[] =
 
 	{ dfw_add_shadow, add_shadow },
 	{ dfw_delete_index, delete_index },
-/*
 	{ dfw_delete_rfr, delete_rfr },
-*/
 	{ dfw_delete_shadow, delete_shadow },
 	{ dfw_delete_shadow_nodelete, delete_shadow },
 	{ dfw_create_field, create_field },
@@ -1173,6 +1172,7 @@ static const deferred_task task_table[] =
 /*
 	{ dfw_delete_global, delete_global },
 */
+	{ dfw_commit_relation, commit_relation },
 	{ dfw_create_relation, create_relation },
 	{ dfw_delete_relation, delete_relation },
 /*
@@ -2300,6 +2300,10 @@ static bool user_management(thread_db* /*tdbb*/, SSHORT phase, DeferredWork* wor
 		return true;
 
 	case 4:
+	case 5:
+		return true;
+
+	case 6:
 		transaction->getUserManagement()->commit();	// safe to be called multiple times
 		break;
 	}
@@ -3593,6 +3597,50 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 	return false;
 }
 
+static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ r e l a t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check if it is allowable to delete
+ *	a relation, and if so, clean up after it.
+ *
+ **************************************/
+	AutoRequest request;
+	jrd_rel* relation;
+	USHORT view_count;
+	bool adjusted;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+	case 3:
+	case 4:
+	case 5:
+	case 6:
+		return true;
+
+	case 7:
+		{
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			if (relation)
+				relation->commit(tdbb);
+		}
+		break;
+	}
+
+	return false;
+}
+
 static bool validate_text_type(thread_db* tdbb, const TemporaryField* tfb)
 {
 /**************************************
@@ -3664,3 +3712,114 @@ static void get_array_desc(thread_db* tdbb, const TEXT* field_name, Ods::Interna
 	desc->iad_element_length = desc->iad_rpt[0].iad_desc.dsc_length;
 	desc->iad_total_length = desc->iad_element_length * desc->iad_count;
 }
+
+
+static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ r f r
+ *
+ **************************************
+ *
+ * Functional description
+ *	This whole routine exists just to
+ *	return an error if someone attempts to
+ *	1. delete a field from a relation if the relation
+ *		is used in a view and the field is referenced in
+ *		the view.
+ *	2. drop the last column of a table
+ *
+ **************************************/
+	int rel_exists, field_count;
+	AutoRequest handle;
+	MetaName f;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+		// first check if there are any fields used explicitly by the view
+
+		handle.reset();
+		field_count = 0;
+		FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+			REL IN RDB$RELATIONS CROSS
+				VR IN RDB$VIEW_RELATIONS OVER RDB$RELATION_NAME CROSS
+				VFLD IN RDB$RELATION_FIELDS WITH
+				REL.RDB$RELATION_ID EQ work->dfw_id AND
+				VFLD.RDB$VIEW_CONTEXT EQ VR.RDB$VIEW_CONTEXT AND
+				VFLD.RDB$RELATION_NAME EQ VR.RDB$VIEW_NAME AND
+				VFLD.RDB$BASE_FIELD EQ work->dfw_name.c_str()
+		{
+			// If the view is also being deleted, there's no dependency
+			if (!find_depend_in_dfw(tdbb, VR.RDB$VIEW_NAME, obj_view, 0, transaction))
+			{
+				f = VFLD.RDB$BASE_FIELD;
+				field_count++;
+			}
+		}
+		END_FOR
+
+		if (field_count)
+		{
+			ERR_post(Arg::Gds(isc_no_meta_update) <<
+					 Arg::Gds(isc_no_delete) <<	// Msg353: can not delete
+					 Arg::Gds(isc_field_name) << Arg::Str(f) <<
+					 Arg::Gds(isc_dependency) << Arg::Num(field_count));
+					 // Msg310: there are %ld dependencies
+		}
+
+		// now check if there are any dependencies generated through the blr
+		// that defines the relation
+
+		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
+		if (relation)
+		{
+			DFW_check_dependencies(tdbb, relation->c_name(), work->dfw_name.c_str(), NULL,
+							   (relation->isView() ? obj_view : obj_relation),
+							   transaction);
+		}
+
+		// see if the relation itself is being dropped
+
+		handle.reset();
+		rel_exists = 0;
+		FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+			REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ work->dfw_id
+		{
+			rel_exists++;
+		}
+		END_FOR
+
+		// if table exists, check if this is the last column in the table
+
+		if (rel_exists)
+		{
+			field_count = 0;
+			handle.reset();
+
+			FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+				REL IN RDB$RELATIONS CROSS
+					RFLD IN RDB$RELATION_FIELDS OVER RDB$RELATION_NAME
+					WITH REL.RDB$RELATION_ID EQ work->dfw_id
+				field_count++;
+			END_FOR
+
+			if (!field_count)
+			{
+				ERR_post(Arg::Gds(isc_no_meta_update) <<
+						 Arg::Gds(isc_del_last_field));
+				// Msg354: last column in a relation cannot be deleted
+			}
+		}
+
+		break;
+	}
+
+	return false;
+}
+
+

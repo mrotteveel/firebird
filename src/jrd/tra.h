@@ -460,6 +460,7 @@ const int tra_precommitted	= 5;	// Transaction is precommitted
 
 enum dfw_t {
 	dfw_null,
+	dfw_commit_relation,
 	dfw_create_relation,
 	dfw_delete_relation,
 	dfw_create_index,

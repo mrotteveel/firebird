@@ -33,6 +33,7 @@
 #include "../jrd/pag_proto.h"
 #include "../jrd/vio_debug.h"
 #include "../jrd/ext_proto.h"
+#include "../jrd/dfw_proto.h"
 #include "../jrd/Statement.h"
 #include "../common/StatusArg.h"
 
@@ -205,7 +206,7 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 
 	rel->rel_indices.cleanup(tdbb);
 /*
-	// delete by pool ????????????????/
+	// delete by pool ????????????????
 	auto& pool = rel->getPool();
 	tdbb->getDatabase()->deletePool(&pool);
 
@@ -546,7 +547,10 @@ void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
 	fb_assert(relation);
 
 	if (relation && relation->getId())
+	{
 		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relation->getId());
+		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, relation->getId());
+	}
 }
 
 

@@ -3161,8 +3161,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			rel_dbkey_length = 8;
 
 		rel_current_fmt = REL.RDB$FORMAT;
-		vec<jrd_fld*>* vector = rel_fields =
-			vec<jrd_fld*>::newVector(*rel_pool, rel_fields, REL.RDB$FIELD_ID);
+		rel_fields = vec<jrd_fld*>::newVector(*rel_pool, rel_fields, REL.RDB$FIELD_ID);
 		if (rel_perm->rel_security_name.isEmpty() && !REL.RDB$SECURITY_CLASS.NULL)
 			rel_perm->rel_security_name = REL.RDB$SECURITY_CLASS;
 
@@ -3273,7 +3272,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 					field->fld_security_name = REL.RDB$DEFAULT_CLASS;
 				}
 				field_id = n;
-				field = (*vector)[field_id];
+				field = (*rel_fields)[field_id];
 
 				if (field)
 				{
@@ -3300,7 +3299,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				else
 				{
 					field = FB_NEW_POOL(*rel_pool) jrd_fld(*rel_pool);
-					(*vector)[field_id] = field;
+					(*rel_fields)[field_id] = field;
 				}
 				field->fld_name = reinterpret_cast<char*>(p);
 
@@ -3446,6 +3445,9 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	rel_current_format = MET_format(tdbb, rel_perm, rel_current_fmt);
 	dependencies = false;
+
+	if (rel_fields)
+		rel_fields->trimNulls();
 
 	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
 
