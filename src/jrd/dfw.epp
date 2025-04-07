@@ -1169,15 +1169,11 @@ static const deferred_task task_table[] =
 	{ dfw_create_field, create_field },
 	{ dfw_delete_field, delete_field },
 	{ dfw_modify_field, modify_field },
-/*
 	{ dfw_delete_global, delete_global },
-*/
 	{ dfw_commit_relation, commit_relation },
 	{ dfw_create_relation, create_relation },
 	{ dfw_delete_relation, delete_relation },
-/*
 	{ dfw_compute_security, compute_security },
-*/
 	{ dfw_create_index, create_index },
 	{ dfw_grant, grant_privileges },
 /*
@@ -1197,9 +1193,7 @@ static const deferred_task task_table[] =
 	{ dfw_delete_prm, delete_parameter },
 	{ dfw_create_collation, create_collation },
 	{ dfw_delete_collation, delete_collation },
-/*
 	{ dfw_delete_exception, delete_exception },
-*/
 	{ dfw_set_generator, set_generator },
 	{ dfw_delete_generator, delete_generator },
 	{ dfw_add_difference, add_difference },
@@ -1207,15 +1201,11 @@ static const deferred_task task_table[] =
 	{ dfw_begin_backup, begin_backup },
 	{ dfw_end_backup, end_backup },
 	{ dfw_user_management, user_management },
-/*
 	{ dfw_check_not_null, check_not_null },
-	{ dfw_store_view_context_type, store_view_context_type },
-*/
+//	{ dfw_store_view_context_type, store_view_context_type },
 	{ dfw_db_crypt, db_crypt },
 	{ dfw_set_linger, set_linger },
-/*
 	{ dfw_clear_cache, clear_cache },
-*/
 	{ dfw_change_repl_state, change_repl_state },
 	{ dfw_null, NULL }
 };
@@ -3823,3 +3813,332 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 }
 
 
+static bool clear_cache(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra*)
+{
+/**************************************
+ *
+ *	c l e a r _ c a c h e
+ *
+ **************************************
+ *
+ * Clear security names mapping cache
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+	Database* const dbb = tdbb->getDatabase();
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		Mapping::clearCache(dbb->dbb_filename.c_str(), work->dfw_id);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool delete_exception(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ e x c e p t i o n
+ *
+ **************************************
+ *
+ * Functional description
+ *	Check if it is allowable to delete
+ *	an exception, and if so, clean up after it.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_exception, transaction);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool compute_security(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra*)
+{
+/**************************************
+ *
+ *	c o m p u t e _ s e c u r i t y
+ *
+ **************************************
+ *
+ * Functional description
+ *	There was a change in a security class.  Recompute everything
+ *	it touches.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		{
+			// Get security class.  This may return NULL if it doesn't exist
+
+			SCL_clear_classes(tdbb, work->dfw_name.c_str());
+
+			AutoRequest handle;
+			FOR(REQUEST_HANDLE handle) X IN RDB$DATABASE
+				WITH X.RDB$SECURITY_CLASS EQ work->dfw_name.c_str()
+			{
+				attachment->att_security_class = SCL_get_class(tdbb, work->dfw_name.c_str());
+			}
+			END_FOR
+		}
+		break;
+	}
+
+	return false;
+}
+
+
+static bool delete_global(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ g l o b a l
+ *
+ **************************************
+ *
+ * Functional description
+ *	If a local field has been deleted,
+ *	check to see if its global field
+ *	is computed. If so, delete all its
+ *	dependencies under the assumption
+ *	that a global computed field has only
+ *	one local field.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		{
+			AutoRequest handle;
+			FOR(REQUEST_HANDLE handle)
+				FLD IN RDB$FIELDS WITH
+					FLD.RDB$FIELD_NAME EQ work->dfw_name.c_str() AND
+					FLD.RDB$COMPUTED_BLR NOT MISSING
+			{
+				MET_delete_dependencies(tdbb, work->dfw_name, obj_computed, transaction);
+			}
+			END_FOR
+		}
+		break;
+	}
+
+	return false;
+}
+
+
+static bool check_not_null(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c h e c k _ n o t _ n u l l
+ *
+ **************************************
+ *
+ * Scan relation to detect NULLs in fields being changed to NOT NULL.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		{
+			if (work->dfw_ids.isEmpty())
+				break;
+			jrd_rel* relation = MetadataCache::lookup_relation(tdbb, work->dfw_name, CacheFlag::AUTOCREATE);
+			if ((!relation) || relation->isView())
+				break;
+
+			// Protect relation from modification
+			ProtectRelations protectRelation(tdbb, transaction, relation->getPermanent());
+
+			SortedArray<int> fields;
+			AutoRequest handle;
+
+			for (SortedArray<int>::iterator itr(work->dfw_ids.begin());
+				 itr != work->dfw_ids.end();
+				 ++itr)
+			{
+				FOR(REQUEST_HANDLE handle)
+					RFL IN RDB$RELATION_FIELDS CROSS
+					FLD IN RDB$FIELDS
+					WITH RFL.RDB$RELATION_NAME EQ work->dfw_name.c_str() AND
+						 FLD.RDB$FIELD_NAME EQ RFL.RDB$FIELD_SOURCE AND
+						 RFL.RDB$FIELD_ID EQ *itr AND
+						 (RFL.RDB$NULL_FLAG = TRUE OR FLD.RDB$NULL_FLAG = TRUE)
+				{
+					fields.add(RFL.RDB$FIELD_ID);
+				}
+				END_FOR
+			}
+
+			if (fields.hasData())
+			{
+				UCharBuffer blr;
+
+				blr.add(blr_version5);
+				blr.add(blr_begin);
+				blr.add(blr_message);
+				blr.add(1);	// message number
+				blr.add(fields.getCount() & 0xFF);
+				blr.add(fields.getCount() >> 8);
+
+				for (FB_SIZE_T i = 0; i < fields.getCount(); ++i)
+				{
+					blr.add(blr_short);
+					blr.add(0);
+				}
+
+				blr.add(blr_for);
+				blr.add(blr_stall);
+				blr.add(blr_rse);
+				blr.add(1);
+				blr.add(blr_rid);
+				blr.add(relation->getId() & 0xFF);
+				blr.add(relation->getId() >> 8);
+				blr.add(0);	// stream
+				blr.add(blr_boolean);
+
+				for (FB_SIZE_T i = 0; i < fields.getCount(); ++i)
+				{
+					if (i != fields.getCount() - 1)
+						blr.add(blr_or);
+
+					blr.add(blr_missing);
+					blr.add(blr_fid);
+					blr.add(0);	// stream
+					blr.add(USHORT(fields[i]) & 0xFF);
+					blr.add(USHORT(fields[i]) >> 8);
+				}
+
+				blr.add(blr_end);
+
+				blr.add(blr_send);
+				blr.add(1);
+				blr.add(blr_begin);
+
+				for (FB_SIZE_T i = 0; i < fields.getCount(); ++i)
+				{
+					blr.add(blr_assignment);
+
+					blr.add(blr_value_if);
+					blr.add(blr_missing);
+					blr.add(blr_fid);
+					blr.add(0);	// stream
+					blr.add(USHORT(fields[i]) & 0xFF);
+					blr.add(USHORT(fields[i]) >> 8);
+
+					blr.add(blr_literal);
+					blr.add(blr_short);
+					blr.add(0);
+					blr.add(1);
+					blr.add(0);
+
+					blr.add(blr_literal);
+					blr.add(blr_short);
+					blr.add(0);
+					blr.add(0);
+					blr.add(0);
+
+					blr.add(blr_parameter);
+					blr.add(1);	// message number
+					blr.add(i & 0xFF);
+					blr.add(i >> 8);
+				}
+
+				blr.add(blr_end);
+
+				blr.add(blr_send);
+				blr.add(1);
+				blr.add(blr_begin);
+
+				for (FB_SIZE_T i = 0; i < fields.getCount(); ++i)
+				{
+					blr.add(blr_assignment);
+					blr.add(blr_literal);
+					blr.add(blr_short);
+					blr.add(0);
+					blr.add(0);
+					blr.add(0);
+					blr.add(blr_parameter);
+					blr.add(1);	// message number
+					blr.add(i & 0xFF);
+					blr.add(i >> 8);
+				}
+
+				blr.add(blr_end);
+				blr.add(blr_end);
+				blr.add(blr_eoc);
+
+				AutoRequest request;
+				request.compile(tdbb, blr.begin(), blr.getCount());
+
+				HalfStaticArray<USHORT, 5> hasRecord;
+
+				EXE_start(tdbb, request, transaction);
+				EXE_receive(tdbb, request, 1, fields.getCount() * sizeof(USHORT),
+					(UCHAR*) hasRecord.getBuffer(fields.getCount()));
+
+				Arg::Gds errs(isc_no_meta_update);
+				bool hasError = false;
+
+				for (FB_SIZE_T i = 0; i < fields.getCount(); ++i)
+				{
+					if (hasRecord[i])
+					{
+						hasError = true;
+						errs << Arg::Gds(isc_cannot_make_not_null) <<
+								(*relation->rel_fields)[fields[i]]->fld_name <<
+								relation->getName();
+					}
+				}
+
+				if (hasError)
+					ERR_post(errs);
+			}
+		}
+
+		break;
+	}
+
+	return false;
+}
