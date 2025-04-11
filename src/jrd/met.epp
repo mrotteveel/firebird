@@ -2771,6 +2771,9 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 									F.RDB$FIELD_SUB_TYPE, CSetId(F.RDB$CHARACTER_SET_ID),
 									(pa_collation_id_null ? CollId(F.RDB$COLLATION_ID) : pa_collation_id));
 
+				if (F.RDB$FIELD_TYPE == blr_blob)
+					parameter->prm_seg_length = F.RDB$SEGMENT_LENGTH;
+
 				if (parameter->prm_desc.isText() && parameter->prm_desc.getTextType() != CS_NONE)
 				{
 					if (!pa_collation_id_null || fb_utils::implicit_domain(PA.RDB$FIELD_SOURCE))

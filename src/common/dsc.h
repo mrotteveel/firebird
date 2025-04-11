@@ -230,20 +230,20 @@ typedef struct dsc
 		return dsc_dtype;
 	}
 
-	SSHORT getBlobSubType() const
-	{
-		if (isBlob())
-			return dsc_sub_type;
-
-		return isc_blob_text;
-	}
-
 	SSHORT getSubType() const
 	{
 		if (isBlob() || isExact())
 			return dsc_sub_type;
 
 		return 0;
+	}
+
+	SSHORT getBlobSubType() const
+	{
+		if (isBlob())
+			return dsc_sub_type;
+
+		return isc_blob_text;
 	}
 
 	void setBlobSubType(SSHORT subType)
@@ -304,6 +304,11 @@ typedef struct dsc
 	CollId getCollation() const
 	{
 		return CollId(getTextType());
+	}
+
+	UCHAR getLength() const
+	{
+		return dsc_length;
 	}
 
 	UCHAR getScale() const

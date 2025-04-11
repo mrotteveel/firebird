@@ -135,11 +135,12 @@ public:
 	{
 		if (object)		// be careful with ERASED entries
 		{
-			OBJ::destroy(tdbb, object);
+			if (withObject)
+				OBJ::destroy(tdbb, object);
 			object = nullptr;
 		}
 
-		auto* ptr = next.load(atomics::memory_order_relaxed);
+		ListEntry* ptr = next.load(atomics::memory_order_relaxed);
 		if (ptr)
 		{
 			ptr->cleanup(tdbb, withObject);
@@ -553,7 +554,6 @@ public:
 		return entry ? entry->getObject() : nullptr;
 	}
 
-private:
 	HazardPtr<ListEntry<Versioned>> getEntry(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
@@ -609,7 +609,6 @@ private:
 		return ListEntry<Versioned>::getEntry(tdbb, listEntry, traNum, fl);
 	}
 
-public:
 	// return latest committed version or nullptr when does not exist
 	Versioned* getLatestObject(thread_db* tdbb) const
 	{
@@ -858,11 +857,8 @@ public:
 		if (ptr)
 		{
 			StoredElement* rc = ptr->load(atomics::memory_order_relaxed);
-			if (rc)
-			{
-				rc->getObject(tdbb, fl);
+			if (rc && rc->getObject(tdbb, fl))
 				return rc;
-			}
 		}
 
 		return nullptr;
@@ -988,10 +984,15 @@ public:
 			for (SubArrayData* end = &sub[SUBARRAY_SIZE]; sub < end--;)
 			{
 				StoredElement* ptr = end->load(atomics::memory_order_relaxed);
-				if (ptr && cmp(ptr))
+				if (ptr)
 				{
-					ptr->reload(tdbb, fl);
-					return ptr;
+					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN);
+					if (listEntry && cmp(ptr))
+					{
+						// Optimize ??????????????
+						ptr->reload(tdbb, fl);
+						return ptr;
+					}
 				}
 			}
 		}

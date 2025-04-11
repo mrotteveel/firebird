@@ -100,7 +100,9 @@ public:
 		  cteAliases(p),
 		  subFunctions(p),
 		  subProcedures(p),
-		  rels(p)
+		  rels(p),
+		  procedures(p),
+		  functions(p)
 	{
 	}
 
@@ -314,7 +316,9 @@ private:
 	Firebird::LeftPooledMap<MetaName, DeclareSubProcNode*> subProcedures;
 
 public:
-	Firebird::LeftPooledMap<MetaName, class dsql_rel*> rels;     // known relations
+	Firebird::LeftPooledMap<MetaName, class dsql_rel*> rels;			// known relations
+	Firebird::LeftPooledMap<QualifiedName, class dsql_prc*>	procedures;	// known procedures
+	Firebird::LeftPooledMap<QualifiedName, class dsql_udf*>	functions;	// known functions
 };
 
 class PsqlChanger

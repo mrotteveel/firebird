@@ -116,9 +116,6 @@ namespace Jrd {
 class dsql_dbb : public pool_alloc<dsql_type_dbb>
 {
 public:
-	//Firebird::LeftPooledMap<MetaName, class dsql_rel*> dbb_relations;		// known relations in database
-	Firebird::LeftPooledMap<QualifiedName, class dsql_prc*> dbb_procedures;	// known procedures in database
-	Firebird::LeftPooledMap<QualifiedName, class dsql_udf*> dbb_functions;	// known functions in database
 	Firebird::LeftPooledMap<MetaName, class dsql_intlsym*> dbb_charsets;	// known charsets in database
 	Firebird::LeftPooledMap<MetaName, class dsql_intlsym*> dbb_collations;	// known collations in database
 	Firebird::NonPooledMap<SSHORT, dsql_intlsym*> dbb_charsets_by_id;		// charsets sorted by charset_id
@@ -146,13 +143,12 @@ public:
 	{
 	}
 
-	dsql_rel(MemoryPool& p, class jrd_rel* jrel);
+	dsql_rel(MemoryPool& p, const class jrd_rel* jrel);
 
 	dsql_rel(const dsql_rel&) = delete;
 	dsql_rel(dsql_rel&&) = delete;
 
 	dsql_fld* rel_fields;			// Field block
-	//dsql_rel* rel_base_relation;	// base relation for an updatable view
 	MetaName rel_name;				// Name of relation
 	MetaName rel_owner;				// Owner of relation
 	USHORT rel_id;					// Relation id
@@ -251,6 +247,8 @@ public:
 	{
 	}
 
+	dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev);
+
 public:
 	void resolve(DsqlCompilerScratch* dsqlScratch, bool modifying = false)
 	{
@@ -258,10 +256,10 @@ public:
 	}
 
 public:
-	dsql_fld* fld_next = nullptr;		// Next field in relation
-	dsql_rel* fld_relation = nullptr;	// Parent relation
-	dsql_prc* fld_procedure = nullptr;	// Parent procedure
-	USHORT fld_id = 0;					// Field in in database
+	dsql_fld* fld_next = nullptr;				// Next field in relation
+	class dsql_rel* fld_relation = nullptr;		// Parent relation
+	class dsql_prc* fld_procedure = nullptr;	// Parent procedure
+	USHORT fld_id = 0;							// Field ID in database
 	MetaName fld_name;
 };
 
@@ -292,8 +290,14 @@ public:
 	{
 	}
 
+	dsql_prc(MemoryPool& p, const class jrd_prc* jproc);
+
+	dsql_prc(const dsql_prc&) = delete;
+	dsql_prc(dsql_prc&&) = delete;
+
 	dsql_fld* prc_inputs = nullptr;		// Input parameters
 	dsql_fld* prc_outputs = nullptr;	// Output parameters
+
 	QualifiedName prc_name;				// Name of procedure
 	MetaName prc_owner;					// Owner of procedure
 	USHORT prc_in_count = 0;
@@ -302,6 +306,9 @@ public:
 	SSHORT prc_id = 0;					// Procedure id
 	USHORT prc_flags = 0;
 	bool prc_private = false;			// Packaged private procedure
+
+private:
+	dsql_fld* cpFields(MemoryPool& p, const Firebird::Array<NestConst<Parameter>>& fields);
 };
 
 // prc_flags bits

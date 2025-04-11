@@ -203,6 +203,7 @@ public:
 	MetaName prm_type_of_table;
 	std::optional<USHORT> prm_text_type;
 	FUN_T		prm_fun_mechanism;
+	USHORT		prm_seg_length = 0;
 
 public:
 	explicit Parameter(MemoryPool& p)

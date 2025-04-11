@@ -175,71 +175,6 @@ void METD_drop_collation(jrd_tra* transaction, const MetaName& name)
 }
 
 
-void METD_drop_function(jrd_tra* transaction, const QualifiedName& name)
-{
-/**************************************
- *
- *  M E T D _ d r o p _ f u n c t i o n
- *
- **************************************
- *
- * Functional description
- *  Drop a user defined function from our metadata, and
- *  the next caller who wants it will
- *  look up the new version.
- *
- *  Dropping will be achieved by marking the function
- *  as dropped.  Anyone with current access can continue
- *  accessing it.
- *
- **************************************/
-	thread_db* tdbb = JRD_get_thread_data();
-	dsql_dbb* dbb = transaction->getDsqlAttachment();
-
-	dsql_udf* function;
-
-	if (dbb->dbb_functions.get(name, function))
-	{
-		MetadataCache::dsql_cache_use(tdbb, SYM_udf, name.identifier, name.package);
-		function->udf_flags |= UDF_dropped;
-		dbb->dbb_functions.remove(name);
-	}
-
-}
-
-
-void METD_drop_procedure(jrd_tra* transaction, const QualifiedName& name)
-{
-/**************************************
- *
- *  M E T D _ d r o p _ p r o c e d u r e
- *
- **************************************
- *
- * Functional description
- *  Drop a procedure from our metadata, and
- *  the next caller who wants it will
- *  look up the new version.
- *
- *  Dropping will be achieved by marking the procedure
- *  as dropped.  Anyone with current access can continue
- *  accessing it.
- *
- **************************************/
-	thread_db* tdbb = JRD_get_thread_data();
-	dsql_dbb* dbb = transaction->getDsqlAttachment();
-
-	dsql_prc* procedure;
-
-	if (dbb->dbb_procedures.get(name, procedure))
-	{
-		MetadataCache::dsql_cache_use(tdbb, SYM_procedure, name.identifier, name.package);
-		procedure->prc_flags |= PRC_dropped;
-		dbb->dbb_procedures.remove(name);
-	}
-}
-
-
 dsql_intlsym* METD_get_collation(jrd_tra* transaction, const MetaName& name, CSetId charset_id)
 {
 /**************************************
@@ -580,6 +515,8 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	validateTransaction(transaction);
 
+	dsql_udf* userFunc = NULL;
+/*
 	dsql_dbb* dbb = transaction->getDsqlAttachment();
 	QualifiedName metaName(name);
 
@@ -589,7 +526,6 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	// Start by seeing if symbol is already defined
 
-	dsql_udf* userFunc = NULL;
 	if (dbb->dbb_functions.get(metaName, userFunc))
 	{
 		if (userFunc->udf_private && metaName.package != dsqlScratch->package)
@@ -863,7 +799,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	}
 
 	MetadataCache::dsql_cache_use(tdbb, SYM_udf, userFunc->udf_name.identifier, userFunc->udf_name.package);
-
+*/
 	return userFunc;
 }
 
@@ -927,6 +863,22 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 
 	validateTransaction(transaction);
 
+	dsql_prc* temp = nullptr;
+	if (dsqlScratch->procedures.get(name, temp))
+	{
+		return temp;
+	}
+
+	auto* jproc = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
+	if (!jproc)
+		return nullptr;
+
+	temp = FB_NEW_POOL(dsqlScratch->getPool()) dsql_prc(dsqlScratch->getPool(), jproc);
+	dsqlScratch->procedures.put(temp->prc_name, temp);
+
+	return temp;
+
+/*
 	dsql_dbb* dbb = transaction->getDsqlAttachment();
 
 	// ASF: I've removed the code where we verify if the procedure being looked up is the one being
@@ -1153,6 +1105,7 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 		procedure->prc_name.package);
 
 	return procedure;
+*/
 }
 
 

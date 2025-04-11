@@ -75,6 +75,7 @@
 #include "../common/StatusArg.h"
 #include "../dsql/DsqlBatch.h"
 #include "../dsql/DsqlStatementCache.h"
+#include "../jrd/met.h"
 
 #ifdef HAVE_CTYPE_H
 #include <ctype.h>
@@ -114,10 +115,7 @@ IMPLEMENT_TRACE_ROUTINE(dsql_trace, "DSQL")
 #endif
 
 dsql_dbb::dsql_dbb(MemoryPool& p, Attachment* attachment)
-	: //dbb_relations(p),
-	  dbb_procedures(p),
-	  dbb_functions(p),
-	  dbb_charsets(p),
+	: dbb_charsets(p),
 	  dbb_collations(p),
 	  dbb_charsets_by_id(p),
 	  dbb_cursors(p),
@@ -1323,13 +1321,13 @@ static UCHAR* var_info(const dsql_msg* message,
 	return info;
 }
 
-dsql_rel::dsql_rel(MemoryPool& p, class jrd_rel* jrel)
+dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 	: rel_fields(nullptr),
-	rel_name(p, jrel->getName()),
-	rel_owner(p, jrel->getOwnerName()),
-	rel_id(jrel->getId()),
-	rel_dbkey_length(jrel->rel_dbkey_length),
-	rel_flags((jrel->getExtFile() ? REL_external : 0) | (jrel->isView() ? REL_view : 0))
+	  rel_name(p, jrel->getName()),
+	  rel_owner(p, jrel->getOwnerName()),
+	  rel_id(jrel->getId()),
+	  rel_dbkey_length(jrel->rel_dbkey_length),
+	  rel_flags((jrel->getExtFile() ? REL_external : 0) | (jrel->isView() ? REL_view : 0))
 {
 	if (!(jrel->rel_fields))
 		return;
@@ -1341,28 +1339,17 @@ dsql_rel::dsql_rel(MemoryPool& p, class jrd_rel* jrel)
 	for (MetaId id = 0; id < format->fmt_count; ++id)
 	{
 		auto* jfld = (*(jrel->rel_fields))[id];
-		auto& dsc = format->fmt_desc[id];
-
-		auto* fld = FB_NEW_POOL(p) dsql_fld(p);
-		*prev = fld;
-		prev = &(fld->fld_next);
+		auto* fld = FB_NEW_POOL(p) dsql_fld(p, format->fmt_desc[id], &prev);
 
 		fld->fld_relation = this;
 		fld->fld_id = id;
 		fld->fld_name = jfld->fld_name;
-		fld->dtype = dsc.getType();
 		fld->length = jfld->fld_length;
-		fld->scale = dsc.getScale();
-		fld->subType = dsc.getSubType();
 		fld->segLength = jfld->fld_segment_length;
-		fld->setExactPrecision();
 		fld->charLength = jfld->fld_character_length;
-		fld->collationId = dsc.getCollation();
-		fld->textType = dsc.getTextType();
-		fld->charSetId = dsc.getCharSet();
 		fld->fieldSource = jfld->fld_source_name;
-		fld->flags = (jfld->fld_computation ? FLD_computed : 0) |
-					 (dsc.isNullable() ? FLD_nullable : 0);
+		fld->setExactPrecision();
+		fld->flags |= (jfld->fld_computation ? FLD_computed : 0);
 
 		if (auto* array = jfld->fld_array)
 		{
@@ -1372,3 +1359,54 @@ dsql_rel::dsql_rel(MemoryPool& p, class jrd_rel* jrel)
 		}
 	}
 }
+
+dsql_prc::dsql_prc(MemoryPool& p, const jrd_prc* jproc)
+	: prc_inputs(cpFields(p, jproc->getInputFields())),
+	  prc_outputs(cpFields(p, jproc->getOutputFields())),
+	  prc_name(p, jproc->getName()),
+	  prc_owner(p, jproc->getPermanent()->owner),
+	  prc_in_count(jproc->getInputFields().getCount()),
+	  prc_def_count(jproc->getDefaultCount()),
+	  prc_out_count(jproc->getOutputFields().getCount()),
+	  prc_id(jproc->getId())
+{ }
+
+dsql_fld* dsql_prc::cpFields(MemoryPool& p, const Array<NestConst<Parameter>>& fields)
+{
+	dsql_fld* rc = nullptr;
+	dsql_fld** prev = &rc;
+	for (auto& jfld : fields)
+	{
+		auto* fld = FB_NEW_POOL(p) dsql_fld(p, jfld->prm_desc, &prev);
+		fld->fld_procedure = this;
+
+		fld->fld_id = jfld->prm_number;
+		fld->fld_name = jfld->prm_name;
+		fld->segLength = jfld->prm_seg_length;
+		fld->fieldSource = jfld->prm_field_source;
+		fld->typeOfTable = jfld->prm_type_of_table;
+		fld->typeOfName = jfld->prm_type_of_column;
+
+		fld->setExactPrecision();
+	}
+
+	return rc;
+}
+
+dsql_fld::dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev)
+	: TypeClause(p, nullptr),
+	  fld_name(p)
+{
+	**prev = this;
+	*prev = &fld_next;
+
+	dtype = desc.getType();
+	scale = desc.getScale();
+	subType = desc.getSubType();
+	length = desc.getLength();
+	collationId = desc.getCollation();
+	textType = desc.getTextType();
+	charSetId = desc.getCharSet();
+	flags = desc.isNullable() ? FLD_nullable : 0;
+}
+

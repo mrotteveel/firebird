@@ -932,7 +932,7 @@ int jrd_rel::objectType()
 	return obj_relation;
 }
 
-const Format* jrd_rel::currentFormat()
+const Format* jrd_rel::currentFormat() const
 {
 /**************************************
  *
@@ -950,12 +950,12 @@ const Format* jrd_rel::currentFormat()
 	//			e.g. after DFW error raised during ALTER TABLE command.
 	//			Thus it makes sense to validate it before usage and
 	//			fetch the proper one if something is suspicious.
-	//
+
 	// AP:		no reasons for rel_current_format to be wrong with versioned cache
 	//			but better check it carefully
 
 	fb_assert(rel_current_format && (rel_current_format->fmt_version == rel_current_fmt));
-
+/* ???????????????????????????????
 	if (rel_current_format && (rel_current_format->fmt_version == rel_current_fmt))
 	{
 		return rel_current_format;
@@ -971,7 +971,7 @@ const Format* jrd_rel::currentFormat()
 	fb_assert(rel_current_fmt || isSystem());
 
 	rel_current_format = MET_format(tdbb, getPermanent(), rel_current_fmt);
-
+*/
 	return rel_current_format;
 }
 

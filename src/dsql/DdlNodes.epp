@@ -478,7 +478,7 @@ void definePartial(DsqlCompilerScratch* dsqlScratch, RelationSourceNode* relatio
 //
 //      (B) post delete trigger: post_delete_constraint will:
 //
-//        1. also delete a record from RDB$INDICES where
+//        1. also delete a record from RDB$INDICES where					/// !!!!!!!!!!!!!!!!!!!!
 //           RDB$INDICES.RDB$INDEX_NAME =
 //                               RDB$RELATION_CONSTRAINTS.RDB$INDEX_NAME
 //
@@ -669,7 +669,7 @@ static void checkFkPairTypes(const rel_t masterType, const MetaName& masterName,
 //      then update the position of the field being altered.
 //
 //      if new_position == original_position -- no_op
-static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,
+static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,				/// !!!!!!!!!!!!!!!!!!!
 	const MetaName& relationName, const MetaName& fieldName, USHORT newPosition)
 {
 	USHORT existingPosition = 0;
@@ -762,6 +762,8 @@ static rel_t relationType(SSHORT relationTypeNull, SSHORT relationType)
 	return relationTypeNull ? rel_persistent : rel_t(relationType);
 }
 
+// ???????????????????????? cleanup
+
 // Save the name of a field in the relation or view currently being defined. This is done to support
 // definition of triggers which will depend on the metadata created in this statement.
 static void saveField(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, const MetaName& fieldName)
@@ -803,6 +805,7 @@ static void saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 
 	dsqlScratch->relation = relation;
 }
+
 
 // Update RDB$FIELDS received by reference.
 static void updateRdbFields(const TypeClause* type,
@@ -1760,13 +1763,6 @@ void CreateAlterFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsql
 	}
 
 	savePoint.release();	// everything is ok
-
-	if (alter)
-	{
-		// Update DSQL cache
-		METD_drop_function(transaction, QualifiedName(name, package));
-		MetadataCache::dsql_cache_release(tdbb, SYM_udf, name, package);
-	}
 }
 
 bool CreateAlterFunctionNode::executeCreate(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
@@ -2524,10 +2520,6 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 	}
 
 	savePoint.release();	// everything is ok
-
-	// Update DSQL cache
-	METD_drop_function(transaction, QualifiedName(name, ""));
-	MetadataCache::dsql_cache_release(tdbb, SYM_udf, name, "");
 }
 
 
@@ -2602,7 +2594,7 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	bool found = false;
 	MetaId id;
 
-	//MetadataCache::oldVersion<Cached::Function>(tdbb, id);		missing ID in the node
+	//MetadataCache::oldVersion<Cached::Function>(tdbb, id);	-- missing ID in the node
 	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 
 	dropArguments(tdbb, transaction, name, package);
@@ -2667,10 +2659,6 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 
 	savePoint.release();	// everything is ok
-
-	// Update DSQL cache
-	METD_drop_function(transaction, QualifiedName(name, package));
-	MetadataCache::dsql_cache_release(tdbb, SYM_udf, name, package);
 }
 
 
@@ -2812,13 +2800,6 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 	}
 
 	savePoint.release();	// everything is ok
-
-	if (alter)
-	{
-		// Update DSQL cache
-		METD_drop_procedure(transaction, QualifiedName(name, package));
-		MetadataCache::dsql_cache_release(tdbb, SYM_procedure, name, package);
-	}
 }
 
 bool CreateAlterProcedureNode::executeCreate(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
@@ -3506,14 +3487,10 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	}
 
 	savePoint.release();	// everything is ok
-
-	// Update DSQL cache
-	METD_drop_procedure(transaction, QualifiedName(name, package));
-	MetadataCache::dsql_cache_release(tdbb, SYM_procedure, name, package);
 }
 
 
-//----------------------
+//----------------------	!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 
 void TriggerDefinition::store(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction)
@@ -4270,7 +4247,7 @@ DdlNode* CreateCollationNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 }
 
 
-//----------------------
+//---------------------- !!!!!!!!!!!!!!!!!!!!!!!!
 
 
 string DropCollationNode::internalPrint(NodePrinter& printer) const
@@ -10072,6 +10049,7 @@ void CreateAlterViewNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 	SCL_check_create_access(tdbb, obj_views);
 }
 
+/// !!!!!!!!!!!!!!!!!!!!!!!!!!
 void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {

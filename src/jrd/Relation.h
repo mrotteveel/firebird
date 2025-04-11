@@ -644,7 +644,7 @@ public:
 	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
 	const Trigger* findTrigger(const MetaName trig_name) const;
-	const Format* currentFormat();
+	const Format* currentFormat() const;
 
 	decltype(rel_perm) getPermanent() const
 	{
