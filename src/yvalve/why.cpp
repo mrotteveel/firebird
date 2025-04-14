@@ -5341,7 +5341,8 @@ void YTransaction::getInfo(CheckStatusWrapper* status, unsigned int itemsLength,
 		fb_utils::getDbPathInfo(itemsLength, items, bufferLength, buffer,
 								newItemsBuffer, attachment.get()->dbPath);
 
-		entry.next()->getInfo(status, itemsLength, items, bufferLength, buffer);
+		if (itemsLength)
+			entry.next()->getInfo(status, itemsLength, items, bufferLength, buffer);
 	}
 	catch (const Exception& e)
 	{
