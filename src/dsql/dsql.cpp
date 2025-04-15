@@ -1410,3 +1410,26 @@ dsql_fld::dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev)
 	flags = desc.isNullable() ? FLD_nullable : 0;
 }
 
+dsql_udf::dsql_udf(MemoryPool& p, const class Function* jfun)
+	: udf_name(p, jfun->getName()),
+	  udf_arguments(p)
+{
+	// return value
+	fb_assert(jfun->getOutputFields().getCount() == 1);
+	const dsc& desc = jfun->getOutputFields()[0]->prm_desc;
+	udf_dtype = desc.getType();
+	udf_scale = desc.getScale();
+	udf_sub_type = desc.getSubType();
+	udf_length = desc.getLength();
+	udf_character_set_id = desc.getCharSet();
+
+	// arguments
+	for (auto& jfld : jfun->getInputFields())
+	{
+		if (jfld->prm_default_value)
+			++udf_def_count;
+
+		Argument arg(jfld->prm_name, jfld->prm_desc);
+		udf_arguments.add(arg);
+	}
+}

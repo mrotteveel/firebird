@@ -512,12 +512,10 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
  *
  **************************************/
 	thread_db* tdbb = JRD_get_thread_data();
-
 	validateTransaction(transaction);
 
 	dsql_udf* userFunc = NULL;
-/*
-	dsql_dbb* dbb = transaction->getDsqlAttachment();
+
 	QualifiedName metaName(name);
 
 	bool maybeUnqualified = dsqlScratch->package.hasData() && metaName.package.isEmpty();
@@ -526,7 +524,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	// Start by seeing if symbol is already defined
 
-	if (dbb->dbb_functions.get(metaName, userFunc))
+	if (dsqlScratch->functions.get(metaName, userFunc))
 	{
 		if (userFunc->udf_private && metaName.package != dsqlScratch->package)
 		{
@@ -534,273 +532,40 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 				Arg::Str(metaName.identifier) << Arg::Str(metaName.package));
 		}
 
-		if (MetadataCache::dsql_cache_use(tdbb, SYM_udf, metaName.identifier, metaName.package))
-			userFunc->udf_flags |= UDF_dropped;
+		return userFunc;
 	}
 
-	if (userFunc && (userFunc->udf_flags & UDF_dropped))
-		userFunc = nullptr;
-
-	if (userFunc)
-		return userFunc;
-
-	// Now see if it is in the database
+	// now see if it is in the metadata cache
 
 	USHORT return_arg = 0;
 
-	while (!userFunc)
+	for (;;)
 	{
-		AutoCacheRequest handle1(tdbb, irq_function, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE handle1 TRANSACTION_HANDLE transaction)
-			X IN RDB$FUNCTIONS WITH
-			X.RDB$FUNCTION_NAME EQ metaName.identifier.c_str() AND
-			X.RDB$PACKAGE_NAME EQUIV NULLIF(metaName.package.c_str(), '')
+		auto* jfunc = MetadataCache::lookup_function(tdbb, metaName, CacheFlag::AUTOCREATE);
+		if (jfunc)
 		{
-			userFunc = FB_NEW_POOL(dbb->dbb_pool) dsql_udf(dbb->dbb_pool);
-			userFunc->udf_name = metaName;
-			userFunc->udf_private = !X.RDB$PRIVATE_FLAG.NULL && X.RDB$PRIVATE_FLAG != 0;
+			userFunc = FB_NEW_POOL(dsqlScratch->getPool()) dsql_udf(dsqlScratch->getPool(), jfunc);
 
-			return_arg = X.RDB$RETURN_ARGUMENT;
-		}
-		END_FOR
-
-		if (!userFunc)
-		{
-			if (maybeUnqualified)
+			if (userFunc->udf_private && metaName.package != dsqlScratch->package)
 			{
-				maybeUnqualified = false;
-				metaName.package = "";
+				status_exception::raise(Arg::Gds(isc_private_procedure) <<
+					Arg::Str(metaName.identifier) << Arg::Str(metaName.package));
 			}
-			else
-				return NULL;
+
+			dsqlScratch->functions.put(userFunc->udf_name, userFunc);
+			return userFunc;
 		}
-	}
 
-	SSHORT defaults = 0;
-
-	AutoCacheRequest handle2(tdbb, irq_func_return, IRQ_REQUESTS);
-
-	FOR(REQUEST_HANDLE handle2 TRANSACTION_HANDLE transaction)
-		X IN RDB$FUNCTION_ARGUMENTS WITH
-		X.RDB$FUNCTION_NAME EQ metaName.identifier.c_str() AND
-		X.RDB$PACKAGE_NAME EQUIV NULLIF(metaName.package.c_str(), '')
-		SORTED BY X.RDB$ARGUMENT_POSITION
-	{
-		if (!X.RDB$FIELD_SOURCE.NULL)
+		if (maybeUnqualified)
 		{
-			AutoCacheRequest handle3(tdbb, irq_func_ret_fld, IRQ_REQUESTS);
-
-			FOR(REQUEST_HANDLE handle3 TRANSACTION_HANDLE transaction)
-				F IN RDB$FIELDS WITH
-				F.RDB$FIELD_NAME EQ X.RDB$FIELD_SOURCE
-			{
-				if (X.RDB$ARGUMENT_POSITION == return_arg)
-				{
-					userFunc->udf_dtype = (F.RDB$FIELD_TYPE != blr_blob) ?
-						gds_cvt_blr_dtype[F.RDB$FIELD_TYPE] : dtype_blob;
-					userFunc->udf_scale = F.RDB$FIELD_SCALE;
-
-					if (!F.RDB$FIELD_SUB_TYPE.NULL) {
-						userFunc->udf_sub_type = F.RDB$FIELD_SUB_TYPE;
-					}
-					else {
-						userFunc->udf_sub_type = 0;
-					}
-					// CVC: We are overcoming a bug in ddl.cpp:put_field()
-					// when any field is defined: the length is not given for blobs.
-					if (F.RDB$FIELD_TYPE == blr_blob)
-						userFunc->udf_length = sizeof(ISC_QUAD);
-					else
-						userFunc->udf_length = F.RDB$FIELD_LENGTH;
-
-					if (!F.RDB$CHARACTER_SET_ID.NULL) {
-						userFunc->udf_character_set_id = CSetId(F.RDB$CHARACTER_SET_ID);
-					}
-
-					if (!X.RDB$ARGUMENT_MECHANISM.NULL && X.RDB$ARGUMENT_MECHANISM == prm_mech_type_of &&
-						!X.RDB$FIELD_NAME.NULL && X.RDB$FIELD_NAME[0] &&
-						!X.RDB$RELATION_NAME.NULL && X.RDB$RELATION_NAME[0])
-					{
-						// type of column used in declaration
-						if (isSystemRelation(tdbb, transaction, X.RDB$RELATION_NAME))
-							userFunc->udf_flags |= UDF_sys_based;
-					}
-					else if (!X.RDB$FIELD_SOURCE.NULL && X.RDB$FIELD_SOURCE[0])
-					{
-						// domain used in declaration
-						if (isSystemDomain(tdbb, transaction, X.RDB$FIELD_SOURCE))
-							userFunc->udf_flags |= UDF_sys_based;
-					}
-				}
-				else
-				{
-					DSC d;
-
-					if (X.RDB$MECHANISM == FUN_scalar_array)
-					{
-						d.dsc_dtype = dtype_array;
-						d.dsc_scale = 0;
-						d.dsc_sub_type = 0;
-						d.dsc_length = sizeof(ISC_QUAD);
-						d.dsc_flags = DSC_nullable;
-					}
-					else
-					{
-						d.dsc_dtype = (F.RDB$FIELD_TYPE != blr_blob) ?
-							gds_cvt_blr_dtype[F.RDB$FIELD_TYPE] : dtype_blob;
-						// dimitr: adjust the UDF arguments for CSTRING
-						if (d.dsc_dtype == dtype_cstring) {
-							d.dsc_dtype = dtype_text;
-						}
-						d.dsc_scale = F.RDB$FIELD_SCALE;
-						if (!F.RDB$FIELD_SUB_TYPE.NULL) {
-							d.dsc_sub_type = F.RDB$FIELD_SUB_TYPE;
-						}
-						else {
-							d.dsc_sub_type = 0;
-						}
-						d.dsc_length = F.RDB$FIELD_LENGTH;
-						if (d.dsc_dtype == dtype_varying) {
-							d.dsc_length += sizeof(USHORT);
-						}
-
-						if (!F.RDB$CHARACTER_SET_ID.NULL)
-						{
-							d.setTextType(CSetId(F.RDB$CHARACTER_SET_ID));
-						}
-
-						if (X.RDB$MECHANISM != FUN_value && X.RDB$MECHANISM != FUN_reference)
-						{
-							d.dsc_flags = DSC_nullable;
-						}
-					}
-
-					d.dsc_address = NULL;
-
-					if (!X.RDB$DEFAULT_VALUE.NULL ||
-						(fb_utils::implicit_domain(F.RDB$FIELD_NAME) && !F.RDB$DEFAULT_VALUE.NULL))
-					{
-						defaults++;
-					}
-
-					auto& argument = userFunc->udf_arguments.add();
-					argument.name = X.RDB$ARGUMENT_NAME;
-					argument.desc = d;
-				}
-			}
-			END_FOR
+			maybeUnqualified = false;
+			metaName.package = "";
 		}
 		else
-		{
-			if (X.RDB$ARGUMENT_POSITION == return_arg)
-			{
-				userFunc->udf_dtype = (X.RDB$FIELD_TYPE != blr_blob) ?
-					gds_cvt_blr_dtype[X.RDB$FIELD_TYPE] : dtype_blob;
-				userFunc->udf_scale = X.RDB$FIELD_SCALE;
-
-				if (!X.RDB$FIELD_SUB_TYPE.NULL) {
-					userFunc->udf_sub_type = X.RDB$FIELD_SUB_TYPE;
-				}
-				else {
-					userFunc->udf_sub_type = 0;
-				}
-				// CVC: We are overcoming a bug in ddl.c:put_field()
-				// when any field is defined: the length is not given for blobs.
-				if (X.RDB$FIELD_TYPE == blr_blob)
-					userFunc->udf_length = sizeof(ISC_QUAD);
-				else
-					userFunc->udf_length = X.RDB$FIELD_LENGTH;
-
-				if (!X.RDB$CHARACTER_SET_ID.NULL) {
-					userFunc->udf_character_set_id = CSetId(X.RDB$CHARACTER_SET_ID);
-				}
-			}
-			else
-			{
-				DSC d;
-
-				if (X.RDB$MECHANISM == FUN_scalar_array)
-				{
-					d.dsc_dtype = dtype_array;
-					d.dsc_scale = 0;
-					d.dsc_sub_type = 0;
-					d.dsc_length = sizeof(ISC_QUAD);
-					d.dsc_flags = DSC_nullable;
-				}
-				else
-				{
-					d.dsc_dtype = (X.RDB$FIELD_TYPE != blr_blob) ?
-						gds_cvt_blr_dtype[X.RDB$FIELD_TYPE] : dtype_blob;
-					// dimitr: adjust the UDF arguments for CSTRING
-					if (d.dsc_dtype == dtype_cstring) {
-						d.dsc_dtype = dtype_text;
-					}
-					d.dsc_scale = X.RDB$FIELD_SCALE;
-					if (!X.RDB$FIELD_SUB_TYPE.NULL) {
-						d.dsc_sub_type = X.RDB$FIELD_SUB_TYPE;
-					}
-					else {
-						d.dsc_sub_type = 0;
-					}
-					d.dsc_length = X.RDB$FIELD_LENGTH;
-					if (d.dsc_dtype == dtype_varying) {
-						d.dsc_length += sizeof(USHORT);
-					}
-
-					if (!X.RDB$CHARACTER_SET_ID.NULL)
-					{
-						d.setTextType(CSetId(X.RDB$CHARACTER_SET_ID));
-					}
-
-					if (X.RDB$MECHANISM != FUN_value && X.RDB$MECHANISM != FUN_reference)
-					{
-						d.dsc_flags = DSC_nullable;
-					}
-				}
-
-				d.dsc_address = NULL;
-
-				if (!X.RDB$DEFAULT_VALUE.NULL)
-				{
-					defaults++;
-				}
-
-				auto& argument = userFunc->udf_arguments.add();
-				argument.name = X.RDB$ARGUMENT_NAME;
-				argument.desc = d;
-			}
-		}
-	}
-	END_FOR
-
-	userFunc->udf_def_count = defaults;
-
-	// Adjust the return type & length of the UDF to account for
-	// cstring & varying.  While a UDF can return CSTRING, we convert it
-	// to VARCHAR for manipulation as CSTRING is not a SQL type.
-
-	if (userFunc->udf_dtype == dtype_cstring)
-	{
-		userFunc->udf_dtype = dtype_varying;
-		userFunc->udf_length += sizeof(USHORT);
-		if (userFunc->udf_length > MAX_SSHORT)
-			userFunc->udf_length = MAX_SSHORT;
-	}
-	else if (userFunc->udf_dtype == dtype_varying)
-		userFunc->udf_length += sizeof(USHORT);
-
-	dbb->dbb_functions.put(userFunc->udf_name, userFunc);
-
-	if (userFunc->udf_private && metaName.package != dsqlScratch->package)
-	{
-		status_exception::raise(Arg::Gds(isc_private_function) <<
-			Arg::Str(metaName.identifier) << Arg::Str(metaName.package));
+			break;
 	}
 
-	MetadataCache::dsql_cache_use(tdbb, SYM_udf, userFunc->udf_name.identifier, userFunc->udf_name.package);
-*/
-	return userFunc;
+	return nullptr;
 }
 
 
@@ -945,6 +710,8 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	{
 		return relation;
 	}
+
+	// now see if it is in the metadata cache
 
 	auto* jrel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
 	if (!jrel)

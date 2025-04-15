@@ -326,9 +326,12 @@ public:
 	class Argument
 	{
 	public:
-		Argument(MemoryPool& p)
-			: name(p)
-		{}
+		Argument(MetaName name, dsc desc)
+			: name(name), desc(desc)
+		{ }
+
+		Argument()
+		{ }
 
 	public:
 		MetaName name;
@@ -336,11 +339,11 @@ public:
 	};
 
 public:
+	dsql_udf(MemoryPool& p, const class Function* jfun);
+
 	explicit dsql_udf(MemoryPool& p)
-		: udf_name(p),
-		  udf_arguments(p)
-	{
-	}
+		: udf_arguments(p)
+	{ }
 
 	USHORT udf_dtype = 0;
 	SSHORT udf_scale = 0;
@@ -349,7 +352,7 @@ public:
 	CSetId udf_character_set_id = CSetId();
 	USHORT udf_flags = 0;
 	QualifiedName udf_name;
-	Firebird::ObjectsArray<Argument> udf_arguments;
+	Firebird::Array<Argument> udf_arguments;
 	bool udf_private = false;	// Packaged private function
 	SSHORT udf_def_count = 0;	// number of inputs with default values
 };
@@ -357,10 +360,7 @@ public:
 // udf_flags bits
 
 enum udf_flags_vals {
-	UDF_new_udf		= 1,	// udf is newly declared, not committed yet
-	UDF_dropped		= 2,	// udf has been dropped
-	UDF_subfunc		= 4,	// sub function
-	UDF_sys_based	= 8		// return value based on column from system table
+	UDF_subfunc		= 4			// sub function
 };
 
 // Variables - input, output & local
