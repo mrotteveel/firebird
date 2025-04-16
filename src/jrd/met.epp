@@ -3426,6 +3426,10 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				field->fld_segment_length = n;
 				break;
 
+			case RSR_field_pos:
+				field->fld_pos = n;
+				break;
+
 			case RSR_character_length:
 				field->fld_character_length = n;
 				break;

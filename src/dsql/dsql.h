@@ -260,6 +260,7 @@ public:
 	class dsql_rel* fld_relation = nullptr;		// Parent relation
 	class dsql_prc* fld_procedure = nullptr;	// Parent procedure
 	USHORT fld_id = 0;							// Field ID in database
+	USHORT fld_pos = 0;							// Field position in relation
 	MetaName fld_name;
 };
 

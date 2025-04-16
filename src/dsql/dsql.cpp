@@ -1332,17 +1332,17 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 	if (!(jrel->rel_fields))
 		return;
 
-	auto** prev = &rel_fields;
 	auto* format = jrel->currentFormat();
 	fb_assert(format->fmt_count == jrel->rel_fields->count());
 
 	for (MetaId id = 0; id < format->fmt_count; ++id)
 	{
 		auto* jfld = (*(jrel->rel_fields))[id];
-		auto* fld = FB_NEW_POOL(p) dsql_fld(p, format->fmt_desc[id], &prev);
+		auto* fld = FB_NEW_POOL(p) dsql_fld(p, format->fmt_desc[id], nullptr);
 
 		fld->fld_relation = this;
 		fld->fld_id = id;
+		fld->fld_pos = jfld->fld_pos;
 		fld->fld_name = jfld->fld_name;
 		fld->length = jfld->fld_length;
 		fld->segLength = jfld->fld_segment_length;
@@ -1357,6 +1357,13 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 			fld->elementLength = array->arr_desc.iad_element_length;
 			fld->dimensions = array->arr_desc.iad_dimensions;
 		}
+
+		auto** iter = &rel_fields;
+		while (*iter && (*iter)->fld_pos <= fld->fld_pos)
+			iter = &(*iter)->fld_next;
+
+		fld->fld_next = *iter;
+		*iter = fld;
 	}
 }
 
@@ -1397,8 +1404,11 @@ dsql_fld::dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev)
 	: TypeClause(p, nullptr),
 	  fld_name(p)
 {
-	**prev = this;
-	*prev = &fld_next;
+	if (prev)
+	{
+		**prev = this;
+		*prev = &fld_next;
+	}
 
 	dtype = desc.getType();
 	scale = desc.getScale();

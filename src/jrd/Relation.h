@@ -1078,6 +1078,7 @@ public:
 	USHORT fld_length;
 	USHORT fld_segment_length;
 	USHORT fld_character_length;
+	USHORT fld_pos;
 	USHORT fld_flags;
 
 public:

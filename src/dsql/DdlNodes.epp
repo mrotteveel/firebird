@@ -669,7 +669,7 @@ static void checkFkPairTypes(const rel_t masterType, const MetaName& masterName,
 //      then update the position of the field being altered.
 //
 //      if new_position == original_position -- no_op
-static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,				/// !!!!!!!!!!!!!!!!!!!
+static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,
 	const MetaName& relationName, const MetaName& fieldName, USHORT newPosition)
 {
 	USHORT existingPosition = 0;
@@ -754,6 +754,8 @@ static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,				/
 		END_MODIFY
 	}
 	END_FOR
+
+	// ????????????? Cached::Relation::tagForUpdate(tdbb, relationName);
 }
 
 // Convert RDB$RELATION_TYPE to rel_t type.
@@ -7682,6 +7684,11 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 										   fb_utils::name_length(RFR.RDB$BASE_FIELD));
 					}
 					putSummaryBlob(tdbb, blob, RSR_missing_value, &FLD.RDB$MISSING_VALUE, transaction);
+
+					{
+						USHORT len = RFR.RDB$FIELD_POSITION;
+						putSummaryRecord(tdbb, blob, RSR_field_pos, (UCHAR*) &len, sizeof(len));
+					}
 
 					bid* defaultValue = RFR.RDB$DEFAULT_VALUE.isEmpty() ?
 						&FLD.RDB$DEFAULT_VALUE : &RFR.RDB$DEFAULT_VALUE;

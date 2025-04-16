@@ -72,7 +72,8 @@ enum rsr_t : UCHAR {
 
 	RSR_segment_length,			// Needed for DSQL
 	RSR_field_source,
-	RSR_character_length
+	RSR_character_length,
+	RSR_field_pos
 };
 
 // Temporary field block
