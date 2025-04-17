@@ -1570,9 +1570,9 @@ void getDbPathInfo(unsigned int& itemsLength, const unsigned char*& items,
 			--itemsLength;
 
 			unsigned int len = dbpath.length();
-			if (len + 3 > bufferLength)
+			if (len + 4 > bufferLength)
 			{
-				len = bufferLength - 3;
+				len = bufferLength - 4;
 			}
 			bufferLength -= (len + 3);
 			*buffer++ = fb_info_tra_dbpath;
@@ -1580,6 +1580,7 @@ void getDbPathInfo(unsigned int& itemsLength, const unsigned char*& items,
 			*buffer++ = len >> 8;
 			memcpy(buffer, dbpath.c_str(), len);
 			buffer += len;
+			*buffer = isc_info_end;
 		}
 	}
 }
