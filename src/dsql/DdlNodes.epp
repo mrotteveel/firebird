@@ -4249,7 +4249,7 @@ DdlNode* CreateCollationNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 }
 
 
-//---------------------- !!!!!!!!!!!!!!!!!!!!!!!!
+//----------------------
 
 
 string DropCollationNode::internalPrint(NodePrinter& printer) const
@@ -12177,14 +12177,10 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 	const bool isTempIndex = (rel->rel_flags & REL_temp_conn) &&
 		(relPages->rel_instance_id != 0);
 
-
 	IDX_mark_index(tdbb, rel, idxId);
+	
 
-/*	!!!!!!!!!!!!!!!! back to DFW?
-	DFW_check_dependencies(tdbb, indexName.c_str(), NULL, NULL, obj_index, transaction);
-	MET_delete_dependencies(tdbb, indexName, obj_index_expression, transaction);
-	MET_delete_dependencies(tdbb, indexName, obj_index_condition, transaction);
-
+/*	??????????????????? back to DFW?
 	if ((!isTempIndex) && partnerRelName.hasData())
 	{
 		auto* partnerRel = MetadataCache::lookupRelation(tdbb, partnerRelName, CacheFlag::AUTOCREATE);
@@ -12214,7 +12210,8 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
-	jrd_tra* transaction = attachment->getSysTransaction();		// ID cleanup not related to current transaction
+	jrd_tra* transaction = attachment->getSysTransaction();		// cleanup NOT related to current transaction
+	MetaName indexName;
 
 	AutoCacheRequest handle(tdbb, irq_index_id_erase, IRQ_REQUESTS);
 	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
@@ -12224,12 +12221,19 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 		WITH IND.RDB$INDEX_ID EQ indexId + 1
 			AND REL.RDB$RELATION_ID EQ relId
 	{
+		indexName = IND.RDB$INDEX_NAME;
 		MODIFY IND
 			IND.RDB$INDEX_ID = 0;
 			IND.RDB$INDEX_ID.NULL = TRUE;
 		END_MODIFY
 	}
 	END_FOR
+
+	if (indexName.hasData())
+	{
+		MET_delete_dependencies(tdbb, indexName, obj_index_expression, transaction);
+		MET_delete_dependencies(tdbb, indexName, obj_index_condition, transaction);
+	}
 }
 
 

@@ -156,7 +156,7 @@ public:
 		return entry ? entry->getObject() : nullptr;
 	}
 
-	// find appropriate object in cache
+	// find appropriate entry in cache
 	static HazardPtr<ListEntry> getEntry(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag fl)
 	{
 		for (; listEntry; listEntry.set(listEntry->next))
@@ -174,7 +174,7 @@ public:
 					fb_assert(!listEntry->object);
 
 					if (fl & CacheFlag::ERASED)
-						continue;
+						return listEntry;
 
 					return HazardPtr<ListEntry>(nullptr);		// object dropped
 				}
@@ -986,11 +986,12 @@ public:
 				StoredElement* ptr = end->load(atomics::memory_order_relaxed);
 				if (ptr)
 				{
-					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN);
+					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::NOSCAN);
 					if (listEntry && cmp(ptr))
 					{
 						// Optimize ??????????????
-						ptr->reload(tdbb, fl);
+						if (!(fl & CacheFlag::ERASED))
+							ptr->reload(tdbb, fl);
 						return ptr;
 					}
 				}
