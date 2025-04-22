@@ -323,7 +323,9 @@ public:
 			if (entry.replace(list, entry->next))
 			{
 				entry->next = nullptr;
-				OBJ::destroy(tdbb, entry->object);
+				auto* obj = entry->object;
+				if (obj)
+					OBJ::destroy(tdbb, obj);
 				entry->object = nullptr;
 				entry->retire();
 
@@ -857,7 +859,7 @@ public:
 		if (ptr)
 		{
 			StoredElement* rc = ptr->load(atomics::memory_order_relaxed);
-			if (rc && rc->getObject(tdbb, fl))
+			if (rc && rc->getEntry(tdbb, TransactionNumber::current(tdbb), fl))
 				return rc;
 		}
 

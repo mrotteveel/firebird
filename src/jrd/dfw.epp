@@ -3525,7 +3525,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 	{
 	case 0:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 			{
 				if (relation->isDropped())
@@ -3562,7 +3562,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 		}
 
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (!relation)
 				return false;
 
@@ -3580,7 +3580,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 				relation->commit(tdbb);
 		}
@@ -3594,13 +3594,12 @@ static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 {
 /**************************************
  *
- *	d e l e t e _ r e l a t i o n
+ *	c o m m i t _ r e l a t i o n
  *
  **************************************
  *
  * Functional description
- *	Check if it is allowable to delete
- *	a relation, and if so, clean up after it.
+ *	Commit changes in relation at phase 7.
  *
  **************************************/
 	AutoRequest request;

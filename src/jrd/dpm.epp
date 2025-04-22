@@ -2253,7 +2253,10 @@ void DPM_scan_marker(thread_db* tdbb, MetaId relId)
 	fb_assert(dbb->dbb_tip_cache);
 
 	bool doDel = false;
-	auto relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+	auto relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN | CacheFlag::ERASED);
+	fb_assert(relation);
+	if (!relation)
+		return;
 
 	static CachedRequestId id1;
 	AutoCacheRequest request(tdbb, id1);

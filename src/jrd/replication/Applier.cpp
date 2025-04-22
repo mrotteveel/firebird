@@ -1100,9 +1100,9 @@ bool Applier::lookupRecord(thread_db* tdbb,
 		if (idv)
 		{
 			auto idxStatus = idv->getActive();
-			fb_assert(idxStatus == MET_object_active);
+			fb_assert(idxStatus == MET_index_active);
 
-			haveIdx = (idxStatus == MET_object_active) &&
+			haveIdx = (idxStatus == MET_index_active) &&
 				BTR_lookup(tdbb, relation->getPermanent(), idv->getId(), &idx, relation->getPages(tdbb));
 		}
 	}

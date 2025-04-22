@@ -9962,7 +9962,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 //
 		RelationPages* const relPages = relation->getBasePages();
 		if (relPages->rel_index_root)
-			IDX_mark_indices(tdbb, relation, relPages);
+			IDX_mark_indices(tdbb, relation);
 
 		if (relPages->rel_pages)
 			DPM_mark_relation(tdbb, relation);
@@ -10926,10 +10926,7 @@ void ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 		if (node)
 		{
 			auto newIndex = node->modify(tdbb, transaction);
-			if (newIndex.create)
-				rel->newIndexVersion(tdbb, newIndex.id);
-			else
-				rel->eraseIndex(tdbb, newIndex.id);
+			rel->newIndexVersion(tdbb, newIndex.id);
 		}
 	}
 }
@@ -12116,7 +12113,10 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 		if (rel)
 			rel->oldIndexVersion(tdbb, idxId);
 
-		ERASE IDX;
+		MODIFY IDX
+			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
+			IDX.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
+		END_MODIFY
 
 		if (IDX.RDB$EXPRESSION_BLR.NULL && !deleteSegmentRecords(tdbb, transaction, indexName))
 		{
@@ -12178,7 +12178,6 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 		(relPages->rel_instance_id != 0);
 
 	IDX_mark_index(tdbb, rel, idxId);
-	
 
 /*	??????????????????? back to DFW?
 	if ((!isTempIndex) && partnerRelName.hasData())
@@ -12222,10 +12221,29 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 			AND REL.RDB$RELATION_ID EQ relId
 	{
 		indexName = IND.RDB$INDEX_NAME;
-		MODIFY IND
-			IND.RDB$INDEX_ID = 0;
-			IND.RDB$INDEX_ID.NULL = TRUE;
-		END_MODIFY
+
+		if (MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE) == MET_index_deferred_drop)
+		{
+			AutoSetRestore2<jrd_tra*, thread_db> autoRequest(tdbb,
+                                &thread_db::getTransaction, &thread_db::setTransaction, transaction);
+
+			ERASE IND;
+
+			auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
+			if (rel)
+			{
+				auto idx = rel->eraseIndex(tdbb, indexId);
+				if (idx)
+					idx->commit(tdbb);
+			}
+		}
+		else
+		{
+			MODIFY IND
+				IND.RDB$INDEX_ID = 0;
+				IND.RDB$INDEX_ID.NULL = TRUE;
+			END_MODIFY
+		}
 	}
 	END_FOR
 

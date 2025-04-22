@@ -2128,21 +2128,6 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 		case rel_indices:
 			protect_system_table_delupd(tdbb, relation, "DELETE");
-			EVL_field(0, rpb->rpb_record, f_idx_id, &desc2);
-			if (MOV_get_long(tdbb, &desc2, 0))
-			{
-				EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
-				MetaName relation_name;
-				MOV_get_metaname(tdbb, &desc, relation_name);
-				auto* irel = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
-				fb_assert(irel);
-
-				DSC idx_name;
-				EVL_field(0, rpb->rpb_record, f_idx_name, &idx_name);
-
-				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
-				work = DFW_post_work(transaction, dfw_delete_index, &idx_name, irel->getId());
-			}
 			break;
 
 		case rel_rfr:
@@ -3553,6 +3538,19 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
 				DFW_post_work(transaction, dfw_create_index, &desc1, irel->getId());
+
+				bool nullFl = !EVL_field(0, new_rpb->rpb_record, f_idx_inactive, &desc2);
+				auto newStat = nullFl ? 0 : MOV_get_long(tdbb, &desc2, 0);
+				if (newStat == MET_index_deferred_drop)
+				{
+					nullFl = !EVL_field(0, org_rpb->rpb_record, f_idx_inactive, &desc2);
+					auto oldStat = nullFl ? 0 : MOV_get_long(tdbb, &desc2, 0);
+					if (newStat != oldStat)
+					{
+						// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
+						DFW_post_work(transaction, dfw_delete_index, &desc1, irel->getId());
+					}
+				}
 			}
 			break;
 

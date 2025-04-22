@@ -1126,7 +1126,7 @@ void Optimizer::compileRelation(StreamType stream)
 		{
 			auto id = idxList[n].idx_id;
 			auto* idv = relation()->lookup_index(tdbb, id, CacheFlag::AUTOCREATE);
-			if (idv && idv->getActive() != MET_object_active)
+			if (idv && idv->getActive() != MET_index_active)
 				idv = nullptr;
 			if (!idv)
 				idxList.remove(n);

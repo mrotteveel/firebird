@@ -302,10 +302,10 @@ public:
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id);
 	Cached::Relation* lookupRelationNoChecks(MetaId id);
-	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name,
-													 MetaId* relation_id, IndexStatus* status);
+	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name, IndexStatus* status);
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
+	static IndexStatus getIndexStatus(bool nullFlag, int inactive);
 
 	template<typename ID>
 	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const UCHAR* name, USHORT length)

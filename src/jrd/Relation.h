@@ -430,10 +430,11 @@ friend class RelationPermanent;
 
 enum IndexStatus
 {
-	MET_object_active,
-	MET_object_deferred_active,
-	MET_object_inactive,
-	MET_object_unknown
+	MET_index_active = 0,
+	MET_index_inactive = 1,
+	MET_index_deferred_active = 3,
+	MET_index_deferred_drop = 4,
+	MET_index_state_unknown = 999
 };
 
 // Index block
@@ -566,7 +567,7 @@ private:
 	SSHORT idv_segmentCount = 0;
 	SSHORT idv_type = 0;
 	MetaName idv_foreignKey;						// FOREIGN RELATION NAME
-	IndexStatus idv_active = MET_object_active;
+	IndexStatus idv_active = MET_index_state_unknown;
 
 public:
 	ValueExprNode* idv_expression = nullptr;		// node tree for index expression
@@ -794,10 +795,11 @@ public:
 		fb_assert(chk);
 	}
 
-	void eraseIndex(thread_db* tdbb, MetaId id)		// oldIndex to be called before
+	Cached::Index* eraseIndex(thread_db* tdbb, MetaId id)		// oldIndex to be called before
 	{
-		auto chk = rel_indices.erase(tdbb, id);
-		fb_assert(chk);
+		auto idp = rel_indices.erase(tdbb, id);
+		fb_assert(idp);
+		return idp;
 	}
 
 	Lock*		rel_existence_lock;		// existence lock

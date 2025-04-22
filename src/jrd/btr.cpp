@@ -197,7 +197,7 @@ namespace
 		auto checkPresence = [tdbb, rel, idxId]()->bool
 		{
 			auto* index = rel->lookup_index(tdbb, idxId, CacheFlag::AUTOCREATE);
-			return index && index->getActive() == MET_object_active;
+			return index && index->getActive() == MET_index_active;
 		};
 
 		return TipCache::traState(tdbb, descTrans, checkPresence, creating);
@@ -212,7 +212,7 @@ namespace
 				return false;
 
 			auto* ivar = iperm->getObject(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE);
-			return ivar && ivar->getActive() == MET_object_active;
+			return ivar && ivar->getActive() == MET_index_active;
 		};
 
 		return TipCache::traState(tdbb, descTrans, checkPresence, creating);
@@ -1136,13 +1136,13 @@ static void badState [[noreturn]] (const index_root_page::irt_repeat* irt_desc, 
 }
 
 
-void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, MetaId id)
+void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* rel, MetaId id, WIN* window, index_root_page* root)
 {
-/**************************************
+/***********************************************************
  *
- *	B T R _ d e l e t e _ i n d e x
+ *	B T R _ m a r k _ i n d e x _ f o r _ d e l e t e
  *
- **************************************
+ ***********************************************************
  *
  * Functional description
  *	Mark index to be deleted when possible.
@@ -1151,9 +1151,6 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, Meta
 	SET_TDBB(tdbb);
 	const Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
-
-	WIN window(relation->getIndexRootPage(tdbb));
-	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
 	// Get index descriptor.  If index doesn't exist, just leave.
 	if (id < root->irt_count)
@@ -1167,7 +1164,7 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, Meta
 		{
 			bool marked = false;
 
-			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id))
+			switch(modifyIrtRepeat(tdbb, irt_desc, rel, window, id))
 			{
 			case ModifyIrtRepeatValue::Skip:
 				break;
@@ -1177,7 +1174,7 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, Meta
 				break;
 
 			case ModifyIrtRepeatValue::Relock:
-				root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+				root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, window);
 				irt_desc = root->irt_rpt + id;
 				break;
 
@@ -1200,20 +1197,20 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* relation, Meta
 			case irt_rollback:			// created not long ago
 				checkTransactionNumber(irt_desc, tra, msg);
 				if (!marked)
-					CCH_MARK(tdbb, &window);
+					CCH_MARK(tdbb, window);
 				irt_desc->setKill(tra->tra_number);
 				break;
 
 			case irt_normal:
 				if (!marked)
-					CCH_MARK(tdbb, &window);
+					CCH_MARK(tdbb, window);
 				irt_desc->setCommit(tra->tra_number);
 				break;
 			}
 		}
 	}
 
-	CCH_RELEASE(tdbb, &window);
+	CCH_RELEASE(tdbb, window);
 }
 
 
@@ -1358,11 +1355,11 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_ro
 	idx->idx_selectivity = idx->idx_rpt[idx->idx_count - 1].idx_selectivity;
 
 	ISC_STATUS error = 0;
-	if (idx->idx_flags & idx_expression)
+	if (idx->idx_flags & (idx_expression | idx_condition))
 	{
-		MET_lookup_index_expression(tdbb, relation, idx);
+		MET_lookup_index_code(tdbb, relation, idx);
 
-		if (!idx->idx_expression_node)
+		if (idx->idx_flags & idx_expression && !idx->idx_expression_node)
 		{
 			if (tdbb->tdbb_flags & TDBB_sweeper)
 				return false;
@@ -1370,13 +1367,7 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_ro
 			// Definition of index expression is not found for index @1
 			error = isc_idx_expr_not_found;
 		}
-	}
-
-	if (!error && idx->idx_flags & idx_condition)
-	{
-		MET_lookup_index_condition(tdbb, relation, idx);
-
-		if (!idx->idx_condition_node)
+		else if (idx->idx_flags & idx_condition && !idx->idx_condition_node)
 		{
 			if (tdbb->tdbb_flags & TDBB_sweeper)
 				return false;

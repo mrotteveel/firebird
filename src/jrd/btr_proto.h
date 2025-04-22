@@ -49,7 +49,7 @@ bool	BTR_make_bounds(Jrd::thread_db*, const Jrd::IndexRetrieval*, Jrd::IndexScan
 Jrd::idx_e	BTR_make_key(Jrd::thread_db*, USHORT, const Jrd::ValueExprNode* const*, const SSHORT*,
 						 const Jrd::index_desc*, Jrd::temporary_key*, USHORT, bool*);
 void	BTR_make_null_key(Jrd::thread_db*, const Jrd::index_desc*, Jrd::temporary_key*);
-void	BTR_mark_index_for_delete(Jrd::thread_db* tdbb, Jrd::Cached::Relation*, MetaId id);
+void	BTR_mark_index_for_delete(Jrd::thread_db*, Jrd::Cached::Relation*, MetaId, Jrd::win*, Ods::index_root_page*);
 bool	BTR_next_index(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::jrd_tra*, Jrd::index_desc*, Jrd::win*);
 void	BTR_remove(Jrd::thread_db*, Jrd::win*, Jrd::index_insertion*);
 void	BTR_reserve_slot(Jrd::thread_db*, Jrd::IndexCreation&, Jrd::IndexCreateLock&);

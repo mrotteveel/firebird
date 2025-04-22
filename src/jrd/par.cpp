@@ -78,13 +78,13 @@ using namespace Firebird;
 
 static NodeParseFunc blr_parsers[256] = {NULL};
 
-
 static void par_error(BlrReader& blrReader, const Arg::StatusVector& v, bool isSyntaxError = true);
 static PlanNode* par_plan(thread_db*, CompilerScratch*);
 static void getBlrVersion(CompilerScratch* csb);
 static void parseSubRoutines(thread_db* tdbb, CompilerScratch* csb);
 static void setNodeLineColumn(CompilerScratch* csb, DmlNode* node, ULONG blrOffset);
-
+static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_status, MetaName name,
+	Cached::Relation* relation);
 
 namespace
 {
@@ -947,6 +947,40 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 }
 
 
+static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_status, MetaName name,
+	Cached::Relation* relation)
+{
+	switch(idx_status)
+	{
+	case MET_index_state_unknown:
+	case MET_index_inactive:
+	case MET_index_deferred_drop:
+		if (isGbak)
+		{
+			PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name) <<
+													   Arg::Str(relation->getName()));
+		}
+		else
+		{
+			PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
+												  	  Arg::Str(relation->getName()));
+		}
+		break;
+
+	case MET_index_deferred_active:
+		if (!isGbak)
+		{
+			PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
+													  Arg::Str(relation->getName()));
+		}
+		break;
+
+	case MET_index_active:
+		break;
+	}
+}
+
+
 static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 {
 /**************************************
@@ -1071,39 +1105,17 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				MetaName name;
 				csb->csb_blr_reader.getMetaName(name);
 
-				MetaId relation_id;
 				IndexStatus idx_status;
 				const ElementBase::ReturnedId index_id =
-					MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
-
-				if (idx_status == MET_object_unknown || idx_status == MET_object_inactive)
-				{
-					if (isGbak)
-					{
-						PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name) <<
-																   Arg::Str(relation->getName()));
-					}
-					else
-					{
-						PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-															  	  Arg::Str(relation->getName()));
-					}
-				}
-				else if (idx_status == MET_object_deferred_active)
-				{
-					if (!isGbak)
-					{
-						PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-																  Arg::Str(relation->getName()));
-					}
-				}
+					MetadataCache::lookup_index_name(tdbb, name, &idx_status);
+				checkIndexStatus(csb, isGbak, idx_status, name, relation);
 
 				// save both the relation id and the index id, since
 				// the relation could be a base relation of a view;
 				// save the index name also, for convenience
 
 				PlanNode::AccessItem& item = plan->accessType->items.add();
-				item.relationId = relation_id;
+				item.relationId = relation->getId();
 				item.indexId = index_id;
 				item.indexName = name;
 
@@ -1141,39 +1153,17 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					MetaName name;
 					csb->csb_blr_reader.getMetaName(name);
 
-					MetaId relation_id;
 					IndexStatus idx_status;
 					const ElementBase::ReturnedId index_id =
-						MetadataCache::lookup_index_name(tdbb, name, &relation_id, &idx_status);
-
-					if (idx_status == MET_object_unknown || idx_status == MET_object_inactive)
-					{
-						if (isGbak)
-						{
-							PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name) <<
-																	   Arg::Str(relation->getName()));
-						}
-						else
-						{
-							PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-																  	  Arg::Str(relation->getName()));
-						}
-					}
-					else if (idx_status == MET_object_deferred_active)
-					{
-						if (!isGbak)
-						{
-							PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-																	  Arg::Str(relation->getName()));
-						}
-					}
+						MetadataCache::lookup_index_name(tdbb, name, &idx_status);
+					checkIndexStatus(csb, isGbak, idx_status, name, relation);
 
 					// save both the relation id and the index id, since
 					// the relation could be a base relation of a view;
 					// save the index name also, for convenience
 
 					PlanNode::AccessItem& item = plan->accessType->items.add();
-					item.relationId = relation_id;
+					item.relationId = relation->getId();
 					item.indexId = index_id;
 					item.indexName = name;
 
