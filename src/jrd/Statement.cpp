@@ -100,11 +100,6 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 
 		mapFieldInfo.takeOwnership(csb->csb_map_field_info);
 
-		// versioned metadata support
-		if (csb->csb_g_flags & csb_internal)
-			flags |= FLAG_INTERNAL;
-		loadResources(tdbb, nullptr);
-
 		impureSize = csb->csb_impure;
 
 		//if (csb->csb_g_flags & csb_blr_version4)
@@ -148,10 +143,17 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 				rpb->rpb_stream_flags |= RPB_s_skipLocked;
 
 			rpb->rpb_relation = tail->csb_relation;
+			if (rpb->rpb_relation())
+				resources->relations.registerResource(rpb->rpb_relation());
 
 			delete tail->csb_fields;
 			tail->csb_fields = NULL;
 		}
+
+		// versioned metadata support
+		if (csb->csb_g_flags & csb_internal)
+			flags |= FLAG_INTERNAL;
+		loadResources(tdbb, nullptr);
 
 		if (csb->csb_variables)
 			csb->csb_variables->clear();

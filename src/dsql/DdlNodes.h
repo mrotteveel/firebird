@@ -1520,6 +1520,8 @@ public:
 
 	RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode);
 
+	MetaId generateIdDbKey(thread_db* tdbb, jrd_tra* transaction);
+
 	static bool deleteLocalField(thread_db* tdbb, jrd_tra* transaction,
 		const MetaName& relationName, const MetaName& fieldName, bool silent,
 		std::function<void()> preChangeHandler = {});

@@ -754,8 +754,6 @@ static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,
 		END_MODIFY
 	}
 	END_FOR
-
-	// ????????????? Cached::Relation::tagForUpdate(tdbb, relationName);
 }
 
 // Convert RDB$RELATION_TYPE to rel_t type.
@@ -6108,6 +6106,97 @@ RelationNode::RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode)
 {
 }
 
+
+// Assign a relation ID and dbkey length to the new relation.
+// Probe the candidate relation ID returned from the system
+// relation RDB$DATABASE to make sure it isn't already assigned.
+// This can happen from nefarious manipulation of RDB$DATABASE
+// or wraparound of the next relation ID. Keep looking for a
+// usable relation ID until the search space is exhausted.
+
+MetaId RelationNode::generateIdDbKey(thread_db* tdbb, jrd_tra* transaction)
+{
+	MetaId rel_id = 0;
+	AutoRequest handle;
+	AutoCacheRequest request;
+	request.reset(tdbb, irq_c_relation, IRQ_REQUESTS);
+	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
+	Attachment* attachment = tdbb->getAttachment();
+
+	bid blob_id;
+	blob_id.clear();
+
+	// Take a relation lock on rel id == -1 before actually generating a relation id.
+	AutoLock lock(tdbb, FB_NEW_RPT(*tdbb->getDefaultPool(), 0)
+		Lock(tdbb, sizeof(SLONG), LCK_relation));
+	lock->setKey(-1);
+	LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
+
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+		X IN RDB$DATABASE CROSS Y IN RDB$RELATIONS WITH
+			Y.RDB$RELATION_NAME EQ name.c_str()
+	{
+		blob_id = Y.RDB$VIEW_BLR;
+
+		MODIFY X USING
+			rel_id = X.RDB$RELATION_ID;
+
+			if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
+				rel_id = X.RDB$RELATION_ID = local_min_relation_id;
+
+			// Roman Simakov: We need to return deleted relations to skip them.
+			// This maybe result of cleanup failure after phase 3.
+			while (auto relation = MetadataCache::lookup_relation_id(tdbb, rel_id++,
+				CacheFlag::RET_ERASED | CacheFlag::AUTOCREATE))
+			{
+				//if (!relation->isReady())
+				//	break;
+
+				if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
+					rel_id = local_min_relation_id;
+
+				if (rel_id == X.RDB$RELATION_ID)
+				{
+					ERR_post(Arg::Gds(isc_no_meta_update) <<
+							 Arg::Gds(isc_table_name) << Arg::Str(name) <<
+							 Arg::Gds(isc_imp_exc));
+				}
+			}
+
+			X.RDB$RELATION_ID = (rel_id > MAX_RELATION_ID) ? local_min_relation_id : rel_id;
+
+			MODIFY Y USING
+				Y.RDB$RELATION_ID = --rel_id;
+				if (blob_id.isEmpty())
+					Y.RDB$DBKEY_LENGTH = 8;
+				else
+				{
+					// update the dbkey length to include each of the base relations
+					Y.RDB$DBKEY_LENGTH = 0;
+
+					handle.reset();
+
+					FOR(REQUEST_HANDLE handle)
+						Z IN RDB$VIEW_RELATIONS CROSS
+						R IN RDB$RELATIONS OVER RDB$RELATION_NAME
+						WITH Z.RDB$VIEW_NAME = name.c_str() AND
+							 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
+							  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
+					{
+						Y.RDB$DBKEY_LENGTH += R.RDB$DBKEY_LENGTH;
+					}
+					END_FOR
+				}
+			END_MODIFY
+		END_MODIFY
+	}
+	END_FOR
+
+	lock.release();
+
+	return rel_id;
+}
+
 void RelationNode::FieldDefinition::modify(thread_db* tdbb, jrd_tra* transaction)
 {
 	AutoRequest request;
@@ -7539,7 +7628,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 	TrigArray* triggers = nullptr;
 
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	bool null_view;
 	USHORT n;
@@ -7991,7 +8080,7 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 	if (!relation)
 		return blob;
 
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 
 	// system triggers
 
@@ -8228,7 +8317,7 @@ void RelationNode::getArrayDesc(thread_db* tdbb, const TEXT* field_name, Ods::In
  *
  **************************************/
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 
 	AutoCacheRequest request(tdbb, irq_r_fld_dim, IRQ_REQUESTS);
 
@@ -8276,7 +8365,7 @@ Format* RelationNode::makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::
 	TemporaryField* tfb;
 
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* sysTransaction = attachment->getSysTransaction();
 	Database* dbb = tdbb->getDatabase();
 
@@ -8482,6 +8571,10 @@ void CreateRelationNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {
+	SET_TDBB(tdbb);
+	Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+
 	if (createIfNotExistsOnly && !DYN_UTIL_check_unique_name_nothrow(tdbb, transaction, name, obj_relation))
 		return;
 
@@ -8542,102 +8635,9 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 	}
 	END_STORE
 
-	AutoCacheRequest request;
-	USHORT rel_id, external_flag;
-	bid blob_id;
-	AutoRequest handle;
+	auto rel_id = generateIdDbKey(tdbb, transaction);
 
-	blob_id.clear();
-
-	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
-
-	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
-
-		// Take a relation lock on rel id == -1 before actually generating a relation id.
-
-		AutoLock lock(tdbb, FB_NEW_RPT(*tdbb->getDefaultPool(), 0)
-			Lock(tdbb, sizeof(SLONG), LCK_relation));
-		lock->setKey(-1);
-
-		LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
-
-		/* Assign a relation ID and dbkey length to the new relation.
-		   Probe the candidate relation ID returned from the system
-		   relation RDB$DATABASE to make sure it isn't already assigned.
-		   This can happen from nefarious manipulation of RDB$DATABASE
-		   or wraparound of the next relation ID. Keep looking for a
-		   usable relation ID until the search space is exhausted. */
-
-		rel_id = 0;
-		request.reset(tdbb, irq_c_relation, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-			X IN RDB$DATABASE CROSS Y IN RDB$RELATIONS WITH
-				Y.RDB$RELATION_NAME EQ name.c_str()
-		{
-			blob_id = Y.RDB$VIEW_BLR;
-			external_flag = Y.RDB$EXTERNAL_FILE[0];
-
-			MODIFY X USING
-				rel_id = X.RDB$RELATION_ID;
-
-				if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
-					rel_id = X.RDB$RELATION_ID = local_min_relation_id;
-
-				// Roman Simakov: We need to return deleted relations to skip them.
-				// This maybe result of cleanup failure after phase 3.
-				while (auto relation = MetadataCache::lookup_relation_id(tdbb, rel_id++,
-					CacheFlag::RET_ERASED | CacheFlag::AUTOCREATE))
-				{
-					//if (!relation->isReady())
-					//	break;
-
-					if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
-						rel_id = local_min_relation_id;
-
-					if (rel_id == X.RDB$RELATION_ID)
-					{
-						ERR_post(Arg::Gds(isc_no_meta_update) <<
-								 Arg::Gds(isc_table_name) << Arg::Str(name) <<
-								 Arg::Gds(isc_imp_exc));
-					}
-				}
-
-				X.RDB$RELATION_ID = (rel_id > MAX_RELATION_ID) ? local_min_relation_id : rel_id;
-
-				MODIFY Y USING
-					Y.RDB$RELATION_ID = --rel_id;
-					if (blob_id.isEmpty())
-						Y.RDB$DBKEY_LENGTH = 8;
-					else
-					{
-						// update the dbkey length to include each of the base relations
-						Y.RDB$DBKEY_LENGTH = 0;
-
-						handle.reset();
-
-						FOR(REQUEST_HANDLE handle)
-							Z IN RDB$VIEW_RELATIONS CROSS
-							R IN RDB$RELATIONS OVER RDB$RELATION_NAME
-							WITH Z.RDB$VIEW_NAME = name.c_str() AND
-								 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
-								  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
-						{
-							Y.RDB$DBKEY_LENGTH += R.RDB$DBKEY_LENGTH;
-						}
-						END_FOR
-					}
-				END_MODIFY
-			END_MODIFY
-		}
-		END_FOR
-
-		lock.release();
-
-
-	bool replicationEnabled;
+	bool replicationEnabled = false;
 
 	if (replicationState.isAssigned())
 		replicationEnabled = replicationState.asBool();
@@ -8698,9 +8698,9 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 
 	try
 	{
-		// if this is not a view, create the relation
+		// create the table
 
-		if (rel_id && blob_id.isEmpty() && !external_flag)
+		if (rel_id && !externalFile)
 		{
 			auto* relation = MetadataCache::newVersion<Cached::Relation>(tdbb, rel_id);
 			DPM_create_relation(tdbb, relation);
@@ -8710,6 +8710,7 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 	catch(const Exception&)
 	{
 		// We need to cleanup RDB$PAGES and pages if they were added at phase 3.
+		AutoCacheRequest request;
 		request.reset(tdbb, irq_c_relation3, IRQ_REQUESTS);
 
 		FOR(REQUEST_HANDLE request)
@@ -9181,12 +9182,12 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 			}
 		}
 
+		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
+
 		if (beforeTriggerWasExecuted)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_TABLE, name, nullptr);
 
 		savePoint.release();	// everything is ok
-
-		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
 	}
 	catch (const Exception&)
 	{
@@ -9717,7 +9718,7 @@ void DropRelationNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 
 	auto* rel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
@@ -10056,7 +10057,6 @@ void CreateAlterViewNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 	SCL_check_create_access(tdbb, obj_views);
 }
 
-/// !!!!!!!!!!!!!!!!!!!!!!!!!!
 void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {
@@ -10080,6 +10080,10 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
+
+	// METD_get_relation() should feel the cache - but let's be on a safe side
+	if (modifyingView)
+		MetadataCache::oldVersion<Cached::Relation>(tdbb, modifyingView->rel_id);
 
 	const int ddlTriggerAction = (modifyingView ? DDL_TRIGGER_ALTER_VIEW : DDL_TRIGGER_CREATE_VIEW);
 
@@ -10615,6 +10619,9 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	dsqlScratch->resetContextStack();
 
+	auto rel_id = modifyingView ? modifyingView->rel_id : generateIdDbKey(tdbb, transaction);
+	MetadataCache::newVersion<Cached::Relation>(tdbb, rel_id);
+
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 
 	savePoint.release();	// everything is ok
@@ -10857,7 +10864,7 @@ ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* t
  **************************************/
 
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = transaction->getAttachment();
+	Attachment* attachment = transaction->getAttachment();
 	MetaId rc;
 
 	if (!relName.hasData())
@@ -10967,7 +10974,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	int key_count = 0;
 
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	MetaId idxId = dbb->dbb_max_idx;
 
