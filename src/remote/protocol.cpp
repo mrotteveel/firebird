@@ -1857,6 +1857,11 @@ static bool_t xdr_trrq_message( XDR* xdrs, USHORT msg_type)
 	rem_port* port = xdrs->x_public;
 	Rpr* procedure = port->port_rpr;
 
+	// normally that never happens
+	fb_assert(procedure);
+	if (!procedure)
+		return false;
+
 	if (msg_type == 1)
 		return xdr_message(xdrs, procedure->rpr_out_msg, procedure->rpr_out_format);
 
