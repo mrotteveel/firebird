@@ -34,7 +34,7 @@
 * [#8449](https://github.com/FirebirdSQL/firebird/issues/8449): Races when server is closed during forced database shutdown  
   Contributor(s): Alexander Peshkov
 
-* [#8440](https://github.com/FirebirdSQL/firebird/issues/8440): Firebird 5.0.2 - wrong result for `MINVALUE/MAXVALUE` with string arguments  
+* [#8440](https://github.com/FirebirdSQL/firebird/issues/8440): Wrong result for `MINVALUE/MAXVALUE` with string arguments  
   Contributor(s): Dmitry Yemanov
 
 * [#8437](https://github.com/FirebirdSQL/firebird/issues/8437): Segfault when running query with `PARTITION BY` and subquery  
@@ -56,7 +56,7 @@
   Contributor(s): Alexander Peshkov
 
 * [#8389](https://github.com/FirebirdSQL/firebird/issues/8389): Unnecessary reload of the encryption plugin in the _SuperServer_ architecture  
-  Contributor(s): 
+  Contributor(s): Alexey Mochalov
 
 * [#8350](https://github.com/FirebirdSQL/firebird/issues/8350): Missing records inside a replicated database  
   Contributor(s): Vlad Khorsun
