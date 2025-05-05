@@ -1,3 +1,115 @@
+# v4.0.6
+
+## Improvements
+
+* [#8433](https://github.com/FirebirdSQL/firebird/pull/8433): Improve code of class `BePlusTree`   
+  Contributor(s): Vlad Khorsun
+
+* [#8353](https://github.com/FirebirdSQL/firebird/issues/8353): Report unique usernames for `isc_info_user_names`  
+  Contributor(s): Vlad Khorsun
+
+* [#8256](https://github.com/FirebirdSQL/firebird/issues/8256): `Win_sspi` plugin uses NTLM  
+  Contributor(s): Vlad Khorsun
+
+* [#8161](https://github.com/FirebirdSQL/firebird/issues/8161): Cardinality estimation should use primary record versions only  
+  Contributor(s): Vlad Khorsun
+
+## Bugfixes
+
+* [#8554](https://github.com/FirebirdSQL/firebird/issues/8554): Vulnerability GHSA-7qp6-hqxj-pjjp / ZDI-CAN-26486  
+  Contributor(s): Alexander Peshkov
+
+* [#8520](https://github.com/FirebirdSQL/firebird/issues/8520): Error in `iTransaction.getInfo()` on embedded connection  
+  Contributor(s): Alexander Peshkov
+
+* [#8509](https://github.com/FirebirdSQL/firebird/issues/8509): "Error creating private namespace" message in _firebird.log_  
+  Contributor(s): Vlad Khorsun
+
+* [#8485](https://github.com/FirebirdSQL/firebird/issues/8485): Segfault on incorrect _databases.conf_ starting with sub-config (without line `alias=database_path`)  
+  Contributor(s): Alexander Peshkov
+
+* [#8477](https://github.com/FirebirdSQL/firebird/issues/8477): Inheritance of `WINDOW` does not work  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8449](https://github.com/FirebirdSQL/firebird/issues/8449): Races when server is closed during forced database shutdown  
+  Contributor(s): Alexander Peshkov
+
+* [#8440](https://github.com/FirebirdSQL/firebird/issues/8440): Firebird 5.0.2 - wrong result for `MINVALUE/MAXVALUE` with string arguments  
+  Contributor(s): Dmitry Yemanov
+
+* [#8437](https://github.com/FirebirdSQL/firebird/issues/8437): Segfault when running query with `PARTITION BY` and subquery  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8431](https://github.com/FirebirdSQL/firebird/pull/8431): Make sure only one error will be sent to not-started service  
+  Contributor(s): Alexander Peshkov
+
+* [#8430](https://github.com/FirebirdSQL/firebird/issues/8430): Unstable error messages in services with trace enabled  
+  Contributor(s): Artyom Abakumov
+
+* [#8429](https://github.com/FirebirdSQL/firebird/issues/8429): Segfault when already destroyed callback interface is used  
+  Contributor(s): Alexander Peshkov
+
+* [#8417](https://github.com/FirebirdSQL/firebird/issues/8417): Negative statement ID in trace output  
+  Contributor(s): Dmitry Yemanov
+
+* [#8403](https://github.com/FirebirdSQL/firebird/pull/8403): Fix potential deadlock when starting the encryption thread  
+  Contributor(s): Alexander Peshkov
+
+* [#8389](https://github.com/FirebirdSQL/firebird/issues/8389): Unnecessary reload of the encryption plugin in the _SuperServer_ architecture  
+  Contributor(s): 
+
+* [#8350](https://github.com/FirebirdSQL/firebird/issues/8350): Missing records inside a replicated database  
+  Contributor(s): Vlad Khorsun
+
+* [#8336](https://github.com/FirebirdSQL/firebird/issues/8336): Error: "Invalid clumplet buffer structure: buffer end before end of clumplet - clumplet too long (77779)" when using trusted auth  
+  Contributor(s): Vlad Khorsun
+
+* [#8324](https://github.com/FirebirdSQL/firebird/pull/8324): Make asynchronous replica re-initialization reliable  
+  Contributor(s): Dmitry Yemanov
+
+* [#8304](https://github.com/FirebirdSQL/firebird/issues/8304): Wrong results using `MINVALUE/MAXVALUE` in join condition  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8283](https://github.com/FirebirdSQL/firebird/issues/8283): Assert in `~thread_db()` due to not released page buffer  
+  Contributor(s): Vlad Khorsun
+
+* [#8268](https://github.com/FirebirdSQL/firebird/pull/8268): Fix refetch header data from delta when database in backup lock  
+  Contributor(s): Andrey Kravchenko
+
+* [#8255](https://github.com/FirebirdSQL/firebird/pull/8255): Catch possible stack overflow when preparing and compiling user statements  
+  Contributor(s): Vlad Khorsun
+
+* [#8253](https://github.com/FirebirdSQL/firebird/issues/8253): Incorrect handling of non-ASCII object names in `CREATE MAPPING` statement  
+  Contributor(s): Vlad Khorsun
+
+* [#8243](https://github.com/FirebirdSQL/firebird/pull/8243): Fix a bug where the shutdown handler could be called again  
+  Contributor(s): Alexander Zhdanov
+
+* [#8238](https://github.com/FirebirdSQL/firebird/pull/8238): Fix using macro with regex in path parameter in _fbtrace.conf_  
+  Contributor(s): Alexander Peshkov, Artyom Ivanov
+
+* [#8237](https://github.com/FirebirdSQL/firebird/issues/8237): Database access error when _nbackup_ is starting  
+  Contributor(s): Alexander Peshkov
+
+* [#8236](https://github.com/FirebirdSQL/firebird/issues/8236): Avoid "hangs" in `clock_gettime()` in tomcrypt's PRNG  
+  Contributor(s): Alexander Peshkov
+
+* [#8222](https://github.com/FirebirdSQL/firebird/pull/8222): Fix a case of deleted memory modification  
+  Contributor(s): Ilya Eremin
+
+* [#8221](https://github.com/FirebirdSQL/firebird/issues/8221): Crash when `MAKE_DBKEY()` is called with 0 or 1 arguments  
+  Contributor(s): Vlad Khorsun
+
+* [#8219](https://github.com/FirebirdSQL/firebird/issues/8219): Database creation in 3.0.12, 4.0.5 and 5.0.1 is slower than in previous releases  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8215](https://github.com/FirebirdSQL/firebird/issues/8215): Rare sporadic segfaults in test for core-6142 on Windows  
+  Contributor(s): Alexander Peshkov
+
+* [#8069](https://github.com/FirebirdSQL/firebird/pull/8069): Add missing synchronization to cached vectors of known pages  
+  Contributor(s): Dmitry Yemanov, Vlad Khorsun
+
+
 # v4.0.5
 
 ## Improvements
