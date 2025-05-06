@@ -620,7 +620,7 @@ void EXE_execute_db_triggers(thread_db* tdbb, jrd_tra* transaction, TriggerActio
 			return;
 	}
 
-	const Triggers* triggers = attachment->att_database->dbb_mdc->getTriggers(tdbb, type | TRIGGER_TYPE_DB);
+	const Triggers* triggers = MetadataCache::get(tdbb)->getTriggers(tdbb, type | TRIGGER_TYPE_DB);
 	if (triggers && *triggers)
 	{
 		AutoSetRestore2<jrd_tra*, thread_db> tempTrans(tdbb,

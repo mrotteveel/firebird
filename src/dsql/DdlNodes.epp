@@ -3490,7 +3490,7 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 }
 
 
-//----------------------	!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//----------------------
 
 
 void TriggerDefinition::store(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction)
@@ -11044,7 +11044,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			{
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
+				MET_get_dependencies(tdbb, rel, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
 					nullptr, &csb, indexName, obj_index_condition, 0,
 					transaction);
 
@@ -11309,7 +11309,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 		{
 			Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-			MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$EXPRESSION_BLR,
+			MET_get_dependencies(tdbb, rel, nullptr, 0, nullptr, &IDX.RDB$EXPRESSION_BLR,
 				nullptr, &csb, indexName, obj_index_expression, 0,
 				transaction);
 
@@ -11342,7 +11342,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 			{
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
+				MET_get_dependencies(tdbb, rel, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
 					nullptr, &csb, indexName, obj_index_condition, 0,
 					transaction);
 

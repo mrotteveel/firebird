@@ -257,6 +257,7 @@ public:
 	void invalidateReplSet(thread_db* tdbb);
 	void setRelation(thread_db* tdbb, ULONG rel_id, jrd_rel* rel);
 	void releaseTrigger(thread_db* tdbb, MetaId triggerId, const MetaName& name);
+	Cached::Triggers* getTriggersSet(thread_db* tdbb, MetaId triggerId);
 	const Triggers* getTriggers(thread_db* tdbb, MetaId tType);
 
 	MetaId relCount()
@@ -306,6 +307,7 @@ public:
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static IndexStatus getIndexStatus(bool nullFlag, int inactive);
+	static MetadataCache* get(thread_db* tdbb);
 
 	template<typename ID>
 	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const UCHAR* name, USHORT length)
@@ -327,7 +329,7 @@ public:
 	static DSqlCacheItem* get_dsql_cache_item(thread_db* tdbb, sym_type type, const QualifiedName& name);
 	static void dsql_cache_release(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
-	// end of met_proto.h
+	// end of former met_proto.h
 
 	static CharSetVers* lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
 

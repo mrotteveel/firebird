@@ -514,8 +514,6 @@ enum dfw_t {
 	dfw_arg_proc_name,		// procedure name for dfw_delete_prm, mandatory
 	dfw_arg_force_computed,	// we need to drop dependencies from a field that WAS computed
 	dfw_arg_check_blr,		// check if BLR is still compilable
-	dfw_arg_rel_name,		// relation name of a trigger
-	dfw_arg_trg_type,		// trigger type
 	dfw_arg_new_name,		// new name
 	dfw_arg_field_not_null,	// set domain to not nullable
 	dfw_db_crypt,			// change database encryption status

@@ -546,10 +546,18 @@ void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
 		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
 	fb_assert(relation);
 
-	if (relation && relation->getId())
+	if (relation)
+		relation->tagForUpdate(tdbb);
+}
+
+
+void RelationPermanent::tagForUpdate(thread_db* tdbb)
+{
+	if (getId())
 	{
-		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, relation->getId());
-		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, relation->getId());
+		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, getId());
+		rel_flags |= REL_format;
+		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, getId());
 	}
 }
 

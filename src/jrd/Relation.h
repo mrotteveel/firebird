@@ -587,21 +587,21 @@ class jrd_rel final : public ObjectBase
 public:
 	jrd_rel(MemoryPool& p, Cached::Relation* r);
 
-	MemoryPool*		rel_pool;
+	MemoryPool*			rel_pool;
 	Cached::Relation*	rel_perm;
-	USHORT			rel_current_fmt;	// Current format number
-	Format*			rel_current_format;	// Current record format
-	USHORT			rel_dbkey_length;	// RDB$DBKEY length
+	USHORT				rel_current_fmt;	// Current format number
+	Format*				rel_current_format;	// Current record format
+	USHORT				rel_dbkey_length;	// RDB$DBKEY length
 
-	vec<jrd_fld*>*	rel_fields;			// vector of field blocks
+	vec<jrd_fld*>*		rel_fields;			// vector of field blocks
 
-	RseNode*		rel_view_rse;		// view record select expression
-	ViewContexts	rel_view_contexts;	// sorted array of view contexts
+	RseNode*			rel_view_rse;		// view record select expression
+	ViewContexts		rel_view_contexts;	// sorted array of view contexts
 
-	TrigArray rel_triggers;
+	TrigArray			rel_triggers;
 
 	Firebird::TriState	rel_ss_definer;
-	Firebird::TriState	rel_repl_state;			// replication state
+	Firebird::TriState	rel_repl_state;		// replication state
 
 	bool hasData() const;
 	const char* c_name() const override;
@@ -893,6 +893,7 @@ public:
 	static int rescan_ast_relation(void* ast_object);
 	static int blocking_ast_relation(void* ast_object);
 
+	void tagForUpdate(thread_db* tdbb);	// Relation must be updated on next use or commit
 	static void tagForUpdate(thread_db* tdbb, const MetaName name);
 
 	vec<Format*>*	rel_formats;		// Known record formats

@@ -85,7 +85,7 @@ void		MET_delete_shadow(Jrd::thread_db*, USHORT);
 void		MET_error(const TEXT*, ...);
 Jrd::Format*	MET_format(Jrd::thread_db*, Jrd::RelationPermanent*, USHORT);
 bool		MET_get_char_coll_subtype_info(Jrd::thread_db*, USHORT, Jrd::SubtypeInfo* info);
-Jrd::DmlNode*	MET_get_dependencies(Jrd::thread_db*, Jrd::jrd_rel*, const UCHAR*, const ULONG,
+Jrd::DmlNode*	MET_get_dependencies(Jrd::thread_db*, Jrd::Cached::Relation*, const UCHAR*, const ULONG,
 								Jrd::CompilerScratch*, Jrd::bid*, Jrd::Statement**,
 								Jrd::CompilerScratch**, const Jrd::MetaName&, int, USHORT,
 								Jrd::jrd_tra*, const Jrd::MetaName& = Jrd::MetaName());
@@ -115,7 +115,7 @@ void		MET_release_existence(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_revoke(Jrd::thread_db*, Jrd::jrd_tra*, const Jrd::MetaName&,
 	const Jrd::MetaName&, const Firebird::string&);
 void		MET_scan_partners(Jrd::thread_db*, Jrd::RelationPermanent*);
-void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, Jrd::jrd_rel*,
+void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, Jrd::Cached::Relation*,
 	const Jrd::MetaName&, int, Jrd::jrd_tra*);
 void		MET_trigger_msg(Jrd::thread_db*, Firebird::string&, const Jrd::MetaName&, USHORT);
 void		MET_update_shadow(Jrd::thread_db*, Jrd::Shadow*, USHORT);

@@ -8321,7 +8321,7 @@ static void purge_attachment(thread_db* tdbb, StableAttachmentPart* sAtt, unsign
 	{
 		try
 		{
-			auto* trig_disconnect = dbb->dbb_mdc->getTriggers(tdbb, DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
+			auto* trig_disconnect = dbb->dbb_mdc->getTriggers(tdbb, DB_TRIGGER_DISCONNECT | TRIGGER_TYPE_DB);
 
 			// ATT_resetting may be set here only in a case when running on disconnect triggers
 			// in ALTER SESSION RESET already failed and attachment was shut down.

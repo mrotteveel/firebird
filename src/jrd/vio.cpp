@@ -2230,18 +2230,13 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_trg_rname, &desc2);
 			MOV_get_metaname(tdbb, &desc2, object_name);
 			Cached::Relation::tagForUpdate(tdbb, object_name);
-			EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
-			work = DFW_post_work(transaction, dfw_delete_trigger, &desc, 0);
 
-			if (!(desc2.dsc_flags & DSC_null))
-				DFW_post_work_arg(transaction, work, &desc2, 0, dfw_arg_rel_name);
-
-			if (EVL_field(0, rpb->rpb_record, f_trg_type, &desc2))
 			{
-				DFW_post_work_arg(transaction, work, &desc2,
-					(USHORT) MOV_get_int64(tdbb, &desc2, 0), dfw_arg_trg_type);
+				EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
+				USHORT trg_type = EVL_field(0, rpb->rpb_record, f_trg_type, &desc2) ?
+					(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
+				DFW_post_work(transaction, dfw_delete_trigger, &desc, trg_type);
 			}
-
 			break;
 
 		case rel_priv:
@@ -3569,16 +3564,12 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 				EVL_field(0, org_rpb->rpb_record, f_trg_rname, &desc1);
 				MOV_get_metaname(tdbb, &desc1, object_name);
 				Cached::Relation::tagForUpdate(tdbb, object_name);
-				EVL_field(0, org_rpb->rpb_record, f_trg_name, &desc1);
-				DeferredWork* dw = DFW_post_work(transaction, dfw_modify_trigger, &desc1, 0);
 
-				if (EVL_field(0, new_rpb->rpb_record, f_trg_rname, &desc2))
-					DFW_post_work_arg(transaction, dw, &desc2, 0, dfw_arg_rel_name);
-
-				if (EVL_field(0, new_rpb->rpb_record, f_trg_type, &desc2))
 				{
-					DFW_post_work_arg(transaction, dw, &desc2,
-						(USHORT) MOV_get_int64(tdbb, &desc2, 0), dfw_arg_trg_type);
+					EVL_field(0, org_rpb->rpb_record, f_trg_name, &desc1);
+					USHORT trg_type = EVL_field(0, new_rpb->rpb_record, f_trg_type, &desc2) ?
+						(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
+					DFW_post_work(transaction, dfw_modify_trigger, &desc1, trg_type);
 				}
 			}
 			break;
@@ -4197,18 +4188,12 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				Cached::Relation::tagForUpdate(tdbb, object_name);
 			}
 
-			EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
-			work = DFW_post_work(transaction, dfw_create_trigger, &desc, 0);
-
-			if (!(desc2.dsc_flags & DSC_null))
-				DFW_post_work_arg(transaction, work, &desc2, 0, dfw_arg_rel_name);
-
-			if (EVL_field(0, rpb->rpb_record, f_trg_type, &desc2))
 			{
-				DFW_post_work_arg(transaction, work, &desc2,
-					(USHORT) MOV_get_int64(tdbb, &desc2, 0), dfw_arg_trg_type);
+				EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
+				USHORT trg_type = EVL_field(0, rpb->rpb_record, f_trg_type, &desc2) ?
+					(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
+				DFW_post_work(transaction, dfw_delete_trigger, &desc, trg_type);
 			}
-			set_system_flag(tdbb, rpb->rpb_record, f_trg_sys_flag);
 			break;
 
 		case rel_priv:

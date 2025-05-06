@@ -769,17 +769,11 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 					 DEP.RDB$DEPENDENT_NAME EQ TRG.RDB$TRIGGER_NAME
 		{
 			MetaName trigger_name(TRG.RDB$TRIGGER_NAME);
-			MetaName trigger_relation_name(TRG.RDB$RELATION_NAME);
 
 			dsc desc;
 			desc.makeText(trigger_name.length(), CS_METADATA, (UCHAR*) trigger_name.c_str());
 
-			DeferredWork* dw2 = DFW_post_work(transaction, dfw_modify_trigger, &desc, 0);
-			DFW_post_work_arg(transaction, dw2, NULL, TRG.RDB$TRIGGER_TYPE, dfw_arg_trg_type);
-
-			desc.dsc_length = trigger_relation_name.length();
-			desc.dsc_address = (UCHAR*) trigger_relation_name.c_str();
-			DFW_post_work_arg(transaction, dw2, &desc, 0, dfw_arg_check_blr);
+			DFW_post_work(transaction, dfw_modify_trigger, &desc, TRG.RDB$TRIGGER_TYPE);
 		}
 		END_FOR
 
@@ -863,17 +857,11 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 				 DEP.RDB$DEPENDENT_NAME EQ TRG.RDB$TRIGGER_NAME
 	{
 		MetaName trigger_name(TRG.RDB$TRIGGER_NAME);
-		MetaName trigger_relation_name(TRG.RDB$RELATION_NAME);
 
 		dsc desc;
 		desc.makeText(trigger_name.length(), CS_METADATA, (UCHAR*) trigger_name.c_str());
 
-		DeferredWork* dw2 = DFW_post_work(transaction, dfw_modify_trigger, &desc, 0);
-		DFW_post_work_arg(transaction, dw2, NULL, TRG.RDB$TRIGGER_TYPE, dfw_arg_trg_type);
-
-		desc.dsc_length = trigger_relation_name.length();
-		desc.dsc_address = (UCHAR*) trigger_relation_name.c_str();
-		DFW_post_work_arg(transaction, dw2, &desc, 0, dfw_arg_check_blr);
+		DFW_post_work(transaction, dfw_modify_trigger, &desc, 0);
 	}
 	END_FOR
 
@@ -1296,7 +1284,7 @@ bool MET_get_char_coll_subtype_info(thread_db* tdbb, USHORT id, SubtypeInfo* inf
 
 
 DmlNode* MET_get_dependencies(thread_db* tdbb,
-							  jrd_rel* relation,
+							  Cached::Relation* relation,
 							  const UCHAR* blob,
 							  const ULONG blob_length,
 							  CompilerScratch* view_csb,
@@ -1336,12 +1324,12 @@ DmlNode* MET_get_dependencies(thread_db* tdbb,
 
 	if (blob)
 	{
-		node = PAR_blr(tdbb, getPermanent(relation), blob, blob_length, view_csb, &csb, statementPtr,
+		node = PAR_blr(tdbb, relation, blob, blob_length, view_csb, &csb, statementPtr,
 			(type == obj_trigger && relation != NULL), 0);
 	}
 	else
 	{
-		node = MET_parse_blob(tdbb, getPermanent(relation), blob_id, &csb, statementPtr,
+		node = MET_parse_blob(tdbb, relation, blob_id, &csb, statementPtr,
 			(type == obj_trigger && relation != NULL), type == obj_validation);
 	}
 
@@ -3181,7 +3169,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			if (dependencies)
 			{
 				const MetaName depName(REL.RDB$RELATION_NAME);
-				rseNode = MET_get_dependencies(tdbb, this, NULL, 0, NULL, &REL.RDB$VIEW_BLR,
+				rseNode = MET_get_dependencies(tdbb, getPermanent(), NULL, 0, NULL, &REL.RDB$VIEW_BLR,
 					NULL, &csb, depName, obj_view, 0, trans);
 			}
 			else
@@ -3350,7 +3338,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 					AutoSetRestoreFlag<USHORT> flag(&field->fld_flags, FLD_parse_computed, true);
 
 					DmlNode* nod = dependencies ?
-						MET_get_dependencies(tdbb, this, p, length, csb, NULL, NULL, NULL,
+						MET_get_dependencies(tdbb, getPermanent(), p, length, csb, NULL, NULL, NULL,
 							field->fld_name, obj_computed, csb_computed_field, trans) :
 						PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, csb_computed_field);
 
@@ -4344,7 +4332,7 @@ const Trigger* jrd_rel::findTrigger(const MetaName trig_name) const
 
 void MET_store_dependencies(thread_db* tdbb,
 							Array<Dependency>& dependencies,
-							jrd_rel* dep_rel,
+							Cached::Relation* dep_rel,
 							const MetaName& object_name,
 							int dependency_type,
 							jrd_tra* transaction)
@@ -4394,11 +4382,11 @@ void MET_store_dependencies(thread_db* tdbb,
 			fb_assert(dep_rel || !checkTableScope);
 
 			if (checkTableScope &&
-				( (dep_rel->rel_perm->rel_flags & (REL_temp_tran | REL_temp_conn)) !=
+				( (dep_rel->rel_flags & (REL_temp_tran | REL_temp_conn)) !=
 				  (relation->rel_flags & (REL_temp_tran | REL_temp_conn)) ))
 			{
 				if ( !( // master is ON COMMIT PRESERVE, detail is ON COMMIT DELETE
-						(dep_rel->rel_perm->rel_flags & REL_temp_tran) && (relation->rel_flags & REL_temp_conn) ||
+						(dep_rel->rel_flags & REL_temp_tran) && (relation->rel_flags & REL_temp_conn) ||
 						// computed field of a view
 						(dependency_type == obj_computed) && dep_rel->isView()
 					   ))
@@ -4408,7 +4396,7 @@ void MET_store_dependencies(thread_db* tdbb,
 					make_relation_scope_name(relation->c_name(),
 						relation->rel_flags, sMaster);
 					make_relation_scope_name(dep_rel->c_name(),
-						dep_rel->rel_perm->rel_flags, sChild);
+						dep_rel->rel_flags, sChild);
 
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
 							 Arg::Gds(isc_met_wrong_gtt_scope) << Arg::Str(sChild) <<
@@ -4824,22 +4812,29 @@ void MetadataCache::invalidateReplSet(thread_db* tdbb)
 	}
 }
 
-const Triggers* MetadataCache::getTriggers(thread_db* tdbb, MetaId triggerId)
+MetadataCache* MetadataCache::get(thread_db* tdbb)
+{
+	return tdbb->getDatabase()->dbb_mdc;
+}
+
+Cached::Triggers* MetadataCache::getTriggersSet(thread_db* tdbb, MetaId triggerId)
 {
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DB)
 	{
-		unsigned triggerKind = triggerId & ~TRIGGER_TYPE_DB;
-		auto* element = mdc_triggers[triggerKind].load(atomics::memory_order_acquire);
-		return element->getObject(tdbb, CacheFlag::AUTOCREATE);
+		triggerId &= ~TRIGGER_TYPE_MASK;
+		return mdc_triggers[triggerId].load(atomics::memory_order_acquire);
 	}
 
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DDL)
-	{
-		auto* element = mdc_ddl_triggers.load(atomics::memory_order_acquire);
-		return element->getObject(tdbb, CacheFlag::AUTOCREATE);
-	}
+		return mdc_ddl_triggers.load(atomics::memory_order_acquire);
 
 	return nullptr;
+}
+
+const Triggers* MetadataCache::getTriggers(thread_db* tdbb, MetaId triggerId)
+{
+	auto* tset = getTriggersSet(tdbb, triggerId);
+	return tset ? tset->getObject(tdbb, CacheFlag::AUTOCREATE) : nullptr;
 }
 
 void Trigger::compile(thread_db* tdbb)
@@ -4919,7 +4914,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, Obje
 {
 	SET_TDBB(tdbb);
 
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = get(tdbb);
 	auto rc = mdc->mdc_relations.getData(tdbb, id, flags);
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
@@ -4945,7 +4940,7 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const Qualifi
 	SET_TDBB(tdbb);
 
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = get(tdbb);
 
 	// See if we already know the relation by name
 	auto* rc = mdc->mdc_procedures.lookup(tdbb, [name](RoutinePermanent* proc) { return proc->name == name; }, flags);
@@ -4973,7 +4968,7 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, const Qualified
 {
 	SET_TDBB(tdbb);
 
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = get(tdbb);
 
 	// See if we already know the function by name
 	auto* rc = mdc->mdc_functions.lookup(tdbb, [name](RoutinePermanent* func) { return func->name == name; }, flags);
