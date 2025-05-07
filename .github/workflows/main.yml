@@ -11,9 +11,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             platform: x64
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             platform: x64
             container: alpine
           - os: macOS-latest
@@ -29,12 +29,12 @@ jobs:
         fetch-depth: 10
 
     - name: Prepare (Linux)
-      if: matrix.os == 'ubuntu-20.04' && matrix.container != 'alpine'
+      if: matrix.os == 'ubuntu-22.04' && matrix.container != 'alpine'
       run: |
         sudo apt-get install libtool-bin libtomcrypt1 libtomcrypt-dev libtommath1 libtommath-dev libicu-dev zlib1g-dev
 
     - name: Build (Linux)
-      if: matrix.os == 'ubuntu-20.04' && matrix.container != 'alpine'
+      if: matrix.os == 'ubuntu-22.04' && matrix.container != 'alpine'
       run: |
         CC=clang CXX=clang++ ./autogen.sh --enable-binreloc --prefix=/opt/firebird
         make -j4
@@ -140,7 +140,7 @@ jobs:
         run_all.bat JUSTBUILD
 
     - name: Upload (Linux)
-      if: matrix.os == 'ubuntu-20.04' && matrix.container != 'alpine'
+      if: matrix.os == 'ubuntu-22.04' && matrix.container != 'alpine'
       uses: actions/upload-artifact@master
       with:
         name: firebird-linux
