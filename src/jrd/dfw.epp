@@ -3320,8 +3320,7 @@ void DFW_check_partners(thread_db* tdbb, const USHORT rel_id)
  * Used when FK index was dropped
  *
  **************************************/
-	Database* const dbb = tdbb->getDatabase();
-	auto* relation = dbb->dbb_mdc->lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE);
+	auto* relation = MetadataCache::get(tdbb)->lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE);
 	fb_assert(relation);
 
 	relation->rel_flags |= REL_check_partners;

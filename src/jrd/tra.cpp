@@ -2445,9 +2445,7 @@ void MetadataCache::release_temp_tables(thread_db* tdbb, jrd_tra* transaction)
  *	Release data of temporary tables with transaction lifetime
  *
  **************************************/
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
-
-	for (auto* relation : mdc->mdc_relations)
+	for (auto* relation : MetadataCache::get(tdbb)->mdc_relations)
 	{
 		if (relation->rel_flags & REL_temp_tran)
 			relation->delPages(tdbb, transaction->tra_number);
@@ -2468,9 +2466,7 @@ void MetadataCache::retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, Tr
  *  transaction number (see retain_context).
  *
  **************************************/
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
-
-	for (auto* relation : mdc->mdc_relations)
+	for (auto* relation : MetadataCache::get(tdbb)->mdc_relations)
 	{
 		if (relation->rel_flags & REL_temp_tran)
 			relation->retainPages(tdbb, transaction->tra_number, new_number);
@@ -4018,7 +4014,7 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 	if (!tra_blobs->locate(blob_id->bid_temp_id()) &&
 		!tra_fetched_blobs.locate(*blob_id))
 	{
-		MetadataCache* mdc = tra_attachment->att_database->dbb_mdc;
+		MetadataCache* mdc = MetadataCache::get(tdbb);
 		auto* blobRelation = mdc->lookupRelationNoChecks(rel_id);	// optimization with NoChecks
 																	// correct rel definitely present
 		if (blobRelation)

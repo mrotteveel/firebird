@@ -291,7 +291,7 @@ void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
 	Collation* coll(FB_FUNCTION);
 	if (charset_collations.load(tdbb, id, coll))
 	{
-		MutexLockGuard g(tdbb->getDatabase()->dbb_mdc->mdc_use_mutex, FB_FUNCTION);
+		MutexLockGuard g(MetadataCache::get(tdbb)->mdc_use_mutex, FB_FUNCTION);
 
 		if (coll->useCount != 0)
 		{

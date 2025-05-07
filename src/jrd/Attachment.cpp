@@ -427,7 +427,7 @@ void Jrd::Attachment::resetSession(thread_db* tdbb, jrd_tra** traHandle)
 	{
 		// Run ON DISCONNECT trigger before reset
 		if (!(att_flags & ATT_no_db_triggers))
-			att_database->dbb_mdc->runDBTriggers(tdbb, TRIGGER_DISCONNECT);
+			MetadataCache::get(tdbb)->runDBTriggers(tdbb, TRIGGER_DISCONNECT);
 
 		// shutdown attachment on any error after this point
 		shutAtt = true;

@@ -63,9 +63,7 @@ const char* const Function::EXCEPTION_MESSAGE = "The user defined function: \t%s
 
 Function* Function::lookup(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
-	Database* const dbb = tdbb->getDatabase();
-
-	Function* function = dbb->dbb_mdc->getFunction(tdbb, id, flags);
+	Function* function = MetadataCache::get(tdbb)->getFunction(tdbb, id, flags);
 	return function;
 }
 

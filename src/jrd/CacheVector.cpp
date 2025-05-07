@@ -76,7 +76,7 @@ ULONG* TransactionNumber::getFlags(thread_db* tdbb)
 
 MdcVersion VersionSupport::next(thread_db* tdbb)
 {
-	return tdbb->getDatabase()->dbb_mdc->nextVersion();
+	return MetadataCache::get(tdbb)->nextVersion();
 }
 
 
@@ -92,8 +92,7 @@ void ObjectBase::lockedExcl [[noreturn]] (thread_db* tdbb)
 
 MemoryPool& CachePool::get(thread_db* tdbb)
 {
-	Database* dbb = tdbb->getDatabase();
-	return dbb->dbb_mdc->getPool();
+	return MetadataCache::get(tdbb)->getPool();
 }
 
 
@@ -107,8 +106,7 @@ MemoryPool& CachePool::get(thread_db* tdbb)
 
 void ElementBase::commitErase(thread_db* tdbb)
 {
-	auto* mdc = tdbb->getDatabase()->dbb_mdc;
-	mdc->objectCleanup(TransactionNumber::current(tdbb), this);
+	MetadataCache::get(tdbb)->objectCleanup(TransactionNumber::current(tdbb), this);
 }
 
 ElementBase::~ElementBase()

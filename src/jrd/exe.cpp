@@ -636,10 +636,8 @@ void EXE_execute_db_triggers(thread_db* tdbb, jrd_tra* transaction, TriggerActio
 // Execute DDL triggers.
 void EXE_execute_ddl_triggers(thread_db* tdbb, jrd_tra* transaction, bool preTriggers, int action)
 {
-	Jrd::Database* const dbb = tdbb->getDatabase();
-
 	// Our caller verifies (ATT_no_db_triggers) if DDL triggers should not run.
-	const Triggers* cachedTriggers = dbb->dbb_mdc->getTriggers(tdbb, TRIGGER_TYPE_DDL);
+	const Triggers* cachedTriggers = MetadataCache::get(tdbb)->getTriggers(tdbb, TRIGGER_TYPE_DDL);
 
 	if (cachedTriggers && *cachedTriggers)
 	{

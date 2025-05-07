@@ -216,7 +216,7 @@ public:
 
 		m_relInfo.grow(m_items.getCount());
 
-		m_lastRelID = tdbb->getDatabase()->dbb_mdc->relCount();
+		m_lastRelID = MetadataCache::get(tdbb)->relCount();
 	};
 
 	virtual ~SweepTask()
@@ -4395,7 +4395,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 	bool ret = true;
 
 	try {
-		MetadataCache* mdc = attachment->att_database->dbb_mdc;
+		MetadataCache* mdc = MetadataCache::get(tdbb);
 		for (FB_SIZE_T i = 1; i < mdc->relCount(); i++)
 		{
 			relation = MetadataCache::lookup_relation_id(tdbb, i, CacheFlag::AUTOCREATE);

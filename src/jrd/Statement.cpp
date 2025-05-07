@@ -187,7 +187,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 
 void Statement::loadResources(thread_db* tdbb, Request* req)
 {
-	const MdcVersion currentMdcVersion = tdbb->getDatabase()->dbb_mdc->getVersion();
+	const MdcVersion currentMdcVersion = MetadataCache::get(tdbb)->getVersion();
 	if ((!latest) || (latest->version != currentMdcVersion))
 	{
 		// Also check for changed streams from known sources

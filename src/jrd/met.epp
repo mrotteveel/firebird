@@ -1197,7 +1197,7 @@ bool MetadataCache::get_texttype(thread_db* tdbb, TTypeId* id, const UCHAR* name
 	}
 	*p = 0;
 
-	auto mdc = tdbb->getDatabase()->dbb_mdc;
+	auto mdc = MetadataCache::get(tdbb);
 
 	// Is there a period, separating collation name from character set?
 	if (period)
@@ -2373,7 +2373,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 
 
 	// See if we already know the procedure by name
@@ -2421,7 +2421,7 @@ jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBa
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 
 	return mdc->mdc_procedures.getObject(tdbb, id, flags);
 }
@@ -2442,7 +2442,7 @@ Function* MetadataCache::lookup_function(thread_db* tdbb, const QualifiedName& n
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 
 
 	// See if we already know the function by name
@@ -2480,7 +2480,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName&
 	SET_TDBB(tdbb);
 
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 
 	// See if we already know the relation by name
 	auto* rc = mdc->mdc_relations.lookup(tdbb, [name](RelationPermanent* rel) { return rel->rel_name == name; }, flags);
@@ -2516,12 +2516,12 @@ jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name, O
  *
  **************************************/
 	SET_TDBB(tdbb);
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
 	auto* perm = lookupRelation(tdbb, name, flags);
 	if (!perm)
 		return nullptr;
-	return mdc->mdc_relations.getObject(tdbb, perm->getId(), flags);
+
+	return MetadataCache::get(tdbb)->mdc_relations.getObject(tdbb, perm->getId(), flags);
 }
 
 
@@ -2538,18 +2538,16 @@ jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, MetaId id, ObjectBas
  *
  **************************************/
 	SET_TDBB(tdbb);
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
-	return mdc->mdc_relations.getObject(tdbb, id, flags);
+	return MetadataCache::get(tdbb)->mdc_relations.getObject(tdbb, id, flags);
 }
 
 
 CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
 
-	return mdc->mdc_charsets.getObject(tdbb, id, flags);
+	return MetadataCache::get(tdbb)->mdc_charsets.getObject(tdbb, id, flags);
 }
 
 
@@ -2642,11 +2640,8 @@ jrd_prc* MetadataCache::findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Fl
  *
  **************************************/
 	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
-	MetadataCache* mdc = dbb->dbb_mdc;
 
-	return mdc->mdc_procedures.getObject(tdbb, id, flags);
+	return MetadataCache::get(tdbb)->mdc_procedures.getObject(tdbb, id, flags);
 }
 
 jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
@@ -3582,7 +3577,7 @@ DSqlCacheItem* MetadataCache::get_dsql_cache_item(thread_db* tdbb, sym_type type
 {
 	Database* dbb = tdbb->getDatabase();
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = attachment->att_database->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 
 	fb_assert((int) type <= MAX_UCHAR);
 	UCHAR ucharType = (UCHAR) type;
@@ -4812,11 +4807,6 @@ void MetadataCache::invalidateReplSet(thread_db* tdbb)
 	}
 }
 
-MetadataCache* MetadataCache::get(thread_db* tdbb)
-{
-	return tdbb->getDatabase()->dbb_mdc;
-}
-
 Cached::Triggers* MetadataCache::getTriggersSet(thread_db* tdbb, MetaId triggerId)
 {
 	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DB)
@@ -4984,7 +4974,7 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, MetaId id, Obje
 {
 	SET_TDBB(tdbb);
 
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 	auto* rc = mdc->mdc_functions.getData(tdbb, id, flags);
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
@@ -4999,7 +4989,7 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, Ob
 {
 	SET_TDBB(tdbb);
 
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 	auto* rc = mdc->mdc_procedures.getData(tdbb, id, flags);
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
@@ -5056,7 +5046,7 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 {
 	SET_TDBB(tdbb);
 
-	MetadataCache* mdc = tdbb->getDatabase()->dbb_mdc;
+	MetadataCache* mdc = MetadataCache::get(tdbb);
 	auto* rc = mdc->mdc_charsets.getData(tdbb, id, flags);
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;

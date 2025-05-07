@@ -307,7 +307,10 @@ public:
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static IndexStatus getIndexStatus(bool nullFlag, int inactive);
-	static MetadataCache* get(thread_db* tdbb);
+	static MetadataCache* get(thread_db* tdbb)
+	{
+		return getCache(tdbb);
+	}
 
 	template<typename ID>
 	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const UCHAR* name, USHORT length)
