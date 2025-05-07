@@ -201,9 +201,12 @@ public:
 		return HazardPtr<ListEntry>(nullptr);	// object created (not by us) and not committed yet
 	}
 
-	bool isBusy(TraNumber currentTrans) const noexcept
+	bool isBusy(TraNumber currentTrans, TraNumber* number = nullptr) const noexcept
 	{
-		return !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
+		bool rc = !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
+		if (rc && number)
+			*number = traNumber;
+		return rc;
 	}
 
 	ObjectBase::Flag getFlags() const noexcept
@@ -542,6 +545,19 @@ public:
 	{
 		auto entry = getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN | CacheFlag::NOCOMMIT);
 		return entry && entry->isReady();
+	}
+
+	enum Availability {MISSING, MODIFIED, OCCUPIED, READY};
+
+	Availability isAvailable(thread_db* tdbb, TraNumber* number = nullptr)
+	{
+		auto entry = list.load(atomics::memory_order_acquire);
+		//getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN | CacheFlag::NOCOMMIT);
+		if (!entry)
+			return MISSING;
+		if (entry->isBusy(TransactionNumber::current(tdbb), number))
+			return OCCUPIED;
+		return entry->isReady() ? READY : MODIFIED;
 	}
 
 	ObjectBase::Flag getFlags(thread_db* tdbb)
@@ -964,9 +980,26 @@ public:
 			StoredElement* data = ptr->load(atomics::memory_order_acquire);
 			if (data)
 			{
-				if (data->isReady(tdbb) && !data->scanInProgress())
+				TraNumber traNum;
+				switch (data->isAvailable(tdbb, &traNum))
+				{
+				case StoredElement::OCCUPIED:
+					Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is used by transaction %d\n",
+						Versioned::objectFamily(data), data->c_name(), traNum);
+
+				case StoredElement::MODIFIED:
+					return;
+
+				case StoredElement::MISSING:
+				case StoredElement::READY:
+					if (data->scanInProgress())
+					{
+						Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is scanned by us\n",
+							Versioned::objectFamily(data), data->c_name());
+					}
 					data->makeObject(tdbb, fl);
-				return;
+					return;
+				}
 			}
 		}
 

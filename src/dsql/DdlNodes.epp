@@ -6149,9 +6149,6 @@ MetaId RelationNode::generateIdDbKey(thread_db* tdbb, jrd_tra* transaction)
 			while (auto relation = MetadataCache::lookup_relation_id(tdbb, rel_id++,
 				CacheFlag::RET_ERASED | CacheFlag::AUTOCREATE))
 			{
-				//if (!relation->isReady())
-				//	break;
-
 				if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
 					rel_id = local_min_relation_id;
 
@@ -7632,6 +7629,8 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 	Database* dbb = tdbb->getDatabase();
 	bool null_view;
 	USHORT n;
+
+	AutoSetRestoreFlag noDfw(&tdbb->tdbb_flags, TDBB_dont_post_dfw, true);
 
 	{
 		AutoCacheRequest request_fmt1(tdbb, irq_format1, IRQ_REQUESTS);
