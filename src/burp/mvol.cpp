@@ -72,14 +72,14 @@ using MsgFormat::SafeArg;
 using Firebird::FbLocalStatus;
 using namespace Burp;
 
-const int open_mask	= 0666;
+constexpr int open_mask	= 0666;
 
 #ifdef WIN_NT
-const char* TERM_INPUT	= "CONIN$";
-const char* TERM_OUTPUT	= "CONOUT$";
+constexpr const char* TERM_INPUT	= "CONIN$";
+constexpr const char* TERM_OUTPUT	= "CONOUT$";
 #else
-const char* TERM_INPUT	= "/dev/tty";
-const char* TERM_OUTPUT	= "/dev/tty";
+constexpr const char* TERM_INPUT	= "/dev/tty";
+constexpr const char* TERM_OUTPUT	= "/dev/tty";
 #endif
 
 static int	 mvol_read(int*, UCHAR**);
@@ -91,8 +91,8 @@ static FB_UINT64 mvol_fini_write(BurpGlobals*, int*, UCHAR**);
 static void	 mvol_init_write(BurpGlobals*, const char*, int*, UCHAR**);
 static void	 brio_fini(BurpGlobals*);
 
-static const int MAX_HEADER_SIZE		= 512;
-static const int ZC_BUFSIZE				= IO_BUFFER_SIZE;
+static constexpr int MAX_HEADER_SIZE		= 512;
+static constexpr int ZC_BUFSIZE				= IO_BUFFER_SIZE;
 
 static inline int get(BurpGlobals* tdgbl)
 {
@@ -132,7 +132,7 @@ static void	 zip_write_block(BurpGlobals*, const UCHAR*, FB_SIZE_T, bool);
 static ULONG unzip_read_block(BurpGlobals*, UCHAR*, FB_SIZE_T);
 
 // Portion of data passed to crypt plugin
-const ULONG CRYPT_STEP = 256;
+constexpr ULONG CRYPT_STEP = 256;
 
 class DbInfo final : public Firebird::RefCntIface<Firebird::IDbCryptInfoImpl<DbInfo, Firebird::CheckStatusWrapper> >
 {
@@ -1710,7 +1710,7 @@ static void put_asciz( SCHAR attribute, const TEXT* str)
 {
 	BurpGlobals* tdgbl = BurpGlobals::getSpecific();
 
-	USHORT l = strlen(str);
+	size_t l = strlen(str);
 	if (l > MAX_UCHAR)
 	{
 		BURP_print(false, 343, SafeArg() << int(attribute) << "put_asciz()" << USHORT(MAX_UCHAR));
@@ -1719,7 +1719,7 @@ static void put_asciz( SCHAR attribute, const TEXT* str)
 	}
 
 	put(tdgbl, attribute);
-	put(tdgbl, l);
+	put(tdgbl, static_cast<USHORT>(l));
 	while (l--)
 		put(tdgbl, *str++);
 }
@@ -2105,8 +2105,6 @@ static bool write_header(DESC handle, ULONG backup_buffer_size, bool full_buffer
 //
 bool MVOL_split_hdr_write()
 {
-	TEXT buffer[HDR_SPLIT_SIZE + 1];
-
 	BurpGlobals* tdgbl = BurpGlobals::getSpecific();
 
 	fb_assert(tdgbl->action->act_action == ACT_backup_split);
@@ -2119,7 +2117,8 @@ bool MVOL_split_hdr_write()
 	time_t seconds = time(NULL);
 
 	Firebird::string nm = tdgbl->toSystem(tdgbl->action->act_file->fil_name);
-	sprintf(buffer, "%s%.24s      , file No. %4d of %4d, %-27.27s",
+	TEXT buffer[HDR_SPLIT_SIZE + 1];
+	snprintf(buffer, sizeof(buffer), "%s%.24s      , file No. %4d of %4d, %-27.27s",
 			HDR_SPLIT_TAG, ctime(&seconds), tdgbl->action->act_file->fil_seq,
 			tdgbl->action->act_total, nm.c_str());
 
