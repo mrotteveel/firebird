@@ -28,7 +28,7 @@ using namespace Firebird;
 
 namespace
 {
-	bool hasChar(unsigned len, unsigned pos)
+	bool hasChar(unsigned len, unsigned pos) noexcept
 	{
 		return pos < len;
 	}
@@ -53,11 +53,11 @@ namespace
 		return c;
 	}
 
-	static const unsigned COMP_FLAG_PREFER_FEWER = 0x01;
-	static const unsigned COMP_FLAG_GROUP_CAPTURE = 0x02;
-	static const unsigned COMP_FLAG_CASE_INSENSITIVE = 0x04;
-	static const unsigned COMP_FLAG_LATIN = 0x08;
-	static const unsigned COMP_FLAG_WELLFORMED = 0x10;
+	static constexpr unsigned COMP_FLAG_PREFER_FEWER = 0x01;
+	static constexpr unsigned COMP_FLAG_GROUP_CAPTURE = 0x02;
+	static constexpr unsigned COMP_FLAG_CASE_INSENSITIVE = 0x04;
+	static constexpr unsigned COMP_FLAG_LATIN = 0x08;
+	static constexpr unsigned COMP_FLAG_WELLFORMED = 0x10;
 
 	class SimilarToCompiler
 	{
@@ -119,7 +119,7 @@ namespace
 				status_exception::raise(Arg::Gds(isc_invalid_similar_pattern));
 		}
 
-		bool hasPatternChar()
+		bool hasPatternChar() const noexcept
 		{
 			return patternPos < patternLen;
 		}
@@ -137,12 +137,12 @@ namespace
 			return c;
 		}
 
-		bool isRep(UChar32 c) const
+		bool isRep(UChar32 c) const noexcept
 		{
 			return c == '*' || c == '+' || c == '?' || c == '{';
 		}
 
-		bool isRe2Special(UChar32 c)
+		bool isRe2Special(UChar32 c) noexcept
 		{
 			switch (c)
 			{
@@ -494,14 +494,13 @@ namespace
 					{
 						if (negated)
 						{
-							char hex[40];
-
 							unsigned cPos = item.firstStart;
 							UChar32 c = getChar(flags & COMP_FLAG_LATIN, patternStr, patternLen, cPos);
 
 							if (c > 0)
 							{
-								sprintf(hex, "\\x00-\\x{%X}", (int) c - 1);
+								char hex[40];
+								snprintf(hex, sizeof(hex), "\\x00-\\x{%X}", (int)c - 1);
 								re2PatternStr.append(hex);
 							}
 
@@ -510,7 +509,8 @@ namespace
 
 							if (c < maxChar)
 							{
-								sprintf(hex, "\\x{%X}-\\x{%X}", (int) c + 1, maxChar);
+								char hex[40];
+								snprintf(hex, sizeof(hex), "\\x{%X}-\\x{%X}", (int)c + 1, maxChar);
 								re2PatternStr.append(hex);
 							}
 						}
@@ -572,7 +572,7 @@ namespace
 					else if (invalidInclude)
 					{
 						char str[30];
-						sprintf(str, "[^\\x{0}-\\x{%X}]", maxChar);
+						snprintf(str, sizeof(str), "[^\\x{0}-\\x{%X}]", maxChar);
 						re2PatternStr.append(str);
 					}
 					else
@@ -640,7 +640,7 @@ namespace
 			}
 		}
 
-		const string& getRe2PatternStr() const
+		const string& getRe2PatternStr() const noexcept
 		{
 			return re2PatternStr;
 		}
@@ -744,7 +744,7 @@ namespace
 				status_exception::raise(Arg::Gds(isc_invalid_similar_pattern));
 		}
 
-		bool hasPatternChar()
+		bool hasPatternChar() const noexcept
 		{
 			return patternPos < patternLen;
 		}

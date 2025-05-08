@@ -36,7 +36,7 @@
 #include "../common/prett_proto.h"
 #include "../yvalve/gds_proto.h"
 
-static inline void ADVANCE_PTR(TEXT*& ptr)
+static inline void ADVANCE_PTR(TEXT*& ptr) noexcept
 {
 	while (*ptr)
 		ptr++;
@@ -60,12 +60,25 @@ struct ctl
 	SSHORT ctl_language;
 	SSHORT ctl_level;
 	TEXT ctl_buffer[PRETTY_BUFFER_SIZE];
+
+	size_t buffer_remaining() const noexcept
+	{
+		if (!ctl_ptr)
+			return 0;
+		return sizeof(ctl_buffer) - (ctl_ptr - ctl_buffer);
+	}
+
+	void reset_buffer() noexcept
+	{
+		ctl_buffer[0] = 0;
+		ctl_ptr = ctl_buffer;
+	}
 };
 
 
 static int blr_format(ctl*, const char *, ...);
 static int error(ctl*, SSHORT, const TEXT *, int);
-static int indent(ctl*, SSHORT);
+static int indent(ctl*, SSHORT) noexcept;
 static int print_blr_dtype(ctl*, bool);
 static void print_blr_line(void*, SSHORT, const char*);
 static int print_byte(ctl*);
@@ -80,30 +93,30 @@ static int print_word(ctl*);
 
 static inline void CHECK_BUFFER(ctl* control, SSHORT offset)
 {
-	if (control->ctl_ptr > control->ctl_buffer + sizeof(control->ctl_buffer) - 20)
+	if (control->buffer_remaining() < 20)
 		print_line(control, offset);
 }
 
 
-const char *dyn_table[] =
+constexpr const char *dyn_table[] =
 {
 #include "../common/dyntable.h"
 	NULL
 };
 
-const char *cdb_table[] =
+constexpr const char *cdb_table[] =
 {
 #include "../common/cdbtable.h"
 	NULL
 };
 
-const char *sdl_table[] =
+constexpr const char *sdl_table[] =
 {
 #include "../common/sdltable.h"
 	NULL
 };
 
-const char *map_strings[] =
+constexpr const char *map_strings[] =
 {
 	"FIELD2",
 	"FIELD1",
@@ -125,7 +138,6 @@ const char *map_strings[] =
 
 int PRETTY_print_cdb(const UCHAR* blr, FPTR_PRINT_CALLBACK routine, void* user_arg, SSHORT language)
 {
-
 	ctl ctl_buffer;
 	ctl* control = &ctl_buffer;
 
@@ -138,7 +150,7 @@ int PRETTY_print_cdb(const UCHAR* blr, FPTR_PRINT_CALLBACK routine, void* user_a
 	control->ctl_routine = routine;
 	control->ctl_user_arg = user_arg;
 	control->ctl_blr = control->ctl_blr_start = blr;
-	control->ctl_ptr = control->ctl_buffer;
+	control->reset_buffer();
 	control->ctl_language = language;
 
 	SSHORT level = 0;
@@ -147,9 +159,9 @@ int PRETTY_print_cdb(const UCHAR* blr, FPTR_PRINT_CALLBACK routine, void* user_a
 
 	SCHAR temp[32];
 	if (*control->ctl_blr)
-		sprintf(temp, "gds__dpb_version%d, ", i);
+		snprintf(temp, sizeof(temp), "gds__dpb_version%d, ", i);
 	else
-		sprintf(temp, "gds__dpb_version%d", i);
+		snprintf(temp, sizeof(temp), "gds__dpb_version%d", i);
 	blr_format(control, temp);
 
 	SSHORT offset = 0;
@@ -199,7 +211,7 @@ int PRETTY_print_dyn(const UCHAR* blr, FPTR_PRINT_CALLBACK routine, void* user_a
 	control->ctl_routine = routine;
 	control->ctl_user_arg = user_arg;
 	control->ctl_blr = control->ctl_blr_start = blr;
-	control->ctl_ptr = control->ctl_buffer;
+	control->reset_buffer();
 	control->ctl_language = language;
 
 	const SSHORT version = BLR_BYTE;
@@ -241,7 +253,7 @@ int PRETTY_print_sdl(const UCHAR* blr, FPTR_PRINT_CALLBACK routine, void *user_a
 	control->ctl_routine = routine;
 	control->ctl_user_arg = user_arg;
 	control->ctl_blr = control->ctl_blr_start = blr;
-	control->ctl_ptr = control->ctl_buffer;
+	control->reset_buffer();
 	control->ctl_language = language;
 
 	const SSHORT version = BLR_BYTE;
@@ -275,10 +287,9 @@ static int blr_format(ctl* control, const char *string, ...)
 	va_list ptr;
 
 	va_start(ptr, string);
-	vsprintf(control->ctl_ptr, string, ptr);
+	vsnprintf(control->ctl_ptr, control->buffer_remaining(), string, ptr);
 	va_end(ptr);
-	while (*control->ctl_ptr)
-		control->ctl_ptr++;
+	ADVANCE_PTR(control->ctl_ptr);
 
 	return 0;
 }
@@ -291,9 +302,8 @@ static int blr_format(ctl* control, const char *string, ...)
 
 static int error( ctl* control, SSHORT offset, const TEXT* string, int arg)
 {
-
 	print_line(control, offset);
-	sprintf(control->ctl_ptr, string, arg);
+	snprintf(control->ctl_ptr, control->buffer_remaining(), string, arg);
 	fprintf(stderr, "%s", control->ctl_ptr);
 	ADVANCE_PTR(control->ctl_ptr);
 	print_line(control, offset);
@@ -307,9 +317,8 @@ static int error( ctl* control, SSHORT offset, const TEXT* string, int arg)
 //		Indent for pretty printing.
 //
 
-static int indent( ctl* control, SSHORT level)
+static int indent( ctl* control, SSHORT level) noexcept
 {
-
 	level *= 3;
 	while (--level >= 0)
 		PUT_BYTE(' ');
@@ -514,7 +523,7 @@ static void print_blr_line(void* arg, SSHORT offset, const char* line)
 static int print_byte( ctl* control)
 {
 	const UCHAR v = BLR_BYTE;
-	sprintf(control->ctl_ptr, control->ctl_language ? "chr(%d), " : "%d, ", v);
+	snprintf(control->ctl_ptr, control->buffer_remaining(), control->ctl_language ? "chr(%d), " : "%d, ", v);
 	ADVANCE_PTR(control->ctl_ptr);
 
 	return v;
@@ -532,7 +541,8 @@ static int print_char( ctl* control, SSHORT offset)
 	const bool printable = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 		(c >= '0' && c <= '9') || c == '$' || c == '_';
 
-	sprintf(control->ctl_ptr, printable ? "'%c'," : control->ctl_language ? "chr(%d)," : "%d,", c);
+	snprintf(control->ctl_ptr, control->buffer_remaining(), 
+		printable ? "'%c'," : control->ctl_language ? "chr(%d)," : "%d,", c);
 	ADVANCE_PTR(control->ctl_ptr);
 
 	CHECK_BUFFER(control, offset);
@@ -735,7 +745,7 @@ static int print_line( ctl* control, SSHORT offset)
 
 	*control->ctl_ptr = 0;
 	(*control->ctl_routine) (control->ctl_user_arg, offset, control->ctl_buffer);
-	control->ctl_ptr = control->ctl_buffer;
+	control->reset_buffer();
 	return 0;
 }
 
@@ -751,9 +761,9 @@ static SLONG print_long( ctl* control)
 	const UCHAR v2 = BLR_BYTE;
 	const UCHAR v3 = BLR_BYTE;
 	const UCHAR v4 = BLR_BYTE;
-	sprintf(control->ctl_ptr, control->ctl_language ?
-			"chr(%d),chr(%d),chr(%d),chr(%d) " : "%d,%d,%d,%d, ",
-			v1, v2, v3, v4);
+	snprintf(control->ctl_ptr, control->buffer_remaining(),
+		control->ctl_language ? "chr(%d),chr(%d),chr(%d),chr(%d) " : "%d,%d,%d,%d, ",
+		v1, v2, v3, v4);
 	ADVANCE_PTR(control->ctl_ptr);
 
 	return v1 | (v2 << 8) | (v3 << 16) | (v4 << 24);
@@ -892,7 +902,8 @@ static int print_word( ctl* control)
 {
 	const UCHAR v1 = BLR_BYTE;
 	const UCHAR v2 = BLR_BYTE;
-	sprintf(control->ctl_ptr, control->ctl_language ? "chr(%d),chr(%d), " : "%d,%d, ", v1, v2);
+	snprintf(control->ctl_ptr, control->buffer_remaining(),
+		control->ctl_language ? "chr(%d),chr(%d), " : "%d,%d, ", v1, v2);
 	ADVANCE_PTR(control->ctl_ptr);
 
 	return (v2 << 8) | v1;

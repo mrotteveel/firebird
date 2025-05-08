@@ -37,22 +37,21 @@ namespace MsgFormat
 {
 
 // Enough to the current conversions. If SINT128 is decoded as a full number
-// instead of two parts, it may be updated to 64 and 63 respectively,
-// because 2^128 ~ 3.4e38.
-const int DECODE_BUF_SIZE = 32;
-const int DECODE_BUF_LEN = 31;
+// instead of two parts, it may be updated to 63, because 2^128 ~ 3.4e38.
+constexpr int DECODE_BUF_LEN = 31;
+constexpr int DECODE_BUF_SIZE = DECODE_BUF_LEN + 1;
 
 // The maximum numeric base we support, using 0..Z
-const int MAX_RADIX = 36;
+constexpr int MAX_RADIX = 36;
 // We don't mess with octal and the like, otherwise DECODE_BUF_* constants have to be enlarged.
-const int MIN_RADIX = 10;
+constexpr int MIN_RADIX = 10;
 // We won't output strings of more than 64K.
-const FB_SIZE_T MAX_STRING = 1 << 16;
+constexpr size_t MAX_STRING = 1 << 16;
 
 // Generic functions.
 int decode(uint64_t value, char* const rc, int radix = 10);
 int decode(int64_t value, char* const rc, int radix = 10);
-int decode(double value, char* rc);
+int decode(double value, char* const rc, const size_t rcsz);
 int adjust_prefix(int radix, int rev, bool is_neg, char* const rc);
 int MsgPrintHelper(BaseStream& out_stream, const safe_cell& item);
 
@@ -131,9 +130,9 @@ int decode(int64_t value, char* const rc, int radix)
 
 // Stub that relies on the printf family to write a double using "g"
 // for smallest representation in text form.
-int decode(double value, char* rc)
+int decode(double value, char* const rc, const size_t rcsz)
 {
-	return sprintf(rc, "%g", value);
+	return std::min(snprintf(rc, rcsz, "%g", value), static_cast<int>(rcsz - 1));
 }
 
 
@@ -203,7 +202,7 @@ int MsgPrintHelper(BaseStream& out_stream, const safe_cell& item)
 	case safe_cell::at_double:
 		{
 			char s[DECODE_BUF_SIZE];
-			int n = decode(item.d_value, s);
+			const int n = decode(item.d_value, s, sizeof(s));
 			return out_stream.write(s, n);
 		}
 	case safe_cell::at_str:
@@ -212,10 +211,7 @@ int MsgPrintHelper(BaseStream& out_stream, const safe_cell& item)
 			if (!s)
 				s = "(null)";
 
-			size_t n = strlen(s);
-			if (n > MAX_STRING)
-				n = MAX_STRING;
-
+			const size_t n = std::min(strlen(s), MAX_STRING);
 			return out_stream.write(s, static_cast<unsigned>(n));
 		}
 	case safe_cell::at_ptr:

@@ -51,7 +51,6 @@
 #include "../common/classes/timestamp.h"
 #include "../common/cvt.h"
 #include "../jrd/intl.h"
-#include "../jrd/constants.h"
 #include "../common/classes/VaryStr.h"
 #include "../common/classes/FpeControl.h"
 #include "../common/dsc_proto.h"
@@ -117,14 +116,14 @@ using namespace Firebird;
  * less than the number of bits in the type: one bit is for the sign,
  * and the other is because we divide by 5, rather than 10.  */
 
-const SSHORT SHORT_LIMIT = ((1 << 14) / 5);
-const SLONG LONG_LIMIT = ((1L << 30) / 5);
+constexpr SSHORT SHORT_LIMIT = ((1 << 14) / 5);
+constexpr SLONG LONG_LIMIT = ((1L << 30) / 5);
 
 // NOTE: The syntax for the below line may need modification to ensure
 // the result of 1 << 62 is a quad
 
 //#define QUAD_LIMIT      ((((SINT64) 1) << 62) / 5)
-const SINT64 INT64_LIMIT = ((((SINT64) 1) << 62) / 5);
+constexpr SINT64 INT64_LIMIT = ((((SINT64) 1) << 62) / 5);
 
 #define TODAY           "TODAY"
 #define NOW             "NOW"
@@ -243,8 +242,8 @@ protected:
 
 } // anonymous namespace
 
-static const double eps_double = 1e-14;
-static const double eps_float  = 1e-5;
+static constexpr double eps_double = 1e-14;
+static constexpr double eps_float  = 1e-5;
 
 
 static void validateTimeStamp(const ISC_TIMESTAMP timestamp, const EXPECT_DATETIME expectedType, const dsc* desc,
@@ -459,7 +458,7 @@ static void decimal_float_to_text(const dsc* from, dsc* to, DecimalStatus decSt,
 	intermediate.dsc_dtype = dtype_text;
 	intermediate.dsc_ttype() = ttype_ascii;
 	intermediate.dsc_address = reinterpret_cast<UCHAR*>(temp);
-	intermediate.dsc_length = strlen(temp);
+	intermediate.dsc_length = static_cast<USHORT>(strlen(temp));
 
 	CVT_move_common(&intermediate, to, 0, cb);
 }
@@ -487,7 +486,7 @@ static void int128_to_text(const dsc* from, dsc* to, Callbacks* cb)
 	intermediate.dsc_dtype = dtype_text;
 	intermediate.dsc_ttype() = ttype_ascii;
 	intermediate.dsc_address = reinterpret_cast<UCHAR*>(temp);
-	intermediate.dsc_length = strlen(temp);
+	intermediate.dsc_length = static_cast<USHORT>(strlen(temp));
 
 	CVT_move_common(&intermediate, to, 0, cb);
 }
@@ -1384,7 +1383,7 @@ bool CVT_get_boolean(const dsc* desc, ErrorFunction err)
 			else if (len == 5 && fb_utils::strnicmp(p, "FALSE", len) == 0)
 				return false;
 
-			// fall into
+			[[fallthrough]];
 		}
 
 		default:
@@ -1901,7 +1900,7 @@ void CVT_move_common(const dsc* from, dsc* to, DecimalStatus decSt, Callbacks* c
 
 	case dtype_varying:
 		MOVE_CLEAR(to->dsc_address, to->dsc_length);
-		// fall through ...
+		[[fallthrough]];
 	case dtype_text:
 	case dtype_cstring:
 		switch (from->dsc_dtype)
@@ -2083,8 +2082,8 @@ void CVT_move_common(const dsc* from, dsc* to, DecimalStatus decSt, Callbacks* c
 			}
 
 		default:
-			fb_assert(false);		// Fall into ...
-
+			fb_assert(false);
+			[[fallthrough]];
 		case dtype_blob:
 			CVT_conversion_error(from, cb->err);
 			return;
@@ -2363,6 +2362,7 @@ static void datetime_to_text(const dsc* from, dsc* to, Callbacks* cb)
 
 	// yyyy-mm-dd hh:mm:ss.tttt +th:tm OR dd-MMM-yyyy hh:mm:ss.tttt +th:tm
 	TEXT temp[27 + TimeZoneUtil::MAX_LEN];
+	temp[0] = 0;
 	TEXT* p = temp;
 
 	// Make a textual date for data types that include it
@@ -2371,13 +2371,13 @@ static void datetime_to_text(const dsc* from, dsc* to, Callbacks* cb)
 	{
 		if (from->dsc_dtype == dtype_sql_date || !version4)
 		{
-			sprintf(p, "%4.4d-%2.2d-%2.2d",
+			fb_utils::snprintf(p, sizeof(temp) - (p - temp), "%4.4d-%2.2d-%2.2d",
 					times.tm_year + 1900, times.tm_mon + 1, times.tm_mday);
 		}
 		else
 		{
 			// Prior to BLR version 5 timestamps were converted to text in the dd-MMM-yyyy format
-			sprintf(p, "%2.2d-%.3s-%4.4d",
+			fb_utils::snprintf(p, sizeof(temp) - (p - temp), "%2.2d-%.3s-%4.4d",
 					times.tm_mday,
 					FB_LONG_MONTHS_UPPER[times.tm_mon], times.tm_year + 1900);
 		}
@@ -2397,13 +2397,13 @@ static void datetime_to_text(const dsc* from, dsc* to, Callbacks* cb)
 	{
 		if (from->isTime() || !version4)
 		{
-			sprintf(p, "%2.2d:%2.2d:%2.2d.%4.4d",
+			fb_utils::snprintf(p, sizeof(temp) - (p - temp), "%2.2d:%2.2d:%2.2d.%4.4d",
 					times.tm_hour, times.tm_min, times.tm_sec, fractions);
 		}
 		else if (times.tm_hour || times.tm_min || times.tm_sec || fractions)
 		{
 			// Timestamp formating prior to BLR Version 5 is slightly different
-			sprintf(p, " %d:%.2d:%.2d.%.4d",
+			fb_utils::snprintf(p, sizeof(temp) - (p - temp), " %d:%.2d:%.2d.%.4d",
 					times.tm_hour, times.tm_min, times.tm_sec, fractions);
 		}
 
@@ -3334,7 +3334,7 @@ const UCHAR* CVT_get_bytes(const dsc* desc, unsigned& size)
 			}
 
 		case dtype_cstring:
-			size = strlen((const char*) desc->dsc_address);
+			size = static_cast<unsigned>(strlen((const char*) desc->dsc_address));
 			return desc->dsc_address;
 
 		default:

@@ -162,9 +162,9 @@ unsigned digits(const unsigned pMax, unsigned char* const coeff, int& exp)
 }
 
 // offsets down from MAX_SLONG
-const ULONG OFF_inf = 3;
-const ULONG OFF_snan = 2;
-const ULONG OFF_nan = 1;
+constexpr ULONG OFF_inf = 3;
+constexpr ULONG OFF_snan = 2;
+constexpr ULONG OFF_nan = 1;
 
 void make(ULONG* key,
 	const unsigned pMax, const int bias, const unsigned decSize,
@@ -387,7 +387,7 @@ Decimal64 Decimal64::set(SINT64 value, DecimalStatus decSt, int scale)
 {
 	{
 		char s[30];		// for sure enough for int64
-		sprintf(s, "%" SQUADFORMAT, value);
+		snprintf(s, sizeof(s), "%" SQUADFORMAT, value);
 		DecimalContext context(this, decSt);
 		decDoubleFromString(&dec, s, &context);
 	}
@@ -408,7 +408,7 @@ Decimal64 Decimal64::set(const char* value, DecimalStatus decSt)
 Decimal64 Decimal64::set(double value, DecimalStatus decSt)
 {
 	char s[50];
-	sprintf(s, "%.016e", value);
+	snprintf(s, sizeof(s), "%.016e", value);
 	DecimalContext context(this, decSt);
 	decDoubleFromString(&dec, s, &context);
 
@@ -422,14 +422,14 @@ void Decimal64::toString(DecimalStatus decSt, unsigned length, char* to) const
 	if (length)
 	{
 		--length;
-		char s[IDecFloat16::STRING_SIZE];
-		memset(s, 0, sizeof(s));
+		char s[IDecFloat16::STRING_SIZE]{};
 		decDoubleToString(&dec, s);
 
-		if (strlen(s) > length)
+		const size_t ssz = strlen(s);
+		if (ssz > length)
 			decContextSetStatus(&context, DEC_Invalid_operation);
 		else
-			length = strlen(s);
+			length = static_cast<unsigned>(ssz);
 
 		memcpy(to, s, length + 1);
 	}
@@ -685,7 +685,7 @@ Decimal128 Decimal128::set(const char* value, DecimalStatus decSt)
 Decimal128 Decimal128::set(double value, DecimalStatus decSt)
 {
 	char s[50];
-	sprintf(s, "%.016e", value);
+	snprintf(s, sizeof(s), "%.016e", value);
 	DecimalContext context(this, decSt);
 	decQuadFromString(&dec, s, &context);
 
@@ -714,14 +714,14 @@ void Decimal128::toString(DecimalStatus decSt, unsigned length, char* to) const
 	if (length)
 	{
 		--length;
-		char s[IDecFloat34::STRING_SIZE];
-		memset(s, 0, sizeof(s));
+		char s[IDecFloat34::STRING_SIZE]{};
 		decQuadToString(&dec, s);
 
-		if (strlen(s) > length)
+		const size_t ssz = strlen(s);
+		if (ssz > length)
 			decContextSetStatus(&context, DEC_Invalid_operation);
 		else
-			length = strlen(s);
+			length = static_cast<unsigned>(ssz);
 
 		memcpy(to, s, length + 1);
 	}

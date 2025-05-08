@@ -51,8 +51,8 @@ static_assert(sizeof(UUID) == 16, "Guid size mismatch");
 
 namespace Firebird {
 
-const int GUID_BUFF_SIZE = 39;
-const int GUID_BODY_SIZE = 36;
+inline constexpr int GUID_BUFF_SIZE = 39;
+inline constexpr int GUID_BODY_SIZE = 36;
 
 void GenerateRandomBytes(void* buffer, FB_SIZE_T size);
 
@@ -121,6 +121,7 @@ public:
 		memcpy(&m_data, buffer, SIZE);
 	}
 
+	[[deprecated("use toString(char* const buffer, const size_t sz)")]]
 	void toString(char* buffer) const
 	{
 		sprintf(buffer, GUID_FORMAT,
@@ -129,17 +130,25 @@ public:
 			m_data.Data4[4], m_data.Data4[5], m_data.Data4[6], m_data.Data4[7]);
 	}
 
+	void toString(char* const buffer, const size_t sz) const
+	{
+		snprintf(buffer, sz, GUID_FORMAT,
+			m_data.Data1, m_data.Data2, m_data.Data3,
+			m_data.Data4[0], m_data.Data4[1], m_data.Data4[2], m_data.Data4[3],
+			m_data.Data4[4], m_data.Data4[5], m_data.Data4[6], m_data.Data4[7]);
+	}
+
 	Firebird::string toString() const
 	{
 		Firebird::string result;
-		toString(result.getBuffer(GUID_BUFF_SIZE - 1));
+		toString(result.getBuffer(GUID_BUFF_SIZE - 1), GUID_BUFF_SIZE);
 		return result;
 	}
 
 	Firebird::PathName toPathName() const
 	{
 		Firebird::PathName result;
-		toString(result.getBuffer(GUID_BUFF_SIZE - 1));
+		toString(result.getBuffer(GUID_BUFF_SIZE - 1), GUID_BUFF_SIZE);
 		return result;
 	}
 

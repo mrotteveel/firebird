@@ -45,7 +45,7 @@
 
 namespace {
 	// Didn't want to bring dyn.h and friends here.
-	const int DYN_MSG_FAC		= 8;
+	constexpr int DYN_MSG_FAC = 8;
 }
 
 namespace Firebird {
@@ -407,19 +407,19 @@ Num::Num(ISC_STATUS s) noexcept :
 Int64::Int64(SINT64 val) noexcept :
 	Str(text)
 {
-	sprintf(text, "%" SQUADFORMAT, val);
+	snprintf(text, sizeof(text), "%" SQUADFORMAT, val);
 }
 
 Int64::Int64(FB_UINT64 val) noexcept :
 	Str(text)
 {
-	sprintf(text, "%" UQUADFORMAT, val);
+	snprintf(text, sizeof(text), "%" UQUADFORMAT, val);
 }
 
 Quad::Quad(const ISC_QUAD* quad) noexcept :
 	Str(text)
 {
-	sprintf(text, "%x:%x", quad->gds_quad_high, quad->gds_quad_low);
+	snprintf(text, sizeof(text), "%x:%x", quad->gds_quad_high, quad->gds_quad_low);
 }
 
 Interpreted::Interpreted(const char* text) noexcept :
