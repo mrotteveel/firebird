@@ -58,7 +58,7 @@ using namespace Jrd;
 using namespace Firebird;
 
 
-static void internal_post(const Arg::StatusVector& v);
+[[noreturn]] static void internal_post(const Arg::StatusVector& v);
 
 #ifdef DEV_BUILD
 /**
@@ -73,7 +73,7 @@ static void internal_post(const Arg::StatusVector& v);
     @param lineno
 
  **/
-void ERRD_assert_msg(const char* msg, const char* file, ULONG lineno)
+[[noreturn]] void ERRD_assert_msg(const char* msg, const char* file, ULONG lineno)
 {
 
 	char buffer[MAXPATHLEN + 100];
@@ -96,7 +96,7 @@ void ERRD_assert_msg(const char* msg, const char* file, ULONG lineno)
     @param text
 
  **/
-void ERRD_bugcheck(const char* text)
+[[noreturn]] void ERRD_bugcheck(const char* text)
 {
 	TEXT s[MAXPATHLEN + 120];
 	fb_utils::snprintf(s, sizeof(s), "INTERNAL: %s", text);	// TXNN
@@ -120,7 +120,7 @@ void ERRD_bugcheck(const char* text)
     @param text
 
  **/
-void ERRD_error(const char* text)
+[[noreturn]] void ERRD_error(const char* text)
 {
 	TEXT s[MAXPATHLEN + 140];
 	fb_utils::snprintf(s, sizeof(s), "** DSQL error: %s **\n", text);
@@ -165,7 +165,7 @@ void ERRD_post_warning(const Firebird::Arg::StatusVector& v)
     @param
 
  **/
-void ERRD_post(const Arg::StatusVector& v)
+[[noreturn]] void ERRD_post(const Arg::StatusVector& v)
 {
     fb_assert(v.value()[0] == isc_arg_gds);
 
@@ -185,7 +185,7 @@ void ERRD_post(const Arg::StatusVector& v)
     @param
 
  **/
-static void internal_post(const Arg::StatusVector& v)
+[[noreturn]] static void internal_post(const Arg::StatusVector& v)
 {
 	// start building resulting vector
 	Jrd::FbStatusVector* status_vector = JRD_get_thread_data()->tdbb_status_vector;
@@ -219,7 +219,7 @@ static void internal_post(const Arg::StatusVector& v)
 
 
  **/
-void ERRD_punt(const Jrd::FbStatusVector* local)
+[[noreturn]] void ERRD_punt(const Jrd::FbStatusVector* local)
 {
 	thread_db* tdbb = JRD_get_thread_data();
 
