@@ -581,7 +581,7 @@ THREAD_ENTRY_DECLARE start_and_watch_server(THREAD_ENTRY_PARAM)
 
 	HANDLE procHandle = NULL;
 	bool done = true;
-	const UINT error_mode = SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
+	constexpr UINT error_mode = SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
 		SEM_NOOPENFILEERRORBOX | SEM_NOALIGNMENTFAULTEXCEPT;
 	SC_HANDLE hScManager = 0, hService = 0;
 
@@ -693,7 +693,8 @@ THREAD_ENTRY_DECLARE start_and_watch_server(THREAD_ENTRY_PARAM)
 			// error creating new process
 			char szMsgString[256];
 			LoadString(hInstance_gbl, IDS_CANT_START_THREAD, szMsgString, 256);
-			sprintf(out_buf, "%s : %s errno : %d", path.c_str(), szMsgString, error);
+			snprintf(out_buf, sizeof(out_buf), "%s : %s errno : %d", path.c_str(), szMsgString,
+				error);
 			write_log(IDS_CANT_START_THREAD, out_buf);
 
 			if (service_flag)
@@ -721,7 +722,7 @@ THREAD_ENTRY_DECLARE start_and_watch_server(THREAD_ENTRY_PARAM)
 		{
 			char szMsgString[256];
 			LoadString(hInstance_gbl, IDS_STARTING_GUARD, szMsgString, 256);
-			sprintf(out_buf, "%s: %s\n", szMsgString, path.c_str());
+			snprintf(out_buf, sizeof(out_buf), "%s: %s\n", szMsgString, path.c_str());
 			write_log(IDS_LOG_START, out_buf);
 		}
 
@@ -758,7 +759,8 @@ THREAD_ENTRY_DECLARE start_and_watch_server(THREAD_ENTRY_PARAM)
 			{
 				char szMsgString[256];
 				LoadString(hInstance_gbl, IDS_STARTUP_ERROR, szMsgString, 256);
-				sprintf(out_buf, "%s: %s (%lu)\n", path.c_str(), szMsgString, exit_status);
+				snprintf(out_buf, sizeof(out_buf), "%s: %s (%lu)\n", path.c_str(), szMsgString,
+					exit_status);
 				write_log(IDS_STARTUP_ERROR, out_buf);
 				done = true;
 
@@ -767,7 +769,8 @@ THREAD_ENTRY_DECLARE start_and_watch_server(THREAD_ENTRY_PARAM)
 			{
 				char szMsgString[256];
 				LoadString(hInstance_gbl, IDS_ABNORMAL_TERM, szMsgString, 256);
-				sprintf(out_buf, "%s: %s (%lu)\n", path.c_str(), szMsgString, exit_status);
+				snprintf(out_buf, sizeof(out_buf), "%s: %s (%lu)\n", path.c_str(), szMsgString,
+					exit_status);
 				write_log(IDS_LOG_TERM, out_buf);
 
 				// switch the icons if the server restarted
@@ -782,7 +785,7 @@ THREAD_ENTRY_DECLARE start_and_watch_server(THREAD_ENTRY_PARAM)
 			// Normal shutdown - ie: via ibmgr - don't restart the server
 			char szMsgString[256];
 			LoadString(hInstance_gbl, IDS_NORMAL_TERM, szMsgString, 256);
-			sprintf(out_buf, "%s: %s\n", path.c_str(), szMsgString);
+			snprintf(out_buf, sizeof(out_buf), "%s: %s\n", path.c_str(), szMsgString);
 			write_log(IDS_LOG_STOP, out_buf);
 			done = true;
 		}
@@ -888,7 +891,6 @@ LRESULT CALLBACK GeneralPage(HWND hDlg, UINT unMsg, WPARAM /*wParam*/, LPARAM lP
 			char szWindowText[MAXPATHLEN];
 			char szFullPath[MAXPATHLEN];
 			int index = 0;
-			const int NCOLS = 3;
 
 			// Display the number of times the server has been started by
 			//   this session of the guardian
@@ -934,6 +936,7 @@ LRESULT CALLBACK GeneralPage(HWND hDlg, UINT unMsg, WPARAM /*wParam*/, LPARAM lP
 			lvC.fmt = LVCFMT_LEFT;	// left-align column
 			lvC.pszText = szText;
 
+			static constexpr int NCOLS = 3;
 			for (index = 0; index < NCOLS; index++)
 			{
 				// NOTE:  IDS_ACTION = 220
@@ -1094,7 +1097,7 @@ static void write_log(int log_action, const char* buff)
  *                property sheet structure (log_entry) or to the Windows NT
  *                Event Log
  *****************************************************************************/
-	const size_t BUFF_SIZE = 512;
+	static constexpr size_t BUFF_SIZE = 512;
 	char tmp_buff[BUFF_SIZE];
 
 	// Move to the end of the log_entry list
@@ -1110,8 +1113,9 @@ static void write_log(int log_action, const char* buff)
 	time(&ltime);
 	const tm* today = localtime(&ltime);
 
-	sprintf(tmp->log_time, "%02d:%02d", today->tm_hour, today->tm_min);
-	sprintf(tmp->log_date, "%02d/%02d/%02d", today->tm_mon + 1, today->tm_mday, today->tm_year % 100);
+	snprintf(tmp->log_time, sizeof(tmp->log_time), "%02d:%02d", today->tm_hour, today->tm_min);
+	snprintf(tmp->log_date, sizeof(tmp->log_date), "%02d/%02d/%02d", today->tm_mon + 1, today->tm_mday,
+		today->tm_year % 100);
 #else
 	// TMN: Fixed this after bug-report. Should it really force
 	// 24hr format in e.g US, where they use AM/PM wharts?
@@ -1125,7 +1129,7 @@ static void write_log(int log_action, const char* buff)
 	{
 		// Only Windows 95 needs this information since it goes in the property sheet
 		LoadString(hInstance_gbl, log_action, tmp_buff, sizeof(tmp->log_action));
-		sprintf(tmp->log_action, "%s", tmp_buff);
+		snprintf(tmp->log_action, sizeof(tmp->log_action), "%s", tmp_buff);
 		tmp->next = NULL;
 		log_temp->next = tmp;
 	}
@@ -1143,7 +1147,7 @@ static void write_log(int log_action, const char* buff)
 			act_buff[0] = buffer;
 
 			LoadString(hInstance_gbl, log_action + 1, tmp_buff, sizeof(tmp_buff));
-			sprintf(act_buff[0], "%s", buff);
+			snprintf(act_buff[0], sizeof(buffer), "%s", buff);
 
 			LPTSTR lpMsgBuf;
 			FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |

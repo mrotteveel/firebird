@@ -147,7 +147,7 @@ void CNTL_shutdown_service(const TEXT* message)
 	const char* strings[2];
 	char buffer[BUFFER_SMALL];
 
-	sprintf(buffer, "%s error: %lu", service_name->c_str(), GetLastError());
+	snprintf(buffer, sizeof(buffer), "%s error: %lu", service_name->c_str(), GetLastError());
 
 	HANDLE event_source = RegisterEventSource(NULL, service_name->c_str());
 	if (event_source)
@@ -221,8 +221,6 @@ static void WINAPI control_thread( DWORD action)
  *	Process a service control request.
  *
  **************************************/
-	const DWORD state = SERVICE_RUNNING;
-
 	switch (action)
 	{
 	case SERVICE_CONTROL_STOP:
@@ -238,6 +236,7 @@ static void WINAPI control_thread( DWORD action)
 		break;
 	}
 
+	static constexpr DWORD state = SERVICE_RUNNING;
 	report_status(state, NO_ERROR, 0, 0);
 }
 
