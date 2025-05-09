@@ -56,9 +56,9 @@ public:
 	static const ISC_DATE TIME_TZ_BASE_DATE;
 	static const char GMT_FALLBACK[5];	// "GMT*"
 
-	static const USHORT GMT_ZONE = 65535;
-	static const unsigned MAX_LEN = 32;
-	static const unsigned MAX_SIZE = MAX_LEN + 1;
+	static inline constexpr USHORT GMT_ZONE = 65535;
+	static inline constexpr unsigned MAX_LEN = 32;
+	static inline constexpr unsigned MAX_SIZE = MAX_LEN + 1;
 
 private:
 	static InitInstance<PathName> tzDataPath;

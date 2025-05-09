@@ -448,8 +448,6 @@ int EXTRACT_list_table(const SCHAR* relation_name,
 				 FLD.RDB$FIELD_TYPE == blr_blob) &&
 				!FLD.RDB$CHARACTER_SET_ID.NULL)
 			{
-				char_sets[0] = '\0';
-
 				// Override rdb$fields id with relation_fields if present
 
 				if (!RFR.RDB$COLLATION_ID.NULL)
@@ -459,13 +457,12 @@ int EXTRACT_list_table(const SCHAR* relation_name,
 
 				if (!FLD.RDB$CHARACTER_SET_ID.NULL)
 					char_set_id = FLD.RDB$CHARACTER_SET_ID;
-				ISQL_get_character_sets(char_set_id, collation, default_char_set_id, Get::CHARSET_ONLY, false, true, char_sets);
+
+				char_sets[0] = '\0';
+				ISQL_get_character_sets(char_set_id, collation, default_char_set_id,
+					Get::CHARSET_ONLY, false, true, char_sets, sizeof(char_sets));
 				if (char_sets[0])
 					isqlGlob.prints(char_sets);
-				// CVC: Someone deleted the code that checks intchar when handling collations
-				// several lines below, so it didn't have any effect. Commented it.
-				//if (!char_set_id)
-				//	intchar = true;
 			}
 		}
 
@@ -483,7 +480,8 @@ int EXTRACT_list_table(const SCHAR* relation_name,
 			{
 				SCHAR collate_name[CHARSET_COLLATE_SIZE];
 				collate_name[0] = '\0';
-				ISQL_get_character_sets(char_set_id, collation, default_char_set_id, Get::COLLATE_ONLY, false, true, collate_name);
+				ISQL_get_character_sets(char_set_id, collation, default_char_set_id,
+					Get::COLLATE_ONLY, false, true, collate_name, sizeof(collate_name));
 
 				if (collate_name[0])
 				{
@@ -582,7 +580,8 @@ int EXTRACT_list_table(const SCHAR* relation_name,
 		if (!RFR.RDB$COLLATION_ID.NULL)
 		{
 			char_sets[0] = '\0';
-			ISQL_get_character_sets(char_set_id, collation, default_char_set_id, Get::COLLATE_ONLY, false, true, char_sets);
+			ISQL_get_character_sets(char_set_id, collation, default_char_set_id, Get::COLLATE_ONLY,
+				false, true, char_sets, sizeof(char_sets));
 			if (char_sets[0])
 				isqlGlob.prints(char_sets);
 		}
@@ -705,7 +704,7 @@ static void get_procedure_args(const char* proc_name, SSHORT default_char_set_id
  *  Make sure to pass here only the names of procedures that are global.
  *
  **************************************/
-	SCHAR char_sets[95];
+	SCHAR char_sets[CHARSET_COLLATE_SIZE];
 
 	// query to retrieve the parameters.
 
@@ -819,8 +818,9 @@ static void get_procedure_args(const char* proc_name, SSHORT default_char_set_id
 					!prm_collation_id_null)
 				{
 					char_sets[0] = '\0';
-					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, prm_collation_id, default_char_set_id, Get::COLLATE_ONLY,
-						!prm_null_flag_null && prm_null_flag, true, char_sets);
+					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, prm_collation_id,
+						default_char_set_id, Get::COLLATE_ONLY,
+						!prm_null_flag_null && prm_null_flag, true, char_sets, sizeof(char_sets));
 					if (char_sets[0])
 						isqlGlob.prints(char_sets);
 				}
@@ -863,8 +863,6 @@ static void get_procedure_args(const char* proc_name, SSHORT default_char_set_id
 					!(((FLD.RDB$FIELD_TYPE == blr_text) || (FLD.RDB$FIELD_TYPE == blr_varying)) &&
 					  FLD.RDB$FIELD_SUB_TYPE != fb_text_subtype_text))
 				{
-					char_sets[0] = 0;
-
 					SSHORT collation = 0;
 
 					if (!prm_collation_id_null)
@@ -875,8 +873,10 @@ static void get_procedure_args(const char* proc_name, SSHORT default_char_set_id
 					if (FLD.RDB$CHARACTER_SET_ID.NULL)
 						FLD.RDB$CHARACTER_SET_ID = 0;
 
-					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, collation, default_char_set_id, Get::BOTH,
-						!prm_null_flag_null && prm_null_flag, true, char_sets);
+					char_sets[0] = 0;
+					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, collation,
+						default_char_set_id, Get::BOTH,
+						!prm_null_flag_null && prm_null_flag, true, char_sets, sizeof(char_sets));
 					if (char_sets[0])
 						isqlGlob.prints(char_sets);
 				}
@@ -926,7 +926,7 @@ static void get_function_args_ods12(const char* func_name, USHORT out_arg, SSHOR
  *  Make sure to pass here only the names of functions that are global.
  *
  **************************************/
-	SCHAR char_sets[95];
+	SCHAR char_sets[CHARSET_COLLATE_SIZE];
 
 	// Pass 0 - inputs, pass 1 - return value
 
@@ -1043,8 +1043,9 @@ static void get_function_args_ods12(const char* func_name, USHORT out_arg, SSHOR
 					!prm_collation_id_null)
 				{
 					char_sets[0] = '\0';
-					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, prm_collation_id, default_char_set_id, Get::COLLATE_ONLY,
-						!prm_null_flag_null && prm_null_flag, true, char_sets);
+					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, prm_collation_id,
+						default_char_set_id, Get::COLLATE_ONLY,
+						!prm_null_flag_null && prm_null_flag, true, char_sets, sizeof(char_sets));
 					if (char_sets[0])
 						isqlGlob.prints(char_sets);
 				}
@@ -1087,8 +1088,6 @@ static void get_function_args_ods12(const char* func_name, USHORT out_arg, SSHOR
 					!(((FLD.RDB$FIELD_TYPE == blr_text) || (FLD.RDB$FIELD_TYPE == blr_varying)) &&
 					  FLD.RDB$FIELD_SUB_TYPE != fb_text_subtype_text))
 				{
-					char_sets[0] = 0;
-
 					SSHORT collation = 0;
 
 					if (!prm_collation_id_null)
@@ -1099,9 +1098,10 @@ static void get_function_args_ods12(const char* func_name, USHORT out_arg, SSHOR
 					if (FLD.RDB$CHARACTER_SET_ID.NULL)
 						FLD.RDB$CHARACTER_SET_ID = 0;
 
-					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, collation, default_char_set_id, Get::BOTH,
-						!prm_null_flag_null && prm_null_flag, true, char_sets);
-
+					char_sets[0] = 0;
+					ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, collation,
+						default_char_set_id, Get::BOTH,
+						!prm_null_flag_null && prm_null_flag, true, char_sets, sizeof(char_sets));
 					if (char_sets[0])
 						isqlGlob.prints(char_sets);
 				}
@@ -2326,9 +2326,9 @@ static void list_domain_table(const SCHAR* table_name, SSHORT default_char_set_i
 			!(((FLD.RDB$FIELD_TYPE == blr_text) || (FLD.RDB$FIELD_TYPE == blr_varying)) &&
 			  FLD.RDB$FIELD_SUB_TYPE != fb_text_subtype_text))
 		{
-
 			char_sets[0] = 0;
-			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID, default_char_set_id, Get::CHARSET_ONLY, false, true, char_sets);
+			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID,
+				default_char_set_id, Get::CHARSET_ONLY, false, true, char_sets, sizeof(char_sets));
 			if (char_sets[0])
 				isqlGlob.prints(char_sets);
 		}
@@ -2356,9 +2356,8 @@ static void list_domain_table(const SCHAR* table_name, SSHORT default_char_set_i
 		if (!FLD.RDB$COLLATION_ID.NULL)
 		{
 			char_sets[0] = 0;
-			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID, default_char_set_id, Get::COLLATE_ONLY,
-				false, true, char_sets);
-
+			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID,
+				default_char_set_id, Get::COLLATE_ONLY, false, true, char_sets, sizeof(char_sets));
 			if (char_sets[0])
 				isqlGlob.prints(char_sets);
 		}
@@ -2449,7 +2448,8 @@ static void list_domains(SSHORT default_char_set_id)
 			  FLD.RDB$FIELD_SUB_TYPE != fb_text_subtype_text))
 		{
 			char_sets[0] = 0;
-			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID, default_char_set_id, Get::CHARSET_ONLY, false, true, char_sets);
+			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID,
+				default_char_set_id, Get::CHARSET_ONLY, false, true, char_sets, sizeof(char_sets));
 			if (char_sets[0])
 				isqlGlob.prints(char_sets);
 		}
@@ -2473,9 +2473,8 @@ static void list_domains(SSHORT default_char_set_id)
 		if (!FLD.RDB$COLLATION_ID.NULL)
 		{
 			char_sets[0] = 0;
-			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID, default_char_set_id, Get::COLLATE_ONLY,
-				false, true, char_sets);
-
+			ISQL_get_character_sets(FLD.RDB$CHARACTER_SET_ID, FLD.RDB$COLLATION_ID,
+				default_char_set_id, Get::COLLATE_ONLY, false, true, char_sets, sizeof(char_sets));
 			if (char_sets[0])
 				isqlGlob.prints(char_sets);
 		}
@@ -2615,11 +2614,11 @@ static void listRelationComputed(LegacyTables flag, SSHORT default_char_set_id)
 				if ((FLD.RDB$FIELD_TYPE == blr_text || FLD.RDB$FIELD_TYPE == blr_varying) &&
 					!RFR.RDB$COLLATION_ID.NULL)
 				{
-					char_sets[0] = '\0';
 					collation = RFR.RDB$COLLATION_ID;
 					char_set_id = FLD.RDB$CHARACTER_SET_ID;
-					ISQL_get_character_sets(char_set_id, collation, default_char_set_id, Get::COLLATE_ONLY, false, true, char_sets);
-
+					char_sets[0] = '\0';
+					ISQL_get_character_sets(char_set_id, collation, default_char_set_id,
+						Get::COLLATE_ONLY, false, true, char_sets, sizeof(char_sets));
 					if (char_sets[0])
 						isqlGlob.prints(char_sets);
 				}
@@ -2667,8 +2666,6 @@ static void listRelationComputed(LegacyTables flag, SSHORT default_char_set_id)
 					 FLD.RDB$FIELD_TYPE == blr_blob) &&
 					!FLD.RDB$CHARACTER_SET_ID.NULL)
 				{
-					char_sets[0] = '\0';
-
 					// Override rdb$fields id with relation_fields if present
 
 					if (!RFR.RDB$COLLATION_ID.NULL)
@@ -2678,17 +2675,16 @@ static void listRelationComputed(LegacyTables flag, SSHORT default_char_set_id)
 
 					if (!FLD.RDB$CHARACTER_SET_ID.NULL)
 						char_set_id = FLD.RDB$CHARACTER_SET_ID;
+
 					if (char_set_id != default_char_set_id)
 					{
+						char_sets[0] = '\0';
 						// Currently ALTER TABLE syntax doesn't allow collation here.
-						ISQL_get_character_sets(char_set_id, collation, default_char_set_id, Get::CHARSET_ONLY, false, true, char_sets);
+						ISQL_get_character_sets(char_set_id, collation, default_char_set_id,
+							Get::CHARSET_ONLY, false, true, char_sets, sizeof(char_sets));
+						if (char_sets[0])
+							isqlGlob.prints(char_sets);
 					}
-					if (char_sets[0])
-						isqlGlob.prints(char_sets);
-					// CVC: Someone deleted the code that checks intchar when handling collations
-					// several lines below, so it didn't have any effect. Commented it.
-					//if (!char_set_id)
-					//	intchar = true;
 				}
 			}
 
