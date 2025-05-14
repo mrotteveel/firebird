@@ -457,7 +457,7 @@ public:
 
 			case TRIGGER_TYPE_DB:
 				{
-					m_action = type + DB_TRIGGER_MAX - 1;
+					m_action = type + TRIGGER_CONNECT;
 
 					fb_assert(m_action == TRIGGER_CONNECT ||
 							  m_action == TRIGGER_DISCONNECT ||

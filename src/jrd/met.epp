@@ -480,19 +480,15 @@ void MetadataCache::cleanup(thread_db* tdbb)
 	mdc_functions.cleanup(tdbb);
 	mdc_charsets.cleanup(tdbb);
 
-	auto cleanSet = [tdbb](TriggersSet& set)
+	for (unsigned i = 0; i < DB_TRIGGERS_COUNT; ++i)
 	{
-		auto* ptr = set.load(atomics::memory_order_relaxed);
+		auto* ptr = mdc_triggers[i].load(atomics::memory_order_relaxed);
 		if (ptr)
 		{
 			Cached::Triggers::cleanup(tdbb, ptr);
-			set.store(nullptr, atomics::memory_order_relaxed);
+			mdc_triggers[i].store(nullptr, atomics::memory_order_relaxed);
 		}
-	};
-
-	for (unsigned i = 1; i < DB_TRIGGER_MAX; ++i)
-		cleanSet(mdc_triggers[i]);
-	cleanSet(mdc_ddl_triggers);
+	}
 }
 
 
@@ -520,10 +516,8 @@ void MetadataCache::clear(thread_db* tdbb)
 
 	// Release global (db-level and DDL) triggers
 
-	for (unsigned i = 0; i < DB_TRIGGER_MAX; i++)
+	for (unsigned i = 0; i < DB_TRIGGERS_COUNT; i++)
 		MET_release_triggers(tdbb, &att->att_triggers[i], false);
-
-	MET_release_triggers(tdbb, &att->att_ddl_triggers, false);
 
 	// Release relation triggers
 
@@ -1522,30 +1516,30 @@ ScanResult DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	CHECK_DBB(dbb);
 
 	auto type = perm->getId();
-	bool found = false;
+	FB_UINT64 mask = (type == DB_TRIGGER_DDL) ? TRIGGER_TYPE_MASK : ~FB_UINT64(0);
+	type = (type == DB_TRIGGER_DDL) ? TRIGGER_TYPE_DDL : type | TRIGGER_TYPE_DB;
 
 	AutoRequest trigger_request;
+	jrd_tra* trans = tdbb->getTransaction() ? tdbb->getTransaction() : attachment->getSysTransaction();
 
-	FOR(REQUEST_HANDLE trigger_request)
+	FOR(REQUEST_HANDLE trigger_request TRANSACTION_HANDLE trans)
 		TRG IN RDB$TRIGGERS
 		WITH TRG.RDB$RELATION_NAME MISSING AND
 			 TRG.RDB$TRIGGER_INACTIVE EQ 0
 		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 	{
-		if ((TRG.RDB$TRIGGER_TYPE == type | TRIGGER_TYPE_DB) ||
-			(type == DB_TRIGGER_MAX && (TRG.RDB$TRIGGER_TYPE & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL))
+		if ((TRG.RDB$TRIGGER_TYPE & mask) == type)
 		{
-			found = true;
 			MET_load_trigger(tdbb, nullptr, TRG.RDB$TRIGGER_NAME, [this](int)->Triggers& {return *this;});
 		}
 	}
 	END_FOR
 
-	return found ? ScanResult::COMPLETE : ScanResult::MISS;
+	return ScanResult::COMPLETE;
 }
 
 
-void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
+void MetadataCache::loadDbTriggers(thread_db* tdbb, unsigned int type)
 {
 /**************************************
  *
@@ -1563,46 +1557,37 @@ void MetadataCache::load_db_triggers(thread_db* tdbb, int type, bool force)
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
+	fb_assert(type < DB_TRIGGERS_COUNT);
 	auto* cacheElement = mdc_triggers[type].load(atomics::memory_order_acquire);
-	if (force || !cacheElement)
-	{
-		if (!cacheElement)
-		{
-			// actual type will be taken into an account in DbTriggers::scan
-			auto* newCacheElement = FB_NEW_POOL(getPool())
-				Cached::Triggers(tdbb, getPool(), type, DbTriggers::makeLock, NoData());
-			if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
-				atomics::memory_order_release, atomics::memory_order_acquire))
-			{
-				cacheElement = newCacheElement;
-			}
-			else
-			{
-				delete newCacheElement;
-				return;
-			}
-		}
 
-		DbTriggers* triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
-		try
+	if (!cacheElement)
+	{
+		// actual type will be taken into an account in DbTriggers::scan
+		auto* newCacheElement = FB_NEW_POOL(getPool())
+			Cached::Triggers(tdbb, getPool(), type, DbTriggers::makeLock, NoData());
+		if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
+			atomics::memory_order_release, atomics::memory_order_acquire))
 		{
-			if (cacheElement->storeObject(tdbb, triggers, 0) == StoreResult::DUP)
-				DbTriggers::destroy(tdbb, triggers);
+			cacheElement = newCacheElement;
 		}
-		catch(const Exception&)
+		else
 		{
-			DbTriggers::destroy(tdbb, triggers);
-			throw;
+			delete newCacheElement;
+			return;
 		}
 	}
-}
 
-
-// Load DDL triggers from RDB$TRIGGERS.
-void MetadataCache::load_ddl_triggers(thread_db* tdbb, bool force)
-{
-	// actual type will be taken into an account in DbTriggers::scan
-	load_db_triggers(tdbb, DB_TRIGGER_MAX, force);
+	DbTriggers* triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
+	try
+	{
+		if (cacheElement->storeObject(tdbb, triggers, 0) == StoreResult::DUP)
+			DbTriggers::destroy(tdbb, triggers);
+	}
+	catch(const Exception&)
+	{
+		DbTriggers::destroy(tdbb, triggers);
+		throw;
+	}
 }
 
 
@@ -4809,14 +4794,14 @@ void MetadataCache::invalidateReplSet(thread_db* tdbb)
 
 Cached::Triggers* MetadataCache::getTriggersSet(thread_db* tdbb, MetaId triggerId)
 {
-	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DB)
+	if ((triggerId & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DB)
 	{
 		triggerId &= ~TRIGGER_TYPE_MASK;
 		return mdc_triggers[triggerId].load(atomics::memory_order_acquire);
 	}
 
-	if (triggerId & TRIGGER_TYPE_MASK == TRIGGER_TYPE_DDL)
-		return mdc_ddl_triggers.load(atomics::memory_order_acquire);
+	if ((triggerId & TRIGGER_TYPE_MASK) == TRIGGER_TYPE_DDL)
+		return mdc_triggers[DB_TRIGGER_DDL].load(atomics::memory_order_acquire);
 
 	return nullptr;
 }

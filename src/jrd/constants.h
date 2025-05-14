@@ -323,7 +323,7 @@ enum TriggerAction {
 	TRIGGER_UPDATE = 2,
 	TRIGGER_DELETE = 3,
 	TRIGGER_CONNECT = 4,
-	TRIGGER_DISCONNECT  = 5,
+	TRIGGER_DISCONNECT = 5,
 	TRIGGER_TRANS_START = 6,
 	TRIGGER_TRANS_COMMIT = 7,
 	TRIGGER_TRANS_ROLLBACK = 8,
@@ -342,7 +342,8 @@ const unsigned DB_TRIGGER_DISCONNECT		= 1;
 const unsigned DB_TRIGGER_TRANS_START		= 2;
 const unsigned DB_TRIGGER_TRANS_COMMIT		= 3;
 const unsigned DB_TRIGGER_TRANS_ROLLBACK	= 4;
-const unsigned DB_TRIGGER_MAX				= 5;
+const unsigned DB_TRIGGER_DDL				= 5;
+const unsigned DB_TRIGGERS_COUNT			= 6;
 
 static const char* const DDL_TRIGGER_ACTION_NAMES[][2] =
 {

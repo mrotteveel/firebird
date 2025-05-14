@@ -2154,14 +2154,14 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				{
 					// load all database triggers
 					MetadataCache* mdc = dbb->dbb_mdc;
-					mdc->load_db_triggers(tdbb, DB_TRIGGER_CONNECT);
-					mdc->load_db_triggers(tdbb, DB_TRIGGER_DISCONNECT);
-					mdc->load_db_triggers(tdbb, DB_TRIGGER_TRANS_START);
-					mdc->load_db_triggers(tdbb, DB_TRIGGER_TRANS_COMMIT);
-					mdc->load_db_triggers(tdbb, DB_TRIGGER_TRANS_ROLLBACK);
+					mdc->loadDbTriggers(tdbb, DB_TRIGGER_CONNECT);
+					mdc->loadDbTriggers(tdbb, DB_TRIGGER_DISCONNECT);
+					mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_START);
+					mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_COMMIT);
+					mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_ROLLBACK);
 
 					// load DDL triggers
-					mdc->load_ddl_triggers(tdbb);
+					mdc->loadDbTriggers(tdbb, DB_TRIGGER_DDL);
 
 					auto* trig_connect = dbb->dbb_mdc->getTriggers(tdbb, DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
 					if (trig_connect && *trig_connect)

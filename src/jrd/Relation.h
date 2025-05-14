@@ -893,7 +893,7 @@ public:
 	static int rescan_ast_relation(void* ast_object);
 	static int blocking_ast_relation(void* ast_object);
 
-	void tagForUpdate(thread_db* tdbb);	// Relation must be updated on next use or commit
+	// Relation must be updated on next use or commit
 	static void tagForUpdate(thread_db* tdbb, const MetaName name);
 
 	vec<Format*>*	rel_formats;		// Known record formats

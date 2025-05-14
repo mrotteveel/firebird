@@ -234,7 +234,6 @@ public:
 		  mdc_procedures(getPool()),
 		  mdc_functions(getPool()),
 		  mdc_charsets(getPool()),
-		  mdc_ddl_triggers(nullptr),
 		  mdc_version(0),
 		  mdc_cleanup_queue(pool)
 	{
@@ -287,8 +286,7 @@ public:
 #endif
 	static void clear(thread_db* tdbb);
 	static void update_partners(thread_db* tdbb);
-	void load_db_triggers(thread_db* tdbb, int type, bool force = false);
-	void load_ddl_triggers(thread_db* tdbb, bool force = false);
+	void loadDbTriggers(thread_db* tdbb, unsigned int type);
 	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
@@ -551,8 +549,7 @@ private:
 	CacheVector<Cached::Procedure>		mdc_procedures;
 	CacheVector<Cached::Function>		mdc_functions;	// User defined functions
 	CacheVector<Cached::CharSet>		mdc_charsets;	// intl character set descriptions
-	TriggersSet							mdc_triggers[DB_TRIGGER_MAX];
-	TriggersSet							mdc_ddl_triggers;
+	TriggersSet							mdc_triggers[DB_TRIGGERS_COUNT];
 
 	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums???????????????)
 	CleanupQueue						mdc_cleanup_queue;

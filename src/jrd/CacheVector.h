@@ -75,14 +75,17 @@ public:
 
 namespace CacheFlag
 {
-	static const ObjectBase::Flag COMMITTED =	0x01;		// version already committed
-	static const ObjectBase::Flag ERASED =		0x02;		// object erased
-	static const ObjectBase::Flag NOSCAN =		0x04;		// do not call Versioned::scan()
-	static const ObjectBase::Flag AUTOCREATE =	0x08;		// create initial version automatically
-	static const ObjectBase::Flag NOCOMMIT =	0x10;		// do not commit created version
-	static const ObjectBase::Flag RET_ERASED =	0x20;		// return erased objects
-	static const ObjectBase::Flag RETIRED = 	0x40;		// object is in a process of GC
-	static const ObjectBase::Flag UPGRADE = 	0x80;		// create new versions for already existing in a cache objects
+	static constexpr ObjectBase::Flag COMMITTED =	0x01;		// version already committed
+	static constexpr ObjectBase::Flag ERASED =		0x02;		// object erased
+	static constexpr ObjectBase::Flag NOSCAN =		0x04;		// do not call Versioned::scan()
+	static constexpr ObjectBase::Flag AUTOCREATE =	0x08;		// create initial version automatically
+	static constexpr ObjectBase::Flag NOCOMMIT =	0x10;		// do not commit created version
+	static constexpr ObjectBase::Flag RET_ERASED =	0x20;		// return erased objects
+	static constexpr ObjectBase::Flag RETIRED = 	0x40;		// object is in a process of GC
+	static constexpr ObjectBase::Flag UPGRADE = 	0x80;		// create new versions for already existing in a cache objects
+
+	// Useful combinations
+	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | NOSCAN;
 }
 
 
@@ -787,6 +790,31 @@ public:
 		return Versioned::objectType();
 	}
 
+	void tagForUpdate(thread_db* tdbb)
+	{
+		TraNumber traNum;
+
+		switch (isAvailable(tdbb, &traNum))
+		{
+		case OCCUPIED:
+			Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is used by transaction %d\n",
+				Versioned::objectFamily(this), this->c_name(), traNum);
+
+		case MODIFIED:
+			return;
+
+		case MISSING:
+		case READY:
+			if (scanInProgress())
+			{
+				Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is scanned by us\n",
+					Versioned::objectFamily(this), this->c_name());
+			}
+			makeObject(tdbb, CacheFlag::TAG_FOR_UPDATE);
+			return;
+		}
+	}
+
 private:
 	void setNewResetAt(TraNumber oldVal, TraNumber newVal)
 	{
@@ -979,31 +1007,10 @@ public:
 
 			StoredElement* data = ptr->load(atomics::memory_order_acquire);
 			if (data)
-			{
-				TraNumber traNum;
-				switch (data->isAvailable(tdbb, &traNum))
-				{
-				case StoredElement::OCCUPIED:
-					Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is used by transaction %d\n",
-						Versioned::objectFamily(data), data->c_name(), traNum);
-
-				case StoredElement::MODIFIED:
-					return;
-
-				case StoredElement::MISSING:
-				case StoredElement::READY:
-					if (data->scanInProgress())
-					{
-						Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is scanned by us\n",
-							Versioned::objectFamily(data), data->c_name());
-					}
-					data->makeObject(tdbb, fl);
-					return;
-				}
-			}
+				data->tagForUpdate(tdbb);
 		}
 
-		makeObject(tdbb, id, fl);
+		makeObject(tdbb, id, CacheFlag::TAG_FOR_UPDATE);
 	}
 
 	template <typename F>
