@@ -76,40 +76,6 @@ namespace
 			ERR_post(Arg::Gds(isc_bad_trans_handle));
 		}
 	}
-
-	bool isSystemRelation(thread_db* tdbb, jrd_tra* transaction, const char* relName)
-	{
-		bool rc = false;
-
-		AutoCacheRequest handle(tdbb, irq_system_relation, IRQ_REQUESTS);
-		FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
-			R IN RDB$RELATIONS WITH
-			R.RDB$RELATION_NAME EQ relName AND
-			R.RDB$SYSTEM_FLAG EQ 1
-		{
-			rc = true;
-		}
-		END_FOR
-
-		return rc;
-	}
-
-	bool isSystemDomain(thread_db* tdbb, jrd_tra* transaction, const char* fldName)
-	{
-		bool rc = false;
-
-		AutoCacheRequest handle(tdbb, irq_system_domain, IRQ_REQUESTS);
-		FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
-			R IN RDB$FIELDS WITH
-			R.RDB$FIELD_NAME EQ fldName AND
-			R.RDB$SYSTEM_FLAG EQ 1
-		{
-			rc = true;
-		}
-		END_FOR
-
-		return rc;
-	}
 }
 
 
