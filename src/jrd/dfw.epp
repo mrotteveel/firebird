@@ -373,7 +373,6 @@ static bool delete_index(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool commit_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool create_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
-static bool scan_relation(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool create_trigger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool delete_trigger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool modify_trigger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
@@ -410,11 +409,8 @@ static string remove_icu_info_from_attributes(const string&, const string&);
 static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
 	const MetaName& fieldName);
 static void check_filename(const Firebird::string&, bool);
-static void cleanup_index_creation(thread_db*, DeferredWork*, jrd_tra*);
 static bool	find_depend_in_dfw(thread_db*, TEXT*, USHORT, USHORT, jrd_tra*);
-static void get_array_desc(thread_db*, const TEXT*, Ods::InternalArrayDesc*);
 static void get_trigger_dependencies(DeferredWork*, bool, jrd_tra*);
-static bool validate_text_type (thread_db*, const TemporaryField*);
 
 static string get_string(const dsc* desc);
 static void setupSpecificCollationAttributes(thread_db*, jrd_tra*, const CSetId, const char*, bool);
@@ -511,24 +507,6 @@ void DFW_raiseRelationInUseError(const Cached::Relation* relation)
 	const string obj_name = relation->c_name();
 
 	raiseObjectInUseError(obj_type, obj_name);
-}
-
-/*
-static void raiseRoutineInUseError(const RoutinePermanent* routine, const QualifiedName& name)
-{
-	const string obj_type =
-		(routine->getObjectType() == obj_udf) ? "FUNCTION" : "PROCEDURE";
-	const string obj_name = routine->getName().toString();
-
-	raiseObjectInUseError(obj_type, obj_name.hasData() ? obj_name : name.toString());
-}
-*/
-
-static void raiseTooManyVersionsError(const int obj_type, const string& obj_name)
-{
-	ERR_post(Arg::Gds(isc_no_meta_update) <<
-			 Arg::Gds(getErrorCodeByObjectType(obj_type)) << Arg::Str(obj_name) <<
-			 Arg::Gds(isc_version_err));
 }
 
 void Jrd::ProtectRelations::relLock::takeLock(thread_db* tdbb, jrd_tra* transaction)
@@ -3630,78 +3608,6 @@ static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 	}
 
 	return false;
-}
-
-static bool validate_text_type(thread_db* tdbb, const TemporaryField* tfb)
-{
-/**************************************
- *
- *	v a l i d a t e _ t e x t _ t y p e
- *
- **************************************
- *
- * Functional description
- *	Make sure the text type specified is implemented
- *
- **************************************/
-
-	TTypeId ttId = tfb->tfb_desc.getTextType();
-	switch(ttId)
-	{
-	case TTypeId(CS_NONE):
-	case TTypeId(CS_BINARY):
-		break;
-
-	default:
-		return INTL_defined_type(tdbb, ttId);
-	}
-
-	return true;
-}
-
-
-static void get_array_desc(thread_db* tdbb, const TEXT* field_name, Ods::InternalArrayDesc* desc)
-{
-/**************************************
- *
- *	g e t _ a r r a y _ d e s c
- *
- **************************************
- *
- * Functional description
- *	Get array descriptor for an array.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-
-	AutoCacheRequest request(tdbb, irq_r_fld_dim, IRQ_REQUESTS);
-
-	Ods::InternalArrayDesc::iad_repeat* ranges = 0;
-	FOR (REQUEST_HANDLE request)
-		D IN RDB$FIELD_DIMENSIONS WITH D.RDB$FIELD_NAME EQ field_name
-	{
-		if (D.RDB$DIMENSION >= 0 && D.RDB$DIMENSION < desc->iad_dimensions)
-		{
-			ranges = desc->iad_rpt + D.RDB$DIMENSION;
-			ranges->iad_lower = D.RDB$LOWER_BOUND;
-			ranges->iad_upper = D.RDB$UPPER_BOUND;
-		}
-	}
-	END_FOR
-
-	desc->iad_count = 1;
-
-	for (ranges = desc->iad_rpt + desc->iad_dimensions; --ranges >= desc->iad_rpt;)
-	{
-		ranges->iad_length = desc->iad_count;
-		desc->iad_count *= ranges->iad_upper - ranges->iad_lower + 1;
-	}
-
-	desc->iad_version = Ods::IAD_VERSION_1;
-	desc->iad_length = IAD_LEN(MAX(desc->iad_struct_count, desc->iad_dimensions));
-	desc->iad_element_length = desc->iad_rpt[0].iad_desc.dsc_length;
-	desc->iad_total_length = desc->iad_element_length * desc->iad_count;
 }
 
 
