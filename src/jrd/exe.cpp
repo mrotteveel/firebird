@@ -851,14 +851,14 @@ void EXE_release(thread_db* tdbb, Request* request)
 		request->req_attachment = nullptr;
 	}
 
-	if (request->isUsed())
-		request->setUnused();
-
 	if (request->req_timer)
 	{
 		request->req_timer->stop();
 		request->req_timer = nullptr;
 	}
+
+	if (request->isUsed())
+		request->setUnused();
 }
 
 
@@ -1454,7 +1454,7 @@ void EXE_execute_triggers(thread_db* tdbb,
 				if (trigger_action == TRIGGER_DISCONNECT)
 				{
 					if (!trigger->req_timer)
-						trigger->req_timer = FB_NEW_POOL(*tdbb->getAttachment()->att_pool) TimeoutTimer();
+						trigger->req_timer = FB_NEW_POOL(MetadataCache::get(tdbb)->getPool()) TimeoutTimer();
 
 					const unsigned int timeOut = tdbb->getDatabase()->dbb_config->getOnDisconnectTrigTimeout() * 1000;
 					trigger->req_timer->setup(timeOut, isc_cfg_stmt_timeout);
