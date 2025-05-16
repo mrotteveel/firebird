@@ -3561,30 +3561,32 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 		case rel_triggers:
 			{
-				bool onRelation = EVL_field(0, org_rpb->rpb_record, f_trg_rname, &desc1);
+				dsc rname, tname;
+
+				bool onRelation = EVL_field(0, org_rpb->rpb_record, f_trg_rname, &rname);
 
 				if (!check_nullify_source(tdbb, org_rpb, new_rpb, f_trg_source))
 					protect_system_table_delupd(tdbb, relation, "UPDATE");
 				else if (onRelation)
-					SCL_check_relation(tdbb, &desc1, SCL_control | SCL_alter);
+					SCL_check_relation(tdbb, &rname, SCL_control | SCL_alter);
 
 				if (dfw_should_know(tdbb, org_rpb, new_rpb, f_trg_desc, true))
 				{
 					USHORT trg_type = EVL_field(0, org_rpb->rpb_record, f_trg_type, &desc2) ?
 						(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
 
-					EVL_field(0, org_rpb->rpb_record, f_trg_name, &desc1);
-					DFW_post_work(transaction, dfw_modify_trigger, &desc1, trg_type);
+					EVL_field(0, org_rpb->rpb_record, f_trg_name, &tname);
+					DFW_post_work(transaction, dfw_modify_trigger, &tname, trg_type);
 
 					if (onRelation)
 					{
-						MOV_get_metaname(tdbb, &desc1, object_name);
+						MOV_get_metaname(tdbb, &rname, object_name);
 						RelationPermanent::tagForUpdate(tdbb, object_name);
 
 						USHORT new_trg_type = EVL_field(0, new_rpb->rpb_record, f_trg_type, &desc2) ?
 							(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
 						if (new_trg_type != trg_type)
-							DFW_post_work(transaction, dfw_modify_trigger, &desc1, new_trg_type);
+							DFW_post_work(transaction, dfw_modify_trigger, &tname, new_trg_type);
 					}
 					else
 					{

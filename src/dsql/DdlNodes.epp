@@ -3059,6 +3059,23 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 			END_MODIFY
 		}
 		END_FOR
+
+		static const CachedRequestId rq3id;
+		AutoCacheRequest request3(tdbb, rq3id);
+
+		FOR (REQUEST_HANDLE request3 TRANSACTION_HANDLE transaction)
+			P IN RDB$PROCEDURES
+			WITH P.RDB$PROCEDURE_NAME EQ name.c_str() AND
+				 P.RDB$PACKAGE_NAME EQUIV NULLIF(package.c_str(), '')
+		{
+			MODIFY P
+			{
+				P.RDB$PROCEDURE_INPUTS = (USHORT) parameters.getCount();
+				P.RDB$PROCEDURE_OUTPUTS = (USHORT) returns.getCount();
+			}
+			END_MODIFY
+		}
+		END_FOR
 	}
 
 	if (secondPass && modified)
@@ -3723,8 +3740,6 @@ void CreateAlterTriggerNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlS
 {
 	fb_assert(create || alter);
 
-	Attachment* const attachment = transaction->getAttachment();
-
 	source.ltrim("\n\r\t ");
 
 	// run all statements under savepoint control
@@ -3737,6 +3752,9 @@ void CreateAlterTriggerNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlS
 
 	if (alter)
 	{
+		// DB-wide triggers are preloaded in a cache during attachDatabase(),
+		// i.e. no need in something like oldVersion<>() call here.
+
 		if (!modify(tdbb, dsqlScratch, transaction))
 		{
 			if (create)	// create or alter
@@ -9182,6 +9200,7 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 		}
 
 		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
+		DFW_post_work(transaction, dfw_commit_relation, nullptr, rel->getId());
 
 		if (beforeTriggerWasExecuted)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_TABLE, name, nullptr);

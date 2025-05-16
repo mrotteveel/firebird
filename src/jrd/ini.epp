@@ -608,7 +608,12 @@ namespace
 		void make(thread_db* tdbb)
 		{
 			for (auto relName : *this)
+			{
 				RelationNode::makeVersion(tdbb, tdbb->getTransaction(), relName);
+				auto* rel = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
+				fb_assert(rel);
+				rel->makeObject(tdbb, CacheFlag::AUTOCREATE);
+			}
 		}
 	};
 

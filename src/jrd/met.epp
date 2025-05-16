@@ -295,11 +295,9 @@ void MetadataCache::update_partners(thread_db* tdbb)
 }
 
 
+#ifdef NEVERDEF
 void MetadataCache::verify_cache(thread_db* tdbb)
 {
-#ifndef NEVERDEF //DEV_BUILD
-}
-#else // NEVERDEF
 /**************************************
  *
  *      M E T _ v e r i f y _ c a c h e
@@ -726,7 +724,15 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 		relation_name.makeText(sizeof(X.RDB$RELATION_NAME) - 1, CS_METADATA,
 			(UCHAR*) X.RDB$RELATION_NAME);
 		SCL_check_relation(tdbb, &relation_name, SCL_alter);
-		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
+		{
+			AutoSetRestore2<jrd_tra*, thread_db> tempTrans(tdbb,
+				&thread_db::getTransaction,
+				&thread_db::setTransaction,
+				transaction);
+
+			MetadataCache::tagForUpdate<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
+		}
+		DFW_post_work(transaction, dfw_commit_relation, nullptr, R.RDB$RELATION_ID);
 
 		AutoCacheRequest request2(tdbb, irq_m_fields4, IRQ_REQUESTS);
 
@@ -763,11 +769,16 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 					 DEP.RDB$DEPENDENT_NAME EQ TRG.RDB$TRIGGER_NAME
 		{
 			MetaName trigger_name(TRG.RDB$TRIGGER_NAME);
+			MetaName relation_name(TRG.RDB$RELATION_NAME);
 
 			dsc desc;
 			desc.makeText(trigger_name.length(), CS_METADATA, (UCHAR*) trigger_name.c_str());
 
-			DFW_post_work(transaction, dfw_modify_trigger, &desc, TRG.RDB$TRIGGER_TYPE);
+			DeferredWork* dw2 =
+				DFW_post_work(transaction, dfw_modify_trigger, &desc, TRG.RDB$TRIGGER_TYPE);
+
+			desc.makeText(relation_name.length(), CS_METADATA, (UCHAR*) relation_name.c_str());
+			DFW_post_work_arg(transaction, dw2, &desc, 0, dfw_arg_check_blr);
 		}
 		END_FOR
 
@@ -851,11 +862,16 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 				 DEP.RDB$DEPENDENT_NAME EQ TRG.RDB$TRIGGER_NAME
 	{
 		MetaName trigger_name(TRG.RDB$TRIGGER_NAME);
+		MetaName relation_name(TRG.RDB$RELATION_NAME);
 
 		dsc desc;
 		desc.makeText(trigger_name.length(), CS_METADATA, (UCHAR*) trigger_name.c_str());
 
-		DFW_post_work(transaction, dfw_modify_trigger, &desc, 0);
+		DeferredWork* dw2 =
+			DFW_post_work(transaction, dfw_modify_trigger, &desc, TRG.RDB$TRIGGER_TYPE);
+
+		desc.makeText(relation_name.length(), CS_METADATA, (UCHAR*) relation_name.c_str());
+		DFW_post_work_arg(transaction, dw2, &desc, 0, dfw_arg_check_blr);
 	}
 	END_FOR
 

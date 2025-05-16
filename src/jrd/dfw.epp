@@ -1148,16 +1148,15 @@ static const deferred_task task_table[] =
 	{ dfw_delete_field, delete_field },
 	{ dfw_modify_field, modify_field },
 	{ dfw_delete_global, delete_global },
-	{ dfw_commit_relation, commit_relation },
 	{ dfw_create_relation, create_relation },
 	{ dfw_delete_relation, delete_relation },
 	{ dfw_compute_security, compute_security },
 	{ dfw_create_index, create_index },
 	{ dfw_grant, grant_privileges },
 	{ dfw_create_trigger, create_trigger },
-/*
-	{ dfw_delete_trigger, delete_trigger },
 	{ dfw_modify_trigger, modify_trigger },
+	{ dfw_delete_trigger, delete_trigger },
+/*
 	{ dfw_drop_package_header, drop_package_header },	// packages should be before procedures
 	{ dfw_modify_package_header, modify_package_header },	// packages should be before procedures
 	{ dfw_drop_package_body, drop_package_body },		// packages should be before procedures
@@ -1185,6 +1184,7 @@ static const deferred_task task_table[] =
 	{ dfw_set_linger, set_linger },
 	{ dfw_clear_cache, clear_cache },
 	{ dfw_change_repl_state, change_repl_state },
+	{ dfw_commit_relation, commit_relation },
 	{ dfw_null, NULL }
 };
 
@@ -3865,6 +3865,31 @@ static bool delete_global(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd
 }
 
 
+static void triggerCommitRollback(thread_db* tdbb, USHORT id, bool doCommit)
+{
+	switch (id & TRIGGER_TYPE_MASK)		// id is RDB$TRIGGER_TYPE truncated to USHORT
+	{
+	case TRIGGER_TYPE_DB:
+	case TRIGGER_TYPE_DDL:
+		{
+			auto* triggersSet = MetadataCache::get(tdbb)->getTriggersSet(tdbb, id);
+			fb_assert(triggersSet);
+			if (triggersSet)
+			{
+				if (doCommit)
+					triggersSet->commit(tdbb);
+				else
+					triggersSet->rollback(tdbb);
+			}
+		}
+		break;
+
+	case TRIGGER_TYPE_DML:
+		break;
+	}
+}
+
+
 static bool create_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
 {
 /**************************************
@@ -3882,6 +3907,10 @@ static bool create_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 
 	switch (phase)
 	{
+	case 0:
+		triggerCommitRollback(tdbb, work->dfw_id, false);
+		break;
+
 	case 1:
 	case 2:
 		return true;
@@ -3899,21 +3928,196 @@ static bool create_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 		return true;
 
 	case 7:
-		switch (work->dfw_id & TRIGGER_TYPE_MASK)		// AP: dfw_id is RDB$TRIGGER_TYPE truncated to USHORT
-		{
-		case TRIGGER_TYPE_DB:
-		case TRIGGER_TYPE_DDL:
-			{
-				auto* triggersSet = MetadataCache::get(tdbb)->getTriggersSet(tdbb, work->dfw_id);
-				fb_assert(triggersSet);
-				if (triggersSet)
-					triggersSet->commit(tdbb);
-			}
-			break;
+		triggerCommitRollback(tdbb, work->dfw_id, true);
+		break;
+	}
 
-		case TRIGGER_TYPE_DML:
-			break;
+	return false;
+}
+
+
+static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	m o d i f y _ t r i g g e r
+ *
+ **************************************
+ *
+ * Functional description
+ *	Perform required actions when modifying trigger.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+	Database* dbb = tdbb->getDatabase();
+	Attachment* attachment = tdbb->getAttachment();
+
+	switch (phase)
+	{
+	case 0:
+		triggerCommitRollback(tdbb, work->dfw_id, false);
+		break;
+
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		{
+			bool compile = !work->findArg(dfw_arg_check_blr);
+
+			// get rid of old dependencies, bring in the new
+			MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger, transaction);
+			get_trigger_dependencies(work, compile, transaction);
 		}
+		return true;
+
+	case 4:
+		{ // scope
+			const DeferredWork* arg = work->findArg(dfw_arg_check_blr);
+			if (arg)
+			{
+				const MetaName relation_name(arg->dfw_name);
+				fb_assert(relation_name.hasData());
+
+				auto* relation = MetadataCache::lookupRelation(tdbb, relation_name, 0);
+				fb_assert(relation);	// must be scanned earlier
+				if (relation)
+				{
+					AutoSetRestore2<jrd_tra*, thread_db> tempTrans(tdbb,
+						&thread_db::getTransaction,
+						&thread_db::setTransaction,
+						transaction);
+					relation->tagForUpdate(tdbb);
+					DFW_post_work(transaction, dfw_commit_relation, nullptr, relation->getId());
+				}
+			}
+		} // scope
+		return true;
+
+	case 5:
+		{ // scope
+			const DeferredWork* arg = work->findArg(dfw_arg_check_blr);
+			if (arg)
+			{
+				const MetaName relation_name(arg->dfw_name);
+				fb_assert(relation_name.hasData());
+				SSHORT valid_blr = FALSE;
+
+				try
+				{
+					auto* relation = MetadataCache::lookupRelation(tdbb, relation_name, 0);
+					fb_assert(relation);	// must be scanned earlier
+
+					if (relation)
+					{
+						if (relation->isAvailable(tdbb) == Cached::Relation::MODIFIED)
+							relation->commit(tdbb);
+
+						auto* rel = relation->getObject(tdbb, 0);
+
+						MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
+						TrigArray triggers(*new_pool);
+
+						try
+						{
+							Jrd::ContextPoolHolder context(tdbb, new_pool);
+
+							MET_load_trigger(tdbb, rel, work->dfw_name,
+								[&triggers](int t)->Triggers& {return triggers[t];});
+
+							for (int i = 1; i < TRIGGER_MAX; ++i)
+							{
+								if (triggers[i])
+								{
+									for (auto t : triggers[i])
+										t->compile(tdbb);
+
+									triggers[i].release(tdbb, true);
+								}
+							}
+
+							valid_blr = TRUE;
+						}
+						catch (const Firebird::Exception&)
+						{
+							dbb->deletePool(new_pool);
+							throw;
+						}
+
+						dbb->deletePool(new_pool);
+					}
+				}
+				catch (const Firebird::Exception&)
+				{
+				}
+
+				AutoCacheRequest request(tdbb, irq_trg_validate, IRQ_REQUESTS);
+
+				FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+					TRG IN RDB$TRIGGERS WITH
+						TRG.RDB$TRIGGER_NAME EQ work->dfw_name.c_str() AND TRG.RDB$TRIGGER_BLR NOT MISSING
+				{
+					MODIFY TRG USING
+						TRG.RDB$VALID_BLR = valid_blr;
+						TRG.RDB$VALID_BLR.NULL = FALSE;
+					END_MODIFY
+				}
+				END_FOR
+			}
+		} // scope
+		return true;
+
+	case 6:
+		return true;
+
+	case 7:
+		triggerCommitRollback(tdbb, work->dfw_id, true);
+		break;
+	}
+
+	return false;
+}
+
+
+static bool delete_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	d e l e t e _ t r i g g e r
+ *
+ **************************************
+ *
+ * Functional description
+ *	Cleanup after a deleted trigger.
+ *
+ **************************************/
+
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 0:
+		triggerCommitRollback(tdbb, work->dfw_id, false);
+		break;
+
+	case 1:
+	case 2:
+		return true;
+
+	case 3:
+		// get rid of dependencies
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger, transaction);
+		return true;
+
+	case 4:
+	case 5:
+	case 6:
+		return true;
+
+	case 7:
+		triggerCommitRollback(tdbb, work->dfw_id, true);
 		break;
 	}
 

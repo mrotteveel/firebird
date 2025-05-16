@@ -279,7 +279,7 @@ public:
 	void cleanup(Jrd::thread_db*);
 
 	// former met_proto.h
-#ifdef DEV_BUILD
+#ifdef NEVERDEF
 	static void verify_cache(thread_db* tdbb);
 #else
 	static void verify_cache(thread_db* tdbb) { }

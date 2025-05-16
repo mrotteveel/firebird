@@ -253,7 +253,7 @@ public:
 		if (oldVal && oldVal->isBusy(newVal->traNumber))	// modified in other transaction
 			return false;
 
-		newVal->next.store(oldVal, atomics::memory_order_acquire);
+		newVal->next.store(oldVal, atomics::memory_order_release);
 		return list.compare_exchange_strong(oldVal, newVal, std::memory_order_release, std::memory_order_acquire);
 	}
 
@@ -305,7 +305,7 @@ public:
 
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
-		auto flags = cacheFlags.fetch_or(CacheFlag::COMMITTED);
+		auto flags = cacheFlags.fetch_or(CacheFlag::COMMITTED);			// !!!!!!!!!!!!!!!! CMPXCHG!!!
 
 		fb_assert((flags & CacheFlag::COMMITTED ? nextTrans : currentTrans) == oldNumber);
 
@@ -997,8 +997,6 @@ public:
 
 	void tagForUpdate(thread_db* tdbb, MetaId id)
 	{
-		auto constexpr fl = CacheFlag::NOCOMMIT | CacheFlag::NOSCAN;
-
 		fb_assert(id < getCount());
 		if (id < getCount())
 		{
