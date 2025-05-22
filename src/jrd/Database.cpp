@@ -746,6 +746,7 @@ namespace Jrd
 		dbb_dyn_req(*p),
 		dbb_extManager(nullptr),
 		dbb_flags(shared ? DBB_shared : 0),
+		dbb_shutdown_mode(shut_mode_online),
 		dbb_filename(*p),
 		dbb_database_name(*p),
 #ifdef HAVE_ID_BY_NAME

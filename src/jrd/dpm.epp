@@ -542,6 +542,8 @@ bool DPM_chain( thread_db* tdbb, record_param* org_rpb, record_param* new_rpb)
 
 	header = (rhd*) ((SCHAR *) page + space);
 	header->rhd_flags = new_rpb->rpb_flags;
+	if (new_rpb->rpb_relation)
+		fb_assert((new_rpb->rpb_relation->getId() != 0) || (new_rpb->rpb_transaction_nr == 0));
 	Ods::writeTraNum(header, new_rpb->rpb_transaction_nr, header_size);
 	header->rhd_format = new_rpb->rpb_format_number;
 	header->rhd_b_page = new_rpb->rpb_b_page;
@@ -2386,6 +2388,8 @@ void DPM_store( thread_db* tdbb, record_param* rpb, PageStack& stack, const Jrd:
 	rpb->rpb_flags &= ~rpb_not_packed;
 
 	header->rhd_flags = rpb->rpb_flags;
+	if (rpb->rpb_relation)
+		fb_assert((rpb->rpb_relation->getId() != 0) || (rpb->rpb_transaction_nr == 0));
 	Ods::writeTraNum(header, rpb->rpb_transaction_nr, header_size);
 	header->rhd_format = rpb->rpb_format_number;
 	header->rhd_b_page = rpb->rpb_b_page;
@@ -2648,6 +2652,8 @@ void DPM_update( thread_db* tdbb, record_param* rpb, PageStack* stack, const jrd
 
 	rhd* header = (rhd*) ((SCHAR *) page + space);
 	header->rhd_flags = rpb->rpb_flags;
+	if (rpb->rpb_relation)
+		fb_assert((rpb->rpb_relation->getId() != 0) || (rpb->rpb_transaction_nr == 0));
 	Ods::writeTraNum(header, rpb->rpb_transaction_nr, header_size);
 	header->rhd_format = rpb->rpb_format_number;
 	header->rhd_b_page = rpb->rpb_b_page;
@@ -3006,6 +3012,8 @@ static void fragment(thread_db* tdbb,
 			header->rhdf_f_page = header->rhdf_f_line = 0;
 
 			const ULONG header_size = (transaction->tra_number > MAX_ULONG) ? RHDE_SIZE : RHD_SIZE;
+			if (rpb->rpb_relation)
+				fb_assert((rpb->rpb_relation->getId() != 0) || (rpb->rpb_transaction_nr == 0));
 			Ods::writeTraNum(header, transaction->tra_number, header_size);
 
 			page->dpg_rpt[line].dpg_offset = space;
@@ -3069,6 +3077,8 @@ static void fragment(thread_db* tdbb,
 
 	header = (rhdf*) ((SCHAR *) page + page->dpg_rpt[line].dpg_offset);
 	header->rhdf_flags = rhd_incomplete | rpb->rpb_flags;
+	if (rpb->rpb_relation)
+		fb_assert((rpb->rpb_relation->getId() != 0) || (rpb->rpb_transaction_nr == 0));
 	Ods::writeTraNum(header, rpb->rpb_transaction_nr, RHDF_SIZE);
 	header->rhdf_format = rpb->rpb_format_number;
 	header->rhdf_f_page = tail_rpb.rpb_page;
@@ -4069,6 +4079,8 @@ static void store_big_record(thread_db* tdbb,
 	rpb->rpb_flags &= ~rpb_not_packed;
 
 	header->rhdf_flags = rhd_incomplete | rhd_large | rpb->rpb_flags;
+	if (rpb->rpb_relation)
+		fb_assert((rpb->rpb_relation->getId() != 0) || (rpb->rpb_transaction_nr == 0));
 	Ods::writeTraNum(header, rpb->rpb_transaction_nr, RHDF_SIZE);
 	header->rhdf_format = rpb->rpb_format_number;
 	header->rhdf_b_page = rpb->rpb_b_page;
