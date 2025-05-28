@@ -162,7 +162,7 @@ Retrieval::Retrieval(thread_db* aTdbb, Optimizer* opt, StreamType streamNumber,
 	if (!tail->csb_idx)
 		return;
 
-	MatchedBooleanList matches;
+	BooleanList matches;
 
 	for (auto& index : *tail->csb_idx)
 	{
@@ -346,6 +346,12 @@ InversionCandidate* Retrieval::getInversion()
 			{
 				selectivity *= Optimizer::getSelectivity(*iter);
 			}
+
+			if (iter->computable(csb, INVALID_STREAM, false) &&
+				iter->containsStream(stream))
+			{
+				invCandidate->conjuncts.add(*iter);
+			}
 		}
 	}
 
@@ -357,6 +363,8 @@ InversionCandidate* Retrieval::getInversion()
 		match->findDependentFromStreams(csb, stream,
 			&invCandidate->dependentFromStreams);
 	}
+
+	invCandidate->dependencies = invCandidate->dependentFromStreams.getCount();
 
 #ifdef OPT_DEBUG_RETRIEVAL
 	// Debug
@@ -724,7 +732,7 @@ bool Retrieval::betterInversion(const InversionCandidate* inv1,
 	{
 		if (inv1->dependencies > inv2->dependencies)
 		{
-			// Index used for a relationship must be always prefered to
+			// Index used for a relationship must be always preferred to
 			// the filtering ones, otherwise the nested loop join has
 			// no chances to be better than a sort merge.
 			// An alternative (simplified) condition might be:
@@ -800,7 +808,7 @@ bool Retrieval::betterInversion(const InversionCandidate* inv1,
 	return false;
 }
 
-bool Retrieval::checkIndexCondition(index_desc& idx, MatchedBooleanList& matches) const
+bool Retrieval::checkIndexCondition(index_desc& idx, BooleanList& matches) const
 {
 	fb_assert(idx.idx_condition_node);
 
@@ -911,7 +919,7 @@ void Retrieval::getInversionCandidates(InversionCandidateList& inversions,
 	const double minSelectivity = MIN(MAXIMUM_SELECTIVITY / cardinality, DEFAULT_SELECTIVITY);
 
 	// Walk through indexes to calculate selectivity / candidate
-	MatchedBooleanList matches;
+	BooleanList matches;
 
 	for (auto& scratch : fromIndexScratches)
 	{
@@ -1445,7 +1453,7 @@ InversionCandidate* Retrieval::makeInversion(InversionCandidateList& inversions)
 		}
 	}
 
-	MatchedBooleanList matches;
+	BooleanList matches;
 
 	if (navigationCandidate)
 	{

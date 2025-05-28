@@ -214,6 +214,9 @@ inline constexpr ULONG FIRST_SCN_PAGE	= 2;
 
 // Page size limits
 
+inline constexpr USHORT PAGE_SIZE_BASE		= 1024;		// Minimal page size ever supported,
+														// common divisor for valid page sizes
+
 inline constexpr USHORT MIN_PAGE_SIZE		= 4096;
 inline constexpr USHORT MAX_PAGE_SIZE		= 32768;
 
@@ -371,7 +374,7 @@ struct index_root_page
 									// alignment between 32-bit and 64-bit builds
 	struct irt_repeat
 	{
-		friend class index_root_page;	// to allow offset check for private members
+		friend struct index_root_page;	// to allow offset check for private members
 
 	private:
 		FB_UINT64 irt_transaction;		// transaction in progress
@@ -382,7 +385,6 @@ struct index_root_page
 		USHORT irt_flags;				// index flags
 		UCHAR irt_state;				// index state
 		UCHAR irt_keys;					// number of keys in index
-	private:
 		USHORT irt_dummy;				// alignment to 8-byte boundary
 
 	private:
@@ -395,7 +397,7 @@ struct index_root_page
 		UCHAR getState() const;
 
 		void setRoot(ULONG rootPage/*, ULONG pageSpaceId*/);
-		void setProgress(TraNumber traNumber);
+		void setInProgress(TraNumber traNumber);
 		void setRollback(ULONG rootPage/*, ULONG pageSpaceId*/, TraNumber traNumber);
 		void setRollback(TraNumber traNumber);
 		void setKill(TraNumber traNumber);
@@ -496,6 +498,17 @@ inline bool index_root_page::irt_repeat::isUsed() const
 	return getState() != irt_unused;
 }
 
+inline void index_root_page::irt_repeat::setRoot(ULONG rootPage)
+{
+	fb_assert(getState() == irt_in_progress || getState() == irt_normal);
+	fb_assert(rootPage);
+
+	irt_transaction = 0;
+	irt_page_num = rootPage;
+	irt_page_space_id = 0;
+	setState(irt_normal);
+}
+
 inline void index_root_page::irt_repeat::setEmpty()
 {
 	setState(irt_unused);
@@ -503,19 +516,9 @@ inline void index_root_page::irt_repeat::setEmpty()
 	irt_page_num = 0;
 	irt_page_space_id = 0;
 	irt_flags = 0;
-	irt_state = irt_unused;
 }
 
-inline void index_root_page::irt_repeat::setRoot(ULONG rootPage)
-{
-	fb_assert(irt_page_num);
-	fb_assert(rootPage);
-
-	irt_page_num = rootPage;
-	irt_page_space_id = 0;
-}
-
-inline void index_root_page::irt_repeat::setProgress(TraNumber traNumber)
+inline void index_root_page::irt_repeat::setInProgress(TraNumber traNumber)
 {
 	fb_assert(getState() == irt_unused);
 
@@ -960,17 +963,16 @@ struct blh
 	ULONG blh_max_sequence;		// Number of data pages
 	USHORT blh_max_segment;		// Longest segment
 	USHORT blh_flags;			// flags, etc
-	UCHAR blh_level;			// Number of address levels, see blb_level in blb.h
 	ULONG blh_count;			// Total number of segments
-	ULONG blh_length;			// Total length of data
+	FB_UINT64 blh_length;		// Total length of data
 	USHORT blh_sub_type;		// Blob sub-type
-	UCHAR blh_charset;			// Blob charset (since ODS 11.1)
+	UCHAR blh_charset;			// Blob charset
+	UCHAR blh_level;			// Number of address levels, see blb_level in blb.h
 // Macro CHECK_BLOB_FIELD_ACCESS_FOR_SELECT is never defined, code under it was left for a case
 // we would like to have that check in a future.
 #ifdef CHECK_BLOB_FIELD_ACCESS_FOR_SELECT
 	USHORT blh_fld_id;			// Field ID
 #endif
-	UCHAR blh_unused;
 	ULONG blh_page[1];			// Page vector for blob pages
 };
 
@@ -979,16 +981,15 @@ static_assert(offsetof(struct blh, blh_lead_page) == 0, "blh_lead_page offset mi
 static_assert(offsetof(struct blh, blh_max_sequence) == 4, "blh_max_sequence offset mismatch");
 static_assert(offsetof(struct blh, blh_max_segment) == 8, "blh_max_segment offset mismatch");
 static_assert(offsetof(struct blh, blh_flags) == 10, "blh_flags offset mismatch");
-static_assert(offsetof(struct blh, blh_level) == 12, "blh_level offset mismatch");
-static_assert(offsetof(struct blh, blh_count) == 16, "blh_count offset mismatch");
-static_assert(offsetof(struct blh, blh_length) == 20, "blh_length offset mismatch");
+static_assert(offsetof(struct blh, blh_count) == 12, "blh_count offset mismatch");
+static_assert(offsetof(struct blh, blh_length) == 16, "blh_length offset mismatch");
 static_assert(offsetof(struct blh, blh_sub_type) == 24, "blh_sub_type offset mismatch");
 static_assert(offsetof(struct blh, blh_charset) == 26, "blh_charset offset mismatch");
-static_assert(offsetof(struct blh, blh_unused) == 27, "blh_unused offset mismatch");
+static_assert(offsetof(struct blh, blh_level) == 27, "blh_level offset mismatch");
 static_assert(offsetof(struct blh, blh_page) == 28, "blh_page offset mismatch");
 
-
 #define BLH_SIZE static_cast<FB_SIZE_T>(offsetof(Ods::blh, blh_page[0]))
+
 // rhd_flags, rhdf_flags and blh_flags
 
 // record_param flags in req.h must be an exact replica of ODS record header flags

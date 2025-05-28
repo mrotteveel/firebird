@@ -873,31 +873,38 @@ bool RBlobInfo::getLocalInfo(unsigned int itemsLength, const unsigned char* item
 		if (*item == isc_info_end)
 			break;
 
+		FB_UINT64 value;
+
 		switch (*item)
 		{
 		case isc_info_blob_num_segments:
-			p = fb_utils::putInfoItemInt(*item, num_segments, p, end);
+			value = num_segments;
 			break;
 
 		case isc_info_blob_max_segment:
-			p = fb_utils::putInfoItemInt(*item, max_segment, p, end);
+			value = max_segment;
 			break;
 
 		case isc_info_blob_total_length:
-			p = fb_utils::putInfoItemInt(*item, total_length, p, end);
+			value = total_length;
 			break;
 
 		case isc_info_blob_type:
-			p = fb_utils::putInfoItemInt(*item, blob_type, p, end);
+			value = blob_type;
 			break;
 
 		default:
 			// unknown info item, let remote server handle it
 			return false;
 		}
+
+		if (value <= MAX_SLONG)
+			p = fb_utils::putInfoItemInt(*item, (SLONG) value, p, end);
+		else
+			p = fb_utils::putInfoItemInt(*item, value, p, end);
 	}
 
-	if (p < end)
+	if (p && p < end)
 		*p++ = isc_info_end;
 
 	return true;
@@ -923,7 +930,7 @@ void RBlobInfo::parseInfo(unsigned int bufferLength, const unsigned char* buffer
 			c++;
 			break;
 		case isc_info_blob_total_length:
-			total_length = p.getInt();
+			total_length = p.getBigInt();
 			c++;
 			break;
 		case isc_info_blob_type:
@@ -989,25 +996,27 @@ void Rtr::setupInlineBlob(P_INLINE_BLOB* p_blob)
 	fb_assert(blb->rbl_data.getCount() <= MAX_USHORT);
 
 	blb->rbl_buffer_length = MIN(MAX_USHORT, blb->rbl_data.getCapacity());
-	if (!rtr_rdb->incBlobCache(blb->getCachedSize()))
+	const ULONG cachedSize = blb->getCachedSize();
+	if (!rtr_rdb->incBlobCache(cachedSize))
 	{
 		delete blb;
 		return;
 	}
 
 	blb->rbl_blob_id = p_blob->p_blob_id;
-	if (!rtr_blobs.add(blb))
+	if (Rbl* old = rtr_blobs.locate(blb->rbl_blob_id))
 	{
 		// Blob with the same blob id already exists. It could be in use, or it
 		// could be opened by user explicitly with custom BPB - thus delete new one.
-		Rbl* old = rtr_blobs.current();
 
 		fb_assert(blb != old);
 		delete blb;
 
-		rtr_rdb->decBlobCache(blb->getCachedSize());
+		rtr_rdb->decBlobCache(cachedSize);
 		return;
 	}
+	else
+		rtr_blobs.add(blb);
 
 	blb->rbl_info.parseInfo(p_blob->p_blob_info.cstr_length, p_blob->p_blob_info.cstr_address);
 

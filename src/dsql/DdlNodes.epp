@@ -398,8 +398,8 @@ void defineComputed(DsqlCompilerScratch* dsqlScratch, RelationSourceNode* relati
 
 		if (field->dtype <= dtype_any_text)
 		{
-			field->charSetId = saveCharSetIdSpecified ? std::optional{DSC_GET_CHARSET(&saveDesc)} : std::nullopt;
-			field->collationId = DSC_GET_COLLATE(&saveDesc);
+			field->charSetId = saveCharSetIdSpecified ? std::optional{saveDesc.getCharSet()} : std::nullopt;
+			field->collationId = saveDesc.getCollation();
 		}
 		else
 			field->subType = saveDesc.dsc_sub_type;
@@ -413,8 +413,8 @@ void defineComputed(DsqlCompilerScratch* dsqlScratch, RelationSourceNode* relati
 
 		if (field->dtype <= dtype_any_text)
 		{
-			field->charSetId = DSC_GET_CHARSET(&desc);
-			field->collationId = DSC_GET_COLLATE(&desc);
+			field->charSetId = desc.getCharSet();
+			field->collationId = desc.getCollation();
 
 			const USHORT adjust = field->dtype == dtype_varying ? sizeof(USHORT) : 0;
 			const USHORT bpc = METD_get_charset_bpc(dsqlScratch->getTransaction(),
@@ -2086,7 +2086,7 @@ bool CreateAlterFunctionNode::executeAlterIndividualParameters(thread_db* tdbb, 
 {
 	Attachment* const attachment = transaction->getAttachment();
 
-	bool modifed = false;
+	bool modified = false;
 
 	AutoCacheRequest requestHandle(tdbb, drq_m_prm_funcs2, DYN_REQUESTS);
 
@@ -2124,12 +2124,12 @@ bool CreateAlterFunctionNode::executeAlterIndividualParameters(thread_db* tdbb, 
 					FUN.RDB$SQL_SECURITY.NULL = TRUE;
 			}
 
-			modifed = true;
+			modified = true;
 		END_MODIFY
 	}
 	END_FOR
 
-	return modifed;
+	return modified;
 }
 
 void CreateAlterFunctionNode::storeArgument(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
@@ -3088,7 +3088,7 @@ bool CreateAlterProcedureNode::executeAlterIndividualParameters(thread_db* tdbb,
 {
 	Attachment* const attachment = transaction->getAttachment();
 
-	bool modifed = false;
+	bool modified = false;
 
 	AutoCacheRequest requestHandle(tdbb, drq_m_prm_prcs2, DYN_REQUESTS);
 
@@ -3122,12 +3122,12 @@ bool CreateAlterProcedureNode::executeAlterIndividualParameters(thread_db* tdbb,
 					P.RDB$SQL_SECURITY.NULL = TRUE;
 			}
 
-			modifed = true;
+			modified = true;
 		END_MODIFY
 	}
 	END_FOR
 
-	return modifed;
+	return modified;
 }
 
 void CreateAlterProcedureNode::storeParameter(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
@@ -5283,7 +5283,7 @@ void AlterDomainNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 				newDom.dyn_null_flag = type->notNull;
 
 				// Now that we have all of the information needed, let's check to see if the field
-				// type can be modifed.
+				// type can be modified.
 
 				checkUpdate(origDom, newDom);
 
@@ -7273,7 +7273,7 @@ void RelationNode::defineSetDefaultTrigger(DsqlCompilerScratch* dsqlScratch,
 		// If the FK table's column is NOT NULL without DEFAULT, we want to avoid the engine throwing a constraint
 		// violation on our trigger's variable, so we declare two variables, one with blr_domain_type_of (don't use
 		// DEFAULT and null flag) and another blr_domain_full with DEFAULT and null flag. We swallow the error when
-		// transfering the value from the second to the first variable.
+		// transferring the value from the second to the first variable.
 
 		// This could be better done with blr_default, but let's maintain backward compatible BLR for now.
 
@@ -9519,8 +9519,8 @@ void AlterRelationNode::modifyField(thread_db* tdbb, DsqlCompilerScratch* dsqlSc
 
 						if (field->dtype <= dtype_any_text)
 						{
-							field->charSetId = DSC_GET_CHARSET(&desc);
-							field->collationId = DSC_GET_COLLATE(&desc);
+							field->charSetId = desc.getCharSet();
+							field->collationId = desc.getCollation();
 						}
 						else
 							field->subType = desc.dsc_sub_type;
@@ -10367,6 +10367,14 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 		}
 		else
 			updatable = false;
+
+
+		if (field && context && (context->ctx_flags & CTX_blr_fields))
+		{
+			field = nullptr;
+			context = nullptr;
+			updatable = false;
+		}
 
 		// If this is an expression, check to make sure there is a name specified.
 
@@ -14115,7 +14123,7 @@ void GrantRevokeNode::grantRevoke(thread_db* tdbb, jrd_tra* transaction, const G
 			{
 				// In the case where the object is a view, then the grantor must have
 				// some kind of grant privileges on the base table(s)/view(s).  If the
-				// grantor is the owner of the view, then we have to explicitely check
+				// grantor is the owner of the view, then we have to explicitly check
 				// this because the owner of a view by default has grant privileges on
 				// his own view.  If the grantor is not the owner of the view, then the
 				// base table/view grant privilege checks were made when the grantor
@@ -14223,11 +14231,11 @@ void GrantRevokeNode::grantRevoke(thread_db* tdbb, jrd_tra* transaction, const G
 
 					MetaName owner;
 					if ((grantorRevoker == PRIV.RDB$GRANTOR) ||
+						(attachment->locksmith(tdbb, GRANT_REVOKE_ON_ANY_OBJECT) ||	// God-like check
 						((objType == obj_sql_role) && (PRIV.RDB$PRIVILEGE[0] == 'M') &&		// This is ROLE to USER grant
 						 (currentUser != user) &&						// And current user does not revoke his own grant
-						 ((isItSqlRole(tdbb, transaction, objName, owner) &&		// Pick up role owner name
-						   (attachment->locksmith(tdbb, GRANT_REVOKE_ON_ANY_OBJECT) ||	// God-like check
-						    (owner == currentUser))) ||					// Current user is role owner
+						 (isItSqlRole(tdbb, transaction, objName, owner) &&		// Pick up role owner name
+						    (owner == currentUser)) ||							// Current user is role owner
 						  (getGrantorOption(tdbb, transaction, currentUser, obj_user, objName) == 2))))	// or has ADMIN option
 					{
 						MetaName newField = NULL;
@@ -14301,7 +14309,7 @@ void GrantRevokeNode::checkGrantorCanGrantRelation(thread_db* tdbb, jrd_tra* tra
 		status_exception::raise(Arg::PrivateDyn(175) << relationName.c_str());
 	}
 
-	// Verify the the input field exists.
+	// Verify the input field exists.
 
 	if (fieldName.hasData())
 	{

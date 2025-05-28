@@ -628,7 +628,7 @@ static void integer_to_text(const dsc* from, dsc* to, Callbacks* cb)
 		ULONG trailing = ULONG(to->dsc_length) - length;
 		if (trailing > 0)
 		{
-			CSetId chid = cb->getChid(to); // : DSC_GET_CHARSET(to);
+			CSetId chid = cb->getChid(to); // : to->getCharSet();
 
 			const char pad = chid == ttype_binary ? '\0' : ' ';
 			memset(q, pad, trailing);

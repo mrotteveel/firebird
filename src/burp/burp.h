@@ -955,6 +955,12 @@ public:
 	}
 };
 
+// forward declarations
+namespace Burp
+{
+	class BurpTaskItem;
+};
+
 class BurpGlobals : public Firebird::ThreadData, public GblPool
 {
 public:
@@ -1206,7 +1212,7 @@ public:
 	Firebird::Array<UCHAR> gbl_dpb_data;
 	Firebird::UtilSvc* uSvc;
 	bool master;			// set for master thread only
-	void* taskItem;			// current task item, if any
+	Burp::BurpTaskItem* taskItem;			// current task item, if any.
 	ULONG verboseInterval;	// How many records should be backed up or restored before we show this message
 	bool flag_on_line;		// indicates whether we will bring the database on-line
 	bool firstMap;			// this is the first time we entered get_mapping()

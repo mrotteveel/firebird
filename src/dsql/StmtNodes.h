@@ -921,6 +921,51 @@ public:
 };
 
 
+class ForRangeNode final : public TypedNode<StmtNode, StmtNode::TYPE_FOR_RANGE>
+{
+public:
+	enum class Direction : UCHAR
+	{
+		TO = blr_for_range_direction_to,
+		DOWNTO = blr_for_range_direction_downto
+	};
+
+	struct Impure
+	{
+		impure_value finalValue;
+		impure_value byValue;
+	};
+
+public:
+	explicit ForRangeNode(MemoryPool& pool)
+		: TypedNode<StmtNode, StmtNode::TYPE_FOR_RANGE>(pool)
+	{
+	}
+
+public:
+	static DmlNode* parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp);
+
+	Firebird::string internalPrint(NodePrinter& printer) const override;
+	StmtNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override;
+	void genBlr(DsqlCompilerScratch* dsqlScratch) override;
+	ForRangeNode* pass1(thread_db* tdbb, CompilerScratch* csb) override;
+	ForRangeNode* pass2(thread_db* tdbb, CompilerScratch* csb) override;
+	const StmtNode* execute(thread_db* tdbb, Request* request, ExeState* exeState) const override;
+
+public:
+	NestConst<ValueExprNode> variable;
+	NestConst<ValueExprNode> initialExpr;
+	NestConst<ValueExprNode> finalExpr;
+	NestConst<ValueExprNode> byExpr;
+	NestConst<StmtNode> statement;
+	MetaName* dsqlLabelName = nullptr;
+	USHORT dsqlLabelNumber = 0;
+	Direction direction = Direction::TO;
+	SCHAR incDecScale = 0;
+	USHORT incDecFlags = 0;
+};
+
+
 class HandlerNode final : public TypedNode<StmtNode, StmtNode::TYPE_HANDLER>
 {
 public:
@@ -1114,11 +1159,24 @@ public:
 
 class MessageNode : public TypedNode<StmtNode, StmtNode::TYPE_MESSAGE>
 {
+	struct MessageBuffer
+	{
+		const Format* format; // Message format derived from user MessageMetadata. Overrides default format.
+		UCHAR* buffer = nullptr;
+	};
+
 public:
 	explicit MessageNode(MemoryPool& pool)
-		: TypedNode<StmtNode, StmtNode::TYPE_MESSAGE>(pool),
-		  itemsUsedInSubroutines(pool)
+		: TypedNode<StmtNode, StmtNode::TYPE_MESSAGE>(pool)
 	{
+	}
+	// This constructor is temporary workaround for copying of existing format.
+	// For details look at comment in CMP_procedure_arguments()
+	explicit MessageNode(MemoryPool& pool, const Format& oldFormat)
+		: TypedNode<StmtNode, StmtNode::TYPE_MESSAGE>(pool)
+	{
+		format = Format::newFormat(pool, oldFormat.fmt_count);
+		*format = oldFormat;
 	}
 
 public:
@@ -1137,11 +1195,17 @@ public:
 	virtual MessageNode* pass2(thread_db* tdbb, CompilerScratch* csb);
 	virtual const StmtNode* execute(thread_db* tdbb, Request* request, ExeState* exeState) const;
 
+	UCHAR* getBuffer(Request* request) const;
+	const Format* getFormat(const Request* request) const;
+	void setFormat(Request* request, Format* newFormat);
+
 public:
-	Firebird::SortedArray<USHORT> itemsUsedInSubroutines;
-	NestConst<Format> format;
 	ULONG impureFlags = 0;
 	USHORT messageNumber = 0;
+
+private:
+	using StmtNode::impureOffset; // Made private to incapsulate it's interpretation logic
+	NestConst<Format> format;
 };
 
 

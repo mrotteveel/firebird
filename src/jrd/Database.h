@@ -326,7 +326,7 @@ public:
 
 	MemoryPool* dbb_permanent;
 
-	std::optional<Firebird::Guid>	dbb_guid;		// database GUID
+	Firebird::Guid	dbb_guid;			// database GUID
 
 	Firebird::SyncObject	dbb_sync;
 	Firebird::SyncObject	dbb_sys_attach;		// synchronize operations with dbb_sys_attachments

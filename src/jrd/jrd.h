@@ -63,6 +63,10 @@
 #include "../jrd/Attachment.h"
 #include "firebird/Interface.h"
 
+#ifndef CDS_UNAVAILABLE
+#include <cds/threading/model.h>	// cds::threading::Manager
+#endif
+
 #define SOFT_BUGCHECK(number)	ERR_soft_bugcheck(number, __FILE__, __LINE__)
 #define CORRUPT(number)			ERR_corrupt(number)
 #define IBERROR(number)			ERR_error(number)

@@ -739,6 +739,7 @@ namespace Jrd
 
 	Database::Database(MemoryPool* p, Firebird::IPluginConfig* pConf, bool shared)
 	:	dbb_permanent(p),
+		dbb_guid(Firebird::Guid::empty()),
 		dbb_page_manager(this, *p),
 		dbb_file_id(*p),
 		dbb_modules(*p),

@@ -63,7 +63,7 @@
 #ifdef EDS_DEBUG
 
 #undef FB_ASSERT_FAILURE_STRING
-#define FB_ASSERT_FAILURE_STRING	"Procces ID %d: assertion (%s) failure: %s %" LINEFORMAT
+#define FB_ASSERT_FAILURE_STRING	"Process ID %d: assertion (%s) failure: %s %" LINEFORMAT
 
 #undef fb_assert
 #define fb_assert(ex)	{if (!(ex)) {gds__log(FB_ASSERT_FAILURE_STRING, getpid(), #ex, __FILE__, __LINE__);}}
@@ -423,7 +423,8 @@ Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 					continue;
 #endif
 
-				conn->resetRedirect(att->att_crypt_callback);
+				if (!isCurrentAtt)
+					conn->resetRedirect(att->att_crypt_callback);
 				return conn;
 			}
 		} while (acc.getNext());
@@ -976,7 +977,7 @@ void ConnectionsPool::putConnection(thread_db* tdbb, Connection* conn)
 			string str;
 			str.printf("Before put Item 0x%08X into pool\n", item);
 			printPool(str);
-			gds__log("Procces ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
+			gds__log("Process ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
 		}
 #endif
 
@@ -995,7 +996,7 @@ void ConnectionsPool::putConnection(thread_db* tdbb, Connection* conn)
 #ifdef EDS_DEBUG
 				string str;
 				str.printf("Item 0x%08X to put into pool is oldest", item);
-				gds__log("Procces ID %d: %s", getpid(), str.c_str());
+				gds__log("Process ID %d: %s", getpid(), str.c_str());
 #endif
 				m_allCount++;
 				oldest = removeOldest();
@@ -1018,7 +1019,7 @@ void ConnectionsPool::putConnection(thread_db* tdbb, Connection* conn)
 			if (!ok)
 				printPool(str);
 
-			gds__log("Procces ID %d: %s", getpid(), str.c_str());
+			gds__log("Process ID %d: %s", getpid(), str.c_str());
 #endif
 		}
 		else
@@ -1045,7 +1046,7 @@ void ConnectionsPool::putConnection(thread_db* tdbb, Connection* conn)
 			string str;
 			str.printf("After put Item 0x%08X into pool\n", item);
 			printPool(str);
-			gds__log("Procces ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
+			gds__log("Process ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
 		}
 #endif
 	}
@@ -1078,7 +1079,7 @@ void ConnectionsPool::addConnection(thread_db* tdbb, Connection* conn, ULONG has
 			string str;
 			printPool(str);
 			str.printf("Before add Item 0x%08X into pool\n", item);
-			gds__log("Procces ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
+			gds__log("Process ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
 		}
 #endif
 		if (m_allCount >= m_maxCount)
@@ -1097,7 +1098,7 @@ void ConnectionsPool::addConnection(thread_db* tdbb, Connection* conn, ULONG has
 			string str;
 			printPool(str);
 			str.printf("After add Item 0x%08X into pool\n", item);
-			gds__log("Procces ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
+			gds__log("Process ID %d: connections pool is corrupted\n%s", getpid(), str.c_str());
 		}
 #endif
 	}
@@ -1118,7 +1119,7 @@ void ConnectionsPool::delConnection(thread_db* tdbb, Connection* conn, bool dest
 		{
 			string str;
 			str.printf("Item 0x%08X to delete from pool already not there", item);
-			gds__log("Procces ID %d: %s", getpid(), str.c_str());
+			gds__log("Process ID %d: %s", getpid(), str.c_str());
 		}
 #endif
 	}
@@ -1236,7 +1237,7 @@ void ConnectionsPool::clear(thread_db* tdbb)
 	{
 		string str;
 		printPool(str);
-		gds__log("Procces ID %d: connections pool is corrupted (clear)\n%s", getpid(), str.c_str());
+		gds__log("Process ID %d: connections pool is corrupted (clear)\n%s", getpid(), str.c_str());
 	}
 #endif
 
@@ -2689,11 +2690,12 @@ void CryptCallbackRedirector::resetRedirect(Firebird::ICryptKeyCallback* newCall
 {
 #ifdef DEV_BUILD
 	CryptHash ch(newCallback);
-	fb_assert(isValid() && ch.isValid());
+	fb_assert(m_hash.isValid() == ch.isValid());
 	fb_assert(m_hash == ch);
 #endif
 
-	m_keyCallback = newCallback;
+	if (m_hash.isValid())
+		m_keyCallback = newCallback;
 }
 
 bool CryptCallbackRedirector::operator==(const CryptHash& ch) const

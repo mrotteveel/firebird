@@ -1596,8 +1596,8 @@ void BTR_evaluate(thread_db* tdbb, const IndexRetrieval* retrieval, RecordBitmap
 				{
 					// If we're walking in a descending index and we need to ignore NULLs
 					// then stop at the first NULL we see (only for single segment!)
-					if (descending && ignoreNulls && node.prefix == 0 &&
-						node.length >= 1 && node.data[0] == 255)
+					if (descending && ignoreNulls &&
+						node.prefix == 0 && node.length >= 1 && node.data[0] == 255)
 					{
 						break;
 					}
@@ -2152,16 +2152,15 @@ bool BTR_make_bounds(thread_db* tdbb, const IndexRetrieval* retrieval,
 			(retrieval->irb_desc.idx_flags & idx_unique) ? INTL_KEY_UNIQUE :
 			INTL_KEY_SORT;
 
+		bool forceIncludeUpper = false, forceIncludeLower = false;
+
 		if (const auto count = retrieval->irb_upper_count)
 		{
 			const auto values = iterator ? iterator->getUpperValues() :
 				retrieval->irb_value + retrieval->irb_desc.idx_count;
 
-			bool forceInclude = false;
 			errorCode = BTR_make_key(tdbb, count, values, retrieval->irb_scale,
-				idx, upper, keyType, &forceInclude);
-			if (forceInclude)
-				forceInclFlag |= irb_force_upper;
+				idx, upper, keyType, &forceIncludeUpper);
 		}
 
 		if (errorCode == idx_e_ok)
@@ -2171,11 +2170,8 @@ bool BTR_make_bounds(thread_db* tdbb, const IndexRetrieval* retrieval,
 				const auto values = iterator ? iterator->getLowerValues() :
 					retrieval->irb_value;
 
-				bool forceInclude = false;
 				errorCode = BTR_make_key(tdbb, count, values, retrieval->irb_scale,
-					idx, lower, keyType, &forceInclude);
-				if (forceInclude)
-					forceInclFlag |= irb_force_lower;
+					idx, lower, keyType, &forceIncludeLower);
 			}
 		}
 
@@ -2185,6 +2181,22 @@ bool BTR_make_bounds(thread_db* tdbb, const IndexRetrieval* retrieval,
 			IndexErrorContext context(retrieval->getRelation(tdbb), &temp_idx);
 			context.raise(tdbb, errorCode);
 		}
+
+		// If retrieval is flagged to ignore NULLs and any segment of the key
+		// to be matched contains NULL, don't bother with a scan
+
+		if ((retrieval->irb_generic & irb_ignore_null_value_key) &&
+			((retrieval->irb_upper_count && upper->key_nulls) ||
+			(retrieval->irb_lower_count && lower->key_nulls)))
+		{
+			return false;
+		}
+
+		if (forceIncludeUpper)
+			forceInclFlag |= irb_force_upper;
+
+		if (forceIncludeLower)
+			forceInclFlag |= irb_force_lower;
 	}
 
 	return true;
@@ -2869,7 +2881,7 @@ void BTR_reserve_slot(thread_db* tdbb, IndexCreation& creation, IndexCreateLock&
 	fb_assert(idx->idx_count <= MAX_UCHAR);
 	slot->irt_keys = (UCHAR) idx->idx_count;
 	slot->irt_flags = idx->idx_flags;
-	slot->setProgress(transaction->tra_number);
+	slot->setInProgress(transaction->tra_number);
 
 	// Exploit the fact idx_repeat structure matches ODS IRTD one
 	memcpy(desc, idx->idx_rpt, len);
@@ -7414,18 +7426,13 @@ static bool scan(thread_db* tdbb, UCHAR* pointer, RecordBitmap** bitmap, RecordB
 			return true;
 		}
 
-		// Ignore NULL-values, this is currently only available for single segment indexes.
+		// Ignore NULL-values, this is currently only available for single segment indexes
 		if (ignoreNulls)
 		{
-			ignore = false;
-			if (descending)
-			{
-				if ((node.prefix == 0) && (node.length >= 1) && (node.data[0] == 255))
-					return false;
-			}
-			else {
-				ignore = (node.prefix + node.length == 0); // Ascending (prefix + length == 0)
-			}
+			if (descending && node.prefix == 0 && node.length >= 1 && node.data[0] == 255)
+				return false;
+
+			ignore = descending ? false : (node.prefix + node.length == 0);
 		}
 
 		if (skipLowerKey)

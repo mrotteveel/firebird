@@ -76,7 +76,8 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	  invariants(*p),
 	  blr(*p),
 	  mapFieldInfo(*p),
-	  resources(nullptr)
+	  resources(nullptr),
+	  messages(*p, 2) // Most statements has two messages, preallocate space for them
 {
 	if (csb->csb_resources)
 	{
@@ -154,6 +155,22 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		if (csb->csb_g_flags & csb_internal)
 			flags |= FLAG_INTERNAL;
 		loadResources(tdbb, nullptr);
+
+		messages.grow(csb->csb_rpt.getCount());
+		for (decltype(messages)::size_type i = 0; i < csb->csb_rpt.getCount(); ++i)
+		{
+			if (auto message = csb->csb_rpt[i].csb_message)
+			{
+				// When outer messages are mapped to inner just pointers are assigned so they keep original numbers inside.
+				// That's why this assert is commented out.
+				//fb_assert(i == message->messageNumber);
+				if (messages.getCount() <= i)
+				{
+					messages.grow(i + 1);
+				}
+				messages[i] = message;
+			}
+		}
 
 		if (csb->csb_variables)
 			csb->csb_variables->clear();
@@ -902,6 +919,20 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 			triggersExternalAccess(tdbb, list, *vec2, item->user);
 		}
 	}
+}
+
+MessageNode* Statement::getMessage(USHORT messageNumber) const
+{
+	if (messageNumber >= messages.getCount())
+	{
+		status_exception::raise(Arg::Gds(isc_badmsgnum));
+	}
+	MessageNode* result = messages[messageNumber];
+	if (result == nullptr)
+	{
+		status_exception::raise(Arg::Gds(isc_badmsgnum));
+	}
+	return result;
 }
 
 

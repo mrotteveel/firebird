@@ -870,6 +870,9 @@ void NBackup::fixup_database(bool repl_seq, bool set_readonly)
 		if (read_file(dbase, header, size) != size)
 			status_exception::raise(Arg::Gds(isc_nbackup_err_eofdb) << dbname.c_str());
 
+		// Replace existing database GUID with a regenerated one
+		Guid::generate().copyTo(header->hdr_guid);
+
 		auto p = header->hdr_data;
 		const auto end = (UCHAR*) header + header->hdr_page_size;
 		while (p < end && *p != Ods::HDR_end)

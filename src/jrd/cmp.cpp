@@ -271,6 +271,8 @@ const Format* CMP_format(thread_db* tdbb, CompilerScratch* csb, StreamType strea
 			tail->csb_format = tail->csb_relation(tdbb)->currentFormat();
 		else if (tail->csb_procedure)
 			tail->csb_format = tail->csb_procedure(tdbb)->prc_record_format;
+		else if (tail->csb_table_value_fun)
+			tail->csb_format = tail->csb_table_value_fun->recordFormat;
 		//// TODO: LocalTableSourceNode
 		else
 			IBERROR(222);	// msg 222 bad blr - invalid stream
@@ -410,9 +412,6 @@ bool CMP_procedure_arguments(
 			csb->csb_msg_number = n = 2;
 		const auto tail = CMP_csb_element(csb, n);
 
-		message = tail->csb_message = FB_NEW_POOL(pool) MessageNode(pool);
-		message->messageNumber = n;
-
 		/* dimitr: procedure (with its parameter formats) is allocated out of
 					its own pool (prc_request->req_pool) and can be freed during
 					the cache cleanup (MET_clear_cache). Since the current
@@ -430,10 +429,9 @@ bool CMP_procedure_arguments(
 
 		message->format = format;
 		*/
-		const auto fmtCopy = Format::newFormat(pool, format->fmt_count);
-		*fmtCopy = *format;
-		message->format = fmtCopy;
+		message = tail->csb_message = FB_NEW_POOL(pool) MessageNode(pool, *format);
 		// --- end of fix ---
+		message->messageNumber = n;
 
 		const auto positionalArgCount = argNames ? argCount - argNames->getCount() : argCount;
 		auto sourceArgIt = sources->items.begin();

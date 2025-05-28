@@ -111,6 +111,7 @@ public:
 	{
 		return resources;
 	}
+	MessageNode* getMessage(USHORT messageNumber) const;
 
 private:
 	static void verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelation, const Triggers& triggers,
@@ -153,7 +154,8 @@ public:
 
 private:
 	Resources* resources;				// Resources (relations, routines, etc.)
-	Firebird::RefPtr<VersionedObjects> latest;		// want std::atomic<std::shared_ptr> or mutex is needed
+	Firebird::RefPtr<VersionedObjects> latest;		// want std::atomic<std::shared_ptr> or mutex is needed !!!!!!!!!!!!!
+	Firebird::Array<MessageNode*> messages;	// Input/output messages
 };
 
 

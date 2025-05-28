@@ -785,7 +785,7 @@ void INF_database_info(thread_db* tdbb,
 					length = gds__vax_integer(items, 2);
 					items += 2;
 
-					if (end_items - items >= length)
+					if (static_cast<ULONG>(end_items - items) >= length)
 					{
 						pageNum = gds__vax_integer(items, length);
 						items += length;
@@ -919,7 +919,7 @@ void INF_database_info(thread_db* tdbb,
 
 		case fb_info_db_guid:
 			{
-				const auto guidStr = dbb->dbb_guid.value().toString();
+				const auto guidStr = dbb->dbb_guid.toString();
 				if (!(info = INF_put_item(item, guidStr.length(), guidStr.c_str(), info, end)))
 					return;
 			}
@@ -1141,7 +1141,7 @@ ULONG INF_request_info(const Request* request,
 					if (item == isc_info_message_number)
 						length = INF_convert(node->messageNumber, buffer_ptr);
 					else
-						length = INF_convert(node->format->fmt_length, buffer_ptr);
+						length = INF_convert(node->getFormat(request)->fmt_length, buffer_ptr);
 				}
 				else
 					length = 0;

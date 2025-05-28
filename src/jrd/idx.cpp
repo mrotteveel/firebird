@@ -804,7 +804,7 @@ bool IndexCreateTask::getResult(IStatus* status)
 
 int IndexCreateTask::getMaxWorkers()
 {
-	const int parWorkers = m_items.getCount();
+	const FB_SIZE_T parWorkers = m_items.getCount();
 	if (parWorkers == 1 || m_countPP == 0)
 		return 1;
 

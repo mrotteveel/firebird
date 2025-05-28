@@ -1071,7 +1071,7 @@ int gstat(Firebird::UtilSvc* uSvc)
 				}
 
 
-				const FB_SIZE_T tableSize = tddba->page_size * (
+				const FB_UINT64 tableSize = tddba->page_size * (
 					relation->rel_pointer_pages +
 					relation->rel_data_pages +
 					blobsTotal.blob_pages);
@@ -1726,33 +1726,28 @@ static USHORT get_format_length(ISC_STATUS* status_vector, isc_db_handle databas
 	UserBlob blob(status_vector);
 
 	if (!blob.open(database, transaction, blob_id))
-	{
 		return 0;
-	}
 
 	const UCHAR blob_items[] = {isc_info_blob_total_length};
 	UCHAR blob_info[BUFFER_TINY];
 	if (!blob.getInfo(sizeof(blob_items), blob_items, sizeof(blob_info), blob_info))
-	{
 		return 0;
-	}
 
 	const UCHAR* p = blob_info;
 	if (*p++ != isc_info_blob_total_length)
-	{
 		return 0;
-	}
 
-	const USHORT l = isc_vax_integer((const char*) p, 2);
+	const auto l = isc_vax_integer((const char*) p, 2);
 	p += 2;
-	const ULONG length = isc_vax_integer((const char*) p, l);
+	const auto length = isc_portable_integer(p, l);
+
+	if (length > MAX_ULONG)
+		return 0;
 
 	FB_SIZE_T return_length = 0;
 	Firebird::UCharBuffer buffer;
 	if (!blob.getData(length, buffer.getBuffer(length), return_length))
-	{
 		return 0;
-	}
 
 	buffer.resize(return_length);
 

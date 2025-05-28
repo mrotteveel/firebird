@@ -795,11 +795,12 @@ void PAG_format_header(thread_db* tdbb)
 
 	WIN window(HEADER_PAGE_NUMBER);
 	header_page* header = (header_page*) CCH_fake(tdbb, &window, 1);
+	header->hdr_header.pag_type = pag_header;
 	header->hdr_header.pag_scn = 0;
+	Guid::generate().copyTo(header->hdr_guid);
 	*(ISC_TIMESTAMP*) header->hdr_creation_date = TimeZoneUtil::getCurrentGmtTimeStamp().utc_timestamp;
 	// should we include milliseconds or not?
 	//TimeStamp::round_time(header->hdr_creation_date->timestamp_time, 0);
-	header->hdr_header.pag_type = pag_header;
 	header->hdr_page_size = dbb->dbb_page_size;
 	header->hdr_ods_version = ODS_VERSION | ODS_FIREBIRD_FLAG;
 	DbImplementation::current.store(header);
@@ -816,6 +817,8 @@ void PAG_format_header(thread_db* tdbb)
 
 	dbb->dbb_ods_version = header->hdr_ods_version & ~ODS_FIREBIRD_FLAG;
 	dbb->dbb_minor_version = header->hdr_ods_minor;
+
+	dbb->dbb_guid.assign(header->hdr_guid);
 
 	CCH_RELEASE(tdbb, &window);
 }
@@ -1040,6 +1043,8 @@ void PAG_header(thread_db* tdbb, bool info, const TriState newForceWrite)
 	const auto replicaMode = (ReplicaMode) header->hdr_replica_mode;
 	dbb->dbb_replica_mode.store(replicaMode, std::memory_order_relaxed);
 
+	dbb->dbb_guid.assign(header->hdr_guid);
+
 	// If database in backup lock state...
 	if (!info && dbb->dbb_backup_manager->getState() != Ods::hdr_nbak_normal)
 	{
@@ -1111,10 +1116,15 @@ void PAG_header_init(thread_db* tdbb)
 	HalfStaticArray<UCHAR, RAW_HEADER_SIZE + PAGE_ALIGNMENT> temp;
 	UCHAR* const temp_page = temp.getAlignedBuffer(headerSize, ioBlockSize);
 
-	PIO_header(tdbb, temp_page, headerSize);
-	const header_page* header = (header_page*) temp_page;
+	if (!PIO_header(tdbb, temp_page, headerSize))
+		ERR_post(Arg::Gds(isc_bad_db_format) << Arg::Str(attachment->att_filename));
 
-	if (header->hdr_header.pag_type != pag_header)
+	const auto header = (header_page*) temp_page;
+
+	if (header->hdr_header.pag_type != pag_header || header->hdr_header.pag_pageno != HEADER_PAGE)
+		ERR_post(Arg::Gds(isc_bad_db_format) << Arg::Str(attachment->att_filename));
+
+	if (header->hdr_page_size < PAGE_SIZE_BASE || header->hdr_page_size % PAGE_SIZE_BASE != 0)
 		ERR_post(Arg::Gds(isc_bad_db_format) << Arg::Str(attachment->att_filename));
 
 	const USHORT ods_version = header->hdr_ods_version & ~ODS_FIREBIRD_FLAG;

@@ -71,6 +71,8 @@
 
 #ifndef WIN_NT
 #define LTC_PTHREAD
+#else
+#include <process.h>
 #endif
 #define USE_LTM
 #define LTM_DESC
@@ -4593,7 +4595,7 @@ dsc* evlGetContext(thread_db* tdbb, const SysFunction*, const NestValueArray& ar
 		else if (nameStr == DATABASE_NAME)
 			resultStr = dbb->dbb_database_name.ToString();
 		else if (nameStr == DATABASE_GUID)
-			resultStr = dbb->dbb_guid.value().toString();
+			resultStr = dbb->dbb_guid.toString();
         else if (nameStr == PAGES_ALLOCATED)
         {
             resultStr.printf("%" ULONGFORMAT, PageSpace::actAlloc(dbb));
@@ -5512,9 +5514,36 @@ dsc* evlMaxMinValue(thread_db* tdbb, const SysFunction* function, const NestValu
 	}
 
 	DataTypeUtil(tdbb).makeFromList(&impure->vlu_desc, function->name, argTypes.getCount(), argTypes.begin());
-	impure->vlu_desc.dsc_address = (UCHAR*) &impure->vlu_misc;
+
+	if (impure->vlu_desc.isText())
+	{
+		const USHORT length = impure->vlu_desc.dsc_length;
+
+		// Allocate a string block of sufficient size
+
+		auto string = impure->vlu_string;
+
+		if (string && string->str_length < length)
+		{
+			delete string;
+			string = nullptr;
+		}
+
+		if (!string)
+		{
+			string = impure->vlu_string = FB_NEW_RPT(*tdbb->getDefaultPool(), length) VaryingString();
+			string->str_length = length;
+		}
+
+		impure->vlu_desc.dsc_address = string->str_data;
+	}
+	else
+		impure->vlu_desc.dsc_address = (UCHAR*) &impure->vlu_misc;
 
 	MOV_move(tdbb, result, &impure->vlu_desc);
+
+	if (impure->vlu_desc.dsc_dtype == dtype_text)
+		INTL_adjust_text_descriptor(tdbb, &impure->vlu_desc);
 
 	return &impure->vlu_desc;
 }
@@ -6924,10 +6953,12 @@ const SysFunction SysFunction::functions[] =
 		{"FIRST_DAY", 2, 2, true, setParamsFirstLastDay, makeFirstLastDayResult, evlFirstLastDay, (void*) funFirstDay},
 		{"FLOOR", 1, 1, true, setParamsDblDec, makeCeilFloor, evlFloor, NULL},
 		{"GEN_UUID", 0, 1, false, NULL, makeUuid, evlGenUuid, NULL},
+		{"GREATEST", 1, -1, true, setParamsFromList, makeFromListResult, evlMaxMinValue, (void*) funMaxValue},
 		{"HASH", 1, 2, true, setParamsHash, makeHash, evlHash, NULL},
 		{"HEX_DECODE", 1, 1, true, NULL, makeDecodeHex, evlDecodeHex, NULL},
 		{"HEX_ENCODE", 1, 1, true, NULL, makeEncodeHex, evlEncodeHex, NULL},
 		{"LAST_DAY", 2, 2, true, setParamsFirstLastDay, makeFirstLastDayResult, evlFirstLastDay, (void*) funLastDay},
+		{"LEAST", 1, -1, true, setParamsFromList, makeFromListResult, evlMaxMinValue, (void*) funMinValue},
 		{"LEFT", 2, 2, true, setParamsSecondInteger, makeLeftRight, evlLeft, NULL},
 		{"LN", 1, 1, true, setParamsDblDec, makeDblDecResult, evlLnLog10, (void*) funLnat},
 		{"LOG", 2, 2, true, setParamsDblDec, makeDblDecResult, evlLog, NULL},

@@ -328,13 +328,12 @@ bool_t xdr_protocol(RemoteXdr* xdrs, PACKET* p)
 
 			MAP(xdr_cstring_const, connect->p_cnct_user_id);
 
-			const size_t CNCT_VERSIONS = FB_NELEM(connect->p_cnct_versions);
 			tail = connect->p_cnct_versions;
 			for (USHORT i = 0; i < connect->p_cnct_count; i++, tail++)
 			{
 				// ignore the rest of protocols in case of too many suggested versions
 				p_cnct::p_cnct_repeat dummy;
-				if (i >= CNCT_VERSIONS)
+				if (i >= MAX_CNCT_VERSIONS)
 				{
 					tail = &dummy;
 				}
@@ -347,9 +346,9 @@ bool_t xdr_protocol(RemoteXdr* xdrs, PACKET* p)
 			}
 
 			// ignore the rest of protocols in case of too many suggested versions
-			if (connect->p_cnct_count > CNCT_VERSIONS)
+			if (connect->p_cnct_count > MAX_CNCT_VERSIONS)
 			{
-				connect->p_cnct_count = CNCT_VERSIONS;
+				connect->p_cnct_count = MAX_CNCT_VERSIONS;
 			}
 
 			DEBUG_PRINTSIZE(xdrs, p->p_operation);
@@ -545,9 +544,15 @@ bool_t xdr_protocol(RemoteXdr* xdrs, PACKET* p)
 	case op_commit_retaining:
 	case op_rollback_retaining:
 	case op_allocate_statement:
+	case op_batch_rls:
+	case op_batch_cancel:
 		release = &p->p_rlse;
 		MAP(xdr_short, reinterpret_cast<SSHORT&>(release->p_rlse_object));
 		DEBUG_PRINTSIZE(xdrs, p->p_operation);
+#ifdef NEVERDEF
+		if (xdrs->x_op != XDR_FREE && (p->p_operation == op_batch_rls || p->p_operation == op_batch_cancel))
+			DEB_RBATCH(fprintf(stderr, "BatRem: xdr release/cancel %d\n", p->p_operation));
+#endif
 		return P_TRUE(xdrs, p);
 
 	case op_prepare2:
@@ -711,7 +716,7 @@ bool_t xdr_protocol(RemoteXdr* xdrs, PACKET* p)
 		// p_sqlst_buffer_length was USHORT in older versions
 		fixupLength(xdrs, prep_stmt->p_sqlst_buffer_length);
 
-		if (port->port_protocol >= PROTOCOL_VERSION19)
+		if (port->port_protocol >= PROTOCOL_PREPARE_FLAG)
 			MAP(xdr_short, reinterpret_cast<SSHORT&>(prep_stmt->p_sqlst_flags));
 
 		DEBUG_PRINTSIZE(xdrs, p->p_operation);
@@ -1082,18 +1087,6 @@ bool_t xdr_protocol(RemoteXdr* xdrs, PACKET* p)
 			return P_TRUE(xdrs, p);
 		}
 
-	case op_batch_rls:
-	case op_batch_cancel:
-		{
-			P_BATCH_FREE_CANCEL* b = &p->p_batch_free_cancel;
-			MAP(xdr_short, reinterpret_cast<SSHORT&>(b->p_batch_statement));
-
-			if (xdrs->x_op != XDR_FREE)
-				DEB_RBATCH(fprintf(stderr, "BatRem: xdr release/cancel %d\n", p->p_operation));
-
-			return P_TRUE(xdrs, p);
-		}
-
 	case op_batch_sync:
 		{
 			return P_TRUE(xdrs, p);
@@ -1104,6 +1097,9 @@ bool_t xdr_protocol(RemoteXdr* xdrs, PACKET* p)
 			P_BATCH_SETBPB* b = &p->p_batch_setbpb;
 			MAP(xdr_short, reinterpret_cast<SSHORT&>(b->p_batch_statement));
 			MAP(xdr_cstring_const, b->p_batch_blob_bpb);
+
+			if (xdrs->x_op == XDR_FREE)
+				return P_TRUE(xdrs, p);
 
 			Rsr* statement = getStatement(xdrs, b->p_batch_statement);
 			if (!statement)
@@ -2249,6 +2245,11 @@ static bool_t xdr_trrq_message( RemoteXdr* xdrs, USHORT msg_type)
 
 	rem_port* port = xdrs->x_public;
 	Rpr* procedure = port->port_rpr;
+
+	// normally that never happens
+	fb_assert(procedure);
+	if (!procedure)
+		return false;
 
 	if (msg_type == 1)
 		return xdr_message(xdrs, procedure->rpr_out_msg, procedure->rpr_out_format);

@@ -387,8 +387,10 @@ static void threadDetach()
 	ThreadSync* thd = ThreadSync::findThread();
 	delete thd;
 
+#ifndef CDS_UNAVAILABLE
 	if (cds::threading::Manager::isThreadAttached())
 		cds::threading::Manager::detachThread();
+#endif
 }
 
 static void shutdownBeforeUnload()
@@ -751,6 +753,33 @@ namespace
 		}
 	}
 
+	USHORT validatePageSize(SLONG pageSize)
+	{
+		USHORT actualPageSize = DEFAULT_PAGE_SIZE;
+
+		if (pageSize > 0)
+		{
+			for (SLONG size = MIN_PAGE_SIZE; size <= MAX_PAGE_SIZE; size <<= 1)
+			{
+				if (pageSize < (size + (size << 1)) / 2)
+				{
+					pageSize = size;
+					break;
+				}
+			}
+
+			if (pageSize > MAX_PAGE_SIZE)
+				pageSize = MAX_PAGE_SIZE;
+
+			fb_assert(pageSize <= MAX_USHORT);
+			actualPageSize = (USHORT) pageSize;
+		}
+
+		fb_assert(actualPageSize % PAGE_SIZE_BASE == 0);
+		fb_assert(actualPageSize >= MIN_PAGE_SIZE && actualPageSize <= MAX_PAGE_SIZE);
+
+		return actualPageSize;
+	}
 
 	class DefaultCallback : public AutoIface<ICryptKeyCallbackImpl<DefaultCallback, CheckStatusWrapper> >
 	{
@@ -1495,7 +1524,7 @@ JTransaction* JAttachment::getTransactionInterface(CheckStatusWrapper* status, I
 
 	status->init();
 
-	// If validation is successfull, this means that this attachment and valid transaction
+	// If validation is successful, this means that this attachment and valid transaction
 	// use same provider. I.e. the following cast is safe.
 	JTransaction* jt = static_cast<JTransaction*>(tra->validate(status, this));
 	if (status->getState() & IStatus::STATE_ERRORS)
@@ -1589,7 +1618,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 #ifdef WIN_NT
 			guardDbInit.enter();		// Required to correctly expand name of just created database
 
-			// Need to re-expand under lock to take into an account file existance (or not)
+			// Need to re-expand under lock to take into an account file existence (or not)
 			is_alias = expandDatabaseName(org_filename, expanded_name, &config);
 			if (!is_alias)
 			{
@@ -2819,7 +2848,7 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 #ifdef WIN_NT
 			guardDbInit.enter();		// Required to correctly expand name of just created database
 
-			// Need to re-expand under lock to take into an account file existance (or not)
+			// Need to re-expand under lock to take into an account file existence (or not)
 			is_alias = expandDatabaseName(org_filename, expanded_name, &config);
 			if (!is_alias)
 			{
@@ -2920,18 +2949,7 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 
 			attachment->att_client_charset = attachment->att_charset = CSetId(options.dpb_interp);
 
-			if (options.dpb_page_size <= 0) {
-				options.dpb_page_size = DEFAULT_PAGE_SIZE;
-			}
-
-			SLONG page_size = MIN_PAGE_SIZE;
-			for (; page_size < MAX_PAGE_SIZE; page_size <<= 1)
-			{
-				if (options.dpb_page_size < page_size << 1)
-					break;
-			}
-
-			dbb->dbb_page_size = (page_size > MAX_PAGE_SIZE) ? MAX_PAGE_SIZE : page_size;
+			dbb->dbb_page_size = validatePageSize(options.dpb_page_size);
 
 			TRA_init(attachment);
 
@@ -3047,9 +3065,6 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 			PAG_format_pip(tdbb, *pageSpace);
 
 			dbb->dbb_page_manager.initTempPageSpace(tdbb);
-
-			dbb->dbb_guid = Guid::generate();
-			PAG_set_db_guid(tdbb, dbb->dbb_guid.value());
 
 			if (options.dpb_set_page_buffers)
 				PAG_set_page_buffers(tdbb, options.dpb_page_buffers);
@@ -4753,7 +4768,7 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 
 			if (in_msg_length)
 			{
-				const ULONG len = inMessage ? inMessage->format->fmt_length : 0;
+				const ULONG len = inMessage ? inMessage->getFormat(request)->fmt_length : 0;
 
 				if (in_msg_length != len)
 				{
@@ -4761,12 +4776,12 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 													   Arg::Num(len));
 				}
 
-				memcpy(request->getImpure<UCHAR>(inMessage->impureOffset), in_msg, in_msg_length);
+				memcpy(inMessage->getBuffer(request), in_msg, in_msg_length);
 			}
 
 			EXE_start(tdbb, request, transaction);
 
-			const ULONG len = outMessage ? outMessage->format->fmt_length : 0;
+			const ULONG len = outMessage ? outMessage->getFormat(request)->fmt_length : 0;
 
 			if (out_msg_length != len)
 			{
@@ -4776,8 +4791,7 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 
 			if (out_msg_length)
 			{
-				memcpy(out_msg, request->getImpure<UCHAR>(outMessage->impureOffset),
-					out_msg_length);
+				memcpy(out_msg, outMessage->getBuffer(request), out_msg_length);
 			}
 
 			check_autocommit(tdbb, request);
@@ -6800,7 +6814,7 @@ static void find_intl_charset(thread_db* tdbb, Jrd::Attachment* attachment, cons
  **************************************
  *
  * Functional description
- *	Attachment has declared it's prefered character set
+ *	Attachment has declared its preferred character set
  *	as part of LC_CTYPE, passed over with the attachment
  *	block.  Now let's resolve that to an internal subtype id.
  *
@@ -7553,20 +7567,22 @@ static JAttachment* create_attachment(const PathName& alias_name,
 
 static void check_single_maintenance(thread_db* tdbb)
 {
-	Database* const dbb = tdbb->getDatabase();
+	const auto dbb = tdbb->getDatabase();
+	const auto attachment = tdbb->getAttachment();
 
 	const ULONG ioBlockSize = dbb->getIOBlockSize();
 	const ULONG headerSize = MAX(RAW_HEADER_SIZE, ioBlockSize);
 
 	HalfStaticArray<UCHAR, RAW_HEADER_SIZE + PAGE_ALIGNMENT> temp;
-	UCHAR* header_page_buffer = temp.getAlignedBuffer(headerSize, ioBlockSize);
+	UCHAR* const header_page_buffer = temp.getAlignedBuffer(headerSize, ioBlockSize);
 
-	Ods::header_page* const header_page = reinterpret_cast<Ods::header_page*>(header_page_buffer);
+	if (!PIO_header(tdbb, header_page_buffer, headerSize))
+		ERR_post(Arg::Gds(isc_bad_db_format) << Arg::Str(attachment->att_filename));
 
-	PIO_header(tdbb, header_page_buffer, headerSize);
+	const auto header_page = reinterpret_cast<Ods::header_page*>(header_page_buffer);
 
 	if (header_page->hdr_shutdown_mode == Ods::hdr_shutdown_single)
-		ERR_post(Arg::Gds(isc_shutdown) << Arg::Str(tdbb->getAttachment()->att_filename));
+		ERR_post(Arg::Gds(isc_shutdown) << Arg::Str(attachment->att_filename));
 }
 
 
@@ -7727,8 +7743,8 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 	XThreadEnsureUnlock* activeThreadGuard = dropGuard;
 	if (!activeThreadGuard)
 	{
-		if (dbb->dbb_crypto_manager
-			&& Thread::isCurrent(Thread::getIdFromHandle(dbb->dbb_crypto_manager->getCryptThreadHandle())))
+		if (dbb->dbb_crypto_manager &&
+			Thread::isCurrent(dbb->dbb_crypto_manager->getCryptThreadHandle()))
 		{
 			activeThreadGuard = &dummyGuard;
 		}

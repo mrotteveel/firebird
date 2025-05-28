@@ -547,16 +547,6 @@ typedef struct dsc
 #endif	// __cpluplus
 } DSC;
 
-inline CSetId DSC_GET_CHARSET(const dsc* desc)
-{
-	return desc->getCharSet();
-}
-
-inline CollId DSC_GET_COLLATE(const dsc* desc)
-{
-	return desc->getCollation();
-}
-
 struct alt_dsc
 {
 	SLONG dsc_combined_type;

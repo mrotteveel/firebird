@@ -521,6 +521,7 @@ public:
 		TYPE_SELECT_EXPR,
 		TYPE_UNION,
 		TYPE_WINDOW,
+		TYPE_TABLE_VALUE_FUNCTION,
 
 		// List types
 		TYPE_REC_SOURCE_LIST,
@@ -695,6 +696,14 @@ public:
 		}
 
 		return false;
+	}
+
+	bool containsAnyStream() const
+	{
+		SortedStreamList nodeStreams;
+		collectStreams(nodeStreams);
+
+		return nodeStreams.hasData();
 	}
 
 	virtual bool dsqlMatch(DsqlCompilerScratch* dsqlScratch, const ExprNode* other, bool ignoreMapCast) const;
@@ -1443,6 +1452,7 @@ public:
 		TYPE_IN_AUTO_TRANS,
 		TYPE_INIT_VARIABLE,
 		TYPE_FOR,
+		TYPE_FOR_RANGE,
 		TYPE_HANDLER,
 		TYPE_LABEL,
 		TYPE_LINE_COLUMN,
@@ -1491,15 +1501,7 @@ public:
 			: savedTdbb(tdbb),
 			  oldPool(tdbb->getDefaultPool()),
 			  oldRequest(tdbb->getRequest()),
-			  oldTransaction(tdbb->getTransaction()),
-			  topNode(NULL),
-			  prevNode(NULL),
-			  whichEraseTrig(ALL_TRIGS),
-			  whichStoTrig(ALL_TRIGS),
-			  whichModTrig(ALL_TRIGS),
-			  errorPending(false),
-			  catchDisabled(false),
-			  exit(false)
+			  oldTransaction(tdbb->getTransaction())
 		{
 			savedTdbb->setTransaction(transaction);
 			savedTdbb->setRequest(request);
@@ -1514,15 +1516,16 @@ public:
 		thread_db* savedTdbb;
 		MemoryPool* oldPool;		// Save the old pool to restore on exit.
 		Request* oldRequest;		// Save the old request to restore on exit.
-		jrd_tra* oldTransaction;	// Save the old transcation to restore on exit.
-		const StmtNode* topNode;
-		const StmtNode* prevNode;
-		WhichTrigger whichEraseTrig;
-		WhichTrigger whichStoTrig;
-		WhichTrigger whichModTrig;
-		bool errorPending;			// Is there an error pending to be handled?
-		bool catchDisabled;			// Catch errors so we can unwind cleanly.
-		bool exit;					// Exit the looper when true.
+		jrd_tra* oldTransaction;	// Save the old transaction to restore on exit.
+		const StmtNode* topNode = nullptr;
+		const StmtNode* prevNode = nullptr;
+		WhichTrigger whichEraseTrig = ALL_TRIGS;
+		WhichTrigger whichStoTrig = ALL_TRIGS;
+		WhichTrigger whichModTrig = ALL_TRIGS;
+		bool errorPending = false;		// Is there an error pending to be handled?
+		bool catchDisabled = false;		// Catch errors so we can unwind cleanly.
+		bool exit = false;				// Exit the looper when true.
+		bool forceProfileNextEvaluate = false;
 	};
 
 public:
