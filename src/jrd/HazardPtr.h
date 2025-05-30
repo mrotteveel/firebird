@@ -104,7 +104,7 @@ public:
 
 	T* releasePointer()
 	{
-		T* rc = get<T>();
+		T* rc = getPointer();
 		clear();
 		return rc;
 	}
@@ -118,7 +118,7 @@ public:
 	// sets *this to actual data from 'where' if replace failed
 	bool replace(atomics::atomic<T*>& where, T* newVal)
 	{
-		T* val = get<T>();
+		T* val = getPointer();
 		bool rc = where.compare_exchange_strong(val, newVal,
 			std::memory_order_release, std::memory_order_acquire);
 		if (!rc)
@@ -133,12 +133,12 @@ public:
 
 	T* operator->()
 	{
-		return get<T>();
+		return getPointer();
 	}
 
 	const T* operator->() const
 	{
-		return get<T>();
+		return getPointer();
 	}
 /*
 	template <typename R>
@@ -159,12 +159,12 @@ public:
 
 	bool operator==(const T* v) const
 	{
-		return get<T>() == v;
+		return getPointer() == v;
 	}
 
 	bool operator!=(const T* v) const
 	{
-		return get<T>() != v;
+		return getPointer() != v;
 	}
 
 	operator bool() const
