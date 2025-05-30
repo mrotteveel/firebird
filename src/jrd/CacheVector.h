@@ -206,10 +206,10 @@ public:
 
 	bool isBusy(TraNumber currentTrans, TraNumber* number = nullptr) const noexcept
 	{
-		bool rc = !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
-		if (rc && number)
+		bool busy = !((getFlags() & CacheFlag::COMMITTED) || (traNumber == currentTrans));
+		if (busy && number)
 			*number = traNumber;
-		return rc;
+		return busy;
 	}
 
 	ObjectBase::Flag getFlags() const noexcept
@@ -235,7 +235,7 @@ public:
 				if (TransactionNumber::isNotActive(tdbb, oldVal->traNumber))
 				{
 					rollback(tdbb, list, oldVal->traNumber);
-					oldVal.set(list);
+					oldVal = list;
 				}
 				else
 					return false;
@@ -248,7 +248,7 @@ public:
 	}
 
 	// insert newVal in the beginning of a list provided there is still oldVal at the top of the list
-	static bool replace(atomics::atomic<ListEntry*>& list, ListEntry* newVal, ListEntry* oldVal) noexcept
+	static bool insert(atomics::atomic<ListEntry*>& list, ListEntry* newVal, ListEntry* oldVal) noexcept
 	{
 		if (oldVal && oldVal->isBusy(newVal->traNumber))	// modified in other transaction
 			return false;
@@ -315,16 +315,17 @@ public:
 	// created earlier object is bad and should be destroyed
 	static void rollback(thread_db* tdbb, atomics::atomic<ListEntry*>& list, const TraNumber currentTran)
 	{
-		// Take into an account that no other transaction except current (i.e. object creator)
-		// can access uncommitted objects, only list entries may be accessed as hazard pointers.
-		// Therefore rollback can retire such entries at once, a kind of pop() from stack.
-
 		HazardPtr<ListEntry> entry(list);
 		while (entry)
 		{
 			if (entry->getFlags() & CacheFlag::COMMITTED)
 				break;
+
+			// I keep this assertion for a while cause it's efficient finding bugs in a case of no races.
+			// In general case it's wrong assertion.
 			fb_assert(entry->traNumber == currentTran);
+			if (entry->traNumber != currentTran)
+				break;
 
 			if (entry.replace(list, entry->next))
 			{
@@ -554,13 +555,31 @@ public:
 
 	Availability isAvailable(thread_db* tdbb, TraNumber* number = nullptr)
 	{
-		auto entry = list.load(atomics::memory_order_acquire);
-		//getEntry(tdbb, TransactionNumber::current(tdbb), CacheFlag::NOSCAN | CacheFlag::NOCOMMIT);
-		if (!entry)
-			return MISSING;
-		if (entry->isBusy(TransactionNumber::current(tdbb), number))
-			return OCCUPIED;
-		return entry->isReady() ? READY : MODIFIED;
+		HazardPtr<ListEntry<Versioned>> entry(list);
+
+		for(;;)
+		{
+			if (!entry)
+				return MISSING;
+
+			TraNumber temp;
+			if (entry->isBusy(TransactionNumber::current(tdbb), &temp))
+			{
+				// modified in transaction entry->traNumber
+				if (TransactionNumber::isNotActive(tdbb, temp))
+				{
+					ListEntry<Versioned>::rollback(tdbb, list, temp);
+					entry = list;
+					continue;
+				}
+
+				if (number)
+					*number = temp;
+				return OCCUPIED;
+			}
+
+			return entry->isReady() ? READY : MODIFIED;
+		}
 	}
 
 	ObjectBase::Flag getFlags(thread_db* tdbb)
@@ -601,7 +620,7 @@ public:
 				throw;
 			}
 
-			if (ListEntry<Versioned>::replace(list, newEntry, nullptr))
+			if (ListEntry<Versioned>::insert(list, newEntry, nullptr))
 			{
 				auto sr = newEntry->scan(tdbb, fl);
 				if (! (fl & CacheFlag::NOCOMMIT))
