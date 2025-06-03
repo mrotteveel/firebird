@@ -123,7 +123,7 @@ template <class OBJ>
 class ListEntry : public HazardObject
 {
 public:
-	enum State { INITIAL, RELOAD, SCANNING, READY };
+	enum State { INITIAL, RELOAD, MISSING, SCANNING, READY };
 
 	ListEntry(OBJ* object, TraNumber traNumber, ObjectBase::Flag fl)
 		: object(object), traNumber(traNumber), cacheFlags(fl), state(INITIAL)
@@ -301,13 +301,24 @@ public:
 	// return true if object was erased
 	bool commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
 	{
-		TraNumber oldNumber = traNumber;
+		auto flags = cacheFlags.load(atomics::memory_order_acquire);
+		for(;;)
+		{
+			fb_assert(traNumber == (flags & CacheFlag::COMMITTED ? nextTrans : currentTrans));
+			if (flags & CacheFlag::COMMITTED)
+				return flags & CacheFlag::ERASED;
+
+			// RETIRED is set here to avoid illegal gc until traNumber correction
+			if (cacheFlags.compare_exchange_weak(flags, flags | CacheFlag::COMMITTED | CacheFlag::RETIRED,
+				atomics::memory_order_acquire, atomics::memory_order_acquire))
+			{
+				break;
+			}
+		}
 
 		traNumber = nextTrans;
 		version = VersionSupport::next(tdbb);
-		auto flags = cacheFlags.fetch_or(CacheFlag::COMMITTED);			// !!!!!!!!!!!!!!!! CMPXCHG!!!
-
-		fb_assert((flags & CacheFlag::COMMITTED ? nextTrans : currentTrans) == oldNumber);
+		cacheFlags &= ~CacheFlag::RETIRED;		// Enable GC
 
 		return flags & CacheFlag::ERASED;
 	}
@@ -397,6 +408,8 @@ public:
 						break;
 
 					case ScanResult::SKIP:
+						if (savedState == MISSING)
+							result = ScanResult::MISS;
 						state = savedState;
 						break;
 

@@ -3072,13 +3072,17 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 			{
 				P.RDB$PROCEDURE_INPUTS = (USHORT) parameters.getCount();
 				P.RDB$PROCEDURE_OUTPUTS = (USHORT) returns.getCount();
+
+				P.RDB$PROCEDURE_BLR.NULL = TRUE;
+				P.RDB$DEBUG_INFO.NULL = TRUE;
+				P.RDB$PROCEDURE_TYPE.NULL = TRUE;
 			}
 			END_MODIFY
 		}
 		END_FOR
 	}
 
-	if (secondPass && modified)
+	if (modified)
 		MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
 
 	return modified;
