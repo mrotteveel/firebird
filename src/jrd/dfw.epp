@@ -402,6 +402,7 @@ static bool db_crypt(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool set_linger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool clear_cache(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool change_repl_state(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static bool store_view_context_type(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static string remove_icu_info_from_attributes(const string&, const string&);
 
 // ----------------------------------------------------------------
@@ -1179,7 +1180,7 @@ static const deferred_task task_table[] =
 	{ dfw_end_backup, end_backup },
 	{ dfw_user_management, user_management },
 	{ dfw_check_not_null, check_not_null },
-//	{ dfw_store_view_context_type, store_view_context_type },
+	{ dfw_store_view_context_type, store_view_context_type },
 	{ dfw_db_crypt, db_crypt },
 	{ dfw_set_linger, set_linger },
 	{ dfw_clear_cache, clear_cache },
@@ -2239,6 +2240,50 @@ static bool delete_generator(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 	{
 	case 1:
 		DFW_check_dependencies(tdbb, gen_name, NULL, NULL, obj_generator, transaction);
+		break;
+	}
+
+	return false;
+}
+
+// Store RDB$CONTEXT_TYPE in RDB$VIEW_RELATIONS when restoring legacy backup.
+static bool store_view_context_type(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		{
+			// If RDB$PACKAGE_NAME IS NOT NULL or no record is found in RDB$RELATIONS,
+			// the context is a procedure;
+			ViewContextType vct = VCT_PROCEDURE;
+
+			AutoRequest handle1;
+			FOR (REQUEST_HANDLE handle1 TRANSACTION_HANDLE transaction)
+				VRL IN RDB$VIEW_RELATIONS CROSS
+				REL IN RDB$RELATIONS OVER RDB$RELATION_NAME WITH
+					VRL.RDB$VIEW_NAME = work->dfw_name.c_str() AND
+					VRL.RDB$VIEW_CONTEXT = work->dfw_id AND
+					VRL.RDB$PACKAGE_NAME MISSING
+			{
+				vct = (REL.RDB$VIEW_BLR.NULL ? VCT_TABLE : VCT_VIEW);
+			}
+			END_FOR
+
+			AutoRequest handle2;
+			FOR (REQUEST_HANDLE handle2 TRANSACTION_HANDLE transaction)
+				VRL IN RDB$VIEW_RELATIONS WITH
+					VRL.RDB$VIEW_NAME = work->dfw_name.c_str() AND
+					VRL.RDB$VIEW_CONTEXT = work->dfw_id
+			{
+				MODIFY VRL USING
+					VRL.RDB$CONTEXT_TYPE.NULL = FALSE;
+					VRL.RDB$CONTEXT_TYPE = (SSHORT) vct;
+				END_MODIFY
+			}
+			END_FOR
+		}
 		break;
 	}
 
