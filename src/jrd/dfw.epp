@@ -1139,7 +1139,6 @@ namespace
 
 static const deferred_task task_table[] =
 {
-
 	{ dfw_add_shadow, add_shadow },
 	{ dfw_delete_index, delete_index },
 	{ dfw_delete_rfr, delete_rfr },
@@ -1157,11 +1156,9 @@ static const deferred_task task_table[] =
 	{ dfw_create_trigger, create_trigger },
 	{ dfw_modify_trigger, modify_trigger },
 	{ dfw_delete_trigger, delete_trigger },
-/*
 	{ dfw_drop_package_header, drop_package_header },	// packages should be before procedures
 	{ dfw_modify_package_header, modify_package_header },	// packages should be before procedures
 	{ dfw_drop_package_body, drop_package_body },		// packages should be before procedures
-*/
 	{ dfw_create_procedure, ProcedureManager::createRoutine },
 	{ dfw_create_function, FunctionManager::createRoutine },
 	{ dfw_delete_procedure, ProcedureManager::deleteRoutine },
@@ -2318,6 +2315,52 @@ static bool user_management(thread_db* /*tdbb*/, SSHORT phase, DeferredWork* wor
 
 	case 6:
 		transaction->getUserManagement()->commit();	// safe to be called multiple times
+		break;
+	}
+
+	return false;
+}
+
+// Drop dependencies of a package header.
+static bool drop_package_header(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header, transaction);
+		break;
+	}
+
+	return false;
+}
+
+// Drop dependencies of a package header.
+static bool modify_package_header(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header, transaction);
+		break;
+	}
+
+	return false;
+}
+
+// Drop dependencies of a package body.
+static bool drop_package_body(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+	SET_TDBB(tdbb);
+
+	switch (phase)
+	{
+	case 1:
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body, transaction);
 		break;
 	}
 
