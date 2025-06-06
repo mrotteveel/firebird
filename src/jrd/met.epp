@@ -2084,6 +2084,37 @@ void MET_load_trigger(thread_db* tdbb,
 
 
 
+void MET_lookup_index_for_cnstrt(thread_db* tdbb,
+	MetaName& index_name,
+	const MetaName& constraint_name)
+{
+/**************************************
+*
+*      M E T _ l o o k u p _ i n d e x _ f o r _ c n s t r t
+*
+**************************************
+*
+* Functional description
+*      Lookup index name from constraint name, if one exists.
+*      index_name is output parameter.
+*
+**************************************/
+	SET_TDBB(tdbb);
+	Attachment* attachment = tdbb->getAttachment();
+
+	index_name = "";
+	AutoCacheRequest request(tdbb, irq_l_index_cnstrt, IRQ_REQUESTS);
+
+	FOR(REQUEST_HANDLE request)
+		X IN RDB$RELATION_CONSTRAINTS WITH X.RDB$CONSTRAINT_NAME EQ constraint_name.c_str()
+	{
+		if (!X.RDB$INDEX_NAME.NULL)
+			index_name = X.RDB$INDEX_NAME;
+	}
+	END_FOR
+}
+
+
 void MET_lookup_cnstrt_for_index(thread_db* tdbb,
 								 MetaName& constraint_name,
 								 const MetaName& index_name)
@@ -2096,7 +2127,7 @@ void MET_lookup_cnstrt_for_index(thread_db* tdbb,
  *
  * Functional description
  *      Lookup  constraint name from index name, if one exists.
- *      Calling routine must pass a buffer of at least 32 bytes.
+ *      constraint_name is output parameter.
  *
  **************************************/
 	SET_TDBB(tdbb);
@@ -2127,7 +2158,7 @@ void MET_lookup_cnstrt_for_trigger(thread_db* tdbb,
  *
  * Functional description
  *      Lookup  constraint name from trigger name, if one exists.
- *      Calling routine must pass a buffer of at least 32 bytes.
+ *      constraint_name and relation_name are output parameters.
  *
  **************************************/
 	SET_TDBB(tdbb);
@@ -2504,7 +2535,7 @@ void MET_lookup_index(thread_db* tdbb,
  *
  * Functional description
  *      Lookup index name from relation and index number.
- *      Calling routine must pass a buffer of at least 32 bytes.
+ *      index_name is output parameter.
  *
  **************************************/
 	SET_TDBB(tdbb);
