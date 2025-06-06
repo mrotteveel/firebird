@@ -622,10 +622,18 @@ void Applier::insertRecord(thread_db* tdbb, TraNumber traNum,
 	fb_assert(error[2] == isc_arg_string);
 	fb_assert(error[3] != 0);
 
-	const char* idxName = reinterpret_cast<const char*>(error[3]);
+	const MetaName nameFromErr(reinterpret_cast<const char*>(error[3]));
+	MetaName idxName;
+	if (error[1] == isc_no_dup)
+		idxName = nameFromErr;
+	else if (!m_constraintIndexMap.get(nameFromErr, idxName))
+	{
+		MET_lookup_index_for_cnstrt(tdbb, idxName, nameFromErr);
+		m_constraintIndexMap.put(nameFromErr, idxName);
+	}
 
 	index_desc idx;
-	const auto indexed = lookupRecord(tdbb, relation, record, m_bitmap, idx, idxName);
+	const auto indexed = lookupRecord(tdbb, relation, record, m_bitmap, idx, &idxName);
 
 	AutoPtr<Record> cleanup;
 
@@ -1071,7 +1079,7 @@ bool Applier::compareKey(thread_db* tdbb, jrd_rel* relation, const index_desc& i
 bool Applier::lookupRecord(thread_db* tdbb,
 						   jrd_rel* relation, Record* record,
 						   RecordBitmap* bitmap,
-						   index_desc& idx, const char* idxName)
+						   index_desc& idx, const MetaName* idxName)
 {
 	RecordBitmap::reset(bitmap);
 
@@ -1083,16 +1091,16 @@ bool Applier::lookupRecord(thread_db* tdbb,
 	}
 
 	bool haveIdx = false;
-	if (idxName)
+	if (idxName && idxName->hasData())
 	{
 		SLONG foundRelId;
 		IndexStatus idxStatus;
-		SLONG idx_id = MET_lookup_index_name(tdbb, idxName, &foundRelId, &idxStatus);
+		SLONG idx_id = MET_lookup_index_name(tdbb, *idxName, &foundRelId, &idxStatus);
 
 		fb_assert(idxStatus == MET_object_active);
 		fb_assert(foundRelId == relation->rel_id);
 
-		haveIdx = (idxStatus == MET_object_active) && (foundRelId == relation->rel_id) &&
+		haveIdx = (idx_id >= 0) && (idxStatus == MET_object_active) && (foundRelId == relation->rel_id) &&
 			BTR_lookup(tdbb, relation, idx_id, &idx, relation->getPages(tdbb));
 	}
 

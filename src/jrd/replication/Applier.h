@@ -37,6 +37,7 @@ namespace Jrd
 	{
 		typedef Firebird::GenericMap<Firebird::Pair<Firebird::NonPooled<TraNumber, jrd_tra*> > > TransactionMap;
 		typedef Firebird::HalfStaticArray<bid, 16> BlobList;
+		typedef Firebird::GenericMap<MetaNamePair> ConstraintIndexMap;
 /*
 		class ReplicatedTransaction : public Firebird::IReplicatedTransaction
 		{
@@ -128,7 +129,8 @@ namespace Jrd
 				Jrd::jrd_req* request)
 			: PermanentStorage(pool),
 			  m_txnMap(pool), m_database(pool, database),
-			  m_request(request), m_bitmap(FB_NEW_POOL(pool) RecordBitmap(pool)), m_record(NULL)
+			  m_request(request), m_bitmap(FB_NEW_POOL(pool) RecordBitmap(pool)), m_record(NULL),
+			  m_constraintIndexMap(pool)
 		{}
 
 		static Applier* create(thread_db* tdbb);
@@ -154,6 +156,7 @@ namespace Jrd
 		Firebird::AutoPtr<RecordBitmap> m_bitmap;
 		Record* m_record;
 		JReplicator* m_interface;
+		ConstraintIndexMap m_constraintIndexMap;
 
 		void startTransaction(thread_db* tdbb, TraNumber traNum);
 		void prepareTransaction(thread_db* tdbb, TraNumber traNum);
@@ -190,7 +193,7 @@ namespace Jrd
 						Record* record1, Record* record2);
 		bool lookupRecord(thread_db* tdbb, jrd_rel* relation,
 						  Record* record, RecordBitmap* bitmap,
-						  index_desc& idx, const char* idxName = nullptr);
+						  index_desc& idx, const MetaName* idxName = nullptr);
 
 		const Format* findFormat(thread_db* tdbb, jrd_rel* relation, ULONG length);
 
