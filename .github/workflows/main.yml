@@ -156,14 +156,13 @@ jobs:
     if: github.ref_type != 'tag'
     runs-on: ${{ matrix.os }}
     env:
-      VS_VERSION: ${{ (matrix.os == 'windows-2019' && '2019' || (matrix.os == 'windows-2022' && '2022' || '')) }}
+      VS_VERSION: 2022
 
     strategy:
       fail-fast: false
       matrix:
         os:
-          - windows-2022
-          - windows-2019
+          - windows-2025
         platform: [x64, x86]
 
     steps:
@@ -186,7 +185,7 @@ jobs:
         shell: cmd
         env:
           PLATFORM: ${{ matrix.platform }}
-          VS_SCRIPT: ${{ matrix.os == 'windows-2022' && 'C:\Program Files\Microsoft Visual Studio\%VS_VERSION%\Enterprise\Common7\Tools\VsDevCmd.bat' || 'C:\Program Files (x86)\Microsoft Visual Studio\%VS_VERSION%\Enterprise\Common7\Tools\VsDevCmd.bat' }}
+          VS_SCRIPT: C:\Program Files\Microsoft Visual Studio\%VS_VERSION%\Enterprise\Common7\Tools\VsDevCmd.bat
         run: |
           set SEVENZIP=C:\Program Files\7-Zip
           set INNO6_SETUP_PATH=C:\Program Files (x86)\Inno Setup 6
