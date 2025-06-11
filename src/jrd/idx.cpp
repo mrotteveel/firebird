@@ -1369,8 +1369,9 @@ void IDX_modify_check_constraints(thread_db* tdbb,
 	// If relation's primary/unique keys have no dependencies by other
 	// relations' foreign keys then don't bother cycling thru all index descriptions.
 
-	if (!(getPermanent(org_rpb->rpb_relation)->rel_flags & REL_check_partners) &&
-		!(getPermanent(org_rpb->rpb_relation)->rel_primary_dpnds))
+	auto* perm = org_rpb->rpb_relation->getPermanent();
+	if (!(perm->rel_flags & REL_check_partners) &&
+		!(perm->rel_primary_dpnds))
 	{
 		return;
 	}
