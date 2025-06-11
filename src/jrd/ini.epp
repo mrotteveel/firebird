@@ -857,7 +857,7 @@ void INI_init(thread_db* tdbb)
 	const auto dbb = tdbb->getDatabase();
 	const auto attachment = tdbb->getAttachment();
 
-	const auto pool = attachment->att_pool;
+	const auto pool = dbb->dbb_permanent;
 
 	const int* fld;
 	for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)

@@ -1553,7 +1553,7 @@ void ExtEngineManager::makeFunction(thread_db* tdbb, CompilerScratch* csb, Jrd::
 			CallerName(obj_udf, udf->getName().identifier, userName) :
 			CallerName(obj_package_header, udf->getName().package, userName)));
 
-	MemoryPool& pool = *tdbb->getAttachment()->att_pool;
+	MemoryPool& pool = *tdbb->getDatabase()->dbb_permanent;
 
 	AutoPtr<RoutineMetadata> metadata(FB_NEW_POOL(pool) RoutineMetadata(pool));
 	metadata->package = udf->getName().package;
@@ -1642,7 +1642,7 @@ void ExtEngineManager::makeProcedure(thread_db* tdbb, CompilerScratch* csb, jrd_
 			CallerName(obj_procedure, prc->getName().identifier, userName) :
 			CallerName(obj_package_header, prc->getName().package, userName)));
 
-	MemoryPool& pool = *tdbb->getAttachment()->att_pool;
+	MemoryPool& pool = *tdbb->getDatabase()->dbb_permanent;
 
 	AutoPtr<RoutineMetadata> metadata(FB_NEW_POOL(pool) RoutineMetadata(pool));
 	metadata->package = prc->getName().package;
@@ -1784,7 +1784,7 @@ void ExtEngineManager::makeTrigger(thread_db* tdbb, CompilerScratch* csb, Jrd::T
 	ContextManager<IExternalTrigger> ctxManager(tdbb, attInfo, attInfo->adminCharSet,
 		CallerName(obj_trigger, trg->name, userName));
 
-	MemoryPool& pool = *tdbb->getAttachment()->att_pool;
+	MemoryPool& pool = *tdbb->getDatabase()->dbb_permanent;
 
 	AutoPtr<RoutineMetadata> metadata(FB_NEW_POOL(pool) RoutineMetadata(pool));
 	metadata->name = trg->name;
