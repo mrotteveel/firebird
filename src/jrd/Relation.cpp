@@ -220,7 +220,7 @@ bool RelationPermanent::isReplicating(thread_db* tdbb)
 	if (!dbb->isReplicating(tdbb))
 		return false;
 
-	Attachment* const attachment = tdbb->getAttachment();
+	Attachment* const attachment = tdbb->getAttachment();		// ??????? Database?
 	attachment->checkReplSetLock(tdbb);
 
 	if (rel_repl_state.isUnknown())
