@@ -220,14 +220,9 @@ static int cmp_numeric_string(const dsc* arg1, const dsc* arg2, Firebird::Decima
 
 	Decimal128 buffer;		// enough to fit any required data
 	SSHORT scale = 0;
-	UCHAR* text = arg2->dsc_address;
-	USHORT textLen = TEXT_LEN(arg2);
-
-	if (arg2->dsc_dtype == dtype_varying)
-	{
-		text += sizeof(USHORT);
-		textLen -= sizeof(USHORT);
-	}
+	UCHAR* text;
+	USHORT ttype;
+	USHORT textLen = CVT_get_string_ptr(arg2, &ttype, &text, nullptr, 0, 0);
 
 	dsc num2;
 	num2.dsc_dtype = CVT_get_numeric(text, textLen, &scale, &buffer);
