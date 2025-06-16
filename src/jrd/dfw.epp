@@ -3389,9 +3389,7 @@ void DFW_check_partners(thread_db* tdbb, const USHORT rel_id)
 	auto* relation = MetadataCache::get(tdbb)->lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE);
 	fb_assert(relation);
 
-	relation->rel_flags |= REL_check_partners;
-	LCK_lock(tdbb, relation->rel_partners_lock, LCK_EX, LCK_WAIT);
-	LCK_release(tdbb, relation->rel_partners_lock);
+	relation->checkPartners(tdbb);
 }
 
 

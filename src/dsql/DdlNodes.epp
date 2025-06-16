@@ -9205,6 +9205,7 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 
 		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
 		DFW_post_work(transaction, dfw_commit_relation, nullptr, rel->getId());
+		indexList.exec(tdbb, rel, transaction);
 
 		if (beforeTriggerWasExecuted)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_TABLE, name, nullptr);
@@ -11187,9 +11188,9 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	ProtectRelations protectRelations(tdbb, transaction);
 	protectRelations.addRelation(rel);
 
+	Cached::Relation* partner_relation = nullptr;
 	if (idx.idx_flags & idx_foreign)
 	{
-		Cached::Relation* partner_relation = nullptr;
 		idx.idx_id = idx_invalid;
 
 		if (MET_lookup_partner(tdbb, rel, &idx, indexName.c_str()))
@@ -11253,21 +11254,13 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	if (idx.idx_condition_statement)
 		idx.idx_condition_statement->release(tdbb);
 
-/*		if (partner_relation)   to be done !!!!!!!!!!!!!!!
-		{
-			// signal to other processes about new constraint
-			relation->rel_flags |= REL_check_partners;
-			LCK_lock(tdbb, relation->rel_partners_lock, LCK_EX, LCK_WAIT);
-			LCK_release(tdbb, relation->rel_partners_lock);
+	if (partner_relation)
+	{
+		rel->checkPartners(tdbb);
 
-			if (relation != partner_relation)
-			{
-				partner_relation->rel_flags |= REL_check_partners;
-				LCK_lock(tdbb, partner_relation->rel_partners_lock, LCK_EX, LCK_WAIT);
-				LCK_release(tdbb, partner_relation->rel_partners_lock);
-			}
-		}
-*/
+		if (rel != partner_relation)
+			partner_relation->checkPartners(tdbb);
+	}
 
 	return idxId;
 }

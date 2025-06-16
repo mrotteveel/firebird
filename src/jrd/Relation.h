@@ -889,6 +889,8 @@ public:
 	bool isView() const;
 	bool isReplicating(thread_db* tdbb);
 
+	void checkPartners(thread_db* tdbb);
+
 	static int partners_ast_relation(void* ast_object);
 	static int rescan_ast_relation(void* ast_object);
 	static int blocking_ast_relation(void* ast_object);
@@ -903,7 +905,7 @@ public:
 
 	MetaName		rel_owner_name;		// ascii owner
 	MetaName		rel_security_name;	// security class name for relation
-	ULONG			rel_flags;			// flags
+	std::atomic<ULONG>	rel_flags;		// flags
 
 	Firebird::TriState	rel_repl_state;	// replication state
 
