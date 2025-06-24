@@ -379,10 +379,10 @@ public:
 	}
 
 	template <typename C>
-	static void tagForUpdate(thread_db* tdbb, MetaId id)
+	static C* tagForUpdate(thread_db* tdbb, MetaId id)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		vector.tagForUpdate(tdbb, id);
+		return vector.tagForUpdate(tdbb, id);
 	}
 
 	template <typename C>

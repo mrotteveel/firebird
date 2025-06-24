@@ -85,7 +85,8 @@ namespace CacheFlag
 	static constexpr ObjectBase::Flag UPGRADE = 	0x80;		// create new versions for already existing in a cache objects
 
 	// Useful combinations
-	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | NOSCAN;
+//	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | NOSCAN;
+	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT;
 }
 
 
@@ -1001,7 +1002,8 @@ public:
 		return nullptr;
 	}
 
-	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
+private:
+	StoredElement* ensurePermanent(thread_db* tdbb, MetaId id)
 	{
 		if (id >= getCount())
 			grow(id + 1);
@@ -1024,10 +1026,17 @@ public:
 				StoredElement::cleanup(tdbb, newData);
 		}
 
+		return data;
+	}
+
+public:
+	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
+	{
+		StoredElement* data = ensurePermanent(tdbb, id);
 		return data->makeObject(tdbb, fl);
 	}
 
-	void tagForUpdate(thread_db* tdbb, MetaId id)
+	StoredElement* tagForUpdate(thread_db* tdbb, MetaId id)
 	{
 		fb_assert(id < getCount());
 		if (id < getCount())
@@ -1040,7 +1049,8 @@ public:
 				data->tagForUpdate(tdbb);
 		}
 
-		makeObject(tdbb, id, CacheFlag::TAG_FOR_UPDATE);
+		StoredElement* data = ensurePermanent(tdbb, id);
+		return data->makeObject(tdbb, CacheFlag::TAG_FOR_UPDATE) ? data : nullptr;
 	}
 
 	template <typename F>

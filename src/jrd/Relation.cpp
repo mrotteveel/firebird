@@ -540,10 +540,10 @@ PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
 }
 
 
-void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
+Cached::Relation* RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
 {
 	auto* relation = MetadataCache::lookupRelation(tdbb, name,
-		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::NOSCAN);
+		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT/* | CacheFlag::NOSCAN*/);
 	fb_assert(relation);
 
 	if (relation && relation->getId())
@@ -551,7 +551,11 @@ void RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
 		relation->tagForUpdate(tdbb);
 		relation->rel_flags |= REL_format;
 		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, relation->getId());
+
+		return relation;
 	}
+
+	return nullptr;
 }
 
 

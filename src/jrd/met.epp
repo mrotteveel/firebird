@@ -1525,11 +1525,13 @@ ScanResult DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
  *      Load database-wide triggers from RDB$TRIGGERS.
  *
  **************************************/
-
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
+
+	if (flags & CacheFlag::NOCOMMIT)
+		return ScanResult::REPEAT;
 
 	auto type = perm->getId();
 	FB_UINT64 mask = (type == DB_TRIGGER_DDL) ? TRIGGER_TYPE_MASK : ~FB_UINT64(0);
@@ -3077,27 +3079,33 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		// on any attempt to use modified relation
 		// or on transaction commit.
 
-		static const CachedRequestId requestCacheId;
-		AutoCacheRequest request(tdbb, requestCacheId);
-
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
-			REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
+		if (getName().isEmpty())
 		{
-			rel_perm->rel_flags |= REL_format;
-			if (getName().isEmpty())
+			static const CachedRequestId requestCacheId;
+			AutoCacheRequest request(tdbb, requestCacheId);
+
+			FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
+				REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
 			{
 				rel_perm->rel_name = REL.RDB$RELATION_NAME;
 				rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
 				if (!REL.RDB$RELATION_TYPE.NULL)
 					rel_perm->rel_flags |= MET_get_rel_flags_from_TYPE(REL.RDB$RELATION_TYPE);
 			}
+			END_FOR
 		}
-		END_FOR
 
-		fb_assert(rel_perm->rel_flags & REL_format);
+		fb_assert(getName().hasData());		// i.e. correct record in RDB$RELATIONS exists
+		if (getName().hasData())
+		{
+			rel_perm->rel_flags |= REL_format;
 
-		// Next time reload() will be called
-		return ScanResult::REPEAT;
+			// Next time reload() will be called
+			return ScanResult::REPEAT;
+		}
+
+		// something gone wrong
+		return ScanResult::MISS;
 	}
 
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;

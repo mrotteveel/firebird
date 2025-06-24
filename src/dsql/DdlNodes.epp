@@ -6136,30 +6136,18 @@ RelationNode::RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode)
 // or wraparound of the next relation ID. Keep looking for a
 // usable relation ID until the search space is exhausted.
 
-MetaId RelationNode::generateIdDbKey(thread_db* tdbb, jrd_tra* transaction)
+MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name, jrd_tra* transaction)
 {
-	MetaId rel_id = 0;
-	AutoRequest handle;
-	AutoCacheRequest request;
-	request.reset(tdbb, irq_c_relation, IRQ_REQUESTS);
+	static const CachedRequestId reqId;
+	AutoCacheRequest request(tdbb, reqId);
+
 	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
 	Attachment* attachment = tdbb->getAttachment();
 
-	bid blob_id;
-	blob_id.clear();
-
-	// Take a relation lock on rel id == -1 before actually generating a relation id.
-	AutoLock lock(tdbb, FB_NEW_RPT(*tdbb->getDefaultPool(), 0)
-		Lock(tdbb, sizeof(SLONG), LCK_relation));
-	lock->setKey(-1);
-	LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
-
+	MetaId rel_id = 0;
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		X IN RDB$DATABASE CROSS Y IN RDB$RELATIONS WITH
-			Y.RDB$RELATION_NAME EQ name.c_str()
+		X IN RDB$DATABASE
 	{
-		blob_id = Y.RDB$VIEW_BLR;
-
 		MODIFY X USING
 			rel_id = X.RDB$RELATION_ID;
 
@@ -6183,37 +6171,40 @@ MetaId RelationNode::generateIdDbKey(thread_db* tdbb, jrd_tra* transaction)
 			}
 
 			X.RDB$RELATION_ID = (rel_id > MAX_RELATION_ID) ? local_min_relation_id : rel_id;
-
-			MODIFY Y USING
-				Y.RDB$RELATION_ID = --rel_id;
-				if (blob_id.isEmpty())
-					Y.RDB$DBKEY_LENGTH = 8;
-				else
-				{
-					// update the dbkey length to include each of the base relations
-					Y.RDB$DBKEY_LENGTH = 0;
-
-					handle.reset();
-
-					FOR(REQUEST_HANDLE handle)
-						Z IN RDB$VIEW_RELATIONS CROSS
-						R IN RDB$RELATIONS OVER RDB$RELATION_NAME
-						WITH Z.RDB$VIEW_NAME = name.c_str() AND
-							 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
-							  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
-					{
-						Y.RDB$DBKEY_LENGTH += R.RDB$DBKEY_LENGTH;
-					}
-					END_FOR
-				}
-			END_MODIFY
+			--rel_id;
 		END_MODIFY
 	}
 	END_FOR
 
-	lock.release();
-
 	return rel_id;
+}
+
+// Calculate the dbkey length to include each of the base relations.
+
+USHORT RelationNode::calcDbKeyLength(thread_db* tdbb)
+{
+	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
+	Attachment* attachment = tdbb->getAttachment();
+
+	USHORT dbKeyLength = 0;
+
+	static const CachedRequestId reqId;
+	AutoCacheRequest handle(tdbb, reqId);
+
+	FOR(REQUEST_HANDLE handle)
+		Z IN RDB$VIEW_RELATIONS CROSS
+		R IN RDB$RELATIONS OVER RDB$RELATION_NAME
+			WITH Z.RDB$VIEW_NAME = name.c_str() AND
+				 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
+				  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
+	{
+		dbKeyLength += R.RDB$DBKEY_LENGTH;
+	}
+	END_FOR
+
+	fb_assert(dbKeyLength);
+
+	return dbKeyLength;
 }
 
 void RelationNode::FieldDefinition::modify(thread_db* tdbb, jrd_tra* transaction)
@@ -8619,114 +8610,121 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 
 	checkRelationTempScope(tdbb, transaction, name, relationType.value());
 
-	AutoCacheRequest requestStore(tdbb, drq_s_rels2, DYN_REQUESTS);
-
-	STORE(REQUEST_HANDLE requestStore TRANSACTION_HANDLE transaction)
-		REL IN RDB$RELATIONS
-	{
-		strcpy(REL.RDB$RELATION_NAME, name.c_str());
-		REL.RDB$SYSTEM_FLAG = 0;
-		REL.RDB$FLAGS = REL_sql;
-		REL.RDB$RELATION_TYPE = relationType.value();
-
-		if (ssDefiner.isAssigned())
-		{
-			REL.RDB$SQL_SECURITY.NULL = FALSE;
-			REL.RDB$SQL_SECURITY = ssDefiner.asBool() ? FB_TRUE : FB_FALSE;
-		}
-		else
-			REL.RDB$SQL_SECURITY.NULL = TRUE;
-
-		REL.RDB$VIEW_BLR.NULL = TRUE;
-		REL.RDB$VIEW_SOURCE.NULL = TRUE;
-		REL.RDB$EXTERNAL_FILE.NULL = TRUE;
-
-		if (externalFile)
-		{
-			if (externalFile->length() >= sizeof(REL.RDB$EXTERNAL_FILE))
-				status_exception::raise(Arg::Gds(isc_dyn_name_longer));
-
-			if (ISC_check_if_remote(externalFile->c_str(), false))
-				status_exception::raise(Arg::PrivateDyn(163));
-
-			REL.RDB$EXTERNAL_FILE.NULL = FALSE;
-			strcpy(REL.RDB$EXTERNAL_FILE, externalFile->c_str());
-			REL.RDB$RELATION_TYPE = rel_external;
-		}
-	}
-	END_STORE
-
-	auto rel_id = generateIdDbKey(tdbb, transaction);
-
-	bool replicationEnabled = false;
-
-	if (replicationState.isAssigned())
-		replicationEnabled = replicationState.asBool();
-	else
-	{
-		// Apply the default replication state to the table being created
-
-		AutoCacheRequest request2(tdbb, drq_l_pub_mode, DYN_REQUESTS);
-
-		FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction)
-			PUB IN RDB$PUBLICATIONS
-			WITH PUB.RDB$PUBLICATION_NAME EQ DEFAULT_PUBLICATION
-		{
-			replicationEnabled = (PUB.RDB$AUTO_ENABLE != 0);
-		}
-		END_FOR
-	}
-
-	if (replicationEnabled)
-	{
-		// Add table to the default publication
-		RelationNode::addToPublication(tdbb, transaction, name, DEFAULT_PUBLICATION);
-	}
-
-	storePrivileges(tdbb, transaction, name, obj_relation, ALL_PRIVILEGES);
-
-	ObjectsArray<CreateDropConstraint> constraints;
-	const ObjectsArray<MetaName>* pkCols = findPkColumns();
-	SSHORT position = 0;
-
-	for (NestConst<Clause>* i = clauses.begin(); i != clauses.end(); ++i)
-	{
-		switch ((*i)->type)
-		{
-			case Clause::TYPE_ADD_COLUMN:
-				defineField(tdbb, dsqlScratch, transaction,
-					static_cast<AddColumnClause*>(i->getObject()), position, pkCols);
-				++position;
-				break;
-
-			case Clause::TYPE_ADD_CONSTRAINT:
-				makeConstraint(tdbb, dsqlScratch, transaction,
-					static_cast<AddConstraintClause*>(i->getObject()), constraints);
-				break;
-
-			default:
-				fb_assert(false);
-				break;
-		}
-	}
-
-	for (ObjectsArray<CreateDropConstraint>::iterator constraint(constraints.begin());
-		 constraint != constraints.end();
-		 ++constraint)
-	{
-		defineConstraint(tdbb, dsqlScratch, transaction, constraint->name, *constraint->create);
-	}
-
 	try
 	{
-		// create the table
+		// Take a relation lock on id == -1 before actually generating a relation id.
+		AutoLock lock(tdbb, FB_NEW_RPT(*tdbb->getDefaultPool(), 0)
+			Lock(tdbb, sizeof(SLONG), LCK_relation));
+		lock->setKey(-1);
+		LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
 
-		if (rel_id && !externalFile)
+		AutoCacheRequest requestStore(tdbb, drq_s_rels2, DYN_REQUESTS);
+
+		STORE(REQUEST_HANDLE requestStore TRANSACTION_HANDLE transaction)
+			REL IN RDB$RELATIONS
 		{
-			auto* relation = MetadataCache::newVersion<Cached::Relation>(tdbb, rel_id);
-			DPM_create_relation(tdbb, relation);
-			indexList.exec(tdbb, relation, transaction);
+			strcpy(REL.RDB$RELATION_NAME, name.c_str());
+			REL.RDB$SYSTEM_FLAG = 0;
+			REL.RDB$FLAGS = REL_sql;
+			REL.RDB$RELATION_TYPE = relationType.value();
+
+			if (ssDefiner.isAssigned())
+			{
+				REL.RDB$SQL_SECURITY.NULL = FALSE;
+				REL.RDB$SQL_SECURITY = ssDefiner.asBool() ? FB_TRUE : FB_FALSE;
+			}
+			else
+				REL.RDB$SQL_SECURITY.NULL = TRUE;
+
+			REL.RDB$VIEW_BLR.NULL = TRUE;
+			REL.RDB$VIEW_SOURCE.NULL = TRUE;
+			REL.RDB$DBKEY_LENGTH = 8;
+			REL.RDB$EXTERNAL_FILE.NULL = TRUE;
+
+			if (externalFile)
+			{
+				if (externalFile->length() >= sizeof(REL.RDB$EXTERNAL_FILE))
+					status_exception::raise(Arg::Gds(isc_dyn_name_longer));
+
+				if (ISC_check_if_remote(externalFile->c_str(), false))
+					status_exception::raise(Arg::PrivateDyn(163));
+
+				REL.RDB$EXTERNAL_FILE.NULL = FALSE;
+				strcpy(REL.RDB$EXTERNAL_FILE, externalFile->c_str());
+				REL.RDB$RELATION_TYPE = rel_external;
+			}
 		}
+		END_STORE
+
+		lock.release();		// ID generated
+
+		// replication
+
+		bool replicationEnabled = false;
+
+		if (replicationState.isAssigned())
+			replicationEnabled = replicationState.asBool();
+		else
+		{
+			// Apply the default replication state to the table being created
+
+			AutoCacheRequest request2(tdbb, drq_l_pub_mode, DYN_REQUESTS);
+
+			FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction)
+				PUB IN RDB$PUBLICATIONS
+				WITH PUB.RDB$PUBLICATION_NAME EQ DEFAULT_PUBLICATION
+			{
+				replicationEnabled = (PUB.RDB$AUTO_ENABLE != 0);
+			}
+			END_FOR
+		}
+
+		if (replicationEnabled)
+		{
+			// Add table to the default publication
+			RelationNode::addToPublication(tdbb, transaction, name, DEFAULT_PUBLICATION);
+		}
+
+		// access rights
+
+		storePrivileges(tdbb, transaction, name, obj_relation, ALL_PRIVILEGES);
+
+		// constraints
+
+		ObjectsArray<CreateDropConstraint> constraints;
+		const ObjectsArray<MetaName>* pkCols = findPkColumns();
+		SSHORT position = 0;
+
+		for (NestConst<Clause>* i = clauses.begin(); i != clauses.end(); ++i)
+		{
+			switch ((*i)->type)
+			{
+				case Clause::TYPE_ADD_COLUMN:
+					defineField(tdbb, dsqlScratch, transaction,
+						static_cast<AddColumnClause*>(i->getObject()), position, pkCols);
+					++position;
+					break;
+
+				case Clause::TYPE_ADD_CONSTRAINT:
+					makeConstraint(tdbb, dsqlScratch, transaction,
+						static_cast<AddConstraintClause*>(i->getObject()), constraints);
+					break;
+
+				default:
+					fb_assert(false);
+					break;
+			}
+		}
+
+		for (ObjectsArray<CreateDropConstraint>::iterator constraint(constraints.begin());
+			 constraint != constraints.end();
+			 ++constraint)
+		{
+			defineConstraint(tdbb, dsqlScratch, transaction, constraint->name, *constraint->create);
+		}
+
+		auto* relation = RelationPermanent::tagForUpdate(tdbb, name);
+		indexList.exec(tdbb, relation, transaction);
 	}
 	catch(const Exception&)
 	{
@@ -8739,16 +8737,19 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 				X.RDB$RELATION_NAME EQ name.c_str() AND
 				X.RDB$RELATION_ID NOT MISSING
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID, 0);
-			if (relation)
+			if (X.RDB$RELATION_ID)
 			{
-				RelationPages* const relPages = relation->getBasePages();
+				auto* relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID, 0);
+				if (relation)
+				{
+					RelationPages* const relPages = relation->getBasePages();
 
-				if (relPages->rel_index_root)
-					IDX_delete_indices(tdbb, relation, relPages);
+					if (relPages->rel_index_root)
+						IDX_delete_indices(tdbb, relation, relPages);
 
-				if (relPages->rel_pages)
-					DPM_delete_relation(tdbb, relation);
+					if (relPages->rel_pages)
+						DPM_delete_relation(tdbb, relation);
+				}
 			}
 		}
 		END_FOR
@@ -10649,8 +10650,8 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	dsqlScratch->resetContextStack();
 
-	auto rel_id = modifyingView ? modifyingView->rel_id : generateIdDbKey(tdbb, transaction);
-	MetadataCache::newVersion<Cached::Relation>(tdbb, rel_id);
+	if (modifyingView)
+		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, modifyingView->rel_id);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 

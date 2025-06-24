@@ -1392,6 +1392,14 @@ void EXE_execute_triggers(thread_db* tdbb,
 						case TriggerAction::TRIGGER_DELETE:
 							SystemTriggers::executeAfterDeleteTriggers(tdbb, relation, old_rec);
 							break;
+
+						case TriggerAction::TRIGGER_UPDATE:
+							SystemTriggers::executeAfterUpdateTriggers(tdbb, relation, old_rec, new_rec);
+							break;
+
+						case TriggerAction::TRIGGER_INSERT:
+							SystemTriggers::executeAfterInsertTriggers(tdbb, relation, new_rec);
+							break;
 					}
 					break;
 			}

@@ -34,6 +34,8 @@
 #include "../jrd/evl_proto.h"
 #include "../jrd/met_proto.h"
 #include "../jrd/mov_proto.h"
+#include "../dsql/DdlNodes.h"
+#include "../jrd/met.h"
 
 
 DATABASE DB = FILENAME "ODS.RDB";
@@ -1278,6 +1280,55 @@ void beforeInsertUserPrivilege(thread_db* tdbb, Record* record)
 	}
 }
 
+void beforeInsertRelation(thread_db* tdbb, Record* record)
+{
+	// Relation lock for id == -1 is taken in CreateRelationNode in order to protect
+	// relation ID generation. GBAK currently works w/o lock - it's nature guarantees
+	// serial operation. If one decides to support parallel relations restore
+	// care about a kind of appropriate locking to be taken by GBAK.
+
+	dsc desc;
+	bool idSet = EVL_field(nullptr, record, f_rel_id, &desc);
+	fb_assert(!idSet);
+	if (idSet)			// How can it be?
+		return;
+
+	dsc desc2;
+	bool nameSet = EVL_field(nullptr, record, f_rel_name, &desc2);
+	fb_assert(nameSet);
+	if (!nameSet)		// How can it be?
+		return;
+	MetaName name;
+	MOV_get_metaname(tdbb, &desc2, name);
+
+	short rel_id = RelationNode::generateRelId(tdbb, name, tdbb->getTransaction());
+
+	desc2.makeShort(0, &rel_id);
+	MOV_move(tdbb, &desc2, &desc);
+	record->clearNull(f_rel_id);
+}
+
+void afterInsertRelation(thread_db* tdbb, Record* record)
+{
+	dsc desc;
+	bool idSet = EVL_field(nullptr, record, f_rel_id, &desc);
+	fb_assert(idSet);
+	if (!idSet)			// How can it be?
+		return;
+
+	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
+	fb_assert(id);
+	auto* relation = MetadataCache::tagForUpdate<Cached::Relation>(tdbb, id);
+	// Do not access external file info from cache - it may be not usable yet
+	// On contrary rel_flags (and therefore check for view) are OK
+	if (relation && !EVL_field(nullptr, record, f_rel_ext_file, &desc) &&
+		!relation->isView())
+	{
+		// create the table
+		DPM_create_relation(tdbb, relation);
+	}
+}
+
 }	// anonymous
 
 
@@ -1337,6 +1388,10 @@ void SystemTriggers::executeBeforeInsertTriggers(thread_db* tdbb, jrd_rel* relat
 {
 	switch ((RIDS) relation->getId())
 	{
+		case rel_relations:
+			beforeInsertRelation(tdbb, record);
+			break;
+
 		case rel_priv:
 			beforeInsertUserPrivilege(tdbb, record);
 			break;
@@ -1347,6 +1402,16 @@ void SystemTriggers::executeBeforeInsertTriggers(thread_db* tdbb, jrd_rel* relat
 
 		case rel_refc:
 			beforeInsertRefConstraint(tdbb, record);
+			break;
+	}
+}
+
+void SystemTriggers::executeAfterInsertTriggers(thread_db* tdbb, jrd_rel* relation, Record* record)
+{
+	switch ((RIDS) relation->getId())
+	{
+		case rel_relations:
+			afterInsertRelation(tdbb, record);
 			break;
 	}
 }

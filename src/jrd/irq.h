@@ -33,7 +33,6 @@ enum irq_type_t
 	irq_r_pages,			// read PAGES
 	irq_l_field,			// lookup field name
 	irq_l_relation,			// lookup relation name
-	irq_c_relation,			// create new relation
 	irq_format1,			// make a new format for a record
 	irq_format2,			// make a new format for a record
 	irq_format3,			// make a new format for a record

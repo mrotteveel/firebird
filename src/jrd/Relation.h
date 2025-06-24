@@ -836,13 +836,12 @@ public:
 	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
 	void	cleanUp();
 	void	fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
-	void scan_partners(thread_db* tdbb);		// Foreign keys scan - impl. in met.epp
+	void	scan_partners(thread_db* tdbb);		// Foreign keys scan - impl. in met.epp
 
 	RelationPages* getBasePages()
 	{
 		return &rel_pages_base;
 	}
-
 
 	bool hasData() const
 	{
@@ -894,7 +893,7 @@ public:
 	static int blocking_ast_relation(void* ast_object);
 
 	// Relation must be updated on next use or commit
-	static void tagForUpdate(thread_db* tdbb, const MetaName name);
+	static Cached::Relation* tagForUpdate(thread_db* tdbb, const MetaName name);
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	Indices			rel_indices;		// Active indices
