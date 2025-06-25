@@ -139,7 +139,7 @@ const USHORT RPB_just_deleted	= 0x10;	// record was just deleted by us
 const USHORT RPB_uk_updated		= 0x20;	// set by IDX_modify if it insert key into any primary or unique index
 
 const USHORT RPB_UNDO_FLAGS		= (RPB_undo_data | RPB_undo_read | RPB_undo_deleted);
-const USHORT RPB_CLEAR_FLAGS	= (RPB_UNDO_FLAGS | RPB_just_deleted);
+const USHORT RPB_CLEAR_FLAGS	= (RPB_UNDO_FLAGS | RPB_just_deleted | RPB_uk_updated);
 
 // List of active blobs controlled by request
 
