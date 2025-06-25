@@ -973,3 +973,5 @@ FB_IMPL_MSG(JRD, 988, sweep_unable_to_run, -901, "42", "000", "Unable to run swe
 FB_IMPL_MSG(JRD, 989, sweep_concurrent_instance, -901, "42", "000", "Another instance of sweep is already running")
 FB_IMPL_MSG(JRD, 990, sweep_read_only, -901, "42", "000", "Database in read only state")
 FB_IMPL_MSG(JRD, 991, sweep_attach_no_cleanup, -901, "42", "000", "Attachment has no cleanup flag set")
+// Codes 992..997 are used in v6
+FB_IMPL_MSG(JRD, 998, no_user_att_while_restore, -901, "HY", "000", "User attachments are not allowed for the database being restored")

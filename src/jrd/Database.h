@@ -231,6 +231,7 @@ const ULONG DBB_sweep_starting			= 0x80000L;		// Auto-sweep is starting
 const ULONG DBB_creating				= 0x100000L;	// Database creation is in progress
 const ULONG DBB_shared					= 0x200000L;	// Database object is shared among connections
 //const ULONG DBB_closing					= 0x400000L;	// Database closing, special backgroud threads should exit
+const ULONG DBB_restoring				= 0x800000L;	// Database restore is in progress
 
 //
 // dbb_ast_flags
@@ -709,6 +710,19 @@ public:
 	void decTempCacheUsage(FB_SIZE_T size)
 	{
 		dbb_gblobj_holder->decTempCacheUsage(size);
+	}
+
+	bool isRestoring() const
+	{
+		return dbb_flags & DBB_restoring;
+	}
+
+	void setRestoring(bool value)
+	{
+		if (value)
+			dbb_flags |= DBB_restoring;
+		else
+			dbb_flags &= ~DBB_restoring;
 	}
 
 private:
