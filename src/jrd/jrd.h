@@ -138,17 +138,17 @@ public:
 	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
 	JrdStatement* statement;							// Compiled statement
 	bool		releaseInProgress;
-	bool		sysTrigger;
+	SSHORT		sysTrigger;					// See fb_sysflag in constants.h
 	FB_UINT64	type;						// Trigger type
 	USHORT		flags;						// Flags as they are in RDB$TRIGGERS table
 	jrd_rel*	relation;					// Trigger parent relation
-	MetaName	name;				// Trigger name
-	MetaName	engine;				// External engine name
+	MetaName	name;						// Trigger name
+	MetaName	engine;						// External engine name
 	Firebird::string	entryPoint;			// External trigger entrypoint
 	Firebird::string	extBody;			// External trigger body
 	ExtEngineManager::Trigger* extTrigger;	// External trigger
 	Nullable<bool> ssDefiner;
-	MetaName	owner;				// Owner for SQL SECURITY
+	MetaName	owner;						// Owner for SQL SECURITY
 
 	bool isActive() const;
 
