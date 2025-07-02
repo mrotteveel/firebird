@@ -38,8 +38,7 @@ namespace Jrd::SystemTriggers
 	void executeAfterInsertTriggers(thread_db* tdbb, jrd_rel* relation, Record* record);
 
 	void executeBeforeUpdateTriggers(thread_db* tdbb, jrd_rel* relation, Record* orgRecord, Record* newRecord);
-	inline void executeAfterUpdateTriggers(thread_db* tdbb, jrd_rel* relation, Record* orgRecord, Record* newRecord)
-	{ }
+	void executeAfterUpdateTriggers(thread_db* tdbb, jrd_rel* relation, Record* orgRecord, Record* newRecord);
 
 	void executeBeforeDeleteTriggers(thread_db* tdbb, jrd_rel* relation, Record* record);
 	void executeAfterDeleteTriggers(thread_db* tdbb, jrd_rel* relation, Record* record);

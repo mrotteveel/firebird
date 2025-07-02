@@ -120,13 +120,13 @@ public:
 enum class ScanResult { COMPLETE, MISS, SKIP, REPEAT };
 
 
-template <class OBJ>
+template <class Versioned>
 class ListEntry : public HazardObject
 {
 public:
 	enum State { INITIAL, RELOAD, MISSING, SCANNING, READY };
 
-	ListEntry(OBJ* object, TraNumber traNumber, ObjectBase::Flag fl)
+	ListEntry(Versioned* object, TraNumber traNumber, ObjectBase::Flag fl)
 		: object(object), traNumber(traNumber), cacheFlags(fl), state(INITIAL)
 	{ }
 
@@ -140,7 +140,7 @@ public:
 		if (object)		// be careful with ERASED entries
 		{
 			if (withObject)
-				OBJ::destroy(tdbb, object);
+				Versioned::destroy(tdbb, object);
 			object = nullptr;
 		}
 
@@ -154,14 +154,18 @@ public:
 	}
 
 	// find appropriate object in cache
-	static OBJ* getObject(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag fl)
+	template <typename Permanent>
+	static Versioned* getObject(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans,
+		ObjectBase::Flag fl, Permanent* permanent)
 	{
-		auto entry = getEntry(tdbb, listEntry, currentTrans, fl);
+		auto entry = getEntry(tdbb, listEntry, currentTrans, fl, permanent);
 		return entry ? entry->getObject() : nullptr;
 	}
 
 	// find appropriate entry in cache
-	static HazardPtr<ListEntry> getEntry(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans, ObjectBase::Flag fl)
+	template <typename Permanent>
+	static HazardPtr<ListEntry> getEntry(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans,
+		ObjectBase::Flag fl, Permanent* permanent)
 	{
 		for (; listEntry; listEntry.set(listEntry->next))
 		{
@@ -184,9 +188,9 @@ public:
 				}
 
 				// required entry found in the list
-				if (listEntry->object)
+				if (listEntry)
 				{
-					switch (listEntry->scan(tdbb, fl))
+					switch (listEntry->scan(tdbb, fl, permanent))
 					{
 					case ScanResult::COMPLETE:
 					case ScanResult::REPEAT:		// scan complete but reload was requested - 
@@ -218,7 +222,7 @@ public:
 		return cacheFlags.load(atomics::memory_order_relaxed);
 	}
 
-	OBJ* getObject()
+	Versioned* getObject()
 	{
 		return object;
 	}
@@ -279,7 +283,7 @@ public:
 					{
 						if (entry->object)
 						{
-							OBJ::destroy(tdbb, entry->object);
+							Versioned::destroy(tdbb, entry->object);
 							entry->object = nullptr;
 						}
 						entry->retire();
@@ -344,7 +348,7 @@ public:
 				entry->next = nullptr;
 				auto* obj = entry->object;
 				if (obj)
-					OBJ::destroy(tdbb, obj);
+					Versioned::destroy(tdbb, obj);
 				entry->object = nullptr;
 				entry->retire();
 
@@ -359,7 +363,7 @@ public:
 	}
 
 private:
-	static ScanResult scan(thread_db* tdbb, OBJ* obj, ObjectBase::Flag fl, bool rld = false)
+	static ScanResult scan(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl, bool rld = false)
 	{
 		if ((fl & CacheFlag::NOSCAN) || (!obj))
 			return ScanResult::SKIP;
@@ -372,7 +376,8 @@ private:
 	}
 
 public:
-	ScanResult scan(thread_db* tdbb, ObjectBase::Flag fl)
+	template <typename Permanent>
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag fl, Permanent* permanent)
 	{
 		// no need opening barrier twice
 		// explicitly done first cause will be done in 99.99%
@@ -393,8 +398,17 @@ public:
 			switch (state)
 			{
 			case INITIAL: 		// Our thread becomes scanning thread
+				if (cacheFlags.load(atomics::memory_order_relaxed) & CacheFlag::ERASED)
+				{
+					state = READY;
+					return ScanResult::COMPLETE;
+				}
+
+				if (!object)
+					object = Versioned::create(tdbb, permanent->getPool(), permanent);
 				reason = false;
 				// fall through...
+
 			case RELOAD: 		// may be because object body reload required.
 				thd = Thread::getId();
 				state = SCANNING;
@@ -475,7 +489,7 @@ private:
 
 	std::condition_variable cond;
 	std::mutex mtx;
-	OBJ* object;
+	Versioned* object;
 	atomics::atomic<ListEntry*> next = nullptr;
 	TraNumber traNumber;		// when COMMITTED not set - stores transaction that created this list element
 								// when COMMITTED is set - stores transaction after which older elements are not needed
@@ -548,9 +562,9 @@ public:
 		if (listEntry)
 		{
 			fl &= ~CacheFlag::AUTOCREATE;
-			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl);
+			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl, this);
 			if (obj)
-				listEntry->scan(tdbb, fl);
+				listEntry->scan(tdbb, fl, this);
 		}
 	}
 
@@ -636,7 +650,7 @@ public:
 
 			if (ListEntry<Versioned>::insert(list, newEntry, nullptr))
 			{
-				auto sr = newEntry->scan(tdbb, fl);
+				auto sr = newEntry->scan(tdbb, fl, this);
 				if (! (fl & CacheFlag::NOCOMMIT))
 					newEntry->commit(tdbb, traNum, TransactionNumber::next(tdbb));
 
@@ -660,7 +674,7 @@ public:
 			fb_assert(list.load());
 			listEntry = list;
 		}
-		return ListEntry<Versioned>::getEntry(tdbb, listEntry, traNum, fl);
+		return ListEntry<Versioned>::getEntry(tdbb, listEntry, traNum, fl, this);
 	}
 
 	// return latest committed version or nullptr when does not exist
@@ -671,6 +685,11 @@ public:
 			return nullptr;
 
 		return ListEntry<Versioned>::getObject(tdbb, listEntry, MAX_TRA_NUMBER, 0);
+	}
+
+	bool hasEntries() const
+	{
+		return list;
 	}
 
 	StoreResult storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl)
@@ -693,8 +712,8 @@ public:
 		auto rc = StoreResult::SKIP;
 		if (obj && !(fl & CacheFlag::NOSCAN))
 		{
-			auto sr = newEntry->scan(tdbb, fl);
-			switch (sr)
+			auto scanResult = newEntry->scan(tdbb, fl, this);
+			switch (scanResult)
 			{
 			case ScanResult::COMPLETE:
 			case ScanResult::REPEAT:
@@ -843,7 +862,7 @@ public:
 				Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is scanned by us\n",
 					Versioned::objectFamily(this), this->c_name());
 			}
-			makeObject(tdbb, CacheFlag::TAG_FOR_UPDATE);
+			storeObject(tdbb, nullptr, CacheFlag::TAG_FOR_UPDATE);
 			return;
 		}
 	}
@@ -926,7 +945,11 @@ public:
 	StoredElement* getDataNoChecks(MetaId id) const
 	{
 		SubArrayData* ptr = getDataPointer(id);
-		return ptr ? ptr->load(atomics::memory_order_relaxed) : nullptr;
+		if (!ptr)
+			return nullptr;
+
+		auto* data = ptr->load(atomics::memory_order_relaxed);
+		return (data && data->hasEntries()) ? data : nullptr;
 	}
 
 	StoredElement* getData(thread_db* tdbb, MetaId id, ObjectBase::Flag fl) const
@@ -1038,15 +1061,18 @@ public:
 
 	StoredElement* tagForUpdate(thread_db* tdbb, MetaId id)
 	{
-		fb_assert(id < getCount());
 		if (id < getCount())
 		{
 			auto ptr = getDataPointer(id);
-			fb_assert(ptr);
-
-			StoredElement* data = ptr->load(atomics::memory_order_acquire);
-			if (data)
-				data->tagForUpdate(tdbb);
+			if (ptr)
+			{
+				StoredElement* data = ptr->load(atomics::memory_order_acquire);
+				if (data)
+				{
+					data->tagForUpdate(tdbb);
+					return data;
+				}
+			}
 		}
 
 		StoredElement* data = ensurePermanent(tdbb, id);

@@ -139,11 +139,6 @@
 // Pick up system relation ids
 #include "../jrd/ini.h"
 
-// Define range of user relation ids
-
-const int MIN_RELATION_ID	= rel_MAX;
-const int MAX_RELATION_ID	= 32767;
-
 const int COMPUTED_FLAG	= 128;
 const int WAIT_PERIOD	= -1;
 
@@ -404,6 +399,7 @@ static bool clear_cache(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool change_repl_state(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool store_view_context_type(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static string remove_icu_info_from_attributes(const string&, const string&);
+static bool set_statistics(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 
 // ----------------------------------------------------------------
 
@@ -619,7 +615,7 @@ namespace
 					getDependencies(work, compile, transaction);
 
 					T* routine = lookupByName(tdbb,
-						QualifiedName(work->dfw_name, work->dfw_package), flag);
+						QualifiedName(work->dfw_name, work->dfw_package), flag | CacheFlag::AUTOCREATE);
 					if (!routine)
 						return false;
 
@@ -1183,6 +1179,7 @@ static const deferred_task task_table[] =
 	{ dfw_clear_cache, clear_cache },
 	{ dfw_change_repl_state, change_repl_state },
 	{ dfw_commit_relation, commit_relation },
+	{ dfw_set_statistics, set_statistics },
 	{ dfw_null, NULL }
 };
 
@@ -3425,6 +3422,59 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 	case 1:
 	case 2:
+	case 3:
+	case 4:
+	case 5:
+	case 6:
+		return true;
+
+	case 7:
+		{
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			if (relation)
+			{
+				auto* index = relation->lookupIndex(tdbb, work->dfw_name, 0);
+				if (index)
+					index->commit(tdbb);
+			}
+		}
+		break;
+	}
+
+	return false;
+}
+
+
+/*
+ * In index-related DFW dfw_id is relation id, dfw_name is index name
+ */
+
+static bool set_statistics(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tra* transaction)
+{
+/**************************************
+ *
+ *	c r e a t e _ i n d e x
+ *
+ **************************************
+ *
+ * Functional description
+ *	set statistics on index
+ *
+ **************************************/
+	jrd_rel* relation = nullptr;
+
+	SET_TDBB(tdbb);
+	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+	AutoRequest request;
+
+	switch (phase)
+	{
+	case 0:
+		return false;
+
+	case 1:
+	case 2:
 		return true;
 
 	case 3:
@@ -3452,28 +3502,10 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 					IDX_statistics(tdbb, relation, id, selectivity);
 					DFW_update_index(work->dfw_name.c_str(), id, selectivity, transaction);
 				}
-
-				return false;
 			}
 		}
 		END_FOR
-		return true;
 
-	case 4:
-	case 5:
-	case 6:
-		return true;
-
-	case 7:
-		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
-			if (relation)
-			{
-				auto* index = relation->lookupIndex(tdbb, work->dfw_name, 0);
-				if (index)
-					index->commit(tdbb);
-			}
-		}
 		break;
 	}
 

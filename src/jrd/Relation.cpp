@@ -1055,5 +1055,5 @@ Lock* DbTriggers::makeLock(thread_db* tdbb, MemoryPool& p)
 
 int DbTriggers::objectType()
 {
-	return obj_relation;
+	return obj_trigger;
 }

@@ -1301,7 +1301,7 @@ void beforeInsertRelation(thread_db* tdbb, Record* record)
 	MetaName name;
 	MOV_get_metaname(tdbb, &desc2, name);
 
-	short rel_id = RelationNode::generateRelId(tdbb, name, tdbb->getTransaction());
+	short rel_id = RelationNode::generateRelId(tdbb, name);
 
 	desc2.makeShort(0, &rel_id);
 	MOV_move(tdbb, &desc2, &desc);
@@ -1327,6 +1327,54 @@ void afterInsertRelation(thread_db* tdbb, Record* record)
 		// create the table
 		DPM_create_relation(tdbb, relation);
 	}
+}
+
+void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)
+{
+	dsc desc;
+	bool idSet = EVL_field(nullptr, newRecord, f_prc_id, &desc);
+	fb_assert(idSet);
+	if (!idSet)
+		return;
+
+	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
+	MetadataCache::tagForUpdate<Cached::Procedure>(tdbb, id);
+}
+
+void afterUpdateFunction(thread_db* tdbb, Record* orgRecord, Record* newRecord)
+{
+	dsc desc;
+	bool idSet = EVL_field(nullptr, newRecord, f_fun_id, &desc);
+	fb_assert(idSet);
+	if (!idSet)
+		return;
+
+	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
+	MetadataCache::tagForUpdate<Cached::Function>(tdbb, id);
+}
+
+void beforeInsertCollation(thread_db* tdbb, Record* record)
+{
+	dsc desc;
+	bool idSet = EVL_field(nullptr, record, f_coll_cs_id, &desc);
+	fb_assert(idSet);
+	if (!idSet)
+		return;
+
+	CSetId csId = CSetId(MOV_get_long(tdbb, &desc, 0));
+	MetadataCache::oldVersion<Cached::CharSet>(tdbb, csId);
+}
+
+void afterInsertCollation(thread_db* tdbb, Record* record)
+{
+	dsc desc;
+	bool idSet = EVL_field(nullptr, record, f_coll_cs_id, &desc);
+	fb_assert(idSet);
+	if (!idSet)
+		return;
+
+	CSetId csId = CSetId(MOV_get_long(tdbb, &desc, 0));
+	MetadataCache::tagForUpdate<Cached::CharSet>(tdbb, csId);
 }
 
 }	// anonymous
@@ -1403,6 +1451,10 @@ void SystemTriggers::executeBeforeInsertTriggers(thread_db* tdbb, jrd_rel* relat
 		case rel_refc:
 			beforeInsertRefConstraint(tdbb, record);
 			break;
+
+		case rel_collations:
+			beforeInsertCollation(tdbb, record);
+			break;
 	}
 }
 
@@ -1412,6 +1464,10 @@ void SystemTriggers::executeAfterInsertTriggers(thread_db* tdbb, jrd_rel* relati
 	{
 		case rel_relations:
 			afterInsertRelation(tdbb, record);
+			break;
+
+		case rel_collations:
+			afterInsertCollation(tdbb, record);
 			break;
 	}
 }
@@ -1445,3 +1501,18 @@ void SystemTriggers::executeBeforeUpdateTriggers(thread_db* tdbb, jrd_rel* relat
 			break;
 	}
 }
+
+void SystemTriggers::executeAfterUpdateTriggers(thread_db* tdbb, jrd_rel* relation, Record* orgRecord, Record* newRecord)
+{
+	switch ((RIDS) relation->getId())
+	{
+		case rel_procedures:
+			afterUpdateProcedure(tdbb, orgRecord, newRecord);
+			break;
+
+		case rel_funs:
+			afterUpdateFunction(tdbb, orgRecord, newRecord);
+			break;
+	}
+}
+

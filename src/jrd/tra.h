@@ -516,9 +516,11 @@ enum dfw_t {
 	dfw_arg_check_blr,		// check if BLR is still compilable
 	dfw_arg_new_name,		// new name
 	dfw_arg_field_not_null,	// set domain to not nullable
+
 	dfw_db_crypt,			// change database encryption status
 	dfw_set_linger,			// set database linger
-	dfw_clear_cache			// clear user mapping cache
+	dfw_clear_cache,		// clear user mapping cache
+	dfw_set_statistics		// set statistics support
 };
 
 } //namespace Jrd
