@@ -402,6 +402,22 @@ static void shutdownBeforeUnload()
 	threadDetach();
 };
 
+static void loadAllDatabaseTriggers(thread_db* tdbb)
+{
+	auto* dbb = tdbb->getDatabase();
+	MetadataCache* mdc = dbb->dbb_mdc;
+
+	// load database event triggers
+	mdc->loadDbTriggers(tdbb, DB_TRIGGER_CONNECT);
+	mdc->loadDbTriggers(tdbb, DB_TRIGGER_DISCONNECT);
+	mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_START);
+	mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_COMMIT);
+	mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_ROLLBACK);
+
+	// load DDL triggers
+	mdc->loadDbTriggers(tdbb, DB_TRIGGER_DDL);
+}
+
 static JTransaction* checkTranIntf(StableAttachmentPart* sAtt, JTransaction* jt, jrd_tra* tra)
 {
 	if (jt && !tra)
@@ -2181,16 +2197,7 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 
 				try
 				{
-					// load all database triggers
-					MetadataCache* mdc = dbb->dbb_mdc;
-					mdc->loadDbTriggers(tdbb, DB_TRIGGER_CONNECT);
-					mdc->loadDbTriggers(tdbb, DB_TRIGGER_DISCONNECT);
-					mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_START);
-					mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_COMMIT);
-					mdc->loadDbTriggers(tdbb, DB_TRIGGER_TRANS_ROLLBACK);
-
-					// load DDL triggers
-					mdc->loadDbTriggers(tdbb, DB_TRIGGER_DDL);
+					loadAllDatabaseTriggers(tdbb);
 
 					auto* trig_connect = dbb->dbb_mdc->getTriggers(tdbb, DB_TRIGGER_CONNECT | TRIGGER_TYPE_DB);
 					if (trig_connect && *trig_connect)
@@ -3175,6 +3182,9 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 				TraceConnectionImpl conn(attachment);
 				attachment->att_trace_manager->event_attach(&conn, true, ITracePlugin::RESULT_SUCCESS);
 			}
+
+			// There are no triggers in database currently - but let's keep data structures uniform for attach & create
+			loadAllDatabaseTriggers(tdbb);
 
 			WorkerAttachment::incUserAtts(dbb->dbb_filename);
 
