@@ -1520,7 +1520,9 @@ public:
 
 	RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode);
 
-	static MetaId generateRelId(thread_db* tdbb, MetaName name, jrd_tra* transaction);
+	static MetaId generateRelId(thread_db* tdbb, MetaName name);
+	static bool checkDeletedId(thread_db* tdbb, MetaId& relId);
+	static bool checkIdRange(thread_db* tdbb, MetaId& relId, const MetaId existingRelationId);
 	USHORT calcDbKeyLength(thread_db* tdbb);
 
 	static bool deleteLocalField(thread_db* tdbb, jrd_tra* transaction,

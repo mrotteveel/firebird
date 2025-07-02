@@ -79,8 +79,8 @@ namespace Jrd {
 
 // Define range of user relation ids
 
-const int MIN_RELATION_ID	= rel_MAX;
-const int MAX_RELATION_ID	= 32767;
+const MetaId MIN_RELATION_ID = USER_DEF_REL_INIT_ID;
+const MetaId MAX_RELATION_ID = 32767;
 
 using namespace Firebird;
 
@@ -2076,9 +2076,6 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 		}
 	}
 
-	if (secondPass && modified)
-		MetadataCache::newVersion<Cached::Function>(tdbb, id);
-
 	return modified;
 }
 
@@ -3082,9 +3079,6 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 		END_FOR
 	}
 
-	if (modified)
-		MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
-
 	return modified;
 }
 
@@ -4073,8 +4067,6 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);
 
-	MetadataCache::oldVersion<Cached::CharSet>(tdbb, forCharSetId);
-
 	DYN_UTIL_check_unique_name(tdbb, transaction, name, obj_collation);
 
 	AutoCacheRequest request(tdbb, drq_s_colls, DYN_REQUESTS);
@@ -4223,8 +4215,6 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	END_STORE
 
 	storePrivileges(tdbb, transaction, name, obj_collation, USAGE_PRIVILEGES);
-
-	MetadataCache::newVersion<Cached::CharSet>(tdbb, forCharSetId);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
 		DDL_TRIGGER_CREATE_COLLATION, name, NULL);
@@ -6128,6 +6118,28 @@ RelationNode::RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode)
 {
 }
 
+// Check id to belong or not to erased but uncommitted objects.
+// True means it does NOT belong.
+
+bool RelationNode::checkDeletedId(thread_db* tdbb, MetaId& relId)
+{
+	// To be done !!!!!!!!!!!!!!!!!!
+	return true;
+}
+
+// Walk relId up to existingRelationId and check each value - is it free?
+
+bool RelationNode::checkIdRange(thread_db* tdbb, MetaId& relId, const MetaId existingRelationId)
+{
+	for (; relId < existingRelationId; ++relId)
+	{
+		if (checkDeletedId(tdbb, relId))
+			return true;
+	}
+
+	++relId;
+	return false;
+}
 
 // Assign a relation ID and dbkey length to the new relation.
 // Probe the candidate relation ID returned from the system
@@ -6136,54 +6148,83 @@ RelationNode::RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode)
 // or wraparound of the next relation ID. Keep looking for a
 // usable relation ID until the search space is exhausted.
 
-MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name, jrd_tra* transaction)
+// Check correctness when ID turns over MAX_RELATION_ID !!!!!!!!!!!!!!!!
+
+MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 {
-	static const CachedRequestId reqId;
-	AutoCacheRequest request(tdbb, reqId);
-
-	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
 	Attachment* attachment = tdbb->getAttachment();
+	MetaId relId = 0;
 
-	MetaId rel_id = 0;
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		X IN RDB$DATABASE
+	static const CachedRequestId idDb;
+	AutoCacheRequest requestDb(tdbb, idDb);
+
+	FOR(REQUEST_HANDLE requestDb)
+		D IN RDB$DATABASE
 	{
-		MODIFY X USING
-			rel_id = X.RDB$RELATION_ID;
+		MetaId startId = D.RDB$RELATION_ID;
+		MetaId stopId = MAX_RELATION_ID + 1;
 
-			if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
-				rel_id = X.RDB$RELATION_ID = local_min_relation_id;
+//printf("suggest %d %s...", startId, name.c_str()); fflush(stdout);
 
-			// Roman Simakov: We need to return deleted relations to skip them.
-			// This maybe result of cleanup failure after phase 3.
-			while (auto relation = MetadataCache::lookup_relation_id(tdbb, rel_id++,
-				CacheFlag::RET_ERASED | CacheFlag::AUTOCREATE))
+		for(;;)
+		{
+			if (startId < MIN_RELATION_ID || startId > MAX_RELATION_ID)
+				startId = MIN_RELATION_ID;
+
+			relId = startId;
+			enum {MISS, VALID, FREE} found = FREE;
+
+			static const CachedRequestId idRels;
+			AutoCacheRequest requestRels(tdbb, idRels);
+
+			FOR(REQUEST_HANDLE requestRels)
+				R IN RDB$RELATIONS
+					WITH R.RDB$RELATION_ID GE startId
+						AND R.RDB$RELATION_ID LT stopId
+					SORTED BY R.RDB$RELATION_ID
 			{
-				if (rel_id < local_min_relation_id || rel_id > MAX_RELATION_ID)
-					rel_id = local_min_relation_id;
-
-				if (rel_id == X.RDB$RELATION_ID)
+				found = MISS;
+				if (checkIdRange(tdbb, relId, R.RDB$RELATION_ID))
 				{
-					ERR_post(Arg::Gds(isc_no_meta_update) <<
-							 Arg::Gds(isc_table_name) << Arg::Str(name) <<
-							 Arg::Gds(isc_imp_exc));
+					found = VALID;
+					break;
 				}
 			}
+			END_FOR
 
-			X.RDB$RELATION_ID = (rel_id > MAX_RELATION_ID) ? local_min_relation_id : rel_id;
-			--rel_id;
-		END_MODIFY
+			if (found == FREE)
+				found = checkIdRange(tdbb, relId, stopId) ? VALID : MISS;
+
+			if (found == VALID)
+			{
+				MODIFY D USING
+					D.RDB$RELATION_ID = relId + 1;
+				END_MODIFY
+
+//printf(" %d\n", relId); fflush(stdout);
+				return relId;
+			}
+
+			if (startId == MIN_RELATION_ID)
+				break;
+
+			stopId = startId;
+			startId = MIN_RELATION_ID;
+		}
 	}
 	END_FOR
 
-	return rel_id;
+//printf("\n"); fflush(stdout);
+	ERR_post(Arg::Gds(isc_no_meta_update) <<
+			 Arg::Gds(isc_table_name) << Arg::Str(name) <<
+			 Arg::Gds(isc_imp_exc));
 }
 
 // Calculate the dbkey length to include each of the base relations.
 
 USHORT RelationNode::calcDbKeyLength(thread_db* tdbb)
 {
-	const USHORT local_min_relation_id = USER_DEF_REL_INIT_ID;
+	const USHORT MIN_RELATION_ID = USER_DEF_REL_INIT_ID;
 	Attachment* attachment = tdbb->getAttachment();
 
 	USHORT dbKeyLength = 0;
