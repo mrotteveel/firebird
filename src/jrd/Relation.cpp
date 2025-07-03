@@ -150,7 +150,7 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_indices(p, this),
 	  rel_name(p),
 	  rel_id(id),
-	  rel_flags(0u),
+	  rel_flags(0),
 	  rel_pages_inst(nullptr),
 	  rel_pages_base(p),
 	  rel_pages_free(nullptr),
@@ -212,6 +212,15 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 
 	return true;*/
 	return false;
+}
+
+void RelationPermanent::checkPartners(thread_db* tdbb)
+{
+	rel_flags |= REL_check_partners;
+
+	// signal to other processes about new constraint !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//	LCK_lock(tdbb, rel_partners_lock, LCK_EX, LCK_WAIT);
+//	LCK_release(tdbb, rel_partners_lock);
 }
 
 bool RelationPermanent::isReplicating(thread_db* tdbb)

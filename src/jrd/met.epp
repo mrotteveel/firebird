@@ -287,10 +287,7 @@ void MetadataCache::update_partners(thread_db* tdbb)
 		if (!relation)
 			continue;
 
-		// signal other processes
-		relation->rel_flags |= REL_check_partners;
-		LCK_lock(tdbb, relation->rel_partners_lock, LCK_EX, LCK_WAIT);
-		LCK_release(tdbb, relation->rel_partners_lock);
+		relation->checkPartners(tdbb);
 	}
 }
 
@@ -3140,7 +3137,10 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		found = true;
 
 		if (getName().isEmpty())
+		{
 			rel_perm->rel_name = REL.RDB$RELATION_NAME;
+			rel_perm->rel_flags |= REL_check_partners;
+		}
 
 		rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
 		if (!REL.RDB$RELATION_TYPE.NULL)
