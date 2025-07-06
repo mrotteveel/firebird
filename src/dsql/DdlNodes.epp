@@ -12189,12 +12189,6 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
 			IDX.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
 		END_MODIFY
-
-		if (IDX.RDB$EXPRESSION_BLR.NULL && !deleteSegmentRecords(tdbb, transaction, indexName))
-		{
-			// msg 50: "No segments found for index"
-			status_exception::raise(Arg::PrivateDyn(50));
-		}
 	}
 	END_FOR
 
@@ -12237,41 +12231,13 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 		return idxId;
 
 	fb_assert(idxId >= 0 && idxId < dbb->dbb_max_idx);
-	// Maybe a permanent check?
-	//if (idxId == idx_invalid)
-	//	ERR_post(...);
 
 	RelationPages* relPages = rel->getPages(tdbb, MAX_TRA_NUMBER, false);
 	if (!relPages)
 		return MAX_META_ID;
 
-	// we need to special handle temp tables with ON PRESERVE ROWS only
-	const bool isTempIndex = (rel->rel_flags & REL_temp_conn) &&
-		(relPages->rel_instance_id != 0);
-
 	IDX_mark_index(tdbb, rel, idxId);
 
-/*	??????????????????? back to DFW?
-	if ((!isTempIndex) && partnerRelName.hasData())
-	{
-		auto* partnerRel = MetadataCache::lookupRelation(tdbb, partnerRelName, CacheFlag::AUTOCREATE);
-		fb_assert(partnerRel);
-		if (partnerRel)
-		{
-			auto relId = rel->getId();
-			DFW_check_partners(tdbb, relId);
-
-			auto partnerRelId = partnerRel->getId();
-			if (relId != partnerRelId)
-				DFW_check_partners(tdbb, partnerRelId);
-		}
-		else {
-			// partner relation was not found
-			// we must check partners of all relations in database
-			MetadataCache::update_partners(tdbb);
-		}
-	}
-*/
 	return idxId;
 }
 
@@ -12308,6 +12274,8 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 				if (idx)
 					idx->commit(tdbb);
 			}
+
+			deleteSegmentRecords(tdbb, transaction, indexName);
 		}
 		else
 		{

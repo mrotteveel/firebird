@@ -74,7 +74,7 @@ typedef Firebird::HalfStaticArray<dep, 8> PrimaryDeps;
 
 // Foreign references to other relations' primary/unique keys
 
-typedef Firebird::HalfStaticArray<dep, 8> ForeignDeps;
+typedef Firebird::HalfStaticArray<dep, 8> ForeignRefs;
 
 
 // Index descriptor block -- used to hold info from index root page
@@ -89,7 +89,7 @@ struct index_desc
 	MetaId	idx_primary_index;				// id for primary key partner index
 	MetaId	idx_primary_relation;			// id for primary key partner relation
 	USHORT	idx_count;						// number of keys
-	ForeignDeps*	idx_foreign_deps;		// foreign key partners
+	ForeignRefs*	idx_foreign_deps;		// foreign key partners
 	ValueExprNode* idx_expression_node;		// node tree for indexed expression
 	dsc		idx_expression_desc;			// descriptor for expression result
 	Statement* idx_expression_statement;	// stored statement for expression evaluation

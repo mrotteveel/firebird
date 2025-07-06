@@ -34,6 +34,7 @@
 #include "../jrd/evl_proto.h"
 #include "../jrd/met_proto.h"
 #include "../jrd/mov_proto.h"
+#include "../jrd/idx_proto.h"
 #include "../dsql/DdlNodes.h"
 #include "../jrd/met.h"
 
@@ -585,25 +586,29 @@ void afterDeleteRelationConstraint(thread_db* tdbb, Record* record)
 	{
 		static const CachedRequestId request3CacheId;
 		AutoCacheRequest request3(tdbb, request3CacheId);
+		MetaId idxId = MAX_META_ID;
 
 		FOR (REQUEST_HANDLE request3 TRANSACTION_HANDLE transaction)
 			IND IN RDB$INDICES
 			WITH IND.RDB$INDEX_NAME = indexName.c_str()
 		{
-			ERASE IND;
-
-			static const CachedRequestId request4CacheId;
-			AutoCacheRequest request4(tdbb, request4CacheId);
-
-			FOR (REQUEST_HANDLE request4 TRANSACTION_HANDLE transaction)
-				IDS IN RDB$INDEX_SEGMENTS
-				WITH IDS.RDB$INDEX_NAME = IND.RDB$INDEX_NAME
-			{
-				ERASE IDS;
-			}
-			END_FOR
+			idxId = IND.RDB$INDEX_ID - 1;
+			MODIFY IND
+				IND.RDB$INDEX_INACTIVE.NULL = FALSE;
+				IND.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
+			END_MODIFY
 		}
 		END_FOR
+
+		if (idxId != MAX_META_ID)
+		{
+			auto* rel = MetadataCache::lookupRelation(tdbb, relationName, 0);
+			if (rel)
+			{
+				IDX_mark_index(tdbb, rel, idxId);
+				rel->newIndexVersion(tdbb, idxId);
+			}
+		}
 	}
 
 	if (constraintType == NOT_NULL_CNSTRT)

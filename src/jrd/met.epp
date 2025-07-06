@@ -2283,7 +2283,7 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 	Attachment* attachment = tdbb->getAttachment();
 
 	if (relation->rel_flags & REL_check_partners)
-		relation->scan_partners(tdbb);
+		relation->scanPartners(tdbb);
 
 	if (idx->idx_flags & idx_foreign)
 	{
@@ -3041,7 +3041,7 @@ void MET_scan_partners(thread_db* tdbb, RelationPermanent* relation)
 	SET_TDBB(tdbb);
 
 	if (relation->rel_flags & REL_check_partners)
-		relation->scan_partners(tdbb);
+		relation->scanPartners(tdbb);
 }
 
 
@@ -4224,7 +4224,7 @@ static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relati
 }
 
 
-void RelationPermanent::scan_partners(thread_db* tdbb)
+void RelationPermanent::scanPartners(thread_db* tdbb)
 {
 /**************************************
  *
@@ -4243,8 +4243,16 @@ void RelationPermanent::scan_partners(thread_db* tdbb)
 	{
 		LCK_lock(tdbb, rel_partners_lock, LCK_SR, LCK_WAIT);
 
+		// Prepare for rescan of foreign dependencies on relation.
+
 		AutoCacheRequest request(tdbb, irq_foreign1, IRQ_REQUESTS);
 		int index_number = 0;
+
+		if (rel_foreign_refs)
+		{
+			delete rel_foreign_refs;
+			rel_foreign_refs = NULL;
+		}
 
 		FOR(REQUEST_HANDLE request)
 			IDX IN RDB$INDICES CROSS
@@ -4271,7 +4279,7 @@ void RelationPermanent::scan_partners(thread_db* tdbb)
 				deps.dep_index = IND.RDB$INDEX_ID - 1;
 
 				if (!rel_foreign_refs)
-					rel_foreign_refs = FB_NEW_POOL(getPool()) ForeignDeps(getPool());
+					rel_foreign_refs = FB_NEW_POOL(getPool()) ForeignRefs(getPool());
 
 				rel_foreign_refs->push(deps);
 			}
@@ -4309,12 +4317,14 @@ void RelationPermanent::scan_partners(thread_db* tdbb)
 				deps.dep_index = IND.RDB$INDEX_ID - 1;
 
 				if (!rel_primary_dpnds)
-					rel_primary_dpnds = FB_NEW_POOL(getPool()) ForeignDeps(getPool());
+					rel_primary_dpnds = FB_NEW_POOL(getPool()) PrimaryDeps(getPool());
 
 				rel_primary_dpnds->push(deps);
 			}
 		}
 		END_FOR
+
+		rel_flags &= ~REL_check_partners;
 	}
 }
 

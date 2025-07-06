@@ -836,7 +836,7 @@ public:
 	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
 	void	cleanUp();
 	void	fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
-	void	scan_partners(thread_db* tdbb);		// Foreign keys scan - impl. in met.epp
+	void	scanPartners(thread_db* tdbb);		// Foreign keys scan - impl. in met.epp
 
 	RelationPages* getBasePages()
 	{
@@ -888,14 +888,15 @@ public:
 	bool isView() const;
 	bool isReplicating(thread_db* tdbb);
 
-	void checkPartners(thread_db* tdbb);
-
 	static int partners_ast_relation(void* ast_object);
 	static int rescan_ast_relation(void* ast_object);
 	static int blocking_ast_relation(void* ast_object);
 
 	// Relation must be updated on next use or commit
 	static Cached::Relation* tagForUpdate(thread_db* tdbb, const MetaName name);
+
+	// Lists of FK partners should be updated on next update
+	void checkPartners(thread_db* tdbb);
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	Indices			rel_indices;		// Active indices
@@ -909,7 +910,7 @@ public:
 	Firebird::TriState	rel_repl_state;	// replication state
 
 	PrimaryDeps*	rel_primary_dpnds = nullptr;	// foreign dependencies on this relation's primary key
-	ForeignDeps*	rel_foreign_refs = nullptr;		// foreign references to other relations' primary keys
+	ForeignRefs*	rel_foreign_refs = nullptr;		// foreign references to other relations' primary keys
 
 private:
 	Firebird::Mutex			rel_pages_mutex;

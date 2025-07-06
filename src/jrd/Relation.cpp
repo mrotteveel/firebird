@@ -217,8 +217,10 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 void RelationPermanent::checkPartners(thread_db* tdbb)
 {
 	rel_flags |= REL_check_partners;
+	MetadataCache::tagForUpdate<Cached::Relation>(tdbb, getId());
+	DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, getId());
 
-	// signal to other processes about new constraint !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// signal to other processes about new constraint !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 //	LCK_lock(tdbb, rel_partners_lock, LCK_EX, LCK_WAIT);
 //	LCK_release(tdbb, rel_partners_lock);
 }
