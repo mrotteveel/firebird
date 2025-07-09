@@ -163,7 +163,7 @@ if "%FB2_SNAPSHOT%"=="1" (
 )
 
 :: Set up our final destination
-set FBBUILD_INSTALL_IMAGES=%FB_ROOT_PATH%\builds\install_images
+@set FBBUILD_INSTALL_IMAGES=%FB_ROOT_PATH%\builds\install_images
 @if not exist "%FBBUILD_INSTALL_IMAGES%" ( mkdir "%FBBUILD_INSTALL_IMAGES%" )
 
 :: Determine Product Status
@@ -248,17 +248,28 @@ set FBBUILD_INSTALL_IMAGES=%FB_ROOT_PATH%\builds\install_images
 
 @if "%FBBUILD_SHIP_PDB%"=="ship_pdb" (
   echo   Copying pdb files...
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbserver\firebird.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\burp\burp.pdb %FB_OUTPUT_DIR%\gbak.pdb > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gfix\gfix.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\isql\isql.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\yvalve\fbclient.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\chacha\chacha.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\default_profiler\default_profiler.pdb %FB_OUTPUT_DIR%\plugins\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\engine\engine*.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fb_lock_print\fb_lock_print.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbserver\firebird.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbsvcmgr\fbsvcmgr.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbtrace\fbtrace.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbtracemgr\fbtracemgr.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gbak\gbak.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gfix\gfix.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gstat\gstat.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\ib_util\ib_util.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\intl\fbintl.pdb %FB_OUTPUT_DIR%\intl\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\isql\isql.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\legacy_auth\legacy_auth.pdb %FB_OUTPUT_DIR%\plugins\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\legacy_usermanager\legacy_usermanager.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\nbackup\nbackup.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\srp\srp.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udf_compat\udf_compat.pdb %FB_OUTPUT_DIR%\plugins\udr\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udrcpp_example\udrcpp_example.pdb %FB_OUTPUT_DIR%\plugins\udr\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udr_engine\udr_engine.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\yvalve\fbclient.pdb %FB_OUTPUT_DIR%\ > nul
 )
 
 @echo   Started copying docs...
@@ -383,8 +394,9 @@ for %%v in (IPLicense.txt IDPLicense.txt ) do (
         call :ERROR Could not generate MSVCC Runtime MSI %MSVC_RUNTIME_LIBRARY_VERSION% & goto :EOF
       )
     )
-) else (
-  echo   Using an existing build of %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi
+  ) else (
+    echo   Using an existing build of %FB_OUTPUT_DIR%\system32\vccrt%MSVC_RUNTIME_LIBRARY_VERSION%_%FB_TARGET_PLATFORM%.msi
+  )
 )
 
 ::End of BUILD_CRT_MSI
