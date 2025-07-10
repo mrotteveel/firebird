@@ -240,17 +240,26 @@ if "%PROCESSOR_ARCHITECTURE%"=="x86" (
 
 @if "%FBBUILD_SHIP_PDB%"=="ship_pdb" (
   echo   Copying pdb files...
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbserver\firebird.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gbak\gbak.pdb %FB_OUTPUT_DIR%\gbak.pdb > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gfix\gfix.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\isql\isql.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\yvalve\fbclient.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\engine12\engine12.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fb_lock_print\fb_lock_print.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbserver\firebird.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbsvcmgr\fbsvcmgr.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbtrace\fbtrace.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbtracemgr\fbtracemgr.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gbak\gbak.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gfix\gfix.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gstat\gstat.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\ib_util\ib_util.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\intl\fbintl.pdb %FB_OUTPUT_DIR%\intl\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\isql\isql.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\legacy_auth\legacy_auth.pdb %FB_OUTPUT_DIR%\plugins\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\legacy_usermanager\legacy_usermanager.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\nbackup\nbackup.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\srp\srp.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udf_compat\udf_compat.pdb %FB_OUTPUT_DIR%\plugins\udr\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udrcpp_example\udrcpp_example.pdb %FB_OUTPUT_DIR%\plugins\udr\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udr_engine\udr_engine.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\yvalve\fbclient.pdb %FB_OUTPUT_DIR%\ > nul
 )
 
 @echo   Started copying docs...

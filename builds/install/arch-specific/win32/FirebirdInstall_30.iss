@@ -521,7 +521,7 @@ Source: {#FilesDir}\UDF\*.sql; DestDir: {app}\UDF; Components: ServerComponent; 
 Source: {#FilesDir}\UDF\*.txt; DestDir: {app}\UDF; Components: ServerComponent; Flags: ignoreversion;
 
 Source: {#FilesDir}\plugins.conf; DestDir: {app}; Components: ServerComponent; Flags: ignoreversion;
-Source: {#FilesDir}\plugins\*.dll; DestDir: {app}\plugins; Components: ServerComponent; Flags: ignoreversion;
+Source: {#FilesDir}\plugins\*.dll; DestDir: {app}\plugins; Components: ServerComponent; Flags: ignoreversion; Check: IsServerInstall;
 Source: {#FilesDir}\plugins\*.conf; DestDir: {app}\plugins; Components: ServerComponent; Flags: ignoreversion;
 Source: {#FilesDir}\plugins\udr\*.*; DestDir: {app}\plugins\udr; Components: ServerComponent; Flags: ignoreversion;
 
@@ -534,11 +534,16 @@ Source: {#FilesDir}\examples\*.*; DestDir: {app}\examples; Components: DevAdminC
 #endif
 
 #ifdef ship_pdb
+Source: {#FilesDir}\fb_lock_print.pdb; DestDir: {app}; Components: ClientComponent;
 Source: {#FilesDir}\fbclient.pdb; DestDir: {app}; Components: ClientComponent;
 Source: {#FilesDir}\firebird.pdb; DestDir: {app}; Components: ServerComponent;
+Source: {#FilesDir}\fbtracemgr.pdb; DestDir: {app}; Components: DevAdminComponent;
+Source: {#FilesDir}\intl\fbintl.pdb; DestDir: {app}\intl; Components: DevAdminComponent;
 Source: {#FilesDir}\gbak.pdb; DestDir: {app}; Components: DevAdminComponent;
 Source: {#FilesDir}\gfix.pdb; DestDir: {app}; Components: DevAdminComponent;
+Source: {#FilesDir}\ib_util.pdb; DestDir: {app}; Components: ServerComponent;
 Source: {#FilesDir}\isql.pdb; DestDir: {app}; Components: ClientComponent;
+Source: {#FilesDir}\nbackup.pdb; DestDir: {app}; Components: DevAdminComponent;
 Source: {#FilesDir}\plugins\*.pdb; DestDir: {app}\plugins; Components: ServerComponent;
 #if PlatformTarget == "x64"
 Source: {#WOW64Dir}\fbclient.pdb; DestDir: {app}\WOW64; Components: ClientComponent;
