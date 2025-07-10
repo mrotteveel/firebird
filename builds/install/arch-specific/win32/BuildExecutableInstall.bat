@@ -16,6 +16,8 @@
 ::
 ::=============================================================================
 @echo off
+set SCRIPT_FULL_NAME=%~d0%~p0%~n0%~x0
+set SCRIPT_SHORT_NAME=%~n0%~x0
 
 @goto :MAIN
 @goto :EOF
@@ -67,13 +69,13 @@ if "%FB2_SNAPSHOT%"=="1" (
 :: let's bail out now.
 
 @echo     o Checking for sed...
-@(cmd /c "sed.exe --version 2>&1 | findstr version > nul ") || ( call :ERROR Could not locate sed & goto :EOF )
+@(cmd /c "sed.exe --version 2>&1 > nul ") || ( call :ERROR Could not locate sed & goto :EOF )
 
 @echo     o Checking for unix2dos...
-@( cmd /c "unix2dos.exe --version 2>&1 | findstr version > nul" ) || ( call :ERROR Could not locate unix2dos & goto :EOF )
+@(cmd /c "unix2dos.exe --quiet --version 2>&1 > nul" ) || ( call :ERROR Could not locate unix2dos & goto :EOF )
 
 @for /f "usebackq tokens=*" %%c in ( `where /f md5sum 2^>nul` ) do set MD5_COMMAND=%%c
-if defined MD5_COMMAND (
+@if defined MD5_COMMAND (
   echo     o POSIX md5sum utility found at %MD5_COMMAND%
 )
 
@@ -243,17 +245,27 @@ if defined MD5_COMMAND (
 
 @if "%FBBUILD_SHIP_PDB%"=="ship_pdb" (
   echo   Copying pdb files...
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbserver\firebird.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\burp\burp.pdb %FB_OUTPUT_DIR%\gbak.pdb > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gfix\gfix.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\isql\isql.pdb %FB_OUTPUT_DIR%\ > nul
-  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\yvalve\fbclient.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\chacha\chacha.pdb %FB_OUTPUT_DIR%\plugins\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\engine\engine*.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fb_lock_print\fb_lock_print.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbserver\firebird.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbsvcmgr\fbsvcmgr.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbtrace\fbtrace.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\fbtracemgr\fbtracemgr.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gbak\gbak.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gfix\gfix.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\gstat\gstat.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\ib_util\ib_util.pdb %FB_OUTPUT_DIR%\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\intl\fbintl.pdb %FB_OUTPUT_DIR%\intl\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\isql\isql.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\legacy_auth\legacy_auth.pdb %FB_OUTPUT_DIR%\plugins\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\legacy_usermanager\legacy_usermanager.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\nbackup\nbackup.pdb %FB_OUTPUT_DIR%\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\srp\srp.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udf_compat\udf_compat.pdb %FB_OUTPUT_DIR%\plugins\udr\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udrcpp_example\udrcpp_example.pdb %FB_OUTPUT_DIR%\plugins\udr\ > nul
   copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\udr_engine\udr_engine.pdb %FB_OUTPUT_DIR%\plugins\ > nul
+  copy %FB_TEMP_DIR%\%FBBUILD_BUILDTYPE%\yvalve\fbclient.pdb %FB_OUTPUT_DIR%\ > nul
 )
 
 @echo   Started copying docs...
@@ -598,7 +610,7 @@ for %%v in (IPLicense.txt IDPLicense.txt ) do (
 :: errorlevel gets reset automatically so capture it before we lose it.
 @set ERRLEV=%ERRORLEVEL%
 @echo.
-@echo   Error %ERRLEV% in BuildExecutableInstall
+@echo   Error code %ERRLEV% in %SCRIPT_SHORT_NAME%
 @echo     %*
 @echo.
 ::End of ERROR
@@ -641,7 +653,6 @@ pushd ..\..\..\win32
 @call setenvvar.bat
 @if ERRORLEVEL 1 ( popd & ( call :ERROR Failure after calling setenvvar.bat ) & goto :END )
 popd
-@if errorlevel 1 (goto :END)
 
 @if not defined FB2_ISS_DEBUG (set FB2_ISS_DEBUG=0)
 
