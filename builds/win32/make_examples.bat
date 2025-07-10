@@ -50,7 +50,7 @@ if "%VS_VER%"=="msvc6" (
 
 @echo.
 :: Here we must use cd because isql does not have an option to set a base directory
-@cd %FB_GEN_DIR%\examples
+@pushd  %FB_GEN_DIR%\examples
 @echo   Creating empbuild.fdb...
 @echo.
 @del empbuild.fdb 2> nul
@@ -78,6 +78,7 @@ if defined FB2_INTLEMP (
 @%FB_BIN_DIR%\gpre.exe -r -m -n -z %FB_ROOT_PATH%\examples\empbuild\intlbld.e %FB_GEN_DIR%\examples\intlbld.c -b %FB_GEN_DB_DIR%/examples/
 )
 
+@popd
 @goto :EOF
 
 
@@ -142,10 +143,10 @@ if defined FB2_INTLEMP (
 :: the employee database.
 @set FIREBIRD=%FB_BIN_DIR%
 
-@cd %FB_GEN_DIR%\examples
+@pushd %FB_GEN_DIR%\examples
 @del %FB_GEN_DIR%\examples\employee.fdb 2>nul
 @%FB_ROOT_PATH%\temp\%FB_OBJ_DIR%\empbuild\empbuild.exe %FB_GEN_DB_DIR%/examples/employee.fdb
-if errorlevel 44 (call :ERROR empbuild.exe failed - see %~n0.log for details & goto :EOF)
+if errorlevel 44 (call :ERROR empbuild.exe failed - see %~n0.log for details & popd & goto :EOF)
 
 @if defined FB2_INTLEMP (
   @echo Building intlemp.fdb
@@ -156,7 +157,7 @@ if errorlevel 44 (call :ERROR empbuild.exe failed - see %~n0.log for details & g
 )
 @set FIREBIRD=
 @set PATH=%FB_SAVE_PATH%
-@cd %FB_ROOT_PATH%\builds\win32
+@popd
 
 @goto :EOF
 

@@ -72,7 +72,7 @@ HELP
 
   would be required for a client only install.
 
-  NOTE - If a full server install is required there is no need to 
+  NOTE - If a full server install is required there is no need to
   specify /COMPONENTS. All three are chosen by default.
 
 
@@ -106,6 +106,7 @@ HELP
   By default the following tasks are run:
 
     UseSuperServerTask,UseServiceTask,AutoStartTask,CopyFbClientToSysTask
+
 
 /MERGETASKS="comma separated list of task names"
 

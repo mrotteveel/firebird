@@ -16,6 +16,8 @@
 ::
 ::=============================================================================
 @echo off
+@set SCRIPT_FULL_NAME=%~d0%~p0%~n0%~x0
+@set SCRIPT_SHORT_NAME=%~n0%~x0
 
 @goto :MAIN
 @goto :EOF
@@ -297,6 +299,7 @@ if "%PROCESSOR_ARCHITECTURE%"=="x86" (
 
 @echo   Copying other documentation...
 @copy  %FB_GEN_DIR%\readmes\installation_readme.txt %FB_OUTPUT_DIR%\doc\installation_readme.txt > nul
+@copy  %FB_GEN_DIR%\readmes\installation_scripted.txt %FB_OUTPUT_DIR%\doc\installation_scripted.txt > nul
 @copy %FB_OUTPUT_DIR%\doc\WhatsNew %FB_OUTPUT_DIR%\doc\WhatsNew.txt > nul
 @del %FB_OUTPUT_DIR%\doc\WhatsNew
 
@@ -675,7 +678,7 @@ goto :EOF
 :: errorlevel gets reset automatically so capture it before we lose it.
 @set ERRLEV=%ERRORLEVEL%
 @echo.
-@echo   Error %ERRLEV% in BuildExecutableInstall
+@echo   Error code %ERRLEV% in %SCRIPT_SHORT_NAME%
 @echo     %*
 @echo.
 ::End of ERROR

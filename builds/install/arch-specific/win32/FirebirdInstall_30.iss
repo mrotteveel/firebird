@@ -40,6 +40,17 @@
 ;     server. They must be stopped manually.
 ;
 ;
+;   Debugging this script
+;
+;   You need to run BuildExecutableInstall.bat to create the correct environment.
+;   If you have built firebird from run_all.bat you need to switch to the install
+;   script directory:
+;     pushd ..\install\arch-specific\win32
+;
+;   After that you should be able to compile and debug the script from the command
+;   line thus:
+;     "%INNO5_SETUP_PATH%"\compil32.exe FirebirdInstall_30.iss
+;
 ;
 #define MyAppPublisher "Firebird Project"
 #define MyAppURL "http://www.firebirdsql.org/"
@@ -511,7 +522,7 @@ Source: {#FilesDir}\help\*.*; DestDir: {app}\help; Components: DevAdminComponent
 Source: {#FilesDir}\include\*.*; DestDir: {app}\include; Components: DevAdminComponent; Flags: ignoreversion recursesubdirs createallsubdirs;
 Source: {#FilesDir}\intl\fbintl.dll; DestDir: {app}\intl; Components: ServerComponent; Flags: sharedfile ignoreversion;
 Source: {#FilesDir}\intl\fbintl.conf; DestDir: {app}\intl; Components: ServerComponent; Flags: onlyifdoesntexist
-Source: {#FilesDir}\lib\*.*; DestDir: {app}\lib; Components: DevAdminComponent; Flags: ignoreversion;
+Source: {#FilesDir}\lib\*.lib; DestDir: {app}\lib; Components: DevAdminComponent; Flags: ignoreversion;
 #if PlatformTarget == "x64"
 Source: {#WOW64Dir}\lib\*.lib; DestDir: {app}\WOW64\lib; Components: DevAdminComponent; Flags: ignoreversion
 #endif
@@ -649,8 +660,8 @@ begin
   if ((pos('HELP',Uppercase(CommandLine)) > 0) or
     (pos('--',Uppercase(CommandLine)) > 0) )
 //	or
-//    (pos('/?',Uppercase(CommandLine)) > 0) or		// InnoSetup displays its own help if these switches are passed.
-//    (pos('/H',Uppercase(CommandLine)) > 0) ) 		// Note also that our help scren only appears after the Choose Language dialogue :-(
+//    (pos('/?',Uppercase(CommandLine)) > 0) or     // InnoSetup displays its own help if these switches are passed.
+//    (pos('/H',Uppercase(CommandLine)) > 0) )      // Note also that our help screen only appears after the Choose Language dialogue :-(
   then begin
     ShowHelpDlg;
     result := False;
@@ -1221,7 +1232,7 @@ begin
   Result := True;
   case CurPageID of
     AdminUserPage.ID : begin
-    { check user has entered new sysdba password correctly. }
+      { check user has entered new sysdba password correctly. }
       i := CompareStr(AdminUserPage.Values[0],AdminUserPage.Values[1]);
       If  not (i = 0) then begin
         Result := False;
