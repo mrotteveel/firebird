@@ -632,6 +632,15 @@ Var
 
   init_secdb: integer;          // Is set to UNDEFINED by default in InitializeSetup
 
+  AdminUserPage: TInputQueryWizardPage;
+
+  DonorPage: TWizardPage;
+  RichEditViewer: TRichEditViewer;
+  DonateButton: TNewButton;
+
+  initWizardHeight: Integer;    // In prev. version - the wizard form was resized to new size every time when go back button pressed
+
+
 #ifdef setuplogging
 // Not yet implemented - leave log in %TEMP%
 //  OkToCopyLog : Boolean;        // Set when installation is complete.
@@ -643,25 +652,15 @@ Var
 
 #include "FirebirdInstallGUIFunctions.inc"
 
-
-var
-  AdminUserPage: TInputQueryWizardPage;
-  initWizardHeight: Integer; //In prev. version - the wizard form was resized to new size every time when go back button pressed
-
 procedure InitializeWizard;
 begin
   initWizardHeight := wizardform.height;
 
-  { Create a page to grab the new SYSDBA password }
-  AdminUserPage := CreateInputQueryPage(wpSelectTasks,
-      ExpandConstant( '{cm:CreateSYSDBAPassword}' )
-    , ExpandConstant( '{cm:ClickThroughPWCreation}' ) + #13#10 +
-      ExpandConstant( '{cm:PasswordNote}' ) , '' );
-  AdminUserPage.Add( ExpandConstant( '{cm:SYSDBAPassword}' ), True);
-  AdminUserPage.Add( ExpandConstant( '{cm:RetypeSYSDBAPassword}' ), True);
+  // Create a page to grab the new SYSDBA password
+  CreateAdminUserPage;
 
-  AdminUserPage.Values[0] := SYSDBAPassword;
-  AdminUserPage.Values[1] := SYSDBAPassword;
+  // Create a page to ask for donations
+  CreateDonorPage;
 
 end;
 
@@ -1027,6 +1026,12 @@ begin
   case CurPage of
     wpInfoBefore:   WizardForm.INFOBEFOREMEMO.font.name:='Courier New';
     wpInfoAfter:    WizardForm.INFOAFTERMEMO.font.name:='Courier New';
+    DonorPage.ID:   begin
+        DonateButton.Visible := True;
+        WizardForm.BackButton.Visible := False;
+      end;
+  else
+    DonateButton.Visible := False;
   end;
 end;
 
