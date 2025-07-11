@@ -1,4 +1,69 @@
   **************************
+  * v3.0.13
+  **************************
+
+    * Bugfix #8588
+        Error doing a backup when database file name has extended ASCII chars  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8554
+        Vulnerability GHSA-7qp6-hqxj-pjjp / ZDI-CAN-26486  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8520
+        Error in iTransaction.getInfo() on embedded connection  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8485
+        Segfault/AV on incorrect databases.conf starting with subconfig (without line alias=database_path)  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8449
+        Races when server is closed during forced database shutdown  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8437
+        Segmentation fault when running query with PARTITION BY and subquery  
+      Contributor(s): Adriano dos Santos Fernandes
+
+    * Bugfix #8417
+        Negative statement ID in trace output  
+      Contributor(s): Dmitry Yemanov
+
+    * Bugfix #8416
+        Hang when opening shared memory file  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8412
+        Fix potential deadlock when starting the encryption thread  
+      Contributor(s): Alexey Mochalov
+
+    * Bugfix #8389
+        Unnecessary reload of the encryption plugin in the SuperServer architecture  
+      Contributor(s): Alexey Mochalov
+
+    * Bugfix #8237
+        Database access error when nbackup is starting  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8222
+        Fix a case of deleted memory modification  
+      Contributor(s): Ilya Eremin
+
+    * Bugfix #8219
+        Database creation in 3.0.12, 4.0.5 and 5.0.1 is slower than in previous releases  
+      Contributor(s): Adriano dos Santos Fernandes
+
+    * Bugfix #8215
+        Rare sporadic segfaults in test for CORE-6142 on Windows  
+      Contributor(s): Alexander Peshkov
+
+    * Bugfix #8182
+        IN predicate incorrectly handles single parenthesized subquery as IN-list, instead of table subquery  
+      Contributor(s): Mark Rotteveel
+
+
+  **************************
   * v3.0.12
   **************************
 
