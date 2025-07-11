@@ -5,10 +5,10 @@
 * [#8598](https://github.com/FirebirdSQL/firebird/issues/8598): Don't fire referential integrity triggers if primary or unique keys haven't changed  
   Contributor(s): Vlad Khorsun
 
-* [#8523](https://github.com/FirebirdSQL/firebird/issues/8523): Exception in _fbclient_ during first `isc_attach_database`  
+* [#8523](https://github.com/FirebirdSQL/firebird/issues/8523): Avoid internal exception in _fbclient_ during first `isc_attach_database`  
   Contributor(s): Vlad Khorsun
 
-* [#8522](https://github.com/FirebirdSQL/firebird/issues/8522): Exception in _fbclient_ during `isc_detach_database`  
+* [#8522](https://github.com/FirebirdSQL/firebird/issues/8522): Avoid internal exception in _fbclient_ during `isc_detach_database`  
   Contributor(s): Vlad Khorsun
 
 * [#8513](https://github.com/FirebirdSQL/firebird/pull/8513): Makes `MON$COMPILED_STATEMENTS` and `MON$STATEMENTS` share blobs with text and plan content of the same statement  
