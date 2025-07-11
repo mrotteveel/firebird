@@ -2,6 +2,9 @@
 
 ## Improvements
 
+* [#8598](https://github.com/FirebirdSQL/firebird/issues/8598): Don't fire referential integrity triggers if primary or unique keys haven't changed  
+  Contributor(s): Vlad Khorsun
+
 * [#8433](https://github.com/FirebirdSQL/firebird/pull/8433): Improve code of class `BePlusTree`   
   Contributor(s): Vlad Khorsun
 
@@ -16,13 +19,31 @@
 
 ## Bugfixes
 
+* [#8592](https://github.com/FirebirdSQL/firebird/issues/8592): Presence of 'ROWS <n_limit>' causes garbage in error message when string conversion problem raises  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8590](https://github.com/FirebirdSQL/firebird/issues/8590): Line "BLR to Source mapping:" may look broken when `procedures.rdb$debug_info` is queried using remote protocol  
+  Contributor(s): Vlad Khorsun
+
+* [#8589](https://github.com/FirebirdSQL/firebird/issues/8589): `PERCENT_RANK` may return _NaN_ instead of 0  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8588](https://github.com/FirebirdSQL/firebird/issues/8588): Error doing a backup when database file name has extended ASCII chars  
+  Contributor(s): Alexander Peshkov
+
 * [#8554](https://github.com/FirebirdSQL/firebird/issues/8554): Vulnerability GHSA-7qp6-hqxj-pjjp / ZDI-CAN-26486  
   Contributor(s): Alexander Peshkov
+
+* [#8524](https://github.com/FirebirdSQL/firebird/issues/8524): _ISQL_ will truncate lines longer than 255 characters when pasting  
+  Contributor(s): Vlad Khorsun
 
 * [#8520](https://github.com/FirebirdSQL/firebird/issues/8520): Error in `iTransaction.getInfo()` on embedded connection  
   Contributor(s): Alexander Peshkov
 
 * [#8509](https://github.com/FirebirdSQL/firebird/issues/8509): "Error creating private namespace" message in _firebird.log_  
+  Contributor(s): Vlad Khorsun
+
+* [#8487](https://github.com/FirebirdSQL/firebird/issues/8487): Unexpected _SetFilePointer_ error when remapping the shared memory  
   Contributor(s): Vlad Khorsun
 
 * [#8485](https://github.com/FirebirdSQL/firebird/issues/8485): Segfault on incorrect _databases.conf_ starting with sub-config (without line `alias=database_path`)  
@@ -76,6 +97,9 @@
 * [#8268](https://github.com/FirebirdSQL/firebird/pull/8268): Fix refetch header data from delta when database in backup lock  
   Contributor(s): Andrey Kravchenko
 
+* [#8262](https://github.com/FirebirdSQL/firebird/pull/8262): Make server to correctly handle case when `accept()` returns both success and data for client  
+  Contributor(s): Vlad Khorsun
+
 * [#8255](https://github.com/FirebirdSQL/firebird/pull/8255): Catch possible stack overflow when preparing and compiling user statements  
   Contributor(s): Vlad Khorsun
 
@@ -105,6 +129,12 @@
 
 * [#8215](https://github.com/FirebirdSQL/firebird/issues/8215): Rare sporadic segfaults in test for core-6142 on Windows  
   Contributor(s): Alexander Peshkov
+
+* [#8182](https://github.com/FirebirdSQL/firebird/issues/8182): `IN` predicate incorrectly handles single parenthesized subquery as IN-list, instead of table subquery  
+  Contributor(s): Mark Rotteveel
+
+* [#8139](https://github.com/FirebirdSQL/firebird/issues/8139): Conflict resolution code uses constraint name instead of index name  
+  Contributor(s): Andrey Kravchenko, Vlad Khorsun
 
 * [#8069](https://github.com/FirebirdSQL/firebird/pull/8069): Add missing synchronization to cached vectors of known pages  
   Contributor(s): Dmitry Yemanov, Vlad Khorsun
