@@ -1,3 +1,115 @@
+# v5.0.3
+
+## Improvements
+
+* [#8598](https://github.com/FirebirdSQL/firebird/issues/8598): Don't fire referential integrity triggers if primary or unique keys haven't changed  
+  Contributor(s): Vlad Khorsun
+
+* [#8523](https://github.com/FirebirdSQL/firebird/issues/8523): Exception in _fbclient_ during first `isc_attach_database`  
+  Contributor(s): Vlad Khorsun
+
+* [#8522](https://github.com/FirebirdSQL/firebird/issues/8522): Exception in _fbclient_ during `isc_detach_database`  
+  Contributor(s): Vlad Khorsun
+
+* [#8513](https://github.com/FirebirdSQL/firebird/pull/8513): Makes `MON$COMPILED_STATEMENTS` and `MON$STATEMENTS` share blobs with text and plan content of the same statement  
+  Contributor(s): Vlad Khorsun
+
+* [#8447](https://github.com/FirebirdSQL/firebird/pull/8447): Avoid index scan for lower/upper bounds containing NULL keys  
+  Contributor(s): Dmitry Yemanov
+
+* [#8433](https://github.com/FirebirdSQL/firebird/pull/8433): Improve code of class `BePlusTree`   
+  Contributor(s): Vlad Khorsun
+
+* [#8421](https://github.com/FirebirdSQL/firebird/pull/8421): Add pointers tree to `TempSpace` class   
+  Contributor(s): Andrey Kravchenko, Vlad Khorsun
+
+* [#8318](https://github.com/FirebirdSQL/firebird/pull/8318): Send small blobs inline  
+  Contributor(s): Vlad Khorsun
+
+* [#8278](https://github.com/FirebirdSQL/firebird/issues/8278): Avoid index lookup for a NULL key if the condition is known to always be `FALSE` in this case  
+  Contributor(s): Dmitry Yemanov
+
+* [#6413](https://github.com/FirebirdSQL/firebird/issues/6413): Data pages of newly _gbak_ restored databases should marked as "swept"  
+  Contributor(s): Vlad Khorsun
+
+## Bugfixes
+
+* [#8628](https://github.com/FirebirdSQL/firebird/issues/8592): Incorrect join order for `JOIN LATERAL` with `UNION` referencing the outer stream(s) via its select list  
+  Contributor(s): Dmitry Yemanov
+
+* [#8592](https://github.com/FirebirdSQL/firebird/issues/8592): Presence of 'ROWS <n_limit>' causes garbage in error message when string conversion problem raises  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8590](https://github.com/FirebirdSQL/firebird/issues/8590): Line "BLR to Source mapping:" may look broken when `procedures.rdb$debug_info` is queried using remote protocol  
+  Contributor(s): Vlad Khorsun
+
+* [#8589](https://github.com/FirebirdSQL/firebird/issues/8589): `PERCENT_RANK` may return _NaN_ instead of 0  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8588](https://github.com/FirebirdSQL/firebird/issues/8588): Error doing a backup when database file name has extended ASCII chars  
+  Contributor(s): Alexander Peshkov
+
+* [#8554](https://github.com/FirebirdSQL/firebird/issues/8554): Vulnerability GHSA-7qp6-hqxj-pjjp / ZDI-CAN-26486  
+  Contributor(s): Alexander Peshkov
+
+* [#8524](https://github.com/FirebirdSQL/firebird/issues/8524): _ISQL_ truncates lines longer than 255 characters when pasting  
+  Contributor(s): Vlad Khorsun
+
+* [#8520](https://github.com/FirebirdSQL/firebird/issues/8520): Error in `iTransaction.getInfo()` on embedded connection  
+  Contributor(s): Alexander Peshkov
+
+* [#8509](https://github.com/FirebirdSQL/firebird/issues/8509): "Error creating private namespace" message in _firebird.log_  
+  Contributor(s): Vlad Khorsun
+
+* [#8508](https://github.com/FirebirdSQL/firebird/issues/8508): Conversion error with `old.field` inside `UPDATE OR INSERT`  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8488](https://github.com/FirebirdSQL/firebird/issues/8488): `MIN/MAX` aggregates may badly affect the join order in queries with mixed INNER/LEFT joins  
+  Contributor(s): Dmitry Yemanov
+
+* [#8487](https://github.com/FirebirdSQL/firebird/issues/8487): Unexpected _SetFilePointer_ error when remapping the shared memory  
+  Contributor(s): Vlad Khorsun
+
+* [#8485](https://github.com/FirebirdSQL/firebird/issues/8485): Segfault/AV on incorrect _databases.conf_ starting with subconfig (without line `alias=database_path`)  
+  Contributor(s): Alexander Peshkov
+
+* [#8477](https://github.com/FirebirdSQL/firebird/issues/8477): Inheritance of `WINDOW` does not work  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8449](https://github.com/FirebirdSQL/firebird/issues/8449): Races when server is closed during forced database shutdown  
+  Contributor(s): Alexander Peshkov
+
+* [#8440](https://github.com/FirebirdSQL/firebird/issues/8440): Firebird 5.0.2 - wrong result for `MINVALUE/MAXVALUE` with string arguments  
+  Contributor(s): Dmitry Yemanov
+
+* [#8437](https://github.com/FirebirdSQL/firebird/issues/8437): Segmentation fault when running query with `PARTITION BY` and subquery  
+  Contributor(s): Adriano dos Santos Fernandes
+
+* [#8432](https://github.com/FirebirdSQL/firebird/pull/8432): Fix server hang when trying to stop a server with active connections with event notifications  
+  Contributor(s): TreeHunter
+
+* [#8431](https://github.com/FirebirdSQL/firebird/pull/8431): Make sure only one error will be sent to not-started Service  
+  Contributor(s): Alexander Peshkov
+
+* [#8430](https://github.com/FirebirdSQL/firebird/issues/8430): Unstable error messages in services with trace enabled  
+  Contributor(s): Artyom Abakumov
+
+* [#8320](https://github.com/FirebirdSQL/firebird/pull/8320): Do not allow run concurrent sweep instances  
+  Contributor(s): Alexander Peshkov
+
+* [#8296](https://github.com/FirebirdSQL/firebird/issues/8296): Crash in `TipCache::findStates`  
+  Contributor(s): Vlad Khorsun
+
+* [#8194](https://github.com/FirebirdSQL/firebird/issues/8194): Internal consistency check (page in use during flush) with small number of _DefaultDbCachePages_  
+  Contributor(s): Vlad Khorsun
+
+* [#8182](https://github.com/FirebirdSQL/firebird/issues/8182): `IN` predicate incorrectly handles single parenthesized subquery as IN-list, instead of table subquery  
+  Contributor(s): Mark Rotteveel
+
+* [#8139](https://github.com/FirebirdSQL/firebird/issues/8139): Conflict resolution code uses constraint name instead of index name  
+  Contributor(s): Andrey Kravchenko, Vlad Khorsun
+
+
 # v5.0.2
 
 ## Improvements
