@@ -2,6 +2,9 @@
 
 ## Improvements
 
+* [#8649](https://github.com/FirebirdSQL/firebird/issues/8649): AV when `ON CONNECT` triggers use `EXECUTE STATEMENT ON EXTERNAL`  
+  Contributor(s): Vlad Khorsun
+
 * [#8598](https://github.com/FirebirdSQL/firebird/issues/8598): Don't fire referential integrity triggers if primary or unique keys haven't changed  
   Contributor(s): Vlad Khorsun
 
