@@ -231,7 +231,7 @@ Connection* Manager::getConnection(thread_db* tdbb, const string& dataSource,
 		CryptHash ch(att->att_crypt_callback);
 		hash = DefaultHash<UCHAR>::hash(dbName.c_str(), dbName.length(), MAX_ULONG) +
 			   DefaultHash<UCHAR>::hash(dpb.getBuffer(), dpb.getBufferLength(), MAX_ULONG) +
-			   DefaultHash<UCHAR>::hash(ch.getValue(), ch.getLength(), MAX_ULONG);
+			   (ch.isValid() ? DefaultHash<UCHAR>::hash(ch.getValue(), ch.getLength(), MAX_ULONG) : 0);
 
 		while (true)
 		{
