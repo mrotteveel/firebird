@@ -892,10 +892,10 @@ void IDX_modify(thread_db* tdbb,
 			{
 				context.raise(tdbb, error_code, new_rpb->rpb_record);
 			}
-		}
 
-		if (idx.idx_flags & (idx_primary | idx_unique))
-			new_rpb->rpb_runtime_flags |= RPB_uk_updated;
+			if (idx.idx_flags & (idx_primary | idx_unique))
+				new_rpb->rpb_runtime_flags |= RPB_uk_updated;
+		}
 	}
 }
 
