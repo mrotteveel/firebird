@@ -119,7 +119,22 @@ void IscConnection::attach(thread_db* tdbb, const PathName& dbName, const string
 
 	// Avoid change of m_dpb by validatePassword() below
 	ClumpletWriter newDpb(m_dpb);
-	validatePassword(tdbb, m_dbName, newDpb);
+	if (validatePassword(tdbb, m_dbName, newDpb))
+	{
+		// After successful password validation only local for current server providers
+		// should be used. Currently we do not distinguish provider's properties
+		// therefore use working but definitely not ideal way to avoid remote & loopback
+		// providers to be used - add empty isc_dpb_address_path clumplet to DPB.
+		// See also get_new_dpb() in interface.cpp.
+
+		ClumpletWriter address_record(ClumpletReader::UnTagged, MAX_UCHAR - 2);
+		ClumpletWriter address_stack_buffer(ClumpletReader::UnTagged, MAX_UCHAR - 2);
+		address_stack_buffer.insertBytes(isc_dpb_address,
+			address_record.getBuffer(), address_record.getBufferLength());
+
+		newDpb.insertBytes(isc_dpb_address_path, address_stack_buffer.getBuffer(),
+						   address_stack_buffer.getBufferLength());
+	}
 
 	if (newDpb.getBufferLength() > MAX_USHORT)
 	{
