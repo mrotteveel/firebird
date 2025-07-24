@@ -208,12 +208,12 @@ private:
 
 	void init()
 	{
-#if defined(LINUX) && !defined(USE_VALGRIND) && defined(HAVE_PTHREAD_RWLOCKATTR_SETKIND_NP)
+#if defined(LINUX) && !defined(USE_VALGRIND) && defined(HAVE_PTHREAD_RWLOCKATTR_SETKIND)
 		pthread_rwlockattr_t attr;
 		if (pthread_rwlockattr_init(&attr))
 			system_call_failed::raise("pthread_rwlockattr_init");
 		// Do not worry if target misses support for this option
-		pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
+		pthread_rwlockattr_setkind(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE);
 		if (pthread_rwlock_init(&lock, NULL))
 			system_call_failed::raise("pthread_rwlock_init");
 		if (pthread_rwlockattr_destroy(&attr))
