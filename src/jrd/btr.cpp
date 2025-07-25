@@ -1332,7 +1332,7 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_ro
 	idx->idx_count = irt_desc->irt_keys;
 	idx->idx_flags = irt_desc->irt_flags;
 	idx->idx_runtime_flags = 0;
-	idx->idx_foreign_deps = nullptr;
+	idx->idx_foreign_dep.clear();
 	idx->idx_primary_relation = 0;
 	idx->idx_primary_index = 0;
 	idx->idx_expression_node = nullptr;

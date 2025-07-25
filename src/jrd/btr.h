@@ -65,6 +65,11 @@ struct dep
 	int dep_index;
 
 	dep() = default;
+
+	void clear()
+	{
+		dep_reference_id = -1;
+	}
 };
 
 // Primary dependencies from all foreign references to relation's
@@ -89,7 +94,7 @@ struct index_desc
 	MetaId	idx_primary_index;				// id for primary key partner index
 	MetaId	idx_primary_relation;			// id for primary key partner relation
 	USHORT	idx_count;						// number of keys
-	ForeignRefs*	idx_foreign_deps;		// foreign key partners
+	dep		idx_foreign_dep;				// foreign key partner
 	ValueExprNode* idx_expression_node;		// node tree for indexed expression
 	dsc		idx_expression_desc;			// descriptor for expression result
 	Statement* idx_expression_statement;	// stored statement for expression evaluation

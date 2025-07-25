@@ -2346,7 +2346,7 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 			{
 				if (idx->idx_id == dep.dep_reference_id)
 				{
-					idx->idx_foreign_deps = relation->rel_primary_dpnds;
+					idx->idx_foreign_dep = dep;
 					return true;
 				}
 			}
