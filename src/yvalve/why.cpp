@@ -5453,6 +5453,13 @@ isc_db_handle& YAttachment::getHandle()
 
 YAttachment::~YAttachment()
 {
+	if (handle)
+	{
+		// Currently it may be possible after ping() disconnected from the next
+		fb_assert(!next);
+		removeHandle(&attachments, handle);
+	}
+
 	if (provider)
 		PluginManagerInterfacePtr()->releasePlugin(provider);
 }
@@ -5906,10 +5913,8 @@ void YAttachment::ping(CheckStatusWrapper* status)
 			if (!savedStatus.getError())
 				savedStatus.save(status);
 
-			StatusVector temp(NULL);
-			CheckStatusWrapper tempCheckStatusWrapper(&temp);
-			entry.next()->detach(&tempCheckStatusWrapper);
-			next = NULL;
+			entry.next()->release();
+			next = nullptr;
 
 			status_exception::raise(savedStatus.value());
 		}
