@@ -5580,6 +5580,22 @@ isc_db_handle& YAttachment::getHandle()
 	return handle;
 }
 
+void YAttachment::getOdsVersion(USHORT* majorVersion, USHORT* minorVersion)
+{
+	if (cachedOdsMajorVersion == 0)
+	{
+		FbLocalStatus status;
+		return UTL_get_ods_version(&status, this, &cachedOdsMajorVersion, &cachedOdsMinorVersion);
+		status.check();
+	}
+
+	if (majorVersion)
+		*majorVersion = cachedOdsMajorVersion;
+
+	if (minorVersion)
+		*minorVersion = cachedOdsMinorVersion;
+}
+
 YAttachment::~YAttachment()
 {
 	if (handle)
