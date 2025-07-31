@@ -366,7 +366,7 @@ public:
 	static C* oldVersion(thread_db* tdbb, MetaId id)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
 

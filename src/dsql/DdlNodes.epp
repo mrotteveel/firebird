@@ -8847,7 +8847,7 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	saveRelation(tdbb, dsqlScratch, name, false, false);
 
 	// also ensures oldVersion is present in cache
-	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
+	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 
 	dsql_rel* relation = METD_get_relation(dsqlScratch->getTransaction(), dsqlScratch, name);
 
