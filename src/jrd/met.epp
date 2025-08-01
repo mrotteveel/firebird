@@ -3342,7 +3342,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 					AutoSetRestoreFlag<USHORT> flag(&field->fld_flags, FLD_parse_computed, true);
 
 					DmlNode* nod = dependencies ?
-						MET_get_dependencies(tdbb, getPermanent(), p, length, csb, NULL, NULL, NULL,
+						MET_get_dependencies(tdbb, rel_perm, p, length, csb, NULL, NULL, NULL,
 							field->fld_name, obj_computed, csb_computed_field, trans) :
 						PAR_blr(tdbb, rel_perm, p, length, csb, NULL, NULL, false, csb_computed_field);
 
