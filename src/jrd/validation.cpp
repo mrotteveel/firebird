@@ -1621,6 +1621,11 @@ void Validation::walk_database()
 	if (vdr_flags & VDR_online)
 		release_page(&window);
 
+	Firebird::Cleanup hdrPage([&] {
+		if (!(vdr_flags & VDR_online))
+			release_page(&window);
+	});
+
 	if (!(vdr_flags & VDR_partial))
 	{
 		walk_pip();
@@ -1675,10 +1680,6 @@ void Validation::walk_database()
 			else
 				output("%s : %d ERRORS found\n\n", relName.c_str(), errs);
 		}
-	}
-
-	if (!(vdr_flags & VDR_online)) {
-		release_page(&window);
 	}
 }
 
