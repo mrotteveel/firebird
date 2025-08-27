@@ -67,7 +67,12 @@ public:
 	public:
 		static Generation* create(FB_SIZE_T cap)
 		{
-			return FB_NEW_RPT(*getDefaultMemoryPool(), cap) Generation(cap);
+			auto* rc = FB_NEW_RPT(*getDefaultMemoryPool(), cap) Generation(cap);
+#ifdef DEBUG_SHARED_VECTOR
+			void srvAcc(void*);
+			srvAcc(rc);
+#endif // DEBUG_SHARED_VECTOR
+			return rc;;
 		}
 
 		FB_SIZE_T getCount() const
@@ -150,6 +155,10 @@ public:
 		static void destroy(Generation* gen)
 		{
 			// delay delete - someone else may access it
+#ifdef DEBUG_SHARED_VECTOR
+			void srvDis(void*);
+			srvDis(gen);
+#endif // DEBUG_SHARED_VECTOR
 			gen->retire();
 		}
 	};

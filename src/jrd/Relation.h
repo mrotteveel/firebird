@@ -642,7 +642,6 @@ public:
 	static int objectType();
 
 public:
-	// bool hasTriggers() const;  unused ???????????????????
 	void releaseTriggers(thread_db* tdbb, bool destroy);
 	const Trigger* findTrigger(const MetaName trig_name) const;
 	const Format* currentFormat() const;
@@ -783,15 +782,15 @@ public:
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
 
-	void newIndexVersion(thread_db* tdbb, MetaId id)
+	void newIndexVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
-		auto chk = rel_indices.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
+		auto chk = rel_indices.makeObject(tdbb, id, CacheFlag::NOCOMMIT | scanType);
 		fb_assert(chk);
 	}
 
-	void oldIndexVersion(thread_db* tdbb, MetaId id)
+	void oldIndexVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
-		auto chk = rel_indices.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+		auto chk = rel_indices.getObject(tdbb, id, CacheFlag::AUTOCREATE | scanType);
 		fb_assert(chk);
 	}
 
@@ -893,7 +892,7 @@ public:
 	static int blocking_ast_relation(void* ast_object);
 
 	// Relation must be updated on next use or commit
-	static Cached::Relation* tagForUpdate(thread_db* tdbb, const MetaName name);
+	static Cached::Relation* newVersion(thread_db* tdbb, const MetaName name);
 
 	// Lists of FK partners should be updated on next update
 	void checkPartners(thread_db* tdbb);

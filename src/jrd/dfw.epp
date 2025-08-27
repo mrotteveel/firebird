@@ -593,7 +593,7 @@ namespace
 		{
 			SET_TDBB(tdbb);
 			const bool compile = !work->findArg(dfw_arg_check_blr);
-			ObjectBase::Flag flag = compile ? CacheFlag::NOSCAN : 0;
+			ObjectBase::Flag flag = compile ? CacheFlag::MINISCAN : 0;
 
 			switch (phase)
 			{
@@ -678,7 +678,7 @@ namespace
 					return true;
 
 				case 3:
-					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::MINISCAN);
 					if (!routine)
 						return false;
 
@@ -976,7 +976,7 @@ namespace
 		{
 			blobId = X.RDB$FUNCTION_BLR;
 			routine = Function::lookup(tdbb, QualifiedName(work->dfw_name, work->dfw_package),
-				(compile ? 0 : CacheFlag::NOSCAN) | CacheFlag::AUTOCREATE);
+				(compile ? 0 : CacheFlag::MINISCAN) | CacheFlag::AUTOCREATE);
 		}
 		END_FOR
 
@@ -1060,7 +1060,7 @@ namespace
 		{
 			blobId = X.RDB$PROCEDURE_BLR;
 			routine = MetadataCache::lookup_procedure(tdbb,
-				QualifiedName(work->dfw_name, work->dfw_package), compile ? 0 : CacheFlag::NOSCAN);
+				QualifiedName(work->dfw_name, work->dfw_package), compile ? 0 : CacheFlag::MINISCAN);
 		}
 		END_FOR
 
@@ -1832,6 +1832,7 @@ void DFW_update_index(const TEXT* name, USHORT id, const SelectivityList& select
 	{
 		MODIFY IDX USING
 			IDX.RDB$INDEX_ID = id + 1;
+			IDX.RDB$INDEX_ID.NULL = FALSE;
 			IDX.RDB$STATISTICS = selectivity.back();
 		END_MODIFY
 	}
@@ -3826,7 +3827,7 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		// now check if there are any dependencies generated through the blr
 		// that defines the relation
 
-		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
+		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 		if (relation)
 		{
 			DFW_check_dependencies(tdbb, relation->c_name(), work->dfw_name.c_str(), NULL,
@@ -4143,7 +4144,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 						&thread_db::getTransaction,
 						&thread_db::setTransaction,
 						transaction);
-					relation->tagForUpdate(tdbb);
+					relation->newVersion(tdbb);
 					DFW_post_work(transaction, dfw_commit_relation, nullptr, relation->getId());
 				}
 			}

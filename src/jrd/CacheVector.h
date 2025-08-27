@@ -75,18 +75,21 @@ public:
 
 namespace CacheFlag
 {
-	static constexpr ObjectBase::Flag COMMITTED =	0x01;		// version already committed
-	static constexpr ObjectBase::Flag ERASED =		0x02;		// object erased
-	static constexpr ObjectBase::Flag NOSCAN =		0x04;		// do not call Versioned::scan()
-	static constexpr ObjectBase::Flag AUTOCREATE =	0x08;		// create initial version automatically
-	static constexpr ObjectBase::Flag NOCOMMIT =	0x10;		// do not commit created version
-	static constexpr ObjectBase::Flag RET_ERASED =	0x20;		// return erased objects
-	static constexpr ObjectBase::Flag RETIRED = 	0x40;		// object is in a process of GC
-	static constexpr ObjectBase::Flag UPGRADE = 	0x80;		// create new versions for already existing in a cache objects
+	static constexpr ObjectBase::Flag COMMITTED =	0x001;		// version already committed
+	static constexpr ObjectBase::Flag ERASED =		0x002;		// object erased
+	static constexpr ObjectBase::Flag NOSCAN =		0x004;		// do not call Versioned::scan()
+	static constexpr ObjectBase::Flag AUTOCREATE =	0x008;		// create initial version automatically
+	static constexpr ObjectBase::Flag NOCOMMIT =	0x010;		// do not commit created version
+	static constexpr ObjectBase::Flag RET_ERASED =	0x020;		// return erased objects
+	static constexpr ObjectBase::Flag RETIRED = 	0x040;		// object is in a process of GC
+	static constexpr ObjectBase::Flag UPGRADE = 	0x080;		// create new versions for already existing in a cache objects
+	static constexpr ObjectBase::Flag MINISCAN = 	0x100;		// perform minimum scan and set cache entry to reload state
+	static constexpr ObjectBase::Flag RELOAD = 		0x200;		// force RELOAD on next scan
 
 	// Useful combinations
-//	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | NOSCAN;
-	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT;
+	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | MINISCAN | RELOAD;
+	static constexpr ObjectBase::Flag OLD_DROP = NOSCAN | AUTOCREATE;
+	static constexpr ObjectBase::Flag OLD_ALTER = MINISCAN | AUTOCREATE;
 }
 
 
@@ -188,20 +191,18 @@ public:
 				}
 
 				// required entry found in the list
-				if (listEntry)
+				switch (listEntry->scan(tdbb, fl, permanent))
 				{
-					switch (listEntry->scan(tdbb, fl, permanent))
-					{
-					case ScanResult::COMPLETE:
-					case ScanResult::REPEAT:		// scan complete but reload was requested - 
-					case ScanResult::SKIP:			// scan skipped due to NOSCAN flag
-						break;
+				case ScanResult::COMPLETE:
+				case ScanResult::REPEAT:		// scan complete but reload was requested - 
+				case ScanResult::SKIP:			// scan skipped due to NOSCAN flag
+					break;
 
-					case ScanResult::MISS:			// no object
-					default:
-						return HazardPtr<ListEntry>(nullptr);
-					}
+				case ScanResult::MISS:			// no object
+				default:
+					return HazardPtr<ListEntry>(nullptr);
 				}
+
 				return listEntry;
 			}
 		}
@@ -363,16 +364,17 @@ public:
 	}
 
 private:
-	static ScanResult scan(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl, bool rld = false)
+	static ScanResult scan(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl, bool rld)
 	{
-		if ((fl & CacheFlag::NOSCAN) || (!obj))
-			return ScanResult::SKIP;
+		fb_assert(!(fl & CacheFlag::NOSCAN));
+		fb_assert(obj);
 
-		auto* flags = TransactionNumber::getFlags(tdbb);
-		Firebird::AutoSetRestoreFlag readCommitted(flags,
-			(*flags) & TRA_degree3 ? 0 : TRA_read_committed | TRA_rec_version, true);
+		auto* traFlags = TransactionNumber::getFlags(tdbb);
+		Firebird::AutoSetRestoreFlag readCommitted(traFlags,
+			(*traFlags) & TRA_degree3 ? 0 : TRA_read_committed | TRA_rec_version, true);
 
-		return rld ? obj->reload(tdbb, fl) : obj->scan(tdbb, fl);
+		return (!rld) ? obj->scan(tdbb, fl) :
+			fl & CacheFlag::MINISCAN ? ScanResult::REPEAT : obj->reload(tdbb, fl);
 	}
 
 public:
@@ -383,6 +385,9 @@ public:
 		// explicitly done first cause will be done in 99.99%
 		if (state == READY)
 			return ScanResult::COMPLETE;
+
+		if (fl & CacheFlag::NOSCAN)
+			return ScanResult::SKIP;
 
 		// enable recursive no-action pass by scanning thread
 		// if thd is current thread state is not going to be changed - current thread holds mutex
@@ -415,7 +420,7 @@ public:
 
 				try
 				{
-					auto result = scan(tdbb, object, fl, reason);
+					auto result = scan(tdbb, object, fl | (getFlags() & CacheFlag::RELOAD), reason);
 					switch (result)
 					{
 					case ScanResult::COMPLETE:
@@ -778,7 +783,7 @@ public:
  */
 	void resetDependentObject(thread_db* tdbb, ResetType rt) override
 	{
-		switch (rt)
+/*		switch (rt)
 		{
 		case ElementBase::ResetType::Recompile:
 			{
@@ -803,7 +808,7 @@ public:
 		case ElementBase::ResetType::Rollback:
 			rollback(tdbb);
 			break;
-		}
+		} */
 	}
 
 	CacheElement* erase(thread_db* tdbb)
@@ -842,14 +847,14 @@ public:
 		return Versioned::objectType();
 	}
 
-	void tagForUpdate(thread_db* tdbb)
+	void newVersion(thread_db* tdbb)
 	{
 		TraNumber traNum;
 
 		switch (isAvailable(tdbb, &traNum))
 		{
 		case OCCUPIED:
-			Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is used by transaction %d\n",
+			Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
 				Versioned::objectFamily(this), this->c_name(), traNum);
 
 		case MODIFIED:
@@ -859,7 +864,7 @@ public:
 		case READY:
 			if (scanInProgress())
 			{
-				Firebird::fatal_exception::raiseFmt("tagForUpdate: %s %s is scanned by us\n",
+				Firebird::fatal_exception::raiseFmt("newVersion: %s %s is scanned by us\n",
 					Versioned::objectFamily(this), this->c_name());
 			}
 			storeObject(tdbb, nullptr, CacheFlag::TAG_FOR_UPDATE);
@@ -1059,7 +1064,7 @@ public:
 		return data->makeObject(tdbb, fl);
 	}
 
-	StoredElement* tagForUpdate(thread_db* tdbb, MetaId id)
+	StoredElement* newVersion(thread_db* tdbb, MetaId id)
 	{
 		if (id < getCount())
 		{
@@ -1069,14 +1074,15 @@ public:
 				StoredElement* data = ptr->load(atomics::memory_order_acquire);
 				if (data)
 				{
-					data->tagForUpdate(tdbb);
+					data->newVersion(tdbb);
 					return data;
 				}
 			}
 		}
 
 		StoredElement* data = ensurePermanent(tdbb, id);
-		return data->makeObject(tdbb, CacheFlag::TAG_FOR_UPDATE) ? data : nullptr;
+		data->newVersion(tdbb);
+		return data;
 	}
 
 	template <typename F>

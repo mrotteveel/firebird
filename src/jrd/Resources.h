@@ -147,7 +147,7 @@ public:
 
 	OBJ* operator()(thread_db* tdbb) const
 	{
-		return cacheElement ? cacheElement->getObject(tdbb, CacheFlag::NOSCAN) : nullptr;
+		return cacheElement ? cacheElement->getObject(tdbb, CacheFlag::NOSCAN/*!!!!!!!!!!!!!!!!!!!*/) : nullptr;
 	}
 
 	CacheElement<OBJ, PERM>* operator()() const

@@ -77,7 +77,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	  blr(*p),
 	  mapFieldInfo(*p),
 	  resources(nullptr),
-	  messages(*p, 2) // Most statements has two messages, preallocate space for them
+	  messages(*p, 2) // Most statements have two messages, preallocate space for them
 {
 	if (csb->csb_resources)
 	{
@@ -743,6 +743,9 @@ void Statement::release(thread_db* tdbb)
 
 	sqlText = NULL;
 
+	// ~Statement is never called :-(
+	requests.~Requests();
+
 	// Sub statement pool is the same of the main statement, so don't delete it.
 	if (!parentStatement)
 	{
@@ -1069,7 +1072,6 @@ bool Request::isUsed() const
 }
 
 #ifdef DEV_BUILD
-
 // Function is designed to be called from debugger to print subtree of current execution node
 
 const int devNodePrint(DmlNode* node)
@@ -1082,3 +1084,53 @@ const int devNodePrint(DmlNode* node)
 }
 #endif
 
+#ifdef DEBUG_SHARED_VECTOR
+namespace Jrd {
+
+struct Acc
+{
+	void* mem;
+	int order;
+
+	Acc(void* mem, int order)
+		: mem(mem), order(order)
+	{ }
+};
+
+int order = 0;
+GlobalPtr<Mutex> mtx;
+
+class Member : public Array<Acc>
+{
+public:
+	Member(Firebird::MemoryPool& p)
+		: Array<Acc>(p)
+	{ }
+
+	~Member()
+	{
+		for (const auto x : *this)
+		{
+			printf("%d %p\n", x.order, x.mem);
+		}
+	}
+};
+
+GlobalPtr<Member> acc;
+
+void srvAcc(void* mem)
+{
+	MutexLockGuard g(mtx, FB_FUNCTION);
+	acc->add(Acc(mem, order++));
+}
+
+void srvDis(void* mem)
+{
+	MutexLockGuard g(mtx, FB_FUNCTION);
+	Member::size_type pos;
+	if (acc->find([mem](const Acc& item) { return item.mem == mem ? 0 : -1; }, pos))
+		acc->remove(pos);
+}
+
+}
+#endif // DEBUG_SHARED_VECTOR

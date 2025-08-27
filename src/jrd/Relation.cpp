@@ -217,7 +217,7 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 void RelationPermanent::checkPartners(thread_db* tdbb)
 {
 	rel_flags |= REL_check_partners;
-	MetadataCache::tagForUpdate<Cached::Relation>(tdbb, getId());
+	MetadataCache::newVersion<Cached::Relation>(tdbb, getId());
 	DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, getId());
 
 // signal to other processes about new constraint !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -551,15 +551,15 @@ PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
 }
 
 
-Cached::Relation* RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaName name)
+Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const MetaName name)
 {
 	auto* relation = MetadataCache::lookupRelation(tdbb, name,
-		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT/* | CacheFlag::NOSCAN*/);
+		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::MINISCAN);
 	fb_assert(relation);
 
 	if (relation && relation->getId())
 	{
-		relation->tagForUpdate(tdbb);
+		relation->newVersion(tdbb);
 		relation->rel_flags |= REL_format;
 		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, relation->getId());
 
@@ -572,7 +572,7 @@ Cached::Relation* RelationPermanent::tagForUpdate(thread_db* tdbb, const MetaNam
 
 const char* IndexPermanent::c_name() const
 {
-	// Here we use MetaName feature - pointers in it are DBB-lifetime stable
+	// Here we use MetaName's feature - pointers in it are DBB-lifetime stable
 	return idp_name.c_str();
 }
 

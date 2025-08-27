@@ -167,6 +167,7 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid*
 	parseMessages(tdbb, csb, BlrReader(tmp.begin(), (unsigned) tmp.getCount()));
 
 	Statement* statement = getStatement();
+	flReload = false;
 	PAR_blr(tdbb, nullptr, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
 	setStatement(statement);
 

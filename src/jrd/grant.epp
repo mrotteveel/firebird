@@ -203,7 +203,7 @@ static void ensure_relation_reload(thread_db* tdbb, MetaId id, jrd_tra* transact
 		&thread_db::setTransaction,
 		transaction);
 
-	MetadataCache::tagForUpdate<Cached::Relation>(tdbb, id);
+	MetadataCache::newVersion<Cached::Relation>(tdbb, id);
 	DFW_post_work(transaction, dfw_commit_relation, nullptr, id);
 }
 

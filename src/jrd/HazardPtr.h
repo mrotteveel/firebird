@@ -36,6 +36,8 @@
 
 #include <type_traits>
 
+extern atomics::atomic<int> totHaz;
+
 namespace Jrd {
 
 class HazardObject
@@ -66,7 +68,8 @@ class HazardPtr : private cds::gc::DHP::Guard
 	static_assert(std::is_base_of<HazardObject, T>::value, "class derived from HazardObject should be used");
 
 public:
-	HazardPtr() = default;
+	HazardPtr()
+	{ }
 
 	HazardPtr(const atomics::atomic<T*>& from)
 	{
@@ -83,23 +86,66 @@ public:
 	template <class T2>
 	HazardPtr(const HazardPtr<T2>& copyFrom)
 	{
-		checkAssign<T2>();
 		copy(copyFrom);
 	}
 
+	~HazardPtr()
+	{
+		clear();
+	}
+
+private:
+	// talk to CDS block
+	void clear()
+	{
+		if (localPtr)
+		{
+			localPtr = nullptr;
+			inherited::clear();
+		}
+	}
+
+	template <typename T2>
+	void copy(const HazardPtr<T2>& copyFrom)
+	{
+		checkAssign<T2>();
+		localPtr = copyFrom.localPtr;
+		inherited::copy(copyFrom);
+	}
+
+    T* protect(const atomics::atomic<T*>& from)
+    {
+    	localPtr = inherited::protect(from);
+    	return localPtr;
+    }
+
+	void assign(T* val)
+	{
+		localPtr = inherited::assign(val);
+	}
+
+public:
 	template <class T2>
 	HazardPtr(HazardPtr<T2>&& moveFrom)
 		: inherited(std::move(moveFrom))
 	{
 		checkAssign<T2>();
+		localPtr = moveFrom.localPtr;
 	}
 
-	~HazardPtr()
-	{ }
+	template <class T2>
+	HazardPtr& operator=(HazardPtr<T2>&& moveAssign)
+	{
+		checkAssign<T2>();
+		inherited::operator=(std::move(moveAssign));
+		localPtr = moveAssign.localPtr;
+		return *this;
+	}
+	// end CDS talk
 
 	T* getPointer() const
 	{
-		return get<T>();
+		return localPtr;
 	}
 
 	T* releasePointer()
@@ -126,11 +172,6 @@ public:
 		return rc;
 	}
 
-	void clear()
-	{
-		inherited::clear();
-	}
-
 	T* operator->()
 	{
 		return getPointer();
@@ -154,7 +195,7 @@ public:
 
 	bool hasData() const
 	{
-		return get_native() != nullptr;
+		return localPtr != nullptr;
 	}
 
 	bool operator==(const T* v) const
@@ -178,32 +219,14 @@ public:
 		return *this;
 	}
 
-	HazardPtr& operator=(HazardPtr&& moveAssign)
-	{
-		inherited::operator=(std::move(moveAssign));
-		return *this;
-	}
-
 	template <class T2>
 	HazardPtr& operator=(const HazardPtr<T2>& copyAssign)
 	{
-		checkAssign<T2>();
 		copy(copyAssign);
 		return *this;
 	}
 
-	template <class T2>
-	HazardPtr& operator=(HazardPtr<T2>&& moveAssign)
-	{
-		checkAssign<T2>();
-		inherited::operator=(std::move(moveAssign));
-		return *this;
-	}
-
-	void safePointer(T* ptr)
-	{
-		assign(ptr);
-	}
+	HazardPtr& operator=(HazardPtr&& moveAssign) = default;
 
 private:
 	template <class T2>
@@ -211,6 +234,8 @@ private:
 	{
 		static_assert(std::is_trivially_assignable<T*&, T2*>::value, "Invalid type of pointer assigned");
 	};
+
+	T* localPtr = nullptr;
 };
 
 template <typename T>

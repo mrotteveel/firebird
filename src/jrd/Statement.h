@@ -132,7 +132,7 @@ public:
 	Firebird::Array<RecordParameter> rpbsSetup;
 
 private:
-	SharedReadVector<Request*, 16> requests;	// vector of requests
+	Requests requests;					// vector of requests
 	Firebird::Mutex requestsGrow;		// requests' vector protection when adding new element
 
 public:

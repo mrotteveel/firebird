@@ -363,10 +363,10 @@ public:
 	}
 
 	template <typename C>
-	static C* oldVersion(thread_db* tdbb, MetaId id)
+	static C* oldVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | scanType);
 		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
 
@@ -374,15 +374,7 @@ public:
 	static C* newVersion(thread_db* tdbb, MetaId id)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		auto* vrsn = vector.makeObject(tdbb, id, CacheFlag::NOCOMMIT);
-		return vrsn ? getPermanent(vrsn) : nullptr;
-	}
-
-	template <typename C>
-	static C* tagForUpdate(thread_db* tdbb, MetaId id)
-	{
-		auto& vector = Vector<C>::get(getCache(tdbb));
-		return vector.tagForUpdate(tdbb, id);
+		return vector.newVersion(tdbb, id);
 	}
 
 	template <typename C>

@@ -727,7 +727,7 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 				&thread_db::setTransaction,
 				transaction);
 
-			MetadataCache::tagForUpdate<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
+			MetadataCache::newVersion<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
 		}
 		DFW_post_work(transaction, dfw_commit_relation, nullptr, R.RDB$RELATION_ID);
 
@@ -1527,7 +1527,7 @@ ScanResult DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	if (flags & CacheFlag::NOCOMMIT)
+	if (flags & CacheFlag::MINISCAN)
 		return ScanResult::REPEAT;
 
 	auto type = perm->getId();
@@ -1575,6 +1575,7 @@ void MetadataCache::loadDbTriggers(thread_db* tdbb, unsigned int type)
 	fb_assert(type < DB_TRIGGERS_COUNT);
 	auto* cacheElement = mdc_triggers[type].load(atomics::memory_order_acquire);
 
+	fb_assert(!cacheElement);
 	if (!cacheElement)
 	{
 		// actual type will be taken into an account in DbTriggers::scan
@@ -1592,17 +1593,7 @@ void MetadataCache::loadDbTriggers(thread_db* tdbb, unsigned int type)
 		}
 	}
 
-	DbTriggers* triggers = DbTriggers::create(tdbb, getPool(), cacheElement);
-	try
-	{
-		if (cacheElement->storeObject(tdbb, triggers, 0) == StoreResult::DUP)
-			DbTriggers::destroy(tdbb, triggers);
-	}
-	catch(const Exception&)
-	{
-		DbTriggers::destroy(tdbb, triggers);
-		throw;
-	}
+	cacheElement->makeObject(tdbb, CacheFlag::AUTOCREATE);
 }
 
 
@@ -2649,7 +2640,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
 	return FB_NEW_POOL(perm->getPool()) jrd_prc(perm);
 }
 
-ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
+ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
@@ -2853,7 +2844,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 						if (!getExternal())
 							setDefined(false);
 					}
-					else
+					else if (!(flags & CacheFlag::MINISCAN))
 					{
 						const string name = getName().toString();
 
@@ -2874,6 +2865,8 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 								<< Arg::StatusVector(temp_status.begin())).raise();
 						}
 					}
+					else
+						flReload = true;
 				}
 				catch (const Exception&)
 				{
@@ -2885,7 +2878,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 					throw;
 				}
 
-				fb_assert(!isDefined() || getStatement()->procedure == this);
+				fb_assert((!isDefined()) || flReload || (getStatement()->procedure == this));
 			}
 			else
 			{
@@ -2918,7 +2911,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag)
 		END_FOR
 	}
 
-	return found ? (this->flReload ? ScanResult::REPEAT : ScanResult::COMPLETE) : ScanResult::MISS;
+	return found ? (flReload ? ScanResult::REPEAT : ScanResult::COMPLETE) : ScanResult::MISS;
 }
 
 void jrd_prc::checkReload(thread_db* tdbb) const
@@ -3068,7 +3061,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	jrd_tra* trans = tdbb->getTransaction() ?
 		tdbb->getTransaction() : attachment->getSysTransaction();
 
-	if (flags & CacheFlag::NOCOMMIT)
+	if (flags & CacheFlag::MINISCAN)
 	{
 		// New version of relation is created currently.
 		// Perform only very basic scan - may be more changes to come.
@@ -3104,6 +3097,9 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		// something gone wrong
 		return ScanResult::MISS;
 	}
+
+	if (flags & CacheFlag::RELOAD)
+		rel_perm->rel_flags |= REL_format;
 
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;
 

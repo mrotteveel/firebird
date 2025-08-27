@@ -2070,7 +2070,6 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				}
 				EVL_field(0, rpb->rpb_record, f_rel_name, &desc);
 				DFW_post_work(transaction, dfw_delete_relation, &desc, id);
-				MetadataCache::lookup_relation_id(tdbb, id, CacheFlag::AUTOCREATE);
 			}
 			break;
 
@@ -2085,7 +2084,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_prc_name, &desc);
 
 			DFW_post_work(transaction, dfw_delete_procedure, &desc, id, package_name);
-			MetadataCache::lookup_procedure_id(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+			MetadataCache::lookup_procedure_id(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 			break;
 
 		case rel_collations:
@@ -2135,7 +2134,6 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 			EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
 			MOV_get_metaname(tdbb, &desc, object_name);
-			RelationPermanent::tagForUpdate(tdbb, object_name);
 			if ( (r2 = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE)) )
 			{
 				EVL_field(0, rpb->rpb_record, f_rfr_fname, &desc2);
@@ -2148,6 +2146,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			if (fb_utils::implicit_domain(object_name.c_str()))
 				DFW_post_work(transaction, dfw_delete_global, &desc2, 0);
 
+			r2->newVersion(tdbb);
 			break;
 
 		case rel_prc_prms:
@@ -2163,7 +2162,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_prm_name, &desc2);
 
 			if ( (procedure = MetadataCache::lookup_procedure(tdbb,
-					QualifiedName(object_name, package_name), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN)) )
+					QualifiedName(object_name, package_name), CacheFlag::AUTOCREATE | CacheFlag::MINISCAN)) )
 			{
 				work = DFW_post_work(transaction, dfw_delete_prm, &desc2, procedure->getId(),
 					package_name);
@@ -2235,13 +2234,13 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				if (EVL_field(0, rpb->rpb_record, f_trg_rname, &desc2))
 				{
 					MOV_get_metaname(tdbb, &desc2, object_name);
-					RelationPermanent::tagForUpdate(tdbb, object_name);
+					RelationPermanent::newVersion(tdbb, object_name);
 				}
 				else
 				{
 					auto* tSet = MetadataCache::get(tdbb)->getTriggersSet(tdbb, trg_type);
 					if (tSet)
-						tSet->tagForUpdate(tdbb);
+						tSet->newVersion(tdbb);
 				}
 
 				EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
@@ -3372,7 +3371,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 			check_class(tdbb, transaction, org_rpb, new_rpb, f_rel_class);
 			check_owner(tdbb, transaction, org_rpb, new_rpb, f_rel_owner);
 			MOV_get_metaname(tdbb, &desc1, object_name);
-			RelationPermanent::tagForUpdate(tdbb, object_name);
+			RelationPermanent::newVersion(tdbb, object_name);
 			break;
 
 		case rel_packages:
@@ -3590,7 +3589,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 					if (onRelation)
 					{
 						MOV_get_metaname(tdbb, &rname, object_name);
-						RelationPermanent::tagForUpdate(tdbb, object_name);
+						RelationPermanent::newVersion(tdbb, object_name);
 
 						USHORT new_trg_type = EVL_field(0, new_rpb->rpb_record, f_trg_type, &desc2) ?
 							(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
@@ -3601,7 +3600,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 					{
 						auto* tSet = MetadataCache::get(tdbb)->getTriggersSet(tdbb, trg_type);
 						if (tSet)
-							tSet->tagForUpdate(tdbb);
+							tSet->newVersion(tdbb);
 					}
 				}
 			}
@@ -4149,7 +4148,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			protect_system_table_insert(tdbb, request, relation);
 			EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
 			MOV_get_metaname(tdbb, &desc, object_name);
-			RelationPermanent::tagForUpdate(tdbb, object_name);
+			RelationPermanent::newVersion(tdbb, object_name);
 			set_system_flag(tdbb, rpb->rpb_record, f_rfr_sys_flag);
 			break;
 
@@ -4222,13 +4221,13 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 						SCL_check_relation(tdbb, &desc, SCL_control | SCL_alter);
 
 					MOV_get_metaname(tdbb, &desc, object_name);
-					RelationPermanent::tagForUpdate(tdbb, object_name);
+					RelationPermanent::newVersion(tdbb, object_name);
 				}
 				else
 				{
 					auto* tSet = MetadataCache::get(tdbb)->getTriggersSet(tdbb, trg_type);
 					if (tSet)
-						tSet->tagForUpdate(tdbb);
+						tSet->newVersion(tdbb);
 				}
 
 				EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
@@ -4739,7 +4738,7 @@ static void check_rel_field_class(thread_db* tdbb,
 	EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
 	MetaName object_name;
 	MOV_get_metaname(tdbb, &desc, object_name);
-	RelationPermanent::tagForUpdate(tdbb, object_name);
+	RelationPermanent::newVersion(tdbb, object_name);
 }
 
 static void check_class(thread_db* tdbb,

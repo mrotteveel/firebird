@@ -470,15 +470,15 @@ void definePartial(DsqlCompilerScratch* dsqlScratch, RelationSourceNode* relatio
 //
 //      On deleting from RDB$RELATION_CONSTRAINTS, 2 system triggers fire:
 //
-//      (A) pre delete trigger: pre_delete_constraint, will:
+//      (A) pre delete trigger beforeDeleteRelationConstraint will:
 //
 //        1. delete a record first from RDB$REF_CONSTRAINTS where
 //           RDB$REF_CONSTRAINTS.RDB$CONSTRAINT_NAME =
 //                               RDB$RELATION_CONSTRAINTS.RDB$CONSTRAINT_NAME
 //
-//      (B) post delete trigger: post_delete_constraint will:
+//      (B) post delete trigger afterDeleteRelationConstraint will:
 //
-//        1. also delete a record from RDB$INDICES where					/// !!!!!!!!!!!!!!!!!!!!
+//        1. also delete a record from RDB$INDICES where
 //           RDB$INDICES.RDB$INDEX_NAME =
 //                               RDB$RELATION_CONSTRAINTS.RDB$INDEX_NAME
 //
@@ -1888,7 +1888,7 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 					DDL_TRIGGER_ALTER_FUNCTION, name, NULL);
 			}
 
-			MetadataCache::oldVersion<Cached::Function>(tdbb, id);
+			MetadataCache::oldVersion<Cached::Function>(tdbb, id, CacheFlag::OLD_ALTER);
 		}
 
 		MODIFY FUN
@@ -2480,7 +2480,7 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 		if (!FUN.RDB$ENGINE_NAME.NULL || !FUN.RDB$FUNCTION_BLR.NULL)
 			status_exception::raise(Arg::Gds(isc_dyn_newfc_oldsyntax) << name);
 
-		MetadataCache::oldVersion<Cached::Function>(tdbb, (id = FUN.RDB$FUNCTION_ID));
+		MetadataCache::oldVersion<Cached::Function>(tdbb, (id = FUN.RDB$FUNCTION_ID), CacheFlag::OLD_ALTER);
 
 		MODIFY FUN
 			if (clauses.name.hasData())
@@ -2592,7 +2592,7 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	MetaId id;
 
 	//MetadataCache::oldVersion<Cached::Function>(tdbb, id);	-- missing ID in the node
-	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::OLD_DROP);
 
 	dropArguments(tdbb, transaction, name, package);
 
@@ -2914,7 +2914,7 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 					DDL_TRIGGER_ALTER_PROCEDURE, name, NULL);
 			}
 
-			MetadataCache::oldVersion<Cached::Procedure>(tdbb, id);
+			MetadataCache::oldVersion<Cached::Procedure>(tdbb, id, CacheFlag::OLD_ALTER);
 		}
 
 		MODIFY P
@@ -3437,7 +3437,7 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	bool found = false;
 
 	//MetadataCache::oldVersion<Cached::Procedure>(tdbb, id);	missing ID in the node
-	MetadataCache::lookup_procedure(tdbb, QualifiedName(name, package), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+	MetadataCache::lookup_procedure(tdbb, QualifiedName(name, package), CacheFlag::OLD_DROP);
 
 	dropParameters(tdbb, transaction, name, package);
 
@@ -8628,6 +8628,8 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	if (createIfNotExistsOnly && !DYN_UTIL_check_unique_name_nothrow(tdbb, transaction, name, obj_relation))
 		return;
 
@@ -8764,7 +8766,7 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 			defineConstraint(tdbb, dsqlScratch, transaction, constraint->name, *constraint->create);
 		}
 
-		auto* relation = RelationPermanent::tagForUpdate(tdbb, name);
+		auto* relation = RelationPermanent::newVersion(tdbb, name);
 		indexList.exec(tdbb, relation, transaction);
 	}
 	catch(const Exception&)
@@ -8844,10 +8846,12 @@ void AlterRelationNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	jrd_tra* transaction)
 {
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	saveRelation(tdbb, dsqlScratch, name, false, false);
 
 	// also ensures oldVersion is present in cache
-	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::OLD_ALTER);
 
 	dsql_rel* relation = METD_get_relation(dsqlScratch->getTransaction(), dsqlScratch, name);
 
@@ -9786,6 +9790,8 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	auto* rel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
 	if (!rel && silent)
 		return;
@@ -10021,6 +10027,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 // ?????????????????
 		if (relation->isTemporary())
 		{
+			// loop through pagespaces and activate !!!!!!!!!!!!!!!!!!
 			// release pages, allocated for current GTT instance
 			AutoSetRestoreFlag<ULONG> tmpSpace(&tdbb->tdbb_flags, TDBB_use_db_page_space, false);
 			relation->delPages(tdbb);
@@ -10148,7 +10155,7 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 
 	// METD_get_relation() should feel the cache - but let's be on a safe side
 	if (modifyingView)
-		MetadataCache::oldVersion<Cached::Relation>(tdbb, modifyingView->rel_id);
+		MetadataCache::oldVersion<Cached::Relation>(tdbb, modifyingView->rel_id, CacheFlag::OLD_ALTER);
 
 	const int ddlTriggerAction = (modifyingView ? DDL_TRIGGER_ALTER_VIEW : DDL_TRIGGER_CREATE_VIEW);
 
@@ -10693,7 +10700,7 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	dsqlScratch->resetContextStack();
 
 	if (modifyingView)
-		MetadataCache::tagForUpdate<Cached::Relation>(tdbb, modifyingView->rel_id);
+		MetadataCache::newVersion<Cached::Relation>(tdbb, modifyingView->rel_id);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, NULL);
 
@@ -10971,7 +10978,7 @@ ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* t
 	{
 		AutoSetRestoreFlag preserveFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, false);
 
-		if (relation->getPages(tdbb))
+		if (relation->getPages(tdbb, MAX_TRA_NUMBER, false))
 			exec(tdbb, relation, transaction);
 	}
 
@@ -10994,19 +11001,20 @@ string ModifyIndexNode::print(Jrd::NodePrinter& printer) const
 //----------------------
 
 
-
 void ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
 	fb_assert(rel);
 	if (!rel)
 		return;
 
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	for (auto* node : nodes)
 	{
 		if (node)
 		{
 			auto newIndex = node->modify(tdbb, transaction);
-			rel->newIndexVersion(tdbb, newIndex.id);
+			rel->newIndexVersion(tdbb, newIndex.id, CacheFlag::MINISCAN);
 		}
 	}
 }
@@ -11050,13 +11058,11 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	MetaId idxId = dbb->dbb_max_idx;
+	const bool tempConn = !(tdbb->tdbb_flags & TDBB_use_db_page_space);
 
 	idx.idx_flags = 0;
 
-	// Fetch the information necessary to create the index.  On the first
-	// time thru, check to see if the index already exists.  If so, delete
-	// it.  If the index inactive flag is set, don't create the index
-
+	// Fetch the information necessary to create the index.
 	request.reset(tdbb, irq_c_index, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
@@ -11064,8 +11070,12 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME
 			WITH IDX.RDB$INDEX_NAME EQ indexName.c_str()
 	{
+		// Decide upon ID
+		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
+		if (!IDX.RDB$INDEX_ID.NULL)
+			idxId = IDX.RDB$INDEX_ID - 1;
+
 		// Reject here request to 'alter index inactive'
-		fb_assert(IDX.RDB$INDEX_ID.NULL);
 		fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
 
 		idx.idx_count = IDX.RDB$SEGMENT_COUNT;
@@ -11291,7 +11301,8 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName.c_str(),
 					&idxId, transaction, selectivity);
 	fb_assert(idxId == idx.idx_id);
-	DFW_update_index(indexName.c_str(), idxId, selectivity, transaction);
+	if (!tempConn)
+		DFW_update_index(indexName.c_str(), idxId, selectivity, transaction);
 
 	if (idx.idx_condition_statement)
 		idx.idx_condition_statement->release(tdbb);
@@ -11341,17 +11352,22 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	const auto dbb = tdbb->getDatabase();
 	const auto attachment = tdbb->getAttachment();
 	MetaId idxId = dbb->dbb_max_idx;
+	const bool tempConn = !(tdbb->tdbb_flags & TDBB_use_db_page_space);
 
 	AutoCacheRequest request(tdbb, irq_c_exp_index, IRQ_REQUESTS);
 
-	FOR(REQUEST_HANDLE request)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES CROSS
 		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME WITH
 		IDX.RDB$EXPRESSION_BLR NOT MISSING AND
 		IDX.RDB$INDEX_NAME EQ indexName.c_str()
 	{
+		// Decide upon ID
+		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
+		if (!IDX.RDB$INDEX_ID.NULL)
+			idxId = IDX.RDB$INDEX_ID - 1;
+
 		// Reject here request to 'alter index inactive'
-		fb_assert(IDX.RDB$INDEX_ID.NULL);
 		fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
 
 		if (IDX.RDB$SEGMENT_COUNT)
@@ -11470,7 +11486,8 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	tdbb->setTransaction(current_transaction);
 	tdbb->setRequest(current_request);
 
-	DFW_update_index(indexName.c_str(), idx.idx_id, selectivity, transaction);
+	if (!tempConn)
+		DFW_update_index(indexName.c_str(), idx.idx_id, selectivity, transaction);
 
 	// Get rid of the expression/condition statements
 	idx.idx_expression_statement->release(tdbb);
@@ -11499,6 +11516,7 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 	STORE(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
 	{
+		IDX.RDB$INDEX_ID.NULL = TRUE;
 		IDX.RDB$UNIQUE_FLAG.NULL = TRUE;
 		IDX.RDB$INDEX_INACTIVE.NULL = TRUE;
 		IDX.RDB$INDEX_TYPE.NULL = TRUE;
@@ -11870,6 +11888,8 @@ void CreateIndexNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 // Define an index.
 void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction)
 {
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	Attachment* const attachment = transaction->tra_attachment;
 
 	// run all statements under savepoint control
@@ -11964,6 +11984,8 @@ void AlterIndexNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 
 void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction)
 {
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 
@@ -11973,6 +11995,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 	AutoCacheRequest request(tdbb, drq_m_index, DYN_REQUESTS);
 	bool found = false;
 	bool active = create;
+	bool deferred = false;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
@@ -11980,7 +12003,13 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 	{
 		found = true;
 
-		active = IDX.RDB$INDEX_INACTIVE.NULL ? true : !IDX.RDB$INDEX_INACTIVE;
+		if (IDX.RDB$INDEX_INACTIVE.NULL)
+			active = true;
+		else
+		{
+			active = !IDX.RDB$INDEX_INACTIVE;
+			deferred = IDX.RDB$INDEX_INACTIVE == MET_index_deferred_active;
+		}
 
 		if (active != create)
 		{
@@ -11998,7 +12027,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 				idxId = IDX.RDB$INDEX_ID - 1;
 			}
 			if (relation && idxId.has_value())
-				relation->oldIndexVersion(tdbb, idxId.value());
+				relation->oldIndexVersion(tdbb, idxId.value(), CacheFlag::OLD_ALTER);
 
 			MODIFY IDX
 				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
@@ -12022,13 +12051,16 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 	savePoint.release();	// system table modified OK
 
-	MemoryPool& pool = *MemoryPool::getContextPool();
-	ModifyIndexList oneItemList(pool);
-	if (!idxId.has_value())
-		oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(relName, indexName, expressionIndex));
-	else
-		oneItemList.push(this);
-	oneItemList.exec(tdbb, relation, transaction);
+	if (!deferred)
+	{
+		MemoryPool& pool = *MemoryPool::getContextPool();
+		ModifyIndexList oneItemList(pool);
+		if (!idxId.has_value())
+			oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(relName, indexName, expressionIndex));
+		else
+			oneItemList.push(this);
+		oneItemList.exec(tdbb, relation, transaction);
+	}
 }
 
 MetaId AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
@@ -12067,6 +12099,8 @@ void SetStatisticsNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 
 void SetStatisticsNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction)
 {
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 
@@ -12159,6 +12193,8 @@ void DropIndexNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 
 void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction)
 {
+	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 
@@ -12183,7 +12219,7 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 			partnerRelName = IDX.RDB$FOREIGN_KEY;
 
 		if (rel)
-			rel->oldIndexVersion(tdbb, idxId);
+			rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
 
 		MODIFY IDX
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;

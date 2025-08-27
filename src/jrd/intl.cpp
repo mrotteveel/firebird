@@ -767,17 +767,15 @@ bool INTL_defined_type(thread_db* tdbb, TTypeId t_type)
  **************************************/
 	SET_TDBB(tdbb);
 
-	try
+	auto* vers = MetadataCache::lookup_charset(tdbb, t_type, CacheFlag::AUTOCREATE);
+	if (vers)
 	{
-		ThreadStatusGuard local_status(tdbb);
-		INTL_texttype_lookup(tdbb, t_type);
-	}
-	catch (...)
-	{
-		return false;
+		CollId coll(t_type);
+		if (USHORT(coll) == 0 || vers->getCollation(coll))
+			return true;
 	}
 
-	return true;
+	return false;
 }
 
 
