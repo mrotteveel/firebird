@@ -293,11 +293,16 @@ void activateIndex(BurpGlobals* tdgbl, const char* index_name)
 		MODIFY IND1 USING
 			IND1.RDB$INDEX_INACTIVE = FALSE;
 		END_MODIFY;
+		ON_ERROR
+			fError = true;
+			fb_utils::copyStatus(&local_status_vector, isc_status);
+		END_ERROR;
 	END_FOR;
 
 	ON_ERROR
+		if (!fError)
+			fb_utils::copyStatus(&local_status_vector, isc_status);
 		fError = true;
-		fb_utils::copyStatus(&local_status_vector, isc_status);
 	END_ERROR;
 
 	if (!fError)
