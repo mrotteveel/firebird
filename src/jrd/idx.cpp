@@ -550,7 +550,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 
 	// Checkout a garbage collect record block for fetching data.
 
-	AutoTempRecord gc_record(VIO_gc_record(tdbb, relation));
+	AutoTempRecord gc_record(relation->getGCRecord(tdbb));
 
 	if (m_flags & IS_LARGE_SCAN)
 	{
@@ -1661,7 +1661,7 @@ static idx_e check_duplicates(thread_db* tdbb,
 	record_param rpb;
 	rpb.rpb_relation = insertion->iib_relation;
 
-	AutoTempRecord gc_record(VIO_gc_record(tdbb, rpb.rpb_relation));
+	AutoTempRecord gc_record(rpb.rpb_relation->getGCRecord(tdbb));
 	rpb.rpb_record = gc_record;
 
 	jrd_rel* const relation_1 = insertion->iib_relation;

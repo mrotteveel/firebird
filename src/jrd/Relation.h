@@ -47,6 +47,7 @@ class jrd_fld;
 class ExternalFile;
 class RelationPermanent;
 class jrd_rel;
+class Record;
 
 // trigger types
 const int TRIGGER_PRE_STORE		= 1;
@@ -650,6 +651,8 @@ public:
 	{
 		return rel_perm;
 	}
+
+	Record* getGCRecord(thread_db* tdbb);
 };
 
 // rel_flags
@@ -668,9 +671,7 @@ class GCLock
 {
 public:
 	GCLock(RelationPermanent* rl)
-		: lck(nullptr),
-		  relPerm(rl),
-		  flags(0u)
+		: gcRel(rl)
 	{ }
 
 	// This guard is used by regular code to prevent online validation while
@@ -716,14 +717,28 @@ public:
 		Lock*			m_lock;
 	};
 
-public:
+	friend Shared;
+	friend Exclusive;
+
+private:
 	bool acquire(thread_db* tdbb, int wait);
 	void downgrade(thread_db* tdbb);
 	void enable(thread_db* tdbb, Lock* tempLock);
 	bool disable(thread_db* tdbb, int wait, Lock*& tempLock);
 
+public:
+	bool checkDisabled() const
+	{
+		return gcFlags.load(std::memory_order_acquire) & GC_disabled;
+	}
+
 	unsigned getSweepCount() const;		// violates rules of atomic counters
 										// but OK for zerocheck when count can not grow
+#ifdef DEV_BUILD
+	enum class State {unknown, enabled, disabled};
+	State isGCEnabled() const;			// violates rules of atomic counters
+										// but OK for assertions
+#endif //DEV_BUILD
 
 	static int ast(void* self)
 	{
@@ -742,14 +757,12 @@ private:
 	void blockingAst();
 	void ensureReleased(thread_db* tdbb);
 
-	[[noreturn]] void incrementError();
+	void checkGuard(unsigned flags);
 
 private:
-	Firebird::AutoPtr<Lock> lck;
-	RelationPermanent* relPerm;
-
-public:
-	std::atomic<unsigned> flags;
+	Firebird::AutoPtr<Lock> gcLck;
+	RelationPermanent* gcRel;
+	std::atomic<unsigned> gcFlags = 0u;
 
 	static const unsigned GC_counterMask =	0x0FFFFFFF;
 	static const unsigned GC_guardBit =		0x10000000;
@@ -805,8 +818,12 @@ public:
 	Lock*		rel_partners_lock;		// partners lock
 	Lock*		rel_rescan_lock;		// lock forcing relation to be scanned
 	GCLock		rel_gc_lock;			// garbage collection lock
-	GCRecordList	rel_gc_records;		// records for garbage collection
 
+private:
+	GCRecordList	rel_gc_records;		// records for garbage collection
+	Firebird::Mutex	rel_gc_records_mutex;
+
+public:
 	atomics::atomic<SSHORT>	rel_scan_count;		// concurrent sequential scan count
 
 	class RelPagesSnapshot : public Firebird::Array<RelationPages*>
@@ -880,6 +897,7 @@ public:
 
 	void getRelLockKey(thread_db* tdbb, UCHAR* key);
 	PageNumber getIndexRootPage(thread_db* tdbb);
+	Record* getGCRecord(thread_db* tdbb, const Format* const format);
 
 	bool isSystem() const;
 	bool isTemporary() const;
@@ -999,6 +1017,11 @@ inline bool jrd_rel::isSystem() const
 inline bool jrd_rel::isReplicating(thread_db* tdbb)
 {
 	return rel_perm->isReplicating(tdbb);
+}
+
+inline Record* jrd_rel::getGCRecord(thread_db* tdbb)
+{
+	return rel_perm->getGCRecord(tdbb, currentFormat());
 }
 
 

@@ -601,6 +601,7 @@ namespace
 };
 
 
+#ifdef DEV_BUILD
 static bool assert_gc_enabled(const jrd_tra* transaction, const jrd_rel* relation)
 {
 /**************************************
@@ -623,11 +624,17 @@ static bool assert_gc_enabled(const jrd_tra* transaction, const jrd_rel* relatio
  *  in this case online validation is not run against given relation.
  *
  **************************************/
-	if (getPermanent(relation)->rel_gc_lock.getSweepCount() || relation->isSystem() || relation->isTemporary())
+	switch (getPermanent(relation)->rel_gc_lock.isGCEnabled())
+	{
+	case GCLock::State::enabled:
 		return true;
 
-	if (getPermanent(relation)->rel_gc_lock.flags & GCLock::GC_disabled)
+	case GCLock::State::disabled:
 		return false;
+
+	case GCLock::State::unknown:
+		break;
+	}
 
 	vec<Lock*>* vector = transaction->tra_relation_locks;
 	if (!vector || relation->getId() >= vector->count())
@@ -639,6 +646,7 @@ static bool assert_gc_enabled(const jrd_tra* transaction, const jrd_rel* relatio
 
 	return (lock->lck_physical == LCK_SW) || (lock->lck_physical == LCK_EX);
 }
+#endif //DEV_BUILD
 
 
 // Pick up relation ids
@@ -887,7 +895,7 @@ void VIO_backout(thread_db* tdbb, record_param* rpb, const jrd_tra* transaction)
 		CCH_RELEASE(tdbb, &temp.getWindow(tdbb));
 	else
 	{
-		temp.rpb_record = gc_rec1 = VIO_gc_record(tdbb, relation);
+		temp.rpb_record = gc_rec1 = relation->getGCRecord(tdbb);
 		VIO_data(tdbb, &temp, relation->rel_pool);
 		data = temp.rpb_prior;
 		old_data = temp.rpb_record;
@@ -907,7 +915,7 @@ void VIO_backout(thread_db* tdbb, record_param* rpb, const jrd_tra* transaction)
 
 	if (rpb->rpb_b_page)
 	{
-		temp.rpb_record = gc_rec2 = VIO_gc_record(tdbb, relation);
+		temp.rpb_record = gc_rec2 = relation->getGCRecord(tdbb);
 
 		while (true)
 		{
@@ -2829,54 +2837,6 @@ bool VIO_garbage_collect(thread_db* tdbb, record_param* rpb, jrd_tra* transactio
 }
 
 
-Record* VIO_gc_record(thread_db* tdbb, jrd_rel* relation)
-{
-/**************************************
- *
- *	V I O _ g c _ r e c o r d
- *
- **************************************
- *
- * Functional description
- *	Allocate from a relation's vector of garbage
- *	collect record blocks. Their scope is strictly
- *	limited to temporary usage and should never be
- *	copied to permanent record parameter blocks.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
-
-	const Format* const format = relation->currentFormat();
-
-	// Set the active flag on an inactive garbage collect record block and return it
-
-	for (Record** iter = getPermanent(relation)->rel_gc_records.begin();
-		 iter != getPermanent(relation)->rel_gc_records.end();
-		 ++iter)
-	{
-		Record* const record = *iter;
-		fb_assert(record);
-
-		if (!record->isTempActive())
-		{
-			// initialize record for reuse
-			record->reset(format);
-			record->setTempActive();
-			return record;
-		}
-	}
-
-	// Allocate a garbage collect record block if all are active
-
-	Record* const record = FB_NEW_POOL(*relation->rel_pool)
-		Record(*relation->rel_pool, format, true);
-	getPermanent(relation)->rel_gc_records.add(record);
-	return record;
-}
-
-
 bool VIO_get(thread_db* tdbb, record_param* rpb, jrd_tra* transaction, MemoryPool* pool)
 {
 /**************************************
@@ -3277,7 +3237,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 		AutoTempRecord old_record;
 		if (undo_read)
 		{
-			old_record = VIO_gc_record(tdbb, relation);
+			old_record = relation->getGCRecord(tdbb);
 			old_record->copyFrom(org_rpb->rpb_record);
 		}
 
@@ -5436,7 +5396,7 @@ void Database::garbage_collector(Database* dbb)
 									break;
 								}
 
-								if (getPermanent(relation)->rel_gc_lock.flags & GCLock::GC_disabled)
+								if (getPermanent(relation)->rel_gc_lock.checkDisabled())
 								{
 									rel_exit = true;
 									break;
@@ -6509,7 +6469,7 @@ static void purge(thread_db* tdbb, record_param* rpb)
 	// the record.
 
 	record_param temp = *rpb;
-	AutoTempRecord gc_rec(VIO_gc_record(tdbb, relation));
+	AutoTempRecord gc_rec(relation->getGCRecord(tdbb));
 	Record* record = rpb->rpb_record = gc_rec;
 
 	VIO_data(tdbb, rpb, relation->rel_pool);
@@ -6864,7 +6824,7 @@ void VIO_update_in_place(thread_db* tdbb,
 	if (prior)
 	{
 		temp2 = *org_rpb;
-		temp2.rpb_record = gc_rec = VIO_gc_record(tdbb, relation);
+		temp2.rpb_record = gc_rec = relation->getGCRecord(tdbb);
 		temp2.rpb_page = org_rpb->rpb_b_page;
 		temp2.rpb_line = org_rpb->rpb_b_line;
 

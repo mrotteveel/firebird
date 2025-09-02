@@ -214,6 +214,49 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 	return false;
 }
 
+Record* RelationPermanent::getGCRecord(thread_db* tdbb, const Format* const format)
+{
+/**************************************
+ *
+ *	V I O _ g c _ r e c o r d
+ *
+ **************************************
+ *
+ * Functional description
+ *	Allocate from a relation's vector of garbage
+ *	collect record blocks. Their scope is strictly
+ *	limited to temporary usage and should never be
+ *	copied to permanent record parameter blocks.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+	Database* dbb = tdbb->getDatabase();
+	CHECK_DBB(dbb);
+
+	// Set the active flag on an inactive garbage collect record block and return it
+
+	MutexLockGuard g(rel_gc_records_mutex, FB_FUNCTION);
+
+	for (Record* const record : rel_gc_records)
+	{
+		fb_assert(record);
+
+		if (!record->isTempActive())
+		{
+			// initialize record for reuse
+			record->reset(format);
+			record->setTempActive();
+			return record;
+		}
+	}
+
+	// Allocate a garbage collect record block if all are active
+
+	Record* const record = FB_NEW_POOL(getPool()) Record(getPool(), format, true);
+	rel_gc_records.add(record);
+	return record;
+}
+
 void RelationPermanent::checkPartners(thread_db* tdbb)
 {
 	rel_flags |= REL_check_partners;
@@ -670,17 +713,17 @@ void GCLock::blockingAst()
 	 PW - gc allowed to the one connection only
 	****/
 
-	Database* dbb = lck->lck_dbb;
+	Database* dbb = gcLck->lck_dbb;
 
-	AsyncContextHolder tdbb(dbb, FB_FUNCTION, lck);
+	AsyncContextHolder tdbb(dbb, FB_FUNCTION, gcLck);
 
-	unsigned oldFlags = flags.load(std::memory_order_acquire);
+	unsigned oldFlags = gcFlags.load(std::memory_order_acquire);
 	do
 	{
 		fb_assert(oldFlags & GC_locked);
 		if (!(oldFlags & GC_locked)) // work already done synchronously ?
 			return;
-	} while (!flags.compare_exchange_weak(oldFlags, oldFlags | GC_blocking,
+	} while (!gcFlags.compare_exchange_weak(oldFlags, oldFlags | GC_blocking,
 										  std::memory_order_release, std::memory_order_acquire));
 
 	if (oldFlags & GC_counterMask)
@@ -690,42 +733,45 @@ void GCLock::blockingAst()
 	{
 		// someone acquired EX lock
 
-		fb_assert(lck->lck_id);
-		fb_assert(lck->lck_physical == LCK_SR);
+		fb_assert(gcLck->lck_id);
+		fb_assert(gcLck->lck_physical == LCK_SR);
 
-		LCK_release(tdbb, lck);
-		flags.fetch_and(~(GC_disabled | GC_blocking | GC_locked));
+		LCK_release(tdbb, gcLck);
+		gcFlags.fetch_and(~(GC_disabled | GC_blocking | GC_locked));
 	}
 	else
 	{
 		// someone acquired PW lock
 
-		fb_assert(lck->lck_id);
-		fb_assert(lck->lck_physical == LCK_SW);
+		fb_assert(gcLck->lck_id);
+		fb_assert(gcLck->lck_physical == LCK_SW);
 
-		flags.fetch_or(GC_disabled);
+		gcFlags.fetch_or(GC_disabled);
 		downgrade(tdbb);
 	}
 }
 
-[[noreturn]] void GCLock::incrementError()
+void GCLock::checkGuard(unsigned flags)
 {
-	fatal_exception::raise("Overflow when changing GC lock atomic counter (guard bit set)");
+	if (flags & GC_guardBit)
+	{
+		fatal_exception::raiseFmt
+			("Overflow or underflow when changing GC lock atomic counter (guard bit set), flags %08x", flags);
+	}
 }
 
 bool GCLock::acquire(thread_db* tdbb, int wait)
 {
-	unsigned oldFlags = flags.load(std::memory_order_acquire);
+	unsigned oldFlags = gcFlags.load(std::memory_order_acquire);
 	for(;;)
 	{
 		if (oldFlags & (GC_blocking | GC_disabled))		// lock should not be obtained
 			return false;
 
 		const unsigned newFlags = oldFlags + 1;
-		if (newFlags & GC_guardBit)
-			incrementError();
+		checkGuard(newFlags);
 
-		if (!flags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire))
+		if (!gcFlags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire))
 			continue;
 
 		if (oldFlags & GC_locked)			// lock was already taken when we checked flags
@@ -734,80 +780,91 @@ bool GCLock::acquire(thread_db* tdbb, int wait)
 		if (!(oldFlags & GC_counterMask))	// we must take lock
 			break;
 
-		// unstable state - someone else it getting a lock right now:
-		--flags;													// decrement counter,
+		// undefined state - someone else is taking/releasing a lock right now:
+		oldFlags = gcFlags.fetch_sub(1, std::memory_order_acquire);	// decrement our lock counter,
+		checkGuard(oldFlags - 1);
 		Thread::yield();											// wait a bit
-		oldFlags = flags.fetch_sub(1, std::memory_order_acquire);	// and retry
+		oldFlags = gcFlags.load(std::memory_order_acquire);			// and retry
 	}
 
 	// We incremented counter from 0 to 1 - take care about lck
-	if (!lck)
-		lck = relPerm->createLock(tdbb, LCK_rel_gc, false);
+	if (!gcLck)
+		gcLck = gcRel->createLock(tdbb, LCK_rel_gc, false);
 
-	fb_assert(!lck->lck_id);
+	fb_assert(!gcLck->lck_id);
 
 	ThreadStatusGuard temp_status(tdbb);
 
 	bool ret;
 	if (oldFlags & GC_disabled)
-		ret = LCK_lock(tdbb, lck, LCK_SR, wait);
+		ret = LCK_lock(tdbb, gcLck, LCK_SR, wait);
 	else
 	{
-		ret = LCK_lock(tdbb, lck, LCK_SW, wait);
+		ret = LCK_lock(tdbb, gcLck, LCK_SW, wait);
 		if (ret)
 		{
-			flags.fetch_or(GC_locked);
+			gcFlags.fetch_or(GC_locked);
 			return true;
 		}
-		else
-		{
-			flags.fetch_or(GC_disabled);
-			ret = LCK_lock(tdbb, lck, LCK_SR, wait);
-		}
+
+		oldFlags = gcFlags.fetch_or(GC_disabled, std::memory_order_seq_cst) | GC_disabled;
+		ret = LCK_lock(tdbb, gcLck, LCK_SR, wait);
 	}
 
-	flags.fetch_sub(1, std::memory_order_release);
-	if (!ret)
-		flags.fetch_and(~GC_disabled, std::memory_order_release);
+	unsigned newFlags;
+	do
+	{
+		newFlags = oldFlags - 1;
+		checkGuard(newFlags);
+
+		if (!ret)
+			newFlags &= ~GC_disabled;
+
+	} while (!gcFlags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire));
+
 	return false;
 }
 
 void GCLock::downgrade(thread_db* tdbb)
 {
-	unsigned oldFlags = flags.load(std::memory_order_acquire);
+	unsigned oldFlags = gcFlags.load(std::memory_order_acquire);
 	unsigned newFlags;
 	do
 	{
 		newFlags = oldFlags - 1;
-		if (newFlags & GC_guardBit)
-			incrementError();
+		checkGuard(newFlags);
+	} while (!gcFlags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire));
 
-		if ((newFlags & GC_counterMask == 0) && (newFlags & GC_blocking))
+	if ((newFlags & GC_counterMask == 0) && (newFlags & GC_blocking))
+	{
+		fb_assert(newFlags & GC_locked);
+		fb_assert(gcLck->lck_id);
+		fb_assert(gcLck->lck_physical == LCK_SW);
+
+		LCK_downgrade(tdbb, gcLck);
+
+		oldFlags = newFlags;
+		do
 		{
-			fb_assert(oldFlags & GC_locked);
-			fb_assert(lck->lck_id);
-			fb_assert(lck->lck_physical == LCK_SW);
-
-			LCK_downgrade(tdbb, lck);
-
-			if (lck->lck_physical != LCK_SR)
+			newFlags = oldFlags;
+			if (gcLck->lck_physical != LCK_SR)
 			{
 				newFlags &= ~GC_disabled;
-				if (lck->lck_physical < LCK_SR)
-					newFlags &= GC_locked;
+				if (gcLck->lck_physical < LCK_SR)
+					newFlags &= ~GC_locked;
 			}
 			else
 				newFlags |= GC_disabled;
 
 			newFlags &= ~GC_blocking;
-		}
-	} while (!flags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire));
+		} while (!gcFlags.compare_exchange_weak(oldFlags, newFlags, std::memory_order_release, std::memory_order_acquire));
+	}
 }
 
 // violates rules of atomic counters - ok ONLY for ASSERT
 unsigned GCLock::getSweepCount() const
 {
-	return flags.load(std::memory_order_relaxed) & GC_counterMask;
+	return gcFlags.load(std::memory_order_relaxed) & GC_counterMask;
 }
 
 bool GCLock::disable(thread_db* tdbb, int wait, Lock*& tempLock)
@@ -815,15 +872,15 @@ bool GCLock::disable(thread_db* tdbb, int wait, Lock*& tempLock)
 	ThreadStatusGuard temp_status(tdbb);
 
 	// if validation is already running - go out
-	unsigned oldFlags = flags.load(std::memory_order_acquire);
+	unsigned oldFlags = gcFlags.load(std::memory_order_acquire);
 	do {
 		if (oldFlags & GC_disabled)
 			return false;
-	} while (flags.compare_exchange_weak(oldFlags, oldFlags | GC_disabled,
+	} while (gcFlags.compare_exchange_weak(oldFlags, oldFlags | GC_disabled,
 										 std::memory_order_release, std::memory_order_acquire));
 
 	int sleeps = -wait * 10;
-	while (flags.load(std::memory_order_relaxed) & GC_counterMask)
+	while (gcFlags.load(std::memory_order_relaxed) & GC_counterMask)
 	{
 		EngineCheckout cout(tdbb, FB_FUNCTION);
 		Thread::sleep(100);
@@ -832,9 +889,9 @@ bool GCLock::disable(thread_db* tdbb, int wait, Lock*& tempLock)
 			break;
 	}
 
-	if (flags.load(std::memory_order_relaxed) & GC_counterMask)
+	if (gcFlags.load(std::memory_order_relaxed) & GC_counterMask)
 	{
-		flags.fetch_and(~GC_disabled);
+		gcFlags.fetch_and(~GC_disabled);
 		return false;
 	}
 
@@ -842,30 +899,30 @@ bool GCLock::disable(thread_db* tdbb, int wait, Lock*& tempLock)
 
 	// we need no AST here
 	if (!tempLock)
-		tempLock = relPerm->createLock(tdbb, LCK_rel_gc, true);
+		tempLock = gcRel->createLock(tdbb, LCK_rel_gc, true);
 
 	const bool ret = LCK_lock(tdbb, tempLock, LCK_PW, wait);
 	if (!ret)
-		flags.fetch_and(~GC_disabled);
+		gcFlags.fetch_and(~GC_disabled);
 
 	return ret;
 }
 
 void GCLock::ensureReleased(thread_db* tdbb)
 {
-	unsigned oldFlags = flags.load(std::memory_order_acquire);
+	unsigned oldFlags = gcFlags.load(std::memory_order_acquire);
 	for (;;)
 	{
 		if (oldFlags & GC_locked)
 		{
-			if (!flags.compare_exchange_strong(oldFlags, oldFlags & ~GC_locked,
+			if (!gcFlags.compare_exchange_strong(oldFlags, oldFlags & ~GC_locked,
 											   std::memory_order_release, std::memory_order_acquire))
 			{
 				continue;
 			}
 
 			// exactly one who cleared GC_locked bit releases a lock
-			LCK_release(tdbb, lck);
+			LCK_release(tdbb, gcLck);
 		}
 
 		return;
@@ -874,9 +931,9 @@ void GCLock::ensureReleased(thread_db* tdbb)
 
 void GCLock::forcedRelease(thread_db* tdbb)
 {
-	flags.fetch_and(~GC_locked);
-	if (lck)
-		LCK_release(tdbb, lck);
+	gcFlags.fetch_and(~GC_locked);
+	if (gcLck)
+		LCK_release(tdbb, gcLck);
 }
 
 void GCLock::enable(thread_db* tdbb, Lock* tempLock)
@@ -884,12 +941,12 @@ void GCLock::enable(thread_db* tdbb, Lock* tempLock)
 	if (!(tempLock && tempLock->lck_id))
 		return;
 
-	fb_assert(flags.load() & GC_disabled);
+	fb_assert(gcFlags.load() & GC_disabled);
 
 	ensureReleased(tdbb);
 
 	LCK_convert(tdbb, tempLock, LCK_EX, LCK_WAIT);
-	flags.fetch_and(~GC_disabled);
+	gcFlags.fetch_and(~GC_disabled);
 
 	LCK_release(tdbb, tempLock);
 }
@@ -1068,3 +1125,17 @@ int DbTriggers::objectType()
 {
 	return obj_trigger;
 }
+
+#ifdef DEV_BUILD
+GCLock::State GCLock::isGCEnabled() const
+{
+	if (getSweepCount() || gcRel->isSystem() || gcRel->isTemporary())
+		return State::enabled;
+
+	if (gcFlags & GC_disabled)
+		return State::disabled;
+
+	return State::unknown;
+}
+#endif //DEV_BUILD
+
