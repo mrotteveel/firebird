@@ -3077,6 +3077,8 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
 				REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
 			{
+				found = true;
+
 				rel_perm->rel_name = REL.RDB$RELATION_NAME;
 				rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
 				if (!REL.RDB$RELATION_TYPE.NULL)
@@ -3085,13 +3087,16 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			END_FOR
 		}
 
-		fb_assert(getName().hasData());		// i.e. correct record in RDB$RELATIONS exists
-		if (getName().hasData())
+		if (found)
 		{
-			rel_perm->rel_flags |= REL_format;
+			fb_assert(getName().hasData());		// i.e. correct record in RDB$RELATIONS exists
+			if (getName().hasData())
+			{
+				rel_perm->rel_flags |= REL_format;
 
-			// Next time reload() will be called
-			return ScanResult::REPEAT;
+				// Next time reload() will be called
+				return ScanResult::REPEAT;
+			}
 		}
 
 		// something gone wrong
