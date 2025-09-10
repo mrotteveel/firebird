@@ -665,11 +665,7 @@ namespace
 				case 0:
 					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
 					if (routine)
-					{
-						if (routine->existenceLock)
-							LCK_release(tdbb, routine->existenceLock);
 						routine->rollback(tdbb);
-					}
 
 					return false;
 
@@ -681,14 +677,6 @@ namespace
 					routine = lookupById(tdbb, work->dfw_id, CacheFlag::MINISCAN);
 					if (!routine)
 						return false;
-
-					if (routine->existenceLock)
-					{
-						// Let routine be deleted if only this transaction is using it
-
-						//if (!routine->existenceLock->exclLock(tdbb))
-						// !!!!!!!!!!!!!!!!!!!!!!!!!!!	raiseRoutineInUseError(routine, name);
-					}
 
 					return true;
 
@@ -703,21 +691,9 @@ namespace
 					if (work->dfw_package.isEmpty())
 						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
 
-					/* the routine has just been scanned by lookupById
-					   and its Routine::FLAG_SCANNED flag is set. We are going to reread it
-					   from file (create all new dependencies) and do not want this
-					   flag to be set. That is why we do not add Routine::FLAG_OBSOLETE and
-					   Routine::FLAG_BEING_ALTERED flags, we set only these two flags
-					 */
-
-					if (routine->existenceLock)
-						LCK_release(tdbb, routine->existenceLock);
-
 					// Now handle the new definition
 					bool compile = !work->findArg(dfw_arg_check_blr);
 					getDependencies(work, compile, transaction);
-
-					// routine->flags &= ~(Routine::FLAG_OBSOLETE | Routine::FLAG_BEING_ALTERED);
 
 					return true;
 				}
@@ -779,11 +755,7 @@ namespace
 				case 0:
 					routine = lookupById(tdbb, work->dfw_id, CacheFlag::NOSCAN);
 					if (routine)
-					{
-						if (routine->existenceLock)
-							LCK_release(tdbb, routine->existenceLock);
 						routine->rollback(tdbb);
-					}
 
 					return false;
 
@@ -818,9 +790,6 @@ namespace
 
 					if (work->dfw_package.isEmpty())
 						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
-
-					//if (routine->existenceLock)
-					//	routine->existenceLock->releaseLock(tdbb, ExistenceLock::ReleaseMethod::DropObject);
 
 					return true;
 				}

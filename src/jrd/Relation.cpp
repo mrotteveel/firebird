@@ -138,11 +138,9 @@ jrd_rel::jrd_rel(MemoryPool& p, Cached::Relation* r)
 	  rel_ss_definer(false)
 { }
 
-RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* /*makeLock*/, NoData)
+RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, NoData)
 	: PermanentStorage(p),
-	  rel_existence_lock(nullptr),
 	  rel_partners_lock(nullptr),
-	  rel_rescan_lock(nullptr),
 	  rel_gc_lock(this),
 	  rel_gc_records(p),
 	  rel_scan_count(0),
@@ -159,43 +157,19 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	rel_partners_lock = FB_NEW_RPT(getPool(), 0)
 		Lock(tdbb, sizeof(SLONG), LCK_rel_partners, this, partners_ast_relation);
 	rel_partners_lock->setKey(rel_id);
-
-	rel_rescan_lock = FB_NEW_RPT(getPool(), 0)
-		Lock(tdbb, sizeof(SLONG), LCK_rel_rescan, this, rescan_ast_relation);
-	rel_rescan_lock->setKey(rel_id);
-
-	if (rel_id >= rel_MAX)
-	{
-		rel_existence_lock = FB_NEW_RPT(getPool(), 0)
-			Lock(tdbb, sizeof(SLONG), LCK_rel_exist, this, blocking_ast_relation);
-		rel_existence_lock->setKey(rel_id);
-	}
-
 }
 
 RelationPermanent::~RelationPermanent()
 {
-	fb_assert(!(rel_existence_lock || rel_partners_lock || rel_rescan_lock));
+	fb_assert(!rel_partners_lock);
 }
 
 bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 {
-	if (rel->rel_existence_lock)
-	{
-		LCK_release(tdbb, rel->rel_existence_lock);
-		rel->rel_existence_lock = nullptr;
-	}
-
 	if (rel->rel_partners_lock)
 	{
 		LCK_release(tdbb, rel->rel_partners_lock);
 		rel->rel_partners_lock = nullptr;
-	}
-
-	if (rel->rel_rescan_lock)
-	{
-		LCK_release(tdbb, rel->rel_rescan_lock);
-		rel->rel_rescan_lock = nullptr;
 	}
 
 	if (rel->rel_file)
@@ -603,7 +577,6 @@ Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const MetaName 
 	if (relation && relation->getId())
 	{
 		relation->newVersion(tdbb);
-		relation->rel_flags |= REL_format;
 		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, relation->getId());
 
 		return relation;
@@ -613,21 +586,31 @@ Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const MetaName 
 }
 
 
+void RelationPermanent::releaseLock(thread_db* tdbb)
+{
+	if (rel_partners_lock)
+		LCK_release(tdbb, rel_partners_lock);
+
+	rel_gc_lock.forcedRelease(tdbb);
+
+	for (auto* index : rel_indices)
+	{
+		if (index)
+			index->releaseLocks(tdbb);
+	}
+}
+
+
 const char* IndexPermanent::c_name() const
 {
 	// Here we use MetaName's feature - pointers in it are DBB-lifetime stable
 	return idp_name.c_str();
 }
-
-void IndexPermanent::createLock(thread_db* tdbb, MetaId relId, MetaId indId)
+/*
+Lock* IndexPermanent::createLock(thread_db* tdbb, MemoryPool& p, MetaId relId, MetaId indId)
 {
-/*	if (!idp_lock)
-	{
-		idp_lock = FB_NEW_RPT(idp_relation->getPool(), 0)
-			Lock(tdbb, sizeof(SLONG), LCK_expression, this, indexReload);
-		idp_lock->setKey((FB_UINT64(relId) << REL_ID_KEY_OFFSET) + indId);
-	} */
-}
+	return makeLock(tdbb, p, FB_UINT64(relId << REL_ID_KEY_OFFSET) + indId, IndexVersion::LOCKTYPE);
+}*/
 
 IndexVersion::IndexVersion(MemoryPool& p, Cached::Index* idp)
 	: perm(idp)
@@ -715,7 +698,7 @@ void GCLock::blockingAst()
 
 	Database* dbb = gcLck->lck_dbb;
 
-	AsyncContextHolder tdbb(dbb, FB_FUNCTION, gcLck);
+	AsyncContextHolder tdbb(dbb, FB_FUNCTION);
 
 	unsigned oldFlags = gcFlags.load(std::memory_order_acquire);
 	do
@@ -971,11 +954,6 @@ void RelationPages::free(RelationPages*& nextFree)
 	dpMapMark = 0;
 }
 
-void IndexPermanent::unlock(thread_db* tdbb)
-{
-//	LCK_release(tdbb, idp_lock);
-}
-
 [[noreturn]] void IndexPermanent::errIndexGone()
 {
 	fatal_exception::raise("Index is gone unexpectedly");
@@ -1019,32 +997,10 @@ const Format* jrd_rel::currentFormat() const
  *
  **************************************/
 
-	// dimitr:	rel_current_format may sometimes get out of sync,
-	//			e.g. after DFW error raised during ALTER TABLE command.
-	//			Thus it makes sense to validate it before usage and
-	//			fetch the proper one if something is suspicious.
-
 	// AP:		no reasons for rel_current_format to be wrong with versioned cache
 	//			but better check it carefully
-
 	fb_assert(rel_current_format && (rel_current_format->fmt_version == rel_current_fmt));
-/* ???????????????????????????????
-	if (rel_current_format && (rel_current_format->fmt_version == rel_current_fmt))
-	{
-		return rel_current_format;
-	}
 
-	thread_db* tdbb = JRD_get_thread_data();
-
-	// Usually, format numbers start with one and they are present in RDB$FORMATS.
-	// However, system tables have zero as their initial format and they don't have
-	// any related records in RDB$FORMATS, instead their rel_formats[0] is initialized
-	// directly (see ini.epp). Every other case of zero format number found for an already
-	// scanned table must be catched here and investigated.
-	fb_assert(rel_current_fmt || isSystem());
-
-	rel_current_format = MET_format(tdbb, getPermanent(), rel_current_fmt);
-*/
 	return rel_current_format;
 }
 
@@ -1076,49 +1032,14 @@ void Trigger::free(thread_db* tdbb, bool force)
 
 // class DbTriggers
 
-DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, MakeLock* makeLock, NoData)
+DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, NoData)
 	: Firebird::PermanentStorage(p),
-	  type(t),
-	  lock(nullptr)
-{
-	lock = makeLock(tdbb, p);
-	lock->setKey(type);
-	lock->lck_object = this;
-}
+	  type(t)
+{ }
 
 bool DbTriggersHeader::destroy(thread_db* tdbb, DbTriggersHeader* trigs)
 {
-	if (trigs->lock)
-	{
-		LCK_release(tdbb, trigs->lock);
-		trigs->lock = nullptr;
-	}
-
 	return false;
-}
-
-int DbTriggersHeader::blockingAst(void* ast_object)
-{
-	auto* const trigs = static_cast<Cached::Triggers*>(ast_object);
-
-	try
-	{
-		Database* const dbb = trigs->lock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, trigs->lock);
-
-		LCK_release(tdbb, trigs->lock);
-		trigs->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-Lock* DbTriggers::makeLock(thread_db* tdbb, MemoryPool& p)
-{
-	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_dbwide_triggers, nullptr, DbTriggersHeader::blockingAst);
 }
 
 int DbTriggers::objectType()

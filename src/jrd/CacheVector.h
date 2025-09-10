@@ -41,7 +41,8 @@
 namespace Jrd {
 
 class thread_db;
-
+class Lock;
+enum lck_t : UCHAR;
 
 class ObjectBase
 {
@@ -55,21 +56,33 @@ public:
 class ElementBase
 {
 public:
-	enum ResetType {Recompile, Mark, Commit, Rollback};
+	ElementBase(Lock* lock) :
+		lock(lock)
+	{ }
 
-	typedef SLONG ReturnedId;	// enable '-1' as not found
+private:
+	virtual void reset(thread_db* tdbb, bool erase) = 0;
+	static int blockingAst(void* ast_object);
 
 public:
+	Lock* makeLock(thread_db* tdbb, MemoryPool& p, SINT64 key, lck_t locktype);
+	void pingLock(thread_db* tdbb, ObjectBase::Flag flags, const char* family, const char* name);
+	void setLock(thread_db* tdbb, const char* family, const char* name);
+	virtual void releaseLocks(thread_db* tdbb) = 0;
+	void releaseLock(thread_db* tdbb);
+
+public:
+	typedef SLONG ReturnedId;	// enable '-1' as not found
+
 	virtual ~ElementBase();
-	virtual void resetDependentObject(thread_db* tdbb, ResetType rt) = 0;
 	virtual void cleanup(thread_db* tdbb) = 0;
 
 public:
-	void resetDependentObjects(thread_db* tdbb, TraNumber olderThan);
-	void addDependentObject(thread_db* tdbb, ElementBase* dep);
-	void removeDependentObject(thread_db* tdbb, ElementBase* dep);
 	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* name, const char* family);
 	void commitErase(thread_db* tdbb);
+
+private:
+	Lock* lock;
 };
 
 
@@ -82,12 +95,12 @@ namespace CacheFlag
 	static constexpr ObjectBase::Flag NOCOMMIT =	0x010;		// do not commit created version
 	static constexpr ObjectBase::Flag RET_ERASED =	0x020;		// return erased objects
 	static constexpr ObjectBase::Flag RETIRED = 	0x040;		// object is in a process of GC
-	static constexpr ObjectBase::Flag UPGRADE = 	0x080;		// create new versions for already existing in a cache objects
-	static constexpr ObjectBase::Flag MINISCAN = 	0x100;		// perform minimum scan and set cache entry to reload state
-	static constexpr ObjectBase::Flag RELOAD = 		0x200;		// force RELOAD on next scan
+	static constexpr ObjectBase::Flag UPGRADE =		0x080;		// create new versions for already existing in a cache objects
+	static constexpr ObjectBase::Flag MINISCAN =	0x100;		// perform minimum scan and set cache entry to reload state
+	static constexpr ObjectBase::Flag DB_VERSION =	0x200;		// execute version upgrade in database
 
 	// Useful combinations
-	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | MINISCAN | RELOAD;
+	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | MINISCAN | DB_VERSION;
 	static constexpr ObjectBase::Flag OLD_DROP = NOSCAN | AUTOCREATE;
 	static constexpr ObjectBase::Flag OLD_ALTER = MINISCAN | AUTOCREATE;
 }
@@ -303,20 +316,23 @@ public:
 		return rc;		// 0 is returned in a case when list was empty
 	}
 
-	// created (erased) earlier object is OK and should become visible to the world
-	// return true if object was erased
-	bool commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
+	// created/modified/erased earlier object is OK and should become visible to the world
+	// return object's flags for further analysis
+	ObjectBase::Flag commit(thread_db* tdbb, TraNumber currentTrans, TraNumber nextTrans)
 	{
 		auto flags = cacheFlags.load(atomics::memory_order_acquire);
 		for(;;)
 		{
 			fb_assert(traNumber == (flags & CacheFlag::COMMITTED ? nextTrans : currentTrans));
 			if (flags & CacheFlag::COMMITTED)
-				return flags & CacheFlag::ERASED;
+				return flags;
 
 			// RETIRED is set here to avoid illegal gc until traNumber correction
-			if (cacheFlags.compare_exchange_weak(flags, flags | CacheFlag::COMMITTED | CacheFlag::RETIRED,
-				atomics::memory_order_acquire, atomics::memory_order_acquire))
+			auto newFlags = flags | CacheFlag::COMMITTED | CacheFlag::RETIRED;
+			// NOCOMMIT cleared to avoid extra ASTs
+			newFlags &= ~CacheFlag::NOCOMMIT;
+			if (cacheFlags.compare_exchange_weak(flags, newFlags,
+				atomics::memory_order_release, atomics::memory_order_acquire))
 			{
 				break;
 			}
@@ -326,7 +342,7 @@ public:
 		version = VersionSupport::next(tdbb);
 		cacheFlags &= ~CacheFlag::RETIRED;		// Enable GC
 
-		return flags & CacheFlag::ERASED;
+		return flags;
 	}
 
 	// created earlier object is bad and should be destroyed
@@ -364,7 +380,7 @@ public:
 	}
 
 private:
-	static ScanResult scan(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl, bool rld)
+	static ScanResult scan(thread_db* tdbb, Versioned* obj, ObjectBase::Flag& fl, bool rld)
 	{
 		fb_assert(!(fl & CacheFlag::NOSCAN));
 		fb_assert(obj);
@@ -394,6 +410,8 @@ public:
 		if ((thd == Thread::getId()) && (state == SCANNING))
 			return ScanResult::COMPLETE;
 
+		permanent->setLock(tdbb, Versioned::objectFamily(permanent), permanent->c_name());
+
 		std::unique_lock<std::mutex> g(mtx);
 		for(;;)
 		{
@@ -402,7 +420,7 @@ public:
 
 			switch (state)
 			{
-			case INITIAL: 		// Our thread becomes scanning thread
+			case INITIAL:
 				if (cacheFlags.load(atomics::memory_order_relaxed) & CacheFlag::ERASED)
 				{
 					state = READY;
@@ -414,13 +432,18 @@ public:
 				reason = false;
 				// fall through...
 
-			case RELOAD: 		// may be because object body reload required.
-				thd = Thread::getId();
+			case RELOAD:
+				thd = Thread::getId();		// Our thread becomes scanning thread
 				state = SCANNING;
 
 				try
 				{
-					auto result = scan(tdbb, object, fl | (getFlags() & CacheFlag::RELOAD), reason);
+					auto dbv = cacheFlags.load(atomics::memory_order_acquire) & CacheFlag::DB_VERSION;
+					fl |= dbv;
+					auto result = scan(tdbb, object, fl, reason);
+					if (dbv && !(fl & CacheFlag::DB_VERSION))
+						cacheFlags.fetch_and(~CacheFlag::DB_VERSION, atomics::memory_order_release);
+
 					switch (result)
 					{
 					case ScanResult::COMPLETE:
@@ -509,9 +532,6 @@ private:
 
 enum class StoreResult { DUP, DONE, MISS, SKIP };
 
-
-typedef class Lock* MakeLock(thread_db*, MemoryPool&);
-
 template <class V, class P>
 class CacheElement : public ElementBase, public P
 {
@@ -522,11 +542,16 @@ public:
 	typedef atomics::atomic<CacheElement*> AtomicElementPointer;
 
 	template <typename EXTEND>
-	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock, EXTEND extend) :
-		Permanent(tdbb, p, id, makeLock, extend), list(nullptr), resetAt(0), ptrToClean(nullptr)
+	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, EXTEND extend) :
+		ElementBase(makeLock(tdbb, p, id, Versioned::LOCKTYPE)),
+		Permanent(tdbb, p, id, extend),
+		list(nullptr),
+		resetAt(0),
+		ptrToClean(nullptr)
 	{ }
 
 	CacheElement(MemoryPool& p) :
+		ElementBase(nullptr),
 		Permanent(p), list(nullptr), resetAt(0), ptrToClean(nullptr)
 	{ }
 
@@ -544,7 +569,7 @@ public:
 
 		if (!Permanent::destroy(tdbb, element))
 		{
-			// destroy() returns true if it completed removal of permamnet part (delete by pool)
+			// destroy() returns true if it completed removal of permanent part (delete by pool)
 			// if not - delete it ourself here
 			delete element;
 		}
@@ -555,11 +580,21 @@ public:
 		cleanup(tdbb, this);
 	}
 
+	void releaseLocks(thread_db* tdbb) override
+	{
+		ElementBase::releaseLock(tdbb);
+		Permanent::releaseLock(tdbb);
+	}
+
 	void setCleanup(AtomicElementPointer* clearPtr)
 	{
 		ptrToClean = clearPtr;
 	}
 
+private:
+
+
+public:
 	void reload(thread_db* tdbb, ObjectBase::Flag fl)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
@@ -648,7 +683,7 @@ public:
 			}
 			catch (const Firebird::Exception&)
 			{
-				if (obj)
+				if (obj)	// Versioned::create() formally might return nullptr
 					Versioned::destroy(tdbb, obj);
 				throw;
 			}
@@ -732,7 +767,7 @@ public:
 		}
 
 		if (!(fl & CacheFlag::NOCOMMIT))
-			newEntry->commit(tdbb, cur, TransactionNumber::next(tdbb));
+			commit(tdbb);
 
 		return rc;
 	}
@@ -765,7 +800,12 @@ public:
 		HazardPtr<ListEntry<Versioned>> current(list);
 		if (current)
 		{
-			if (current->commit(tdbb, TransactionNumber::current(tdbb), TransactionNumber::next(tdbb)))
+			auto flags = current->commit(tdbb, TransactionNumber::current(tdbb), TransactionNumber::next(tdbb));
+
+			if (flags & CacheFlag::NOCOMMIT)	// Committed newly created version in cache
+				pingLock(tdbb, flags, Versioned::objectFamily(this), this->c_name());
+
+			if (flags & CacheFlag::ERASED)
 				commitErase(tdbb);
 		}
 	}
@@ -774,6 +814,7 @@ public:
 	{
 		ListEntry<Versioned>::rollback(tdbb, list, TransactionNumber::current(tdbb));
 	}
+
 /*
 	void gc()
 	{
@@ -781,36 +822,15 @@ public:
 		ListEntry<Versioned>::gc(&list, MAX_TRA_NUMBER);
 	}
  */
-	void resetDependentObject(thread_db* tdbb, ResetType rt) override
+
+private:
+	// called by AST handler
+	void reset(thread_db* tdbb, bool erase) override
 	{
-/*		switch (rt)
-		{
-		case ElementBase::ResetType::Recompile:
-			{
-				Versioned* newObj = Versioned::create(tdbb, CachePool::get(tdbb), this);
-				if (storeObject(tdbb, newObj, CacheFlag::NOCOMMIT) == StoreResult::DUP)
-				{
-					Versioned::destroy(tdbb, newObj);
-					busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
-				}
-			}
-			break;
-
-		case ElementBase::ResetType::Mark:
-			// used in AST, therefore ignore error when saving empty object
-			storeObject(tdbb, nullptr, 0);
-			break;
-
-		case ElementBase::ResetType::Commit:
-			commit(tdbb);
-			break;
-
-		case ElementBase::ResetType::Rollback:
-			rollback(tdbb);
-			break;
-		} */
+		storeObject(tdbb, nullptr, erase ? CacheFlag::ERASED : 0);
 	}
 
+public:
 	CacheElement* erase(thread_db* tdbb)
 	{
 		HazardPtr<ListEntry<Versioned>> l(list);
@@ -829,7 +849,7 @@ public:
 
 	bool isDropped() const
 	{
-		auto* l = list.load(atomics::memory_order_relaxed);
+		HazardPtr<ListEntry<Versioned>> l(list);
 		return l && (l->getFlags() & CacheFlag::ERASED);
 	}
 
@@ -1043,7 +1063,7 @@ private:
 		if (!data)
 		{
 			StoredElement* newData = FB_NEW_POOL(getPool())
-				StoredElement(tdbb, getPool(), id, Versioned::makeLock, m_extend);
+				StoredElement(tdbb, getPool(), id, m_extend);
 			if (ptr->compare_exchange_strong(data, newData,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{

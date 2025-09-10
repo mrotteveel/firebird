@@ -79,30 +79,6 @@ Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, ObjectBas
 	return MetadataCache::lookup_function(tdbb, name, flags);
 }
 
-Lock* Function::makeLock(thread_db* tdbb, MemoryPool& p)
-{
-	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_fun_exist, nullptr, blockingAst);
-}
-
-int Function::blockingAst(void* ast_object)
-{
-	auto* const function = static_cast<Cached::Function*>(ast_object);
-
-	try
-	{
-		Database* const dbb = function->existenceLock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, function->existenceLock);
-
-		LCK_release(tdbb, function->existenceLock);
-		function->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-	return 0;
-}
-
 ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();

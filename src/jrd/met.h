@@ -158,11 +158,8 @@ private:
 		delete prc_external;
 	}
 
-	static int blockingAst(void* ast_object);
-
 public:
 	static jrd_prc* create(thread_db* tdbb, MemoryPool& p, Cached::Procedure* perm);
-	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag);
 
 	void releaseExternal() override
@@ -185,6 +182,7 @@ public:
 	void checkReload(thread_db* tdbb) const override;
 
 	static int objectType();
+	static const enum lck_t LOCKTYPE = LCK_prc_rescan;
 };
 
 
@@ -506,7 +504,7 @@ private:
 		void check(thread_db* tdbb, TraNumber oldest)
 		{
 			// We check transaction number w/o lock - that's OK here cause even in
-			// hardly imaginable case when correctly alligned memory read is not de-facto atomic
+			// hardly imaginable case when correctly aligned memory read is not de-facto atomic
 			// the worst result we get is skipped check (will be corrected by next transaction)
 			// or taken extra lock for precise check. Not tragical.
 

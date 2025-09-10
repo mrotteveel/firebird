@@ -40,8 +40,7 @@ namespace Jrd
 		static const char* const EXCEPTION_MESSAGE;
 
 	public:
-		static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-		static int blockingAst(void* ast_object);
+		static const enum lck_t LOCKTYPE = LCK_fun_rescan;
 
 		static Function* lookup(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 		static Function* lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);

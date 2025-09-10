@@ -45,35 +45,6 @@ MetaId CharSetContainer::getId()
 	return cs->getId();
 }
 
-Lock* CharSetVers::makeLock(thread_db* tdbb, MemoryPool& p)
-{
-	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_cs_exist, nullptr, CharSetContainer::blockingAst);
-}
-
-int CharSetContainer::blockingAst(void* ast_object)
-{
-	auto* const charSet = static_cast<Cached::CharSet*>(ast_object);
-
-	try
-	{
-		Database* const dbb = charSet->cs_lock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, charSet->cs_lock);
-
-		LCK_release(tdbb, charSet->cs_lock);
-		charSet->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-void CharSetContainer::releaseLocks(thread_db* tdbb)
-{
-	LCK_release(tdbb, cs_lock);
-}
-
 bool CharSetContainer::destroy(thread_db* tdbb, CharSetContainer* container)
 {
 	container->cs->destroy();

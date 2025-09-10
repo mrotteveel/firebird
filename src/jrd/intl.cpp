@@ -217,7 +217,7 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 	return false;
 }
 
-CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock, NoData)
+CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, NoData)
 	: PermanentStorage(p),
 	  names(p),
 	  cs(NULL),
@@ -239,11 +239,6 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, Ma
 			(csL->charset_flags & CHARSET_ASCII_BASED))
 		{
 			cs = CharSet::createInstance(p, cs_id, csL);
-
-			cs_lock = makeLock(tdbb, p);
-			cs_lock->setKey(cs_id);
-			cs_lock->lck_object = this;
-
 			return;
 		}
 	}
@@ -1109,42 +1104,6 @@ static bool allSpaces(CharSet* charSet, const BYTE* ptr, ULONG len, ULONG offset
 
 	return true;
 }
-
-/*
-static int blocking_ast_collation(void* ast_object)
-{
- **************************************
- *
- *      b l o c k i n g _ a s t _ c o l l a t i o n
- *
- **************************************
- *
- * Functional description
- *      Someone is trying to drop a collation. If there
- *      are outstanding interests in the existence of
- *      the collation then just mark as blocking and return.
- *      Otherwise, mark the collation as obsolete
- *      and release the collation existence lock.
- *
- **************************************
-	Collation* const tt = static_cast<Collation*>(ast_object);
-
-	try
-	{
-		Database* const dbb = tt->existenceLock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, tt->existenceLock);
-
-		tt->obsolete = true;
-		LCK_release(tdbb, tt->existenceLock);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-
-	return 0;
-}
-*/
 
 
 static void pad_spaces(thread_db* tdbb, CSetId charset, BYTE* ptr, ULONG len)

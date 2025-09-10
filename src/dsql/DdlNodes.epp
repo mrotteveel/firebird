@@ -8099,10 +8099,6 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 
 			makeFormat(tdbb, transaction, getPermanent(relation), 0, external);
 		}
-
-		// signal others about new format presence
-/*		LCK_lock(tdbb, relation->rel_rescan_lock, LCK_EX, LCK_WAIT);
-		LCK_release(tdbb, relation->rel_rescan_lock);  !!!!!!classic!!! */
 	}
 }
 

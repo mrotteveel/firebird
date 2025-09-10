@@ -189,21 +189,19 @@ private:
 class DbTriggersHeader : public Firebird::PermanentStorage
 {
 public:
-	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, MakeLock* makeLock, NoData = NoData());
+	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, NoData = NoData());
 
 	MetaId getId()
 	{
 		return type;
 	}
 
-	static int blockingAst(void* ast_object);
 	static bool destroy(thread_db* tdbb, DbTriggersHeader* trigs);
-
+	void releaseLock(thread_db*) { }
 	const char* c_name() const;
 
 private:
 	MetaId type;
-	Lock* lock;
 };
 
 class DbTriggers final : public Triggers, public ObjectBase
@@ -226,7 +224,7 @@ public:
 		delete trigs;
 	}
 
-	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
+	static const enum lck_t LOCKTYPE = LCK_dbwide_triggers;
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
 
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
@@ -438,12 +436,13 @@ enum IndexStatus
 	MET_index_state_unknown = 999
 };
 
+
 // Index block
 
 class IndexPermanent : public Firebird::PermanentStorage
 {
 public:
-	IndexPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock*, RelationPermanent* rel)
+	IndexPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, RelationPermanent* rel)
 		: PermanentStorage(p),
 		  idp_relation(rel),
 		  idp_id(id)
@@ -454,11 +453,8 @@ public:
 		fb_assert((!idp_lock) || (idp_lock->lck_physical == LCK_none && idp_lock->lck_logical == LCK_none));
 	}
 
-	static int indexReload(void* ast_object);
-
 	static bool destroy(thread_db* tdbb, IndexPermanent* idp)
 	{
-		idp->unlock(tdbb);
 		return false;
 	}
 
@@ -468,11 +464,7 @@ public:
 	}
 
 	static const int REL_ID_KEY_OFFSET = 16;
-	void createLock(thread_db* tdbb, MetaId relId, MetaId indId);
-
-	bool exclusiveLock(thread_db* tdbb);
-	bool sharedLock(thread_db* tdbb);
-	void unlock(thread_db* tdbb);
+	void releaseLock(thread_db*) { }
 
 	Lock* getRescanLock()
 	{
@@ -502,6 +494,7 @@ private:
 	[[noreturn]] void errIndexGone();
 };
 
+
 class IndexVersion final : public ObjectBase
 {
 public:
@@ -511,16 +504,9 @@ public:
 	{
 		return FB_NEW_POOL(p) IndexVersion(p, idp);
 	}
-
 	static void destroy(thread_db* tdbb, IndexVersion* idv);
 
-	static Lock* makeLock(thread_db* tdbb, MemoryPool& p)
-	{
-		return nullptr;
-	}
-
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
-
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
@@ -530,7 +516,6 @@ public:
 	{
 		return idv_name.c_str();
 	}
-
 	MetaName getName() const
 	{
 		return idv_name;
@@ -560,6 +545,8 @@ public:
 	{
 		return idv_active;
 	}
+
+	static const enum lck_t LOCKTYPE = LCK_idx_rescan;
 
 private:
 	Cached::Index* perm;
@@ -619,7 +606,6 @@ public:
 		return isView() ? obj_view : obj_relation;
 	}
 
-	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);		// Scan the newly loaded relation for meta data
 	MetaName getName() const;
 	MemoryPool& getPool() const;
 	MetaName getSecurityName() const;
@@ -629,12 +615,10 @@ public:
 	static void destroy(thread_db* tdbb, jrd_rel *rel);
 	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, Cached::Relation* perm);
 
-	static Lock* makeLock(thread_db*, MemoryPool&) // ????????????????
-	{
-		return nullptr;		// ignored
-	}
+	static const enum lck_t LOCKTYPE = LCK_rel_rescan;
 
-	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag& flags);		// Scan the newly loaded relation for meta data
+	ScanResult reload(thread_db* tdbb, ObjectBase::Flag& flags)
 	{
 		return scan(tdbb, flags);
 	}
@@ -665,7 +649,6 @@ const ULONG REL_temp_tran				= 0x0010;	// relation is a GTT delete rows
 const ULONG REL_temp_conn				= 0x0020;	// relation is a GTT preserve rows
 const ULONG REL_virtual					= 0x0040;	// relation is virtual
 const ULONG REL_jrd_view				= 0x0080;	// relation is VIEW
-const ULONG REL_format					= 0x0100;	// new format version to be built
 
 class GCLock
 {
@@ -780,7 +763,7 @@ class RelationPermanent : public Firebird::PermanentStorage
 	typedef Firebird::HalfStaticArray<Record*, 4> GCRecordList;
 
 public:
-	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, MakeLock* makeLock, NoData);
+	RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, NoData);
 	~RelationPermanent();
 	static bool destroy(thread_db* tdbb, RelationPermanent* rel);
 
@@ -814,10 +797,10 @@ public:
 		return idp;
 	}
 
-	Lock*		rel_existence_lock;		// existence lock
 	Lock*		rel_partners_lock;		// partners lock
-	Lock*		rel_rescan_lock;		// lock forcing relation to be scanned
 	GCLock		rel_gc_lock;			// garbage collection lock
+
+	void releaseLock(thread_db* tdbb);
 
 private:
 	GCRecordList	rel_gc_records;		// records for garbage collection
@@ -906,8 +889,6 @@ public:
 	bool isReplicating(thread_db* tdbb);
 
 	static int partners_ast_relation(void* ast_object);
-	static int rescan_ast_relation(void* ast_object);
-	static int blocking_ast_relation(void* ast_object);
 
 	// Relation must be updated on next use or commit
 	static Cached::Relation* newVersion(thread_db* tdbb, const MetaName name);
@@ -947,6 +928,18 @@ private:
 
 	ExternalFile* rel_file;
 };
+
+
+// constructor specialization
+
+template <> template <> inline CacheElement<IndexVersion, IndexPermanent>::CacheElement<RelationPermanent*>
+		(thread_db* tdbb, MemoryPool& p, MetaId id, RelationPermanent* rel)
+	: ElementBase(makeLock(tdbb, p, (FB_UINT64(rel->getId()) << REL_ID_KEY_OFFSET) + id, IndexVersion::LOCKTYPE)),
+	  IndexPermanent(tdbb, p, id, rel),
+	  list(nullptr),
+	  resetAt(0),
+	  ptrToClean(nullptr)
+{ }
 
 
 inline bool jrd_rel::hasData() const

@@ -1580,7 +1580,7 @@ void MetadataCache::loadDbTriggers(thread_db* tdbb, unsigned int type)
 	{
 		// actual type will be taken into an account in DbTriggers::scan
 		auto* newCacheElement = FB_NEW_POOL(getPool())
-			Cached::Triggers(tdbb, getPool(), type, DbTriggers::makeLock, NoData());
+			Cached::Triggers(tdbb, getPool(), type, NoData());
 		if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
 			atomics::memory_order_release, atomics::memory_order_acquire))
 		{
@@ -3038,7 +3038,7 @@ void MET_scan_partners(thread_db* tdbb, RelationPermanent* relation)
 }
 
 
-ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
+ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 {
 /**************************************
  *
@@ -3056,7 +3056,6 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	Database* dbb = tdbb->getDatabase();
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 	blb* blob = NULL;
-	bool found = false;
 
 	jrd_tra* trans = tdbb->getTransaction() ?
 		tdbb->getTransaction() : attachment->getSysTransaction();
@@ -3069,7 +3068,9 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		// on any attempt to use modified relation
 		// or on transaction commit.
 
-		if (getName().isEmpty())
+		bool found = getName().hasData();
+
+		if (!found)
 		{
 			static const CachedRequestId requestCacheId;
 			AutoCacheRequest request(tdbb, requestCacheId);
@@ -3092,8 +3093,6 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			fb_assert(getName().hasData());		// i.e. correct record in RDB$RELATIONS exists
 			if (getName().hasData())
 			{
-				rel_perm->rel_flags |= REL_format;
-
 				// Next time reload() will be called
 				return ScanResult::REPEAT;
 			}
@@ -3102,9 +3101,6 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		// something gone wrong
 		return ScanResult::MISS;
 	}
-
-	if (flags & CacheFlag::RELOAD)
-		rel_perm->rel_flags |= REL_format;
 
 	bool dependencies = (rel_perm->rel_flags & REL_get_dependencies) ? true : false;
 
@@ -3121,16 +3117,17 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	rel_perm->rel_flags &= ~REL_get_dependencies;
 
 	// Do we need new format version?
-	if (rel_perm->rel_flags & REL_format)
+	if (flags & CacheFlag::DB_VERSION)
 	{
 		RelationNode::makeVersion(tdbb, trans, rel_perm->getName());
-		rel_perm->rel_flags &= ~REL_format;
+		flags &= ~CacheFlag::DB_VERSION;
 	}
 
 	// Since this can be called recursively, find an inactive clone of the request
 
 	AutoCacheRequest request(tdbb, irq_r_fields, IRQ_REQUESTS);
 	CompilerScratch* csb = NULL;
+	bool found = false;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
 		REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
@@ -3446,8 +3443,6 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	if (rel_fields)
 		rel_fields->trimNulls();
 
-	LCK_lock(tdbb, rel_perm->rel_rescan_lock, LCK_SR, LCK_WAIT);
-
 	return found ? ScanResult::COMPLETE : ScanResult::MISS;
 }
 
@@ -3634,7 +3629,7 @@ int RelationPermanent::partners_ast_relation(void* ast_object)
 	{
 		Database* const dbb = relation->rel_partners_lock->lck_dbb;
 
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, relation->rel_partners_lock);
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION);
 
 		if (!(relation->rel_flags & REL_check_partners))
 		{
@@ -3643,46 +3638,6 @@ int RelationPermanent::partners_ast_relation(void* ast_object)
 		}
 	}
 	catch (const Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-
-int RelationPermanent::rescan_ast_relation(void* ast_object)
-{
-	auto* const relation = static_cast<Cached::Relation*>(ast_object);
-
-	try
-	{
-		Database* const dbb = relation->rel_rescan_lock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, relation->rel_rescan_lock);
-
-		relation->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-		LCK_release(tdbb, relation->rel_rescan_lock);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-
-int RelationPermanent::blocking_ast_relation(void* ast_object)
-{
-	auto* const relation = static_cast<Cached::Relation*>(ast_object);
-
-	try
-	{
-		Database* const dbb = relation->rel_existence_lock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, relation->rel_existence_lock);
-
-// ???????????????????????????????		cacheElement->resetDependentObject(tdbb, ElementBase::ResetType::Drop);
-		LCK_release(tdbb, relation->rel_existence_lock);
-	}
-	catch (const Firebird::Exception&)
 	{} // no-op
 
 	return 0;
@@ -4772,24 +4727,7 @@ void MetadataCache::releaseLocks(thread_db* tdbb)
 	for (auto relation : mdc_relations)
 	{
 		if (relation)
-		{
-			if (relation->rel_existence_lock)
-				LCK_release(tdbb, relation->rel_existence_lock);
-
-			if (relation->rel_partners_lock)
-				LCK_release(tdbb, relation->rel_partners_lock);
-
-			if (relation->rel_rescan_lock)
-				LCK_release(tdbb, relation->rel_rescan_lock);
-
-			relation->rel_gc_lock.forcedRelease(tdbb);
-
-			for (auto* index : relation->rel_indices)
-			{
-				if (index)
-					index->unlock(tdbb);
-			}
-		}
+			relation->releaseLocks(tdbb);
 	}
 
 	// Release all procedure existence locks that might have been taken
@@ -4816,6 +4754,14 @@ void MetadataCache::releaseLocks(thread_db* tdbb)
 			charset->releaseLocks(tdbb);
 	}
 
+	// Release database triggers locks
+
+	for (unsigned i = 0; i < DB_TRIGGERS_COUNT; ++i)
+	{
+		auto* ptr = mdc_triggers[i].load(atomics::memory_order_relaxed);
+		if (ptr)
+			ptr->releaseLocks(tdbb);
+	}
 }
 
 void MetadataCache::invalidateReplSet(thread_db* tdbb)
@@ -5020,48 +4966,6 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, Ob
 	return rc;
 }
 
-Lock* jrd_prc::makeLock(thread_db* tdbb, MemoryPool& p)
-{
-	return FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), LCK_prc_exist, nullptr, blockingAst);
-}
-
-int jrd_prc::blockingAst(void* ast_object)
-{
-/**************************************
- *
- *      b l o c k i n g _ a s t _ p r o c e d u r e
- *
- **************************************
- *
- * Functional description
- *      Someone is trying to drop a proceedure. If there
- *      are outstanding interests in the existence of
- *      the relation then just mark as blocking and return.
- *      Otherwise, mark the procedure block as questionable
- *      and release the procedure existence lock.
- *
- **************************************/
-	RoutinePermanent* const procedure = static_cast<RoutinePermanent*>(ast_object);
-/* !!!!!!!!!!!!!!!
-	try
-	{
-		if (procedure->existenceLock)
-		{
-			Database* const dbb = procedure->existenceLock->lck_dbb;
-
-			AsyncContextHolder tdbb(dbb, FB_FUNCTION, procedure->existenceLock);
-
-			LCK_release(tdbb, procedure->existenceLock);
-		}
-		/// !!!!!!!!!!!!!!!!! 
-		procedure->flags |= Routine::FLAG_OBSOLETE;
-	}
-	catch (const Exception&)
-	{} // no-op
-*/
-	return 0;
-}
-
 Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
@@ -5112,6 +5016,7 @@ void MetadataCache::CleanupQueue::dequeue(thread_db* tdbb, TraNumber oldest)
 
 	while (cq_pos < cq_data.getCount() && oldest > cq_data[cq_pos].t)
 	{
+		cq_data[cq_pos++].c->releaseLocks(tdbb);
 		cq_data[cq_pos++].c->cleanup(tdbb);
 	}
 
@@ -5188,8 +5093,6 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	auto* relation = (expression.hasData() || condition.hasData()) ?
 		MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE) : nullptr;
-	perm->createLock(tdbb, relId, getId());
-		// ?????????????? perm->createLock( caching lock
 
 	if (expression.hasData())
 	{

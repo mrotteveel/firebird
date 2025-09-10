@@ -32,6 +32,7 @@
 #include "../jrd/Resources.h"
 #include "../jrd/met_proto.h"
 #include "../common/classes/alloc.h"
+#include "../jrd/lck.h"
 
 
 namespace Firebird {
@@ -49,11 +50,11 @@ struct SubtypeInfo;
 class CharSetContainer : public Firebird::PermanentStorage
 {
 public:
-	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, MakeLock* makeLock, NoData);
+	CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId cs_id, NoData);
 
 	static bool destroy(thread_db* tdbb, CharSetContainer* container);
 	static CharSetContainer* create(thread_db* tdbb, MetaId id);
-	static int blockingAst(void* ast_object);
+	void releaseLock(thread_db*) { }
 
 	Firebird::CharSet* getCharSet()
 	{
@@ -77,8 +78,6 @@ public:
 	{
 		return cs_lock;
 	}
-
-	void releaseLocks(thread_db* tdbb);
 
 private:
 	static bool lookupInternalCharSet(CSetId id, SubtypeInfo* info);
@@ -120,9 +119,10 @@ public:
 
 	static void destroy(thread_db* tdbb, CharSetVers* csv);
 	static CharSetVers* create(thread_db* tdbb, MemoryPool& p, Cached::CharSet* perm);
-	static Lock* makeLock(thread_db* tdbb, MemoryPool& p);
-	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
 
+	static const enum lck_t LOCKTYPE = LCK_cs_rescan;
+
+	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);

@@ -1997,42 +1997,6 @@ static PageNumber get_root_page(thread_db* tdbb, Cached::Relation* relation)
 }
 
 
-int IndexPermanent::indexReload(void* ast_object)
-{
-/**************************************
- *
- *	i n d e x _ b l o c k _ f l u s h
- *
- **************************************
- *
- * Functional description
- *	An exclusive lock has been requested on the
- *	index block.  The information in the cached
- *	index block is no longer valid, so clear it
- *	out and release the lock.
- *
- **************************************/
-
-	// AST for index reload lock
- 
-	Cached::Index* const idp = static_cast<Cached::Index*>(ast_object);
-
-	try
-	{
-		Lock* const lock = idp->getRescanLock();
-		Database* const dbb = lock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION, lock);
-
-		idp->resetDependentObject(tdbb, ElementBase::ResetType::Mark);
-	}
-	catch (const Firebird::Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-
 static idx_e insert_key(thread_db* tdbb,
 						jrd_rel* relation,
 						Record* record,

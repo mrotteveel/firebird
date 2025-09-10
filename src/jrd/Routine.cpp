@@ -35,17 +35,13 @@ using namespace Firebird;
 
 namespace Jrd {
 
-RoutinePermanent::RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, MakeLock* makeLock, NoData)
+RoutinePermanent::RoutinePermanent(thread_db* tdbb, MemoryPool& p, MetaId metaId, NoData)
 	: PermanentStorage(p),
 	  id(metaId),
 	  name(p),
 	  securityName(p),
-	  subRoutine(false),
-	  existenceLock(makeLock(tdbb, p))
-{
-	existenceLock->setKey(metaId);
-	existenceLock->lck_object = this;
-}
+	  subRoutine(false)
+{ }
 
 
 // Create a MsgMetadata from a parameters array.
@@ -263,53 +259,8 @@ void Routine::releaseStatement(thread_db* tdbb)
 	setOutputFormat(NULL);
 }
 
-/*
-// Remove a routine from cache.
-void Routine::remove(thread_db* tdbb)
-{
-	SET_TDBB(tdbb);
-
-	// deallocate input param structures
-
-	for (Array<NestConst<Parameter> >::iterator i = getInputFields().begin();
-		 i != getInputFields().end(); ++i)
-	{
-		if (*i)
-			delete i->getObject();
-	}
-	getInputFields().clear();
-
-	// deallocate output param structures
-
-	for (Array<NestConst<Parameter> >::iterator i = getOutputFields().begin();
-		 i != getOutputFields().end(); ++i)
-	{
-		if (*i)
-			delete i->getObject();
-	}
-	getOutputFields().clear();
-
-	releaseFormat();
-
-	// Fully clear routine block. Some pieces of code check for empty
-	// routine name, this is why we do it.
-	setName(QualifiedName());
-	setSecurityName("");
-	setDefaultCount(0);
-	releaseExternal();
-	flags |= FLAG_CLEARED;
-}
-*/
-
-void RoutinePermanent::releaseLocks(thread_db* tdbb)
-{
-	if (existenceLock)
-		LCK_release(tdbb, existenceLock);
-}
-
 bool RoutinePermanent::destroy(thread_db* tdbb, RoutinePermanent* routine)
 {
-	routine->releaseLocks(tdbb);
 	return false;
 }
 

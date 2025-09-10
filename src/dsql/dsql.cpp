@@ -1332,6 +1332,11 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 	for (MetaId id = 0; id < format->fmt_count; ++id)
 	{
 		auto* jfld = (*(jrel->rel_fields))[id];
+		if (!jfld)
+		{
+			fb_assert(!format->fmt_desc[id].dsc_dtype);
+			continue;
+		}
 		auto* fld = FB_NEW_POOL(p) dsql_fld(p, format->fmt_desc[id], nullptr);
 
 		fld->fld_relation = this;
