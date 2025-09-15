@@ -924,12 +924,10 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 	if (csb->csb_rpt[stream].csb_relation)
 	{
 		dependency.relation = csb->csb_rpt[stream].csb_relation();
-		// How do I determine reliably this is a view?
-		// At this time, rel_view_rse is still null.
-		//			Add new flag to RelationPermanent ???????????
-		//if (is_view)
-		//	dependency.objType = obj_view;
-		//else
+
+		if (dependency.relation->isView())
+			dependency.objType = obj_view;
+		else
 			dependency.objType = obj_relation;
 	}
 	else if (csb->csb_rpt[stream].csb_procedure)

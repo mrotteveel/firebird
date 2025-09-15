@@ -6791,8 +6791,8 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 				privilege = SCL_delete;
 		}
 
-		const SLONG ssRelationId = tail->csb_view ?
-			tail->csb_view(tdbb)->getId() : csb->csb_view ? csb->csb_view(tdbb)->getId() : 0;
+		const SLONG ssRelationId = tail->csb_view ? tail->csb_view()->getId() :
+			csb->csb_view ? csb->csb_view()->getId() : 0;
 
 		CMP_post_access(tdbb, csb, relation()->getSecurityName(), ssRelationId,
 			privilege, obj_relations, relation()->getName());
