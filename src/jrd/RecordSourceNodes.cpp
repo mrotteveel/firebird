@@ -901,8 +901,10 @@ RelationSourceNode* RelationSourceNode::copy(thread_db* tdbb, NodeCopier& copier
 	copier.remap[stream] = newSource->stream;
 
 	newSource->context = context;
-	newSource->relation = relation;
-	newSource->view = view;
+	if (relation)
+		newSource->relation = copier.csb->csb_resources->relations.registerResource(relation());
+	if (view)
+		newSource->view = copier.csb->csb_resources->relations.registerResource(view());
 
 	CompilerScratch::csb_repeat* element = CMP_csb_element(copier.csb, newSource->stream);
 	element->csb_relation = newSource->relation;
@@ -1615,7 +1617,8 @@ ProcedureSourceNode* ProcedureSourceNode::copy(thread_db* tdbb, NodeCopier& copi
 	copier.remap[stream] = newSource->stream;
 	newSource->context = context;
 	newSource->procedureId = procedureId;
-	newSource->view = view;
+	if (view)
+		newSource->view = copier.csb->csb_resources->relations.registerResource(view());
 
 	CompilerScratch::csb_repeat* element = CMP_csb_element(copier.csb, newSource->stream);
 	element->csb_procedure = newSource->procedure;

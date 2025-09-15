@@ -200,13 +200,16 @@ public:
 			  versionCurrentPosition(pos)
 		{ }
 
+		bool knownResource(StoredElement* res)
+		{
+			FB_SIZE_T posDummy;
+			return checkPresence(res, posDummy);
+		}
+
 		CachedResource<OBJ, PERM>& registerResource(StoredElement* res)
 		{
 			FB_SIZE_T pos;
-			if (!this->find([res](const CachedResource<OBJ, PERM>& elem) {
-					auto* e = elem();
-					return e == res ? 0 : std::less<StoredElement*>{}(e, res) ? -1 : 1;
-				}, pos))
+			if (!checkPresence(res, pos))
 			{
 				CachedResource<OBJ, PERM> newPtr(res, versionCurrentPosition++);
 				pos = this->add(newPtr);
@@ -226,6 +229,14 @@ public:
 
 	private:
 		FB_SIZE_T& versionCurrentPosition;
+
+		bool checkPresence(StoredElement* res, FB_SIZE_T& pos)
+		{
+			return this->find([res](const CachedResource<OBJ, PERM>& elem) {
+					auto* e = elem();
+					return e == res ? 0 : std::less<StoredElement*>{}(e, res) ? -1 : 1;
+				}, pos);
+		}
 	};
 
 	void transfer(thread_db* tdbb, VersionedObjects* to, bool internal);

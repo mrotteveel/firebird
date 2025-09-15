@@ -124,7 +124,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		auto tail = csb->csb_rpt.begin();
 		const auto* const streams_end = tail + csb->csb_n_stream;
 
-		// Add more strems info (format, relation, procedure) to rpbsSetup
+		// Add more streams info (format, procedure) to rpbsSetup
 		// in order to check format match when mdc version grows !!!!!!!!!!!!!!!!!!!!!!!!
 		for (auto rpb = rpbsSetup.begin(); tail < streams_end; ++rpb, ++tail)
 		{
@@ -145,7 +145,8 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 
 			rpb->rpb_relation = tail->csb_relation;
 			if (rpb->rpb_relation())
-				resources->relations.registerResource(rpb->rpb_relation());
+				fb_assert(resources->relations.knownResource(rpb->rpb_relation()));
+//				rpb->rpb_relation = resources->relations.registerResource(rpb->rpb_relation());
 
 			delete tail->csb_fields;
 			tail->csb_fields = NULL;
