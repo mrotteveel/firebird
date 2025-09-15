@@ -1343,7 +1343,8 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 		fld->fld_id = id;
 		fld->fld_pos = jfld->fld_pos;
 		fld->fld_name = jfld->fld_name;
-		fld->length = jfld->fld_length;
+		if (!fld->length)
+			fld->length = jfld->fld_length;
 		fld->segLength = jfld->fld_segment_length;
 		fld->charLength = jfld->fld_character_length;
 		fld->fieldSource = jfld->fld_source_name;
