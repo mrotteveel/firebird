@@ -32,7 +32,7 @@ static const struct {
 	{335544329, "42000"}, //   9 bad_segstr_id
 	{335544330, "HY000"}, //  10 bad_tpb_content
 	{335544331, "HY000"}, //  11 bad_tpb_form
-	{335544332, "08003"}, //  12 bad_trans_handle
+	{335544332, "HY000"}, //  12 bad_trans_handle
 	{335544333, "XX000"}, //  13 bug_check
 	{335544334, "22018"}, //  14 convert_error
 	{335544335, "XX001"}, //  15 db_corrupt
@@ -320,7 +320,7 @@ static const struct {
 	{335544617, "42000"}, // 297 order_by_err
 	{335544618, "HY000"}, // 298 return_mode_err
 	{335544619, "38000"}, // 299 extern_func_err
-	{335544620, "08001"}, // 300 alias_conflict_err
+	{335544620, "42000"}, // 300 alias_conflict_err
 	{335544621, "42000"}, // 301 procedure_conflict_error
 	{335544622, "42000"}, // 302 relation_conflict_err
 	{335544623, "42000"}, // 303 dsql_domain_err
@@ -721,7 +721,7 @@ static const struct {
 	{335545018, "42000"}, // 698 private_function
 	{335545019, "42000"}, // 699 private_procedure
 	{335545020, "24000"}, // 700 request_outdated
-	{335545021, "08003"}, // 701 bad_events_handle
+	{335545021, "HY000"}, // 701 bad_events_handle
 	{335545022, "XX000"}, // 702 cannot_copy_stmt
 	{335545023, "22000"}, // 703 invalid_boolean_usage
 	{335545024, "42000"}, // 704 sysf_argscant_both_be_zero
@@ -859,7 +859,7 @@ static const struct {
 	{335545156, "42000"}, // 836 sysf_invalid_first_last_part
 	{335545157, "42000"}, // 837 sysf_invalid_date_timestamp
 	{335545158, "HY104"}, // 838 precision_err2
-	{335545159, "08003"}, // 839 bad_batch_handle
+	{335545159, "HY000"}, // 839 bad_batch_handle
 	{335545160, "22021"}, // 840 intl_char
 	{335545161, "22000"}, // 841 null_block
 	{335545162, "22000"}, // 842 mixed_info
@@ -884,7 +884,7 @@ static const struct {
 	{335545181, "22000"}, // 861 message_format
 	{335545182, "22000"}, // 862 batch_param_version
 	{335545183, "54000"}, // 863 batch_msg_long
-	{335545184, "08002"}, // 864 batch_open
+	{335545184, "HY010"}, // 864 batch_open
 	{335545185, "07003"}, // 865 batch_type
 	{335545186, "07001"}, // 866 batch_param
 	{335545187, "07001"}, // 867 batch_blobs
