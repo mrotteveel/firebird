@@ -92,6 +92,7 @@ namespace Jrd
 	class dsql_par;
 	class dsql_map;
 	class dsql_intlsym;
+	class dsql_fld;
 	class TimeoutTimer;
 	class MetaName;
 

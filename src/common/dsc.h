@@ -306,12 +306,12 @@ typedef struct dsc
 		return CollId(getTextType());
 	}
 
-	UCHAR getLength() const
+	FLD_LENGTH getLength() const
 	{
 		return dsc_length;
 	}
 
-	UCHAR getScale() const
+	SCHAR getScale() const
 	{
 		return dsc_scale;
 	}
