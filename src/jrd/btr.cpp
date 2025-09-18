@@ -1179,19 +1179,25 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* rel, MetaId id
 				break;
 
 			case ModifyIrtRepeatValue::Deleted:
-				fb_assert(false);	// This should not happen
-				return;				// May be we can recover
+				// Already deleted - this can happen after for example index creation rollback + drop table
+				return;
 			}
 
 			auto msg = "mark index for delete";
 
 			switch (irt_desc->getState())
 			{
-			case irt_in_progress:
+			case irt_unused:
+				break;
+
 			case irt_commit:
+				if (tra->tra_number == irt_desc->getTransaction())
+					break;	// already marked in current transaction
+				[[fallthrough]];
+
+			case irt_in_progress:
 			case irt_drop:
 			case irt_kill:
-			case irt_unused:
 				badState(irt_desc, "not irt_rollback/irt_normal", msg);
 
 			case irt_rollback:			// created not long ago
