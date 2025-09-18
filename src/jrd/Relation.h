@@ -449,9 +449,7 @@ public:
 	{ }
 
 	~IndexPermanent()
-	{
-		fb_assert((!idp_lock) || (idp_lock->lck_physical == LCK_none && idp_lock->lck_logical == LCK_none));
-	}
+	{ }
 
 	static bool destroy(thread_db* tdbb, IndexPermanent* idp)
 	{
@@ -465,11 +463,6 @@ public:
 
 	static const int REL_ID_KEY_OFFSET = 16;
 	void releaseLock(thread_db*) { }
-
-	Lock* getRescanLock()
-	{
-		return nullptr;
-	}
 
 	RelationPermanent* getRelation()
 	{
@@ -488,7 +481,6 @@ public:
 
 private:
 	RelationPermanent*	idp_relation;
-	Lock*				idp_lock = nullptr;
 	MetaId				idp_id;
 
 	[[noreturn]] void errIndexGone();
