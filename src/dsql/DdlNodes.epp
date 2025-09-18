@@ -10055,14 +10055,8 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		END_FOR
 /*
 		// Release relation locks				.... only when deleted !!!!!!!!!!!!!!!
-		if (relation->rel_existence_lock) {
-			LCK_release(tdbb, relation->rel_existence_lock);
-		}
 		if (relation->rel_partners_lock) {
 			LCK_release(tdbb, relation->rel_partners_lock);
-		}
-		if (relation->rel_rescan_lock) {
-			LCK_release(tdbb, relation->rel_rescan_lock);
 		}
 
 		// Release relation triggers
@@ -10073,12 +10067,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	{
 		if (!relation)
 			return;
-/*					.... only when deleted !!!!!!!!!!!!!!!
-		if (relation->rel_existence_lock && !(relation->rel_flags & REL_deleted))
-		{
-			LCK_convert(tdbb, relation->rel_existence_lock, LCK_SR, transaction->getLockWait());
-		}
- */
+
 		if (relation->isDropped())
 			relation->rollback(tdbb);
 	}
