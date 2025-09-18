@@ -5016,8 +5016,9 @@ void MetadataCache::CleanupQueue::dequeue(thread_db* tdbb, TraNumber oldest)
 
 	while (cq_pos < cq_data.getCount() && oldest > cq_data[cq_pos].t)
 	{
-		cq_data[cq_pos++].c->releaseLocks(tdbb);
-		cq_data[cq_pos++].c->cleanup(tdbb);
+		auto* c = cq_data[cq_pos++].c;
+		c->releaseLocks(tdbb);
+		c->cleanup(tdbb);
 	}
 
 	if (cq_data.getCount() <= cq_pos)
