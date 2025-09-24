@@ -81,23 +81,37 @@ Firebird::PathName ConfigCache::getFileName()
 	return files->fileName;
 }
 
-time_t ConfigCache::File::getTime()
+ConfigCache::File::PreciseTime ConfigCache::File::getTime()
 {
+#ifdef WIN_NT
+	WIN32_FILE_ATTRIBUTE_DATA fInfo;
+
+	if (!GetFileAttributesEx(fileName.c_str(), GetFileExInfoStandard, &fInfo))
+		return PreciseTime();
+
+	return PreciseTime(fInfo.ftLastWriteTime);
+#else
 	struct stat st;
 	if (stat(fileName.c_str(), &st) != 0)
 	{
 		if (errno == ENOENT)
 		{
 			// config file is missing, but this is not our problem
-			return 0;
+			return PreciseTime();
 		}
 		system_call_failed::raise("stat");
 	}
-	return st.st_mtime;
+
+#ifdef DARWIN
+	return PreciseTime(st.st_mtimespec);
+#else
+	return PreciseTime(st.st_mtim);
+#endif
+#endif
 }
 
 ConfigCache::File::File(MemoryPool& p, const PathName& fName)
-	: PermanentStorage(p), fileName(getPool(), fName), fileTime(0), next(NULL)
+	: PermanentStorage(p), fileName(getPool(), fName), next(NULL)
 { }
 
 ConfigCache::File::~File()
@@ -107,7 +121,7 @@ ConfigCache::File::~File()
 
 bool ConfigCache::File::checkLoadConfig(bool set)
 {
-	time_t newTime = getTime();
+	const PreciseTime newTime = getTime();
 	if (fileTime == newTime)
 	{
 		return next ? next->checkLoadConfig(set) : true;
