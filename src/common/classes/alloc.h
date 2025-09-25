@@ -374,13 +374,6 @@ public:
 		savedThreadData->setDefaultPool(savedPool);
 	}
 
-/* ??????????????????
-	operator SubsystemPool&()
-	{
-		return *savedThreadData->getDefaultPool();
-	}
- */
-
 private:
 	SubsystemThreadData* savedThreadData;
 	SubsystemPool* savedPool;

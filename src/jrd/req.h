@@ -563,12 +563,12 @@ const ULONG req_null			= 0x8L;
 const ULONG req_abort			= 0x10L;
 const ULONG req_error_handler	= 0x20L;		// looper is called to handle error
 const ULONG req_warning			= 0x40L;
-//const ULONG req_in_use			= 0x80L;
+//								= 0x80L;
 const ULONG req_continue_loop	= 0x100L;		// PSQL continue statement
 const ULONG req_proc_fetch		= 0x200L;		// Fetch from procedure in progress
 const ULONG req_proc_select		= 0x400L;		// Select from procedure in progress
 const ULONG req_same_tx_upd		= 0x800L;		// record was updated by same transaction
-const ULONG req_reserved		= 0x1000L;		// Request reserved for client
+//								= 0x1000L;
 const ULONG req_update_conflict	= 0x2000L;		// We need to restart request due to update conflict
 const ULONG req_restart_ready	= 0x4000L;		// Request is ready to restart in case of update conflict
 

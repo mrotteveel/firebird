@@ -762,8 +762,6 @@ static rel_t relationType(SSHORT relationTypeNull, SSHORT relationType)
 	return relationTypeNull ? rel_persistent : rel_t(relationType);
 }
 
-// ???????????????????????? cleanup
-
 // Save the name of a field in the relation or view currently being defined. This is done to support
 // definition of triggers which will depend on the metadata created in this statement.
 static void saveField(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, const MetaName& fieldName)
@@ -10020,7 +10018,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		// Free any memory associated with the relation's garbage collection bitmap
 		if (dbb->dbb_garbage_collector)
 			dbb->dbb_garbage_collector->removeRelation(rel->getId());
-// ?????????????????
+//
 		if (relation->isTemporary())
 		{
 			// loop through pagespaces and activate !!!!!!!!!!!!!!!!!!

@@ -1001,7 +1001,6 @@ static void activate_request(thread_db* tdbb, Request* request, jrd_tra* transac
 	TRA_attach_request(transaction, request);
 	request->req_flags &= req_restart_ready;
 	request->req_flags |= req_active;
-	// ????????? request->req_flags &= ~req_reserved;
 
 	// set up to count records affected by request
 
@@ -1117,7 +1116,7 @@ void EXE_execute_function(thread_db* tdbb, Request* request, jrd_tra* transactio
 			if (!exeState.errorPending)
 				TRA_release_request_snapshot(tdbb, request);
 
-			request->req_flags &= ~(req_active | req_reserved);
+			request->req_flags &= ~req_active;
 			request->invalidateTimeStamp();
 
 			if (profilerInitialTicks && attachment->isProfilerActive())
@@ -1264,7 +1263,7 @@ void EXE_unwind(thread_db* tdbb, Request* request)
 	TRA_release_request_snapshot(tdbb, request);
 	TRA_detach_request(request);
 
-	request->req_flags &= ~(req_active | req_proc_fetch | req_reserved);
+	request->req_flags &= ~(req_active | req_proc_fetch);
 	request->req_flags |= req_abort | req_stall;
 	request->invalidateTimeStamp();
 	request->req_caller = NULL;
@@ -1827,7 +1826,7 @@ const StmtNode* EXE_looper(thread_db* tdbb, Request* request, const StmtNode* no
 		if (!exeState.errorPending)
 			TRA_release_request_snapshot(tdbb, request);
 
-		request->req_flags &= ~(req_active | req_reserved);
+		request->req_flags &= ~req_active;
 		request->invalidateTimeStamp();
 		release_blobs(tdbb, request);
 
