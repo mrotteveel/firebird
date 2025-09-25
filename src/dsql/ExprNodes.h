@@ -2218,7 +2218,7 @@ public:
 	QualifiedName name;
 	NestConst<ValueListNode> args;
 	NestConst<Firebird::ObjectsArray<MetaName>> dsqlArgNames;
-	SubRoutine<Function> function;		// NestConst ????????????????
+	SubRoutine<Function> function;
 
 private:
 	dsql_udf* dsqlFunction = nullptr;

@@ -624,7 +624,7 @@ public:
 	NestConst<ValueListNode> outputSources;
 	NestConst<ValueListNode> outputTargets;
 	NestConst<MessageNode> outputMessage;
-	SubRoutine<jrd_prc> procedure;		// NestConst ????????????????????
+	SubRoutine<jrd_prc> procedure;
 	NestConst<Firebird::ObjectsArray<MetaName>> dsqlInputArgNames;
 	NestConst<Firebird::ObjectsArray<MetaName>> dsqlOutputArgNames;
 	bool dsqlCallSyntax = false;

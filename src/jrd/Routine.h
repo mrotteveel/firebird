@@ -187,7 +187,7 @@ namespace Jrd
 
 
 	template <class R>
-	class SubRoutine
+	class SubRoutine				// supports NestConst logic
 	{
 	public:
 		SubRoutine()
