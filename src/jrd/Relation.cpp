@@ -148,7 +148,7 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_indices(p, this),
 	  rel_name(p),
 	  rel_id(id),
-	  rel_flags(0),
+	  rel_flags(REL_check_partners),
 	  rel_pages_inst(nullptr),
 	  rel_pages_base(p),
 	  rel_pages_free(nullptr),
@@ -187,6 +187,29 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 	return true;*/
 	return false;
 }
+
+int RelationPermanent::partners_ast_relation(void* ast_object)
+{
+	auto* const relation = static_cast<RelationPermanent*>(ast_object);
+
+	try
+	{
+		Lock* lock = relation->rel_partners_lock;
+		Database* const dbb = lock->lck_dbb;
+
+		AsyncContextHolder tdbb(dbb, FB_FUNCTION);
+
+		auto oldFlags = relation->rel_flags.fetch_or(REL_check_partners);
+		if (!(oldFlags & REL_check_partners))
+			LCK_release(tdbb, lock);
+	}
+	catch (const Exception&)
+	{} // no-op
+
+	return 0;
+}
+
+
 
 Record* RelationPermanent::getGCRecord(thread_db* tdbb, const Format* const format)
 {
@@ -234,12 +257,9 @@ Record* RelationPermanent::getGCRecord(thread_db* tdbb, const Format* const form
 void RelationPermanent::checkPartners(thread_db* tdbb)
 {
 	rel_flags |= REL_check_partners;
-	MetadataCache::newVersion<Cached::Relation>(tdbb, getId());
-	DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, getId());
 
-// signal to other processes about new constraint !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-//	LCK_lock(tdbb, rel_partners_lock, LCK_EX, LCK_WAIT);
-//	LCK_release(tdbb, rel_partners_lock);
+	LCK_lock(tdbb, rel_partners_lock, LCK_EX, LCK_WAIT);
+	LCK_release(tdbb, rel_partners_lock);
 }
 
 bool RelationPermanent::isReplicating(thread_db* tdbb)
@@ -606,11 +626,7 @@ const char* IndexPermanent::c_name() const
 	// Here we use MetaName's feature - pointers in it are DBB-lifetime stable
 	return idp_name.c_str();
 }
-/*
-Lock* IndexPermanent::createLock(thread_db* tdbb, MemoryPool& p, MetaId relId, MetaId indId)
-{
-	return makeLock(tdbb, p, FB_UINT64(relId << REL_ID_KEY_OFFSET) + indId, IndexVersion::LOCKTYPE);
-}*/
+
 
 IndexVersion::IndexVersion(MemoryPool& p, Cached::Index* idp)
 	: perm(idp)

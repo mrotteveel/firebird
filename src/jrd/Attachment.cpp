@@ -956,3 +956,29 @@ void Attachment::releaseProfilerManager(thread_db* tdbb)
 	else
 		att_profiler_manager.reset();
 }
+
+void Attachment::createMetaTransaction(thread_db* tdbb)
+{
+	if (!att_meta_transaction)
+	{
+		att_meta_transaction = TRA_start(tdbb,
+			TRA_readonly | TRA_ignore_limbo | TRA_read_committed | TRA_rec_version, DEFAULT_LOCK_TIMEOUT);
+	}
+}
+
+jrd_tra* Attachment::getMetaTransaction(thread_db* tdbb)
+{
+	jrd_tra* tra = tdbb->getTransaction();
+
+	if (!att_meta_transaction)
+	{
+		if ((tra == nullptr) || (tra == getSysTransaction()))
+			return getSysTransaction();
+
+		createMetaTransaction(tdbb);
+	}
+
+	att_meta_transaction->tra_number = tra && tra->tra_number ? tra->tra_number : 1;
+    return att_meta_transaction;
+}
+

@@ -82,7 +82,7 @@ Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, ObjectBas
 ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 {
 	Attachment* attachment = tdbb->getAttachment();
-	jrd_tra* sysTransaction = attachment->getSysTransaction();
+	jrd_tra* metaTransaction = attachment->getMetaTransaction(tdbb);
 	Database* dbb = tdbb->getDatabase();
 	MetadataCache* mdc = dbb->dbb_mdc;
 
@@ -93,7 +93,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 	{
 		AutoCacheRequest request_fun(tdbb, irq_l_functions, IRQ_REQUESTS);
 
-		FOR(REQUEST_HANDLE request_fun)
+		FOR(REQUEST_HANDLE request_fun TRANSACTION_HANDLE metaTransaction)
 			X IN RDB$FUNCTIONS
 			WITH X.RDB$FUNCTION_ID EQ getPermanent()->getId()
 		{
@@ -113,7 +113,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 			{
 				AutoCacheRequest requestHandle(tdbb, irq_l_procedure_pkg_class, IRQ_REQUESTS);
 
-				FOR (REQUEST_HANDLE requestHandle)
+				FOR (REQUEST_HANDLE requestHandle TRANSACTION_HANDLE metaTransaction)
 					PKG IN RDB$PACKAGES
 					WITH PKG.RDB$PACKAGE_NAME EQ X.RDB$PACKAGE_NAME
 
@@ -151,7 +151,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 			AutoCacheRequest request_arg(tdbb, irq_l_args, IRQ_REQUESTS);
 
-			FOR(REQUEST_HANDLE request_arg)
+			FOR(REQUEST_HANDLE request_arg TRANSACTION_HANDLE metaTransaction)
 				Y IN RDB$FUNCTION_ARGUMENTS
 				WITH Y.RDB$FUNCTION_NAME EQ getName().identifier.c_str() AND
 					 Y.RDB$PACKAGE_NAME EQUIV NULLIF(getName().package.c_str(), '')
@@ -193,7 +193,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 					AutoCacheRequest request_arg_fld(tdbb, irq_l_arg_fld, IRQ_REQUESTS);
 
-					FOR(REQUEST_HANDLE request_arg_fld)
+					FOR(REQUEST_HANDLE request_arg_fld TRANSACTION_HANDLE metaTransaction)
 						F IN RDB$FIELDS
 						WITH F.RDB$FIELD_NAME = Y.RDB$FIELD_SOURCE
 					{
@@ -318,7 +318,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 						if (!X.RDB$FUNCTION_SOURCE.NULL)
 						{
-							blb* const blob = blb::open(tdbb, sysTransaction, &X.RDB$FUNCTION_SOURCE);
+							blb* const blob = blb::open(tdbb, metaTransaction, &X.RDB$FUNCTION_SOURCE);
 							const ULONG len = blob->BLB_get_data(tdbb,
 								body.getBuffer(blob->blb_length + 1), blob->blb_length + 1);
 							body[MIN(blob->blb_length, len)] = 0;
@@ -396,11 +396,12 @@ ScanResult Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
+	jrd_tra* metaTransaction = attachment->getMetaTransaction(tdbb);
 	AutoCacheRequest request(tdbb, irq_l_funct_blr, IRQ_REQUESTS);
 
 	bool found = false;
 
-	FOR(REQUEST_HANDLE request)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE metaTransaction)
 		X IN RDB$FUNCTIONS
 		WITH X.RDB$FUNCTION_ID EQ this->getId()
 	{

@@ -689,7 +689,7 @@ namespace
 					// delete dependency lists
 
 					if (work->dfw_package.isEmpty())
-						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
+						MET_delete_dependencies(tdbb, work->dfw_name, objType);
 
 					// Now handle the new definition
 					bool compile = !work->findArg(dfw_arg_check_blr);
@@ -789,7 +789,7 @@ namespace
 					// delete dependency lists
 
 					if (work->dfw_package.isEmpty())
-						MET_delete_dependencies(tdbb, work->dfw_name, objType, transaction);
+						MET_delete_dependencies(tdbb, work->dfw_name, objType);
 
 					return true;
 				}
@@ -2296,8 +2296,8 @@ static bool drop_package_header(thread_db* tdbb, SSHORT phase, DeferredWork* wor
 	switch (phase)
 	{
 	case 1:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body, transaction);
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header);
 		break;
 	}
 
@@ -2312,7 +2312,7 @@ static bool modify_package_header(thread_db* tdbb, SSHORT phase, DeferredWork* w
 	switch (phase)
 	{
 	case 1:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header);
 		break;
 	}
 
@@ -2327,7 +2327,7 @@ static bool drop_package_body(thread_db* tdbb, SSHORT phase, DeferredWork* work,
 	switch (phase)
 	{
 	case 1:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body);
 		break;
 	}
 
@@ -3077,8 +3077,8 @@ static bool delete_field(thread_db*	tdbb, SSHORT phase, DeferredWork* work, jrd_
 		return true;
 
 	case 3:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_computed, transaction);
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_validation, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_computed);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_validation);
 		break;
 	}
 
@@ -3155,7 +3155,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			if (arg && depName != arg->dfw_name.c_str())
 				DFW_check_dependencies(tdbb, depName.c_str(), NULL, NULL, obj_field, transaction);
 
-			MET_delete_dependencies(tdbb, depName, obj_validation, transaction);
+			MET_delete_dependencies(tdbb, depName, obj_validation);
 
 			if (!validation.isEmpty())
 			{
@@ -3538,8 +3538,8 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				}
 			}
 		}
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_index_expression, transaction);
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_index_condition, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_index_expression);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_index_condition);
 		return true;
 
 	case 5:
@@ -3978,7 +3978,7 @@ static bool delete_global(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd
 					FLD.RDB$FIELD_NAME EQ work->dfw_name.c_str() AND
 					FLD.RDB$COMPUTED_BLR NOT MISSING
 			{
-				MET_delete_dependencies(tdbb, work->dfw_name, obj_computed, transaction);
+				MET_delete_dependencies(tdbb, work->dfw_name, obj_computed);
 			}
 			END_FOR
 		}
@@ -4092,7 +4092,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 			bool compile = !work->findArg(dfw_arg_check_blr);
 
 			// get rid of old dependencies, bring in the new
-			MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger, transaction);
+			MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger);
 			get_trigger_dependencies(work, compile, transaction);
 		}
 		return true;
@@ -4232,7 +4232,7 @@ static bool delete_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 
 	case 3:
 		// get rid of dependencies
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger, transaction);
+		MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger);
 		return true;
 
 	case 4:

@@ -1368,38 +1368,6 @@ void INI_upgrade(thread_db* tdbb)
 			   attachment->att_filename.c_str(),
 			   majorVersion, minorVersion, majorVersion, ODS_CURRENT);
 	gds__log(msg.c_str());
-/* ??????????????????
-	// Invalidate new/modified relations in the DSQL metadata cache,
-	// thus forcing them to be reloaded on demand
-
-	if (const auto dbb = attachment->att_dsql_instance)
-	{
-		for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
-		{
-			bool invalidate = false;
-
-			if (relfld[RFLD_R_ODS] > odsVersion)
-				invalidate = true;
-
-			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
-			{
-				if (fld[RFLD_F_ODS] > odsVersion)
-					invalidate = true;
-			}
-
-			// Code below is the same as METD_drop_relation() but without a transaction
-
-			const auto relName = names[relfld[RFLD_R_NAME]];
-			dsql_rel* relation;
-
-			if (invalidate && dbb->dbb_relations.get(relName, relation))
-			{
-				MetadataCache::dsql_cache_use(tdbb, SYM_relation, relName);
-				relation->rel_flags |= REL_dropped;
-				dbb->dbb_relations.remove(relName);
-			}
-		}
-	} */
 }
 
 

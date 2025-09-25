@@ -112,7 +112,7 @@ namespace
 	{
 		auto checkPresence = [tdbb, rel]()->bool
 		{
-			auto* jrel = rel->getObject(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE);
+			auto* jrel = rel->getObject(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 			return jrel != nullptr;
 		};
 

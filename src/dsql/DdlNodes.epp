@@ -8072,14 +8072,14 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 		// and setting a flag for MET_scan_relation to find the new ones
 
 		if (!null_view)
-			MET_delete_dependencies(tdbb, relName, obj_view, transaction);
+			MET_delete_dependencies(tdbb, relName, obj_view);
 /*	// !!!!!!!!!!!!!!  commented in order to get first of all working create table
 		{ // begin scope
 			const DeferredWork* arg = work->findArg(dfw_arg_force_computed);
 			if (arg)
 			{
 				computed_field = true;
-				MET_delete_dependencies(tdbb, arg->dfw_name, obj_computed, transaction);
+				MET_delete_dependencies(tdbb, arg->dfw_name, obj_computed);
 			}
 		} // end scope
  */
@@ -10039,7 +10039,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		// if this is a view (or even if we don't know), delete dependency lists
 
 		if (relation->isView() || !relation->isReady(tdbb))
-			MET_delete_dependencies(tdbb, name, obj_view, transaction);
+			MET_delete_dependencies(tdbb, name, obj_view);
 
 		// Now that the data, pointer, and index pages are gone,
 		// get rid of the relation itself
@@ -12310,8 +12310,8 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 
 	if (indexName.hasData())
 	{
-		MET_delete_dependencies(tdbb, indexName, obj_index_expression, transaction);
-		MET_delete_dependencies(tdbb, indexName, obj_index_condition, transaction);
+		MET_delete_dependencies(tdbb, indexName, obj_index_expression);
+		MET_delete_dependencies(tdbb, indexName, obj_index_condition);
 	}
 }
 

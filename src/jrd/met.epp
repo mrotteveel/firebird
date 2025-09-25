@@ -922,8 +922,7 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 
 void MET_delete_dependencies(thread_db* tdbb,
 							 const MetaName& object_name,
-							 int dependency_type,
-							 jrd_tra* transaction)
+							 int dependency_type)
 {
 /**************************************
  *
@@ -943,7 +942,7 @@ void MET_delete_dependencies(thread_db* tdbb,
 
 	AutoCacheRequest request(tdbb, irq_d_deps, IRQ_REQUESTS);
 
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE tdbb->getTransaction())
 		DEP IN RDB$DEPENDENCIES
 			WITH DEP.RDB$DEPENDENT_NAME = object_name.c_str()
 			AND DEP.RDB$DEPENDENT_TYPE = dependency_type
@@ -1358,14 +1357,14 @@ DmlNode* MET_get_dependencies(thread_db* tdbb,
 		END_FOR
 
 		if (type != obj_package_body)
-			MET_delete_dependencies(tdbb, domainName, type, transaction);
+			MET_delete_dependencies(tdbb, domainName, type);
 
 		MET_store_dependencies(tdbb, csb->csb_dependencies, relation, domainName, type, transaction);
 	}
 	else
 	{
 		if (type != obj_package_body)
-			MET_delete_dependencies(tdbb, object_name, type, transaction);
+			MET_delete_dependencies(tdbb, object_name, type);
 
 		MET_store_dependencies(tdbb, csb->csb_dependencies, relation, object_name, type, transaction);
 	}
@@ -1535,9 +1534,8 @@ ScanResult DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	type = (type == DB_TRIGGER_DDL) ? TRIGGER_TYPE_DDL : type | TRIGGER_TYPE_DB;
 
 	AutoRequest trigger_request;
-	jrd_tra* trans = tdbb->getTransaction() ? tdbb->getTransaction() : attachment->getSysTransaction();
 
-	FOR(REQUEST_HANDLE trigger_request TRANSACTION_HANDLE trans)
+	FOR(REQUEST_HANDLE trigger_request TRANSACTION_HANDLE attachment->getMetaTransaction(tdbb))
 		TRG IN RDB$TRIGGERS
 		WITH TRG.RDB$RELATION_NAME MISSING AND
 			 TRG.RDB$TRIGGER_INACTIVE EQ 0
@@ -1568,32 +1566,24 @@ void MetadataCache::loadDbTriggers(thread_db* tdbb, unsigned int type)
  **************************************/
 
 	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
-	CHECK_DBB(dbb);
 
 	fb_assert(type < DB_TRIGGERS_COUNT);
-	auto* cacheElement = mdc_triggers[type].load(atomics::memory_order_acquire);
 
-	fb_assert(!cacheElement);
+	auto* cacheElement = mdc_triggers[type].load(atomics::memory_order_acquire);
 	if (!cacheElement)
 	{
 		// actual type will be taken into an account in DbTriggers::scan
 		auto* newCacheElement = FB_NEW_POOL(getPool())
 			Cached::Triggers(tdbb, getPool(), type, NoData());
-		if (mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
-			atomics::memory_order_release, atomics::memory_order_acquire))
+		newCacheElement->makeObject(tdbb, CacheFlag::AUTOCREATE);
+
+		if (!mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
+			atomics::memory_order_release, atomics::memory_order_relaxed))
 		{
-			cacheElement = newCacheElement;
-		}
-		else
-		{
-			delete newCacheElement;
+			newCacheElement->cleanup(tdbb);
 			return;
 		}
 	}
-
-	cacheElement->makeObject(tdbb, CacheFlag::AUTOCREATE);
 }
 
 
@@ -1634,7 +1624,7 @@ void MET_load_trigger(thread_db* tdbb,
 
 	AutoCacheRequest request(tdbb, irq_s_triggers, IRQ_REQUESTS);
 
-	FOR(REQUEST_HANDLE request)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE attachment->getMetaTransaction(tdbb))
 		TRG IN RDB$TRIGGERS
 		WITH TRG.RDB$TRIGGER_NAME EQ trigger_name.c_str() AND
 			 (TRG.RDB$TRIGGER_INACTIVE MISSING OR TRG.RDB$TRIGGER_INACTIVE EQ 0)
@@ -2643,6 +2633,7 @@ jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
 ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	Attachment* attachment = tdbb->getAttachment();
+	jrd_tra* metaTransaction = attachment->getMetaTransaction(tdbb);
 	Database* dbb = tdbb->getDatabase();
 	MetadataCache* mdc = dbb->dbb_mdc;
 	bool found = false;
@@ -2650,7 +2641,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		AutoCacheRequest request(tdbb, irq_r_procedure, IRQ_REQUESTS);
 
-		FOR(REQUEST_HANDLE request)
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE metaTransaction)
 			P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ getId()
 		{
 			found = true;
@@ -2670,7 +2661,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			{
 				AutoCacheRequest requestHandle(tdbb, irq_l_procedure_pkg_class, IRQ_REQUESTS);
 
-				FOR (REQUEST_HANDLE requestHandle)
+				FOR (REQUEST_HANDLE requestHandle TRANSACTION_HANDLE metaTransaction)
 					PKG IN RDB$PACKAGES
 					WITH PKG.RDB$PACKAGE_NAME EQ P.RDB$PACKAGE_NAME
 				{
@@ -2710,7 +2701,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 			const MetaName packageName(P.RDB$PACKAGE_NAME.NULL ? NULL : P.RDB$PACKAGE_NAME);
 
-			FOR (REQUEST_HANDLE request2)
+			FOR (REQUEST_HANDLE request2 TRANSACTION_HANDLE metaTransaction)
 				PA IN RDB$PROCEDURE_PARAMETERS
 				CROSS F IN RDB$FIELDS
 				WITH F.RDB$FIELD_NAME = PA.RDB$FIELD_SOURCE AND
@@ -2902,10 +2893,17 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				// If the BLR was marked as invalid but the procedure was compiled,
 				// mark the BLR as valid.
 
-				MODIFY P USING
-					P.RDB$VALID_BLR = TRUE;
-					P.RDB$VALID_BLR.NULL = FALSE;
-				END_MODIFY
+				AutoRequest request;
+
+				FOR(REQUEST_HANDLE request TRANSACTION_HANDLE attachment->getSysTransaction())
+					PP IN RDB$PROCEDURES WITH PP.RDB$PROCEDURE_ID EQ getId()
+				{
+					MODIFY PP USING
+						PP.RDB$VALID_BLR = TRUE;
+						PP.RDB$VALID_BLR.NULL = FALSE;
+					END_MODIFY
+				}
+				END_FOR
 			}
 		}
 		END_FOR
@@ -2927,7 +2925,7 @@ ScanResult jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 	Attachment* attachment = tdbb->getAttachment();
 	AutoCacheRequest request(tdbb, irq_r_proc_blr, IRQ_REQUESTS);
 
-	FOR(REQUEST_HANDLE request)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE attachment->getMetaTransaction(tdbb))
 		P IN RDB$PROCEDURES WITH P.RDB$PROCEDURE_ID EQ this->getId()
 	{
 		MemoryPool* const csb_pool = tdbb->getDatabase()->createPool(ALLOC_ARGS0);
@@ -3056,9 +3054,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 	Database* dbb = tdbb->getDatabase();
 	Jrd::ContextPoolHolder context(tdbb, dbb->dbb_permanent);
 	blb* blob = NULL;
-
-	jrd_tra* trans = tdbb->getTransaction() ?
-		tdbb->getTransaction() : attachment->getSysTransaction();
+	jrd_tra* trans = attachment->getMetaTransaction(tdbb);
 
 	if (flags & CacheFlag::MINISCAN)
 	{
@@ -3119,7 +3115,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 	// Do we need new format version?
 	if (flags & CacheFlag::DB_VERSION)
 	{
-		RelationNode::makeVersion(tdbb, trans, rel_perm->getName());
+		RelationNode::makeVersion(tdbb, tdbb->getTransaction(), rel_perm->getName());
 		flags &= ~CacheFlag::DB_VERSION;
 	}
 
@@ -3135,10 +3131,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 		found = true;
 
 		if (getName().isEmpty())
-		{
 			rel_perm->rel_name = REL.RDB$RELATION_NAME;
-			rel_perm->rel_flags |= REL_check_partners;
-		}
 
 		rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
 		if (!REL.RDB$RELATION_TYPE.NULL)
@@ -3229,7 +3222,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 
 		// Pick up field specific stuff
 
-		blob = blb::open(tdbb, attachment->getSysTransaction(), &REL.RDB$RUNTIME);
+		blob = blb::open(tdbb, trans, &REL.RDB$RUNTIME);
 		HalfStaticArray<UCHAR, 256> temp;
 		UCHAR* const buffer = temp.getBuffer(blob->getMaxSegment() + 1U);
 
@@ -3621,29 +3614,6 @@ DSqlCacheItem* MetadataCache::get_dsql_cache_item(thread_db* tdbb, sym_type type
 }
 
 
-int RelationPermanent::partners_ast_relation(void* ast_object)
-{
-	auto* const relation = static_cast<Cached::Relation*>(ast_object);
-
-	try
-	{
-		Database* const dbb = relation->rel_partners_lock->lck_dbb;
-
-		AsyncContextHolder tdbb(dbb, FB_FUNCTION);
-
-		if (!(relation->rel_flags & REL_check_partners))
-		{
-			relation->rel_flags |= REL_check_partners;
-			LCK_release(tdbb, relation->rel_partners_lock);
-		}
-	}
-	catch (const Exception&)
-	{} // no-op
-
-	return 0;
-}
-
-
 static ULONG get_rel_flags_from_FLAGS(USHORT flags)
 {
 /**************************************
@@ -3732,10 +3702,10 @@ static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 	blb* debugInfoBlob = NULL;
 
 	if (!blob_id->isEmpty())
-		blrBlob = blb::open(tdbb, attachment->getSysTransaction(), blob_id);
+		blrBlob = blb::open(tdbb, attachment->getMetaTransaction(tdbb), blob_id);
 
 	if (!debug_blob_id->isEmpty())
-		debugInfoBlob = blb::open(tdbb, attachment->getSysTransaction(), debug_blob_id);
+		debugInfoBlob = blb::open(tdbb, attachment->getMetaTransaction(tdbb), debug_blob_id);
 
 	save_trigger_data(tdbb, triggers, relation, NULL, blrBlob, debugInfoBlob,
 					  name, type, flags, engine, entryPoint, body, ssDefiner);
@@ -4158,7 +4128,7 @@ static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relati
 
 	if (body)
 	{
-		blb* bodyBlob = blb::open(tdbb, attachment->getSysTransaction(), body);
+		blb* bodyBlob = blb::open(tdbb, attachment->getMetaTransaction(tdbb), body);
 
 		HalfStaticArray<char, 512> temp;
 		ULONG length = bodyBlob->BLB_get_data(tdbb, (UCHAR*) temp.getBuffer(bodyBlob->blb_length),
@@ -4502,7 +4472,7 @@ void MET_store_dependencies(thread_db* tdbb,
 
 		fb_assert(dpdo_name.hasData());
 
-		STORE(REQUEST_HANDLE request TRANSACTION_HANDLE transaction) DEP IN RDB$DEPENDENCIES
+		STORE(REQUEST_HANDLE request TRANSACTION_HANDLE tdbb->getTransaction()) DEP IN RDB$DEPENDENCIES
 		{
 			strcpy(DEP.RDB$DEPENDENT_NAME, object_name.c_str());
 			DEP.RDB$DEPENDED_ON_TYPE = dpdo_type;
@@ -4641,13 +4611,6 @@ TriState MET_get_ss_definer(Jrd::thread_db* tdbb)
 
 MetadataCache::~MetadataCache()
 {
-/* !!!!!!!!!!!!!!!
-	for (auto iter = mdc_functions.begin(); iter < mdc_functions.end(); ++iter)
-		delete *iter;
-
-	for (auto iter = mdc_procedures.begin(); iter < mdc_procedures.end(); ++iter)
-		delete *iter;
- */
 }
 
 void MetadataCache::releaseGTTs(thread_db* tdbb)

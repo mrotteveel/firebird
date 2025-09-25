@@ -404,6 +404,8 @@ static void shutdownBeforeUnload()
 
 static void loadAllDatabaseTriggers(thread_db* tdbb)
 {
+	tdbb->getAttachment()->createMetaTransaction(tdbb);
+
 	auto* dbb = tdbb->getDatabase();
 	MetadataCache* mdc = dbb->dbb_mdc;
 
@@ -1268,7 +1270,6 @@ static bool			drop_file(Database*, const jrd_file*);
 static void			find_intl_charset(thread_db*, Jrd::Attachment*, const DatabaseOptions*);
 static void			init_database_lock(thread_db*);
 static void			run_commit_triggers(thread_db* tdbb, jrd_tra* transaction);
-static void			purge_transactions(thread_db*, Jrd::Attachment*, const bool);
 static void			check_single_maintenance(thread_db* tdbb);
 
 namespace {
@@ -3459,7 +3460,7 @@ void JAttachment::internalDropDatabase(CheckStatusWrapper* user_status)
 				// To be reviewed by Adriano - it will be anyway called in release_attachment
 
 				// Forced release of all transactions
-				purge_transactions(tdbb, attachment, true);
+				attachment->purgeTransactions(tdbb, true);
 
 				tdbb->tdbb_flags |= TDBB_detaching;
 
@@ -8203,7 +8204,7 @@ void JTransaction::freeEngineData(CheckStatusWrapper* user_status)
 }
 
 
-static void purge_transactions(thread_db* tdbb, Jrd::Attachment* attachment, const bool force_flag)
+void Attachment::purgeTransactions(thread_db* tdbb, const bool force_flag)
 {
 /**************************************
  *
@@ -8216,21 +8217,22 @@ static void purge_transactions(thread_db* tdbb, Jrd::Attachment* attachment, con
  *	from an attachment
  *
  **************************************/
-	jrd_tra* const trans_dbk = attachment->att_dbkey_trans;
+	jrd_tra* const trans_dbk = att_dbkey_trans;
+	auto* const trans_meta = att_meta_transaction;
 
 	if (force_flag)
 	{
-		for (auto applier : attachment->att_repl_appliers)
+		for (auto applier : att_repl_appliers)
 			applier->cleanupTransactions(tdbb);
 	}
 
 	unsigned int count = 0;
 	jrd_tra* next;
 
-	for (jrd_tra* transaction = attachment->att_transactions; transaction; transaction = next)
+	for (jrd_tra* transaction = att_transactions; transaction; transaction = next)
 	{
 		next = transaction->tra_next;
-		if (transaction != trans_dbk)
+		if (transaction != trans_dbk && transaction != trans_meta)
 		{
 			if (transaction->tra_flags & TRA_prepared)
 			{
@@ -8253,8 +8255,14 @@ static void purge_transactions(thread_db* tdbb, Jrd::Attachment* attachment, con
 	// If there's a side transaction for db-key scope, get rid of it
 	if (trans_dbk)
 	{
-		attachment->att_dbkey_trans = NULL;
+		att_dbkey_trans = NULL;
 		TRA_commit(tdbb, trans_dbk, false);
+	}
+
+	if (trans_meta)
+	{
+		att_meta_transaction = nullptr;
+		TRA_rollback(tdbb, trans_meta, false, true);
 	}
 }
 
@@ -8433,7 +8441,7 @@ static void purge_attachment(thread_db* tdbb, StableAttachmentPart* sAtt, unsign
 		if (!(dbb->dbb_flags & DBB_bugcheck))
 		{
 			// Check for any pending transactions
-			purge_transactions(tdbb, attachment, nocheckPurge);
+			attachment->purgeTransactions(tdbb, nocheckPurge);
 		}
 	}
 	catch (const Exception&)

@@ -1773,8 +1773,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 
 	if (idx->idx_flags & idx_foreign)
 	{
-		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation,
-			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, idx->idx_primary_relation, CacheFlag::AUTOCREATE);
 		index_id = idx->idx_primary_index;
 		result = check_partner_index(tdbb, relation, record, transaction, idx,
 									 partner_relation, index_id);
