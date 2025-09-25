@@ -25,7 +25,6 @@
 #define JRD_INTL_PROTO_H
 
 #include "../jrd/intl_classes.h"
-// ???????????????? #include "../jrd/HazardPtr.h"
 #include "../common/cvt.h"
 
 namespace Jrd {

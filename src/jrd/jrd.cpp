@@ -691,7 +691,7 @@ namespace
 		if (!statement)
 			status_exception::raise(Arg::Gds(isc_bad_req_handle));
 
-		validateHandle(tdbb, statement->makeRootRequest(tdbb)->req_attachment);		// ????????????????
+		validateHandle(tdbb, statement->makeRootRequest(tdbb)->req_attachment);
 	}
 
 	inline void validateHandle(thread_db* tdbb, DsqlRequest* const statement)

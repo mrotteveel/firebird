@@ -952,7 +952,7 @@ private:
 		fb_assert(reqSize > 0);
 		reqSize = ((reqSize - 1) >> SUBARRAY_SHIFT) + 1;
 
-		Firebird::MutexLockGuard g(objectsGrowMutex, FB_FUNCTION);
+		Firebird::MutexLockGuard g(m_objectsGrowMutex, FB_FUNCTION);
 
 		m_objects.grow(reqSize, false);
 		auto wa = m_objects.writeAccessor();
@@ -1123,7 +1123,6 @@ public:
 					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::NOSCAN);
 					if (listEntry && cmp(ptr))
 					{
-						// Optimize ??????????????
 						if (!(fl & CacheFlag::ERASED))
 							ptr->reload(tdbb, fl);
 						return ptr;
@@ -1266,7 +1265,7 @@ public:
 
 private:
 	Storage m_objects;
-	Firebird::Mutex objectsGrowMutex;
+	Firebird::Mutex m_objectsGrowMutex;
 	EXTEND m_extend;
 };
 

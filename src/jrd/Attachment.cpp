@@ -867,7 +867,7 @@ void Attachment::checkReplSetLock(thread_db* tdbb)
 	}
 }
 
-// Move to database level ???????? !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// Move to database level ? !!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 void Attachment::invalidateReplSet(thread_db* tdbb, bool broadcast)
 {

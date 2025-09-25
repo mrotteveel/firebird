@@ -319,8 +319,6 @@ private:
 	MemoryPool* tra_autonomous_pool;
 	USHORT tra_autonomous_cnt;
 	static const USHORT TRA_AUTONOMOUS_PER_POOL = 64;
-//	??????????????? RollbackCleanup* tra_rb_cleanup = nullptr;
-//	????????????? ULONG tra_next_rb_id = 0;
 
 public:
 	MemoryPool* getAutonomousPool();
@@ -406,27 +404,6 @@ public:
 	}
 
 	void postResources(thread_db* tdbb, const Resources* resources);
-
-/* ??????????????
-	template <class C, typename... P>
-	void postRollbackCleanup(P... args)
-	{
-		RollbackCleanup* newCleanup = FB_NEW_POOL(*tra_pool) C(args...);
-		newCleanup->link(++tra_next_rb_id, &tra_rb_cleanup);
-	}
-
-	void rollbackCleanup(thread_db* tdbb)
-	{
-		auto* tc = tra_rb_cleanup;
-		while (tc)
-			 tc = tc->performCleanup(tdbb, this);
-	}
-
-	void unlinkCleanup(ULONG id)
-	{
-		RollbackCleanup::unlink(&tra_rb_cleanup, id);
-	}
-*/
 };
 
 const int TRA_MASK				= 3;

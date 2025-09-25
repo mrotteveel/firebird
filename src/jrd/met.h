@@ -541,7 +541,7 @@ private:
 	CacheVector<Cached::CharSet>		mdc_charsets;	// intl character set descriptions
 	TriggersSet							mdc_triggers[DB_TRIGGERS_COUNT];
 
-	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums???????????????)
+	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums !!!!!!!!!!!!!!!)
 	CleanupQueue						mdc_cleanup_queue;
 };
 

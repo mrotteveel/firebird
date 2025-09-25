@@ -65,7 +65,6 @@ using namespace Firebird;
 DATABASE DB = STATIC "yachts.lnk";
 
 static void convert_dtype(TypeClause*, SSHORT);
-//static void free_relation(dsql_rel*); ???????????????///
 
 namespace
 {
@@ -431,7 +430,6 @@ bool METD_get_domain(jrd_tra* transaction, TypeClause* field, const MetaName& na
 		field->subType = FLX.RDB$FIELD_SUB_TYPE;
 		field->dimensions = FLX.RDB$DIMENSIONS.NULL ? 0 : FLX.RDB$DIMENSIONS;
 
-		//field->charSetId = Nullable<CSetId>::empty(); ????????????????????
 		field->charSetId = std::nullopt;
 		if (!FLX.RDB$CHARACTER_SET_ID.NULL)
 			field->charSetId = CSetId(FLX.RDB$CHARACTER_SET_ID);
@@ -939,71 +937,4 @@ static void convert_dtype(TypeClause* field, SSHORT field_type)
 		fb_assert(field->dtype != dtype_unknown);
 	}
 }
-
-
-#ifdef NOT_USED_OR_REPLACED
-static void free_procedure(dsql_prc* procedure)
-{
-/**************************************
- *
- *  f r e e _ p r o c e d u r e
- *
- **************************************
- *
- * Functional description
- *  Free memory allocated for a procedure block and params
- *
- **************************************/
-	dsql_fld* param;
-
-	// release the input & output parameter blocks
-
-	for (param = procedure->prc_inputs; param;)
-	{
-		dsql_fld* temp = param;
-		param = param->fld_next;
-		delete temp;
-	}
-
-	for (param = procedure->prc_outputs; param;)
-	{
-		dsql_fld* temp = param;
-		param = param->fld_next;
-		delete temp;
-	}
-
-	// release the procedure & symbol blocks
-
-	delete procedure;
-}
-#endif	// NOT_USED_OR_REPLACED
-
-/* ??????????????????
-static void free_relation(dsql_rel* relation)
-{
- **************************************
- *
- *  f r e e _ r e l a t i o n
- *
- **************************************
- *
- * Functional description
- *  Free memory allocated for a relation block and fields
- *
- **************************************
-
-	// release the field blocks
-
-	for (dsql_fld* field = relation->rel_fields; field;)
-	{
-		dsql_fld* temp = field;
-		field = field->fld_next;
-		delete temp;
-	}
-
-	// release the relation & symbol blocks
-
-	delete relation;
-}
-*/
 

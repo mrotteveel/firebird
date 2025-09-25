@@ -24,7 +24,6 @@
 
 #include "../jrd/vec.h"
 #include <optional>
-// ???????????????????? #include "../jrd/jrd.h"
 #include "../jrd/btr.h"
 #include "../jrd/lck.h"
 #include "../jrd/pag.h"
@@ -130,7 +129,7 @@ public:
 	bool isActive() const;
 
 	void compile(thread_db*);				// Ensure that trigger is compiled
-	void free(thread_db*, bool force);		// Try to free trigger request
+	void free(thread_db*);					// Free trigger request
 
 	explicit Trigger(MemoryPool& p)
 		: blr(p), debugInfo(p), entryPoint(p), extBody(p)

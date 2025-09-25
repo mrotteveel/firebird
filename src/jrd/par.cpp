@@ -1320,10 +1320,9 @@ RseNode* PAR_rse(thread_db* tdbb, CompilerScratch* csb, SSHORT rse_op)
 		case blr_writelock:
 			for (FB_SIZE_T iter = 0; iter < rse->rse_relations.getCount(); ++iter)
 			{
-				const RelationSourceNode* subNode = nodeAs<RelationSourceNode>(rse->rse_relations[iter]);
-				if (!subNode)
+				const RelationSourceNode* relNode = nodeAs<RelationSourceNode>(rse->rse_relations[iter]);
+				if (!relNode)
 					continue;
-				const RelationSourceNode* relNode = static_cast<const RelationSourceNode*>(subNode);		// ?????????????????????????
 				const auto* relation = relNode->relation();
 				fb_assert(relation);
 				if (relation->isVirtual())

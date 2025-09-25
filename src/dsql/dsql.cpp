@@ -862,7 +862,7 @@ static void sql_info(thread_db* tdbb,
 				number = isc_info_sql_stmt_start_trans;
 				break;
 			case DsqlStatement::TYPE_SESSION_MANAGEMENT:
-				number = isc_info_sql_stmt_ddl;		// ?????????????????
+				number = isc_info_sql_stmt_ddl;		// Any better choice ?
 				break;
 			case DsqlStatement::TYPE_INSERT:
 				number = isc_info_sql_stmt_insert;

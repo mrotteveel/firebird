@@ -180,7 +180,7 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 
 	rel->rel_indices.cleanup(tdbb);
 /*
-	// delete by pool ????????????????
+	// delete by pool is broken, needs enhancements in CacheVector
 	auto& pool = rel->getPool();
 	tdbb->getDatabase()->deletePool(&pool);
 
@@ -268,7 +268,7 @@ bool RelationPermanent::isReplicating(thread_db* tdbb)
 	if (!dbb->isReplicating(tdbb))
 		return false;
 
-	Attachment* const attachment = tdbb->getAttachment();		// ??????? Database?
+	Attachment* const attachment = tdbb->getAttachment();		// Database? !!!!!!!!!!!!!!!!!!!!!!
 	attachment->checkReplSetLock(tdbb);
 
 	if (rel_repl_state.isUnknown())
@@ -1026,17 +1026,17 @@ void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 {
 	for (auto t : trigs->triggers)
 	{
-		t->free(tdbb, true);
+		t->free(tdbb);
 		delete t;
 	}
 	trigs->triggers.clear();
 }
 
-void Trigger::free(thread_db* tdbb, bool force)
+void Trigger::free(thread_db* tdbb)
 {
 	extTrigger.reset();
 
-	if (!statement /* ????????????????? || statement->isActive() */|| releaseInProgress)
+	if (releaseInProgress || !statement)
 		return;
 
 	AutoSetRestore<bool> autoProgressFlag(&releaseInProgress, true);
