@@ -59,6 +59,7 @@ private:
 		public:
 			PreciseTime()
 			{
+				memset(&m_time, 0, sizeof(m_time));
 			}
 
 			PreciseTime(TimeType time)
@@ -78,7 +79,7 @@ private:
 			}
 
 		private:
-			TimeType m_time = {};
+			TimeType m_time;
 		};
 
 	public:
