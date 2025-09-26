@@ -155,7 +155,7 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		// versioned metadata support
 		if (csb->csb_g_flags & csb_internal)
 			flags |= FLAG_INTERNAL;
-		loadResources(tdbb, nullptr);
+		loadResources(tdbb, nullptr, false);
 
 		messages.grow(csb->csb_rpt.getCount());
 		for (decltype(messages)::size_type i = 0; i < csb->csb_rpt.getCount(); ++i)
@@ -203,27 +203,38 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 	}
 }
 
-void Statement::loadResources(thread_db* tdbb, Request* req)
+void Statement::loadResources(thread_db* tdbb, Request* req, bool withLock)
 {
 	const MdcVersion currentMdcVersion = MetadataCache::get(tdbb)->getVersion();
-	if ((!latest) || (latest->version != currentMdcVersion))
+	if ((!latestVer) || (latestVer->version != currentMdcVersion))
 	{
-		// Also check for changed streams from known sources
-		if (!streamsFormatCompare(tdbb))
-			ERR_post(Arg::Gds(isc_random) << "Statement format outdated, need to be reprepared");
+		MutexEnsureUnlock guard(lvMutex, FB_FUNCTION);
 
-		// OK, format of data sources remained the same, we can update version of cached objects in current request
-		const FB_SIZE_T resourceCount = latest ? latest->getCapacity() :
-			resources->charSets.getCount() + resources->relations.getCount() + resources->procedures.getCount() +
-			resources->functions.getCount() + resources->triggers.getCount();
+		if (withLock)
+		{
+			fb_assert(req && latestVer);
+			guard.enter();
+		}
 
-		latest = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
-		resources->transfer(tdbb, latest, flags & FLAG_INTERNAL);
+		if ((!withLock) || (latestVer->version != currentMdcVersion))
+		{
+			// Also check for changed streams from known sources
+			if (withLock && !streamsFormatCompare(tdbb))
+				ERR_post(Arg::Gds(isc_random) << "Statement format outdated, need to be reprepared");
+
+			// OK, format of data sources remained the same, we can update version of cached objects in current stmt
+			const FB_SIZE_T resourceCount = latestVer ? latestVer->getCapacity() :
+				resources->charSets.getCount() + resources->relations.getCount() + resources->procedures.getCount() +
+				resources->functions.getCount() + resources->triggers.getCount();
+
+			latestVer = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
+			resources->transfer(tdbb, latestVer, flags & FLAG_INTERNAL);
+		}
 	}
 
-	if (req && req->getResources() != latest)
+	if (req && req->getResources() != latestVer)
 	{
-		req->setResources(latest);
+		req->setResources(latestVer);
 
 		// setup correct jrd_rel pointers in rpbs
 		req->req_rpb.grow(rpbsSetup.getCount());
@@ -231,7 +242,7 @@ void Statement::loadResources(thread_db* tdbb, Request* req)
 		for (FB_SIZE_T n = 0; n < rpbsSetup.getCount(); ++n)
 		{
 			req->req_rpb[n] = rpbsSetup[n];
-			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latest);
+			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latestVer);
 		}
 	}
 }
@@ -398,7 +409,7 @@ Request* Statement::makeRequest(thread_db* tdbb, CompilerScratch* csb, bool inte
 	Statement* statement = makeStatement(tdbb, csb, internalFlag);
 
 	Request* req = statement->getRequest(tdbb, statement->requests.readAccessor(), 0);
-	statement->loadResources(tdbb, req);
+	statement->loadResources(tdbb, req, false);
 
 	return req;
 }
@@ -484,7 +495,7 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 	clone->req_stats.reset();
 	clone->req_base_stats.reset();
 
-	loadResources(tdbb, clone);
+	loadResources(tdbb, clone, true);
 
 	return clone;
 }
@@ -506,7 +517,7 @@ Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g,
 		procedure ? procedure->c_name() : "<not_prc>");
 #endif
 	auto request = FB_NEW_POOL(*reqPool) Request(reqPool, dbb, this);
-	loadResources(tdbb, request);
+	loadResources(tdbb, request, true);
 
 	Request* arrivedRq;
 	{ // mutex scope

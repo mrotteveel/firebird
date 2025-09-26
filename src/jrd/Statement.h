@@ -119,7 +119,7 @@ private:
 	static void triggersExternalAccess(thread_db* tdbb, ExternalAccessList& list, const Triggers& tvec, const MetaName &user);
 	void buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, const MetaName& user);
 
-	void loadResources(thread_db* tdbb, Request* req);
+	void loadResources(thread_db* tdbb, Request* req, bool withLock);
 	bool streamsFormatCompare(thread_db* tdbb);
 
 public:
@@ -154,7 +154,8 @@ public:
 
 private:
 	Resources* resources;				// Resources (relations, routines, etc.)
-	Firebird::RefPtr<VersionedObjects> latest;		// want std::atomic<std::shared_ptr> or mutex is needed !!!!!!!!!!!!!
+	Firebird::RefPtr<VersionedObjects> latestVer;
+	Firebird::Mutex lvMutex;			// Protects upgrade of latestVer
 	Firebird::Array<MessageNode*> messages;	// Input/output messages
 };
 
