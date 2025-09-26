@@ -72,7 +72,7 @@ protected:
 template <typename T, typename Storage = EmptyStorage<T> >
 class Array : public Storage
 {
-// !!!!! temp commemnted out - FastLoadLevel failure	static_assert(std::is_trivially_copyable<T>(), "Only simple (trivially copyable) types supported in array");
+	static_assert(std::is_trivially_copyable<T>(), "Only simple (trivially copyable) types supported in array");
 
 public:
 	typedef FB_SIZE_T size_type;

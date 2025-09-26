@@ -179,7 +179,7 @@ namespace
 
 	struct FastLoadLevel
 	{
-		temporary_key key;
+		temporary_mini_key key;
 		btree_page* bucket;
 		win_for_array window;
 		ULONG splitPage;
@@ -189,7 +189,7 @@ namespace
 		USHORT totalJumpSize;
 		IndexNode levelNode;
 		JumpNodeList* jumpNodes;
-		temporary_key jumpKey;
+		temporary_mini_key jumpKey;
 	};
 
 	inline int indexCacheState(thread_db* tdbb, TraNumber descTrans, Cached::Relation* rel, MetaId idxId, bool creating)
@@ -225,7 +225,7 @@ static ULONG add_node(thread_db*, WIN*, index_insertion*, temporary_key*, Record
 static void compress(thread_db*, const dsc*, const SSHORT scale, temporary_key*,
 					 USHORT, bool, USHORT, bool*);
 static USHORT compress_root(thread_db*, index_root_page*);
-static void copy_key(const temporary_key*, temporary_key*);
+static void copy_key(const temporary_mini_key*, temporary_mini_key*);
 static contents delete_node(thread_db*, WIN*, UCHAR*);
 static void delete_tree(thread_db*, MetaId, MetaId, PageNumber, PageNumber);
 static ULONG fast_load(thread_db*, IndexCreation&, SelectivityList&);
@@ -3878,7 +3878,7 @@ static USHORT compress_root(thread_db* tdbb, index_root_page* page)
 }
 
 
-static void copy_key(const temporary_key* in, temporary_key* out)
+static void copy_key(const temporary_mini_key* in, temporary_mini_key* out)
 {
 /**************************************
  *
@@ -4382,7 +4382,7 @@ static ULONG fast_load(thread_db* tdbb,
 		win_for_array split_window;
 		split_window.win_page.setPageSpaceID(pageSpaceID);
 
-		temporary_key split_key, temp_key;
+		temporary_mini_key split_key, temp_key;
 		split_key.key_flags = 0;
 		split_key.key_length = 0;
 		temp_key.key_flags = 0;
@@ -4418,9 +4418,9 @@ static ULONG fast_load(thread_db* tdbb,
 			bucket = leafLevel->bucket;
 			leafLevel->splitPage = 0;
 
-			temporary_key* const leafKey = &leafLevel->key;
+			temporary_mini_key* const leafKey = &leafLevel->key;
 			JumpNodeList* const leafJumpNodes = leafLevel->jumpNodes;
-			temporary_key* const leafJumpKey = &leafLevel->jumpKey;
+			temporary_mini_key* const leafJumpKey = &leafLevel->jumpKey;
 
 			// Compute the prefix as the length in common with the previous record's key.
 			USHORT prefix =
@@ -4728,8 +4728,8 @@ static ULONG fast_load(thread_db* tdbb,
 					currLevel->newAreaPointer = levelPointer + jumpAreaSize;
 				}
 
-				temporary_key* const pageKey = &currLevel->key;
-				temporary_key* const pageJumpKey = &currLevel->jumpKey;
+				temporary_mini_key* const pageKey = &currLevel->key;
+				temporary_mini_key* const pageJumpKey = &currLevel->jumpKey;
 				JumpNodeList* const pageJumpNodes = currLevel->jumpNodes;
 
 				// Compute the prefix in preparation of insertion

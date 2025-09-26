@@ -180,13 +180,17 @@ const int key_empty		= 1;	// Key contains empty data / empty string
 
 // Temporary key block
 
-struct temporary_key
+struct temporary_mini_key
 {
 	USHORT key_length;
 	UCHAR key_data[MAX_KEY + 1];
 	UCHAR key_flags;
 	USHORT key_nulls;	// bitmap of encountered null segments,
 						// USHORT is enough to store MAX_INDEX_SEGMENTS bits
+};
+
+struct temporary_key : public temporary_mini_key
+{
 	Firebird::AutoPtr<temporary_key> key_next;	// next key (INTL_KEY_MULTI_STARTING)
 };
 
