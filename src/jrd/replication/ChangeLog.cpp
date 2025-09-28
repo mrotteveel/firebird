@@ -66,9 +66,9 @@ using namespace Replication;
 
 namespace
 {
-	const unsigned FLUSH_WAIT_INTERVAL = 1; // milliseconds
+	const unsigned FLUSH_WAIT_INTERVAL = 1; 	// milliseconds
 
-	const unsigned NO_SPACE_TIMEOUT = 10;	// seconds
+	const unsigned NO_SPACE_TIMEOUT = 10000;	// milliseconds
 	const unsigned NO_SPACE_RETRIES = 6;		// up to one minute
 
 	const unsigned COPY_BLOCK_SIZE = 64 * 1024; // 64 KB
