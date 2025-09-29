@@ -1095,7 +1095,8 @@ void DPM_delete_relation( thread_db* tdbb, RelationPermanent* relation)
 
 	// Next, cancel out stuff from RDB$PAGES
 
-	AutoRequest handle;
+	static const CachedRequestId requestCacheId;
+	AutoCacheRequest handle(tdbb, requestCacheId);
 
 	FOR(REQUEST_HANDLE handle) X IN RDB$PAGES WITH
 		X.RDB$RELATION_ID EQ relation->getId()

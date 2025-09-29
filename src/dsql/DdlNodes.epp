@@ -6121,7 +6121,19 @@ RelationNode::RelationNode(MemoryPool& p, RelationSourceNode* aDsqlNode)
 
 bool RelationNode::checkDeletedId(thread_db* tdbb, MetaId& relId)
 {
-	// To be done !!!!!!!!!!!!!!!!!!
+	// Check for presence of pages belonging to that relation.
+	static const CachedRequestId requestCacheId;
+	AutoCacheRequest request(tdbb, requestCacheId);
+	Attachment* attachment = tdbb->getAttachment();
+
+	FOR (REQUEST_HANDLE request)
+		P IN RDB$PAGES WITH
+        P.RDB$RELATION_ID EQ relId
+	{
+		return false;
+	}
+	END_FOR
+
 	return true;
 }
 
@@ -6162,7 +6174,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 		MetaId startId = D.RDB$RELATION_ID;
 		MetaId stopId = MAX_RELATION_ID + 1;
 
-//printf("suggest %d %s...", startId, name.c_str()); fflush(stdout);
+// !!!!!!!! printf("suggest %d %s...", startId, name.c_str()); fflush(stdout);
 
 		for(;;)
 		{
@@ -6199,7 +6211,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 					D.RDB$RELATION_ID = relId + 1;
 				END_MODIFY
 
-//printf(" %d\n", relId); fflush(stdout);
+// !!!!!!!! printf(" %d\n", relId); fflush(stdout);
 				return relId;
 			}
 
@@ -6212,7 +6224,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 	}
 	END_FOR
 
-//printf("\n"); fflush(stdout);
+// !!!!!!!! printf("\n"); fflush(stdout);
 	ERR_post(Arg::Gds(isc_no_meta_update) <<
 			 Arg::Gds(isc_table_name) << Arg::Str(name) <<
 			 Arg::Gds(isc_imp_exc));
@@ -10051,15 +10063,10 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 			ERASE X;
 		}
 		END_FOR
-/*
-		// Release relation locks				.... only when deleted !!!!!!!!!!!!!!!
-		if (relation->rel_partners_lock) {
-			LCK_release(tdbb, relation->rel_partners_lock);
-		}
 
-		// Release relation triggers
-		relation->releaseTriggers(tdbb, true);
-*/
+		// Release relation locks
+		if (relation->rel_partners_lock)
+			LCK_release(tdbb, relation->rel_partners_lock);
 	}
 	catch(const Exception&)
 	{
