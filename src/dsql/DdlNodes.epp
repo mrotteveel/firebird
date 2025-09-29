@@ -11025,7 +11025,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
  *
  **************************************/
 	AutoCacheRequest request;
-	jrd_rel* relation = rel->getObject(tdbb, CacheFlag::AUTOCREATE);
+	jrd_rel* relation = rel->getVersioned(tdbb, CacheFlag::AUTOCREATE);
 	if (!relation)
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
@@ -11317,7 +11317,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 
 	SET_TDBB(tdbb);
 
-	jrd_rel* relation = rel->getObject(tdbb, CacheFlag::AUTOCREATE);
+	jrd_rel* relation = rel->getVersioned(tdbb, CacheFlag::AUTOCREATE);
 	if (!relation)
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<

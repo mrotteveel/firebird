@@ -171,11 +171,11 @@ public:
 
 	// find appropriate object in cache
 	template <typename Permanent>
-	static Versioned* getObject(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans,
+	static Versioned* getVersioned(thread_db* tdbb, HazardPtr<ListEntry>& listEntry, TraNumber currentTrans,
 		ObjectBase::Flag fl, Permanent* permanent)
 	{
 		auto entry = getEntry(tdbb, listEntry, currentTrans, fl, permanent);
-		return entry ? entry->getObject() : nullptr;
+		return entry ? entry->getVersioned() : nullptr;
 	}
 
 	// find appropriate entry in cache
@@ -236,7 +236,7 @@ public:
 		return cacheFlags.load(atomics::memory_order_relaxed);
 	}
 
-	Versioned* getObject()
+	Versioned* getVersioned()
 	{
 		return object;
 	}
@@ -591,10 +591,6 @@ public:
 		ptrToClean = clearPtr;
 	}
 
-private:
-
-
-public:
 	void reload(thread_db* tdbb, ObjectBase::Flag fl)
 	{
 		HazardPtr<ListEntry<Versioned>> listEntry(list);
@@ -602,15 +598,15 @@ public:
 		if (listEntry)
 		{
 			fl &= ~CacheFlag::AUTOCREATE;
-			Versioned* obj = ListEntry<Versioned>::getObject(tdbb, listEntry, cur, fl, this);
+			Versioned* obj = ListEntry<Versioned>::getVersioned(tdbb, listEntry, cur, fl, this);
 			if (obj)
 				listEntry->scan(tdbb, fl, this);
 		}
 	}
 
-	Versioned* getObject(thread_db* tdbb, ObjectBase::Flag fl)
+	Versioned* getVersioned(thread_db* tdbb, ObjectBase::Flag fl)
 	{
-		return getObject(tdbb, TransactionNumber::current(tdbb), fl);
+		return getVersioned(tdbb, TransactionNumber::current(tdbb), fl);
 	}
 
 	bool isReady(thread_db* tdbb)
@@ -656,10 +652,10 @@ public:
 		return entry ? entry->getFlags() : 0;
 	}
 
-	Versioned* getObject(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
+	Versioned* getVersioned(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
 	{
 		auto entry = getEntry(tdbb, traNum, fl);
-		return entry ? entry->getObject() : nullptr;
+		return entry ? entry->getVersioned() : nullptr;
 	}
 
 	HazardPtr<ListEntry<Versioned>> getEntry(thread_db* tdbb, TraNumber traNum, ObjectBase::Flag fl)
@@ -724,7 +720,7 @@ public:
 		if (!listEntry)
 			return nullptr;
 
-		return ListEntry<Versioned>::getObject(tdbb, listEntry, MAX_TRA_NUMBER, 0);
+		return ListEntry<Versioned>::getVersioned(tdbb, listEntry, MAX_TRA_NUMBER, 0);
 	}
 
 	bool hasEntries() const
@@ -840,7 +836,7 @@ public:
 
 		if (storeObject(tdbb, nullptr, CacheFlag::ERASED | CacheFlag::NOCOMMIT) == StoreResult::DUP)
 		{
-			Versioned* oldObj = getObject(tdbb, 0);
+			Versioned* oldObj = getVersioned(tdbb, 0);
 			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
 		}
 
@@ -996,7 +992,7 @@ public:
 		return getCount(m_objects.readAccessor());
 	}
 
-	Versioned* getObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
+	Versioned* getVersioned(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 
 //		In theory that should be endless cycle - object may arrive/disappear again and again.
@@ -1021,7 +1017,7 @@ public:
 						continue;
 					}
 
-					return data->getObject(tdbb, fl);
+					return data->getVersioned(tdbb, fl);
 				}
 			}
 

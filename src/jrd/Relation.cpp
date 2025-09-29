@@ -541,7 +541,7 @@ void RelationPermanent::RelPagesSnapshot::clear()
 
 IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
-	return rel_indices.getObject(tdbb, id, flags);
+	return rel_indices.getVersioned(tdbb, id, flags);
 }
 
 
@@ -978,8 +978,6 @@ void RelationPages::free(RelationPages*& nextFree)
 void jrd_rel::destroy(thread_db* tdbb, jrd_rel* rel)
 {
     rel->releaseTriggers(tdbb, true);
-
-	// A lot more things to do !!!!!!!!!!!!!!!!
 
 	delete rel;
 }

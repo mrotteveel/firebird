@@ -777,7 +777,7 @@ public:
 
 	void oldIndexVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
-		auto chk = rel_indices.getObject(tdbb, id, CacheFlag::AUTOCREATE | scanType);
+		auto chk = rel_indices.getVersioned(tdbb, id, CacheFlag::AUTOCREATE | scanType);
 		fb_assert(chk);
 	}
 

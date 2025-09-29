@@ -33,3 +33,11 @@ void Resources::transfer(thread_db* tdbb, VersionedObjects* to, bool internal)
 Resources::~Resources()
 { }
 
+template <>
+jrd_rel* CachedResource<jrd_rel, RelationPermanent>::operator()(thread_db* tdbb) const
+{
+	if (!cacheElement)
+		return nullptr;
+
+	return cacheElement->getVersioned(tdbb, cacheElement->isSystem() ? CacheFlag::NOSCAN : 0);
+}

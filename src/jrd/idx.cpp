@@ -79,7 +79,6 @@ static bool cmpRecordKeys(thread_db*, Record*, jrd_rel*, index_desc*, Record*, j
 static bool duplicate_key(const UCHAR*, const UCHAR*, void*);
 static PageNumber get_root_page(thread_db*, Cached::Relation*);
 static idx_e insert_key(thread_db*, jrd_rel*, Record*, jrd_tra*, WIN *, index_insertion*, IndexErrorContext&);
-static void signal_index_deletion(thread_db*, RelationPermanent*, USHORT);
 
 
 void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* view, Cached::Relation* relation)
@@ -968,7 +967,7 @@ void IDX_create_index(thread_db* tdbb,
 
 void IDX_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 {
-	// loop through pagespaces and activate !!!!!!!!!!!!!!!!!!
+	// loop through pagespaces and activate %%%%%%
 	// if ((relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0))
 
 	BTR_activate_index(tdbb, relation, id);
@@ -989,13 +988,11 @@ void IDX_mark_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
  **************************************/
 	SET_TDBB(tdbb);
 
-	signal_index_deletion(tdbb, relation, id);
-
 	auto* relPages = relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
-	// loop through pagespaces and mark for delete !!!!!!!!!!!!!!!!!!
+	// loop through pagespaces and mark for delete %%%%%%
 	// if ((relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0))
 
 	BTR_mark_index_for_delete(tdbb, relation, id, &window, root);
@@ -1021,7 +1018,7 @@ void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPa
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
-	// loop through pagespaces and mark for delete !!!!!!!!!!!!!!!!!!
+	// loop through pagespaces and mark for delete %%%%%%
 	// if ((relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0))
 
 	for (USHORT i = 0; i < root->irt_count; i++)
@@ -1055,7 +1052,7 @@ void IDX_mark_indices(thread_db* tdbb, Cached::Relation* relation)
 	WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 
-	// loop through pagespaces and mark for delete !!!!!!!!!!!!!!!!!!
+	// loop through pagespaces and mark for delete %%%%%%
 	// if ((relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0))
 
 	for (USHORT i = 0; i < root->irt_count; i++)
@@ -2054,29 +2051,3 @@ static idx_e insert_key(thread_db* tdbb,
 }
 
 
-static void signal_index_deletion(thread_db* tdbb, RelationPermanent* relation, USHORT id)
-{
-/**************************************
- *
- *	s i g n a l _ i n d e x _ d e l e t i o n
- *
- **************************************
- *
- * Functional description
- *	On delete of an index, force all
- *	processes to get rid of index info.
- *
- **************************************/
-/* !!!!!!!!!!!!!!!!!!!!!!!!
-	Lock* lock = NULL;
-	SET_TDBB(tdbb);
-
-	// signal other processes to clear out the index block
-	if (lock->lck_physical == LCK_SR) {
-		LCK_convert(tdbb, lock, LCK_EX, LCK_WAIT);
-	}
-	else {
-		LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
-	}
- */
-}

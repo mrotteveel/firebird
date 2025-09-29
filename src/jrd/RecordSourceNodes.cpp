@@ -980,7 +980,7 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 
 	auto* jrdRel = relationView(tdbb);
 	if (!jrdRel)
-		fatal_exception::raiseFmt("Relation '%s' unavailable", relationView() ? relationView()->c_name() : "<noname>");	// !!!!!!!!!!!
+		fatal_exception::raiseFmt("Relation '%s' unavailable", relationView() ? relationView()->c_name() : "<noname>");
 
 	RseNode* viewRse = relationView(tdbb)->rel_view_rse;
 	if (!viewRse)

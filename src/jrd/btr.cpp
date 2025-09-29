@@ -211,7 +211,7 @@ namespace
 			if (!iperm)
 				return false;
 
-			auto* ivar = iperm->getObject(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE);
+			auto* ivar = iperm->getVersioned(tdbb, MAX_TRA_NUMBER, CacheFlag::AUTOCREATE);
 			return ivar && ivar->getActive() == MET_index_active;
 		};
 

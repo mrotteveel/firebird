@@ -4139,7 +4139,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 						if (relation->isAvailable(tdbb) == Cached::Relation::MODIFIED)
 							relation->commit(tdbb);
 
-						auto* rel = relation->getObject(tdbb, 0);
+						auto* rel = relation->getVersioned(tdbb, 0);
 
 						MemoryPool* new_pool = dbb->createPool(ALLOC_ARGS0);
 						TrigArray triggers(*new_pool);

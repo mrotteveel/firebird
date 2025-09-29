@@ -264,12 +264,12 @@ public:
 
 	Function* getFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 	{
-		return mdc_functions.getObject(tdbb, id, flags);
+		return mdc_functions.getVersioned(tdbb, id, flags);
 	}
 
 	jrd_prc* getProcedure(thread_db* tdbb, MetaId id)
 	{
-		return mdc_procedures.getObject(tdbb, id, CacheFlag::AUTOCREATE);
+		return mdc_procedures.getVersioned(tdbb, id, CacheFlag::AUTOCREATE);
 	}
 
 	static Cached::CharSet* getCharSet(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
@@ -364,7 +364,7 @@ public:
 	static C* oldVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
 		auto& vector = Vector<C>::get(getCache(tdbb));
-		auto* vrsn = vector.getObject(tdbb, id, CacheFlag::AUTOCREATE | scanType);
+		auto* vrsn = vector.getVersioned(tdbb, id, CacheFlag::AUTOCREATE | scanType);
 		return vrsn ? getPermanent(vrsn) : nullptr;
 	}
 

@@ -147,7 +147,7 @@ public:
 
 	OBJ* operator()(thread_db* tdbb) const
 	{
-		return cacheElement ? cacheElement->getObject(tdbb, CacheFlag::NOSCAN/*!!!!!!!!!!!!!!!!!!!*/) : nullptr;
+		return cacheElement ? cacheElement->getVersioned(tdbb, 0) : nullptr;
 	}
 
 	CacheElement<OBJ, PERM>* operator()() const
@@ -184,6 +184,9 @@ private:
 	CacheElement<OBJ, PERM>* cacheElement;
 	FB_SIZE_T versionOffset;
 };
+
+template <>
+jrd_rel* CachedResource<jrd_rel, RelationPermanent>::operator()(thread_db* tdbb) const;
 
 
 class Resources final
@@ -222,7 +225,7 @@ public:
 		{
 			for (auto& resource : *this)
 			{
-				to->put(resource.getOffset(), resource()->getObject(tdbb,
+				to->put(resource.getOffset(), resource()->getVersioned(tdbb,
 					internal ? CacheFlag::NOSCAN : CacheFlag::AUTOCREATE));
 			}
 		}

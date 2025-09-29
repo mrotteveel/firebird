@@ -2362,7 +2362,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 	auto* proc = mdc->mdc_procedures.lookup(tdbb,
 		[name] (Cached::Procedure* proc) { return proc->getName() == name; }, flags);
 	if (proc)
-		return proc->getObject(tdbb, flags);
+		return proc->getVersioned(tdbb, flags);
 
 	if (!(flags & CacheFlag::AUTOCREATE))
 		return nullptr;
@@ -2380,7 +2380,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 			 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
 		fb_assert(!procedure);
-		procedure = mdc->mdc_procedures.getObject(tdbb, P.RDB$PROCEDURE_ID, flags);
+		procedure = mdc->mdc_procedures.getVersioned(tdbb, P.RDB$PROCEDURE_ID, flags);
 	}
 	END_FOR
 
@@ -2404,7 +2404,7 @@ jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBa
 	Attachment* attachment = tdbb->getAttachment();
 	MetadataCache* mdc = MetadataCache::get(tdbb);
 
-	return mdc->mdc_procedures.getObject(tdbb, id, flags);
+	return mdc->mdc_procedures.getVersioned(tdbb, id, flags);
 }
 
 
@@ -2431,7 +2431,7 @@ Function* MetadataCache::lookup_function(thread_db* tdbb, const QualifiedName& n
 	auto* func = mdc->mdc_functions.lookup(tdbb,
 		[name] (Cached::Function* func) { return func->getName() == name; }, flags);
 	if (func)
-		return func->getObject(tdbb, flags);
+		return func->getVersioned(tdbb, flags);
 
 	if (!(flags & CacheFlag::AUTOCREATE))
 		return nullptr;
@@ -2475,7 +2475,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName&
 	FOR(REQUEST_HANDLE request)
 		X IN RDB$RELATIONS WITH X.RDB$RELATION_NAME EQ name.c_str()
 	{
-		if (auto* relVers = mdc->mdc_relations.getObject(tdbb, X.RDB$RELATION_ID, flags))
+		if (auto* relVers = mdc->mdc_relations.getVersioned(tdbb, X.RDB$RELATION_ID, flags))
 			rc = relVers->rel_perm;
 	}
 	END_FOR
@@ -2502,7 +2502,7 @@ jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name, O
 	if (!perm)
 		return nullptr;
 
-	return MetadataCache::get(tdbb)->mdc_relations.getObject(tdbb, perm->getId(), flags);
+	return MetadataCache::get(tdbb)->mdc_relations.getVersioned(tdbb, perm->getId(), flags);
 }
 
 
@@ -2520,7 +2520,7 @@ jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, MetaId id, ObjectBas
  **************************************/
 	SET_TDBB(tdbb);
 
-	return MetadataCache::get(tdbb)->mdc_relations.getObject(tdbb, id, flags);
+	return MetadataCache::get(tdbb)->mdc_relations.getVersioned(tdbb, id, flags);
 }
 
 
@@ -2528,7 +2528,7 @@ CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, CSetId id, ObjectBas
 {
 	SET_TDBB(tdbb);
 
-	return MetadataCache::get(tdbb)->mdc_charsets.getObject(tdbb, id, flags);
+	return MetadataCache::get(tdbb)->mdc_charsets.getVersioned(tdbb, id, flags);
 }
 
 
@@ -2622,7 +2622,7 @@ jrd_prc* MetadataCache::findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Fl
  **************************************/
 	SET_TDBB(tdbb);
 
-	return MetadataCache::get(tdbb)->mdc_procedures.getObject(tdbb, id, flags);
+	return MetadataCache::get(tdbb)->mdc_procedures.getVersioned(tdbb, id, flags);
 }
 
 jrd_prc* jrd_prc::create(thread_db* tdbb, MemoryPool&, Cached::Procedure* perm)
@@ -3940,7 +3940,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 				 AND T.RDB$FIELD_NAME EQ "RDB$CHARACTER_SET_NAME"
 				 AND T.RDB$TYPE EQ CS.RDB$CHARACTER_SET_ID
 			{
-				csVer = mdc_charsets.getObject(tdbb, CS.RDB$CHARACTER_SET_ID, CacheFlag::AUTOCREATE);
+				csVer = mdc_charsets.getVersioned(tdbb, CS.RDB$CHARACTER_SET_ID, CacheFlag::AUTOCREATE);
 				cs = csVer->getContainer();
 			}
 			END_FOR
@@ -3956,7 +3956,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
 		}
 
 		if (!csVer)
-			csVer = cs->getObject(tdbb, CacheFlag::AUTOCREATE);
+			csVer = cs->getVersioned(tdbb, CacheFlag::AUTOCREATE);
 		Collation* coll = csVer->getCollation((const char*)collation);
 
 		if (!coll)
@@ -4409,13 +4409,13 @@ void MET_store_dependencies(thread_db* tdbb,
 				const SSHORT fld_id = (SSHORT) dependency.subNumber;
 				if (relation)
 				{
-					const jrd_fld* field = MET_get_field(relation->getObject(tdbb, CacheFlag::AUTOCREATE), fld_id);
+					const jrd_fld* field = MET_get_field(relation->getVersioned(tdbb, CacheFlag::AUTOCREATE), fld_id);
 					if (field)
 						field_name = field->fld_name;
 				}
 				else if (procedure)
 				{
-					const Parameter* param = procedure->getObject(tdbb, CacheFlag::AUTOCREATE)->getOutputFields()[fld_id];
+					const Parameter* param = procedure->getVersioned(tdbb, CacheFlag::AUTOCREATE)->getOutputFields()[fld_id];
 					// CVC: Setting the field var here didn't make sense alone,
 					// so I thought the missing code was to try to extract
 					// the field name that's in this case an output var from a proc.
@@ -4634,7 +4634,7 @@ void MetadataCache::runDBTriggers(thread_db* tdbb, TriggerAction action)
 	if (!element)
 		return;
 
-	auto *triggers = element->getObject(tdbb, CacheFlag::AUTOCREATE);
+	auto *triggers = element->getVersioned(tdbb, CacheFlag::AUTOCREATE);
 	if ((!triggers) || (!*triggers))
 		return;
 
@@ -4676,8 +4676,6 @@ void MetadataCache::releaseRelations(thread_db* tdbb)
 			auto* ext = relation->getExtFile();
 			if (ext)
 				ext->release();
-
-			// !!!!!!!!!!!
 		}
 	}
 }
@@ -4753,7 +4751,7 @@ Cached::Triggers* MetadataCache::getTriggersSet(thread_db* tdbb, MetaId triggerI
 const Triggers* MetadataCache::getTriggers(thread_db* tdbb, MetaId triggerId)
 {
 	auto* tset = getTriggersSet(tdbb, triggerId);
-	return tset ? tset->getObject(tdbb, CacheFlag::AUTOCREATE) : nullptr;
+	return tset ? tset->getVersioned(tdbb, CacheFlag::AUTOCREATE) : nullptr;
 }
 
 void Trigger::compile(thread_db* tdbb)
@@ -4838,7 +4836,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, Obje
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
 
-	if (auto* rel = mdc->mdc_relations.getObject(tdbb, id, flags))
+	if (auto* rel = mdc->mdc_relations.getVersioned(tdbb, id, flags))
 		rc = rel->rel_perm;
 
 	return rc;
@@ -4875,7 +4873,7 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const Qualifi
 		WITH P.RDB$PROCEDURE_NAME EQ name.identifier.c_str() AND
 			 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
-		if (auto* prc = mdc->mdc_procedures.getObject(tdbb, P.RDB$PROCEDURE_ID, flags))
+		if (auto* prc = mdc->mdc_procedures.getVersioned(tdbb, P.RDB$PROCEDURE_ID, flags))
 			rc = prc->getPermanent();
 	}
 	END_FOR
@@ -4908,7 +4906,7 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, MetaId id, Obje
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
 
-	if (auto* fun = mdc->mdc_functions.getObject(tdbb, id, flags))
+	if (auto* fun = mdc->mdc_functions.getVersioned(tdbb, id, flags))
 		rc = fun->getPermanent();
 
 	return rc;
@@ -4923,7 +4921,7 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, Ob
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
 
-	if (auto* prc = mdc->mdc_procedures.getObject(tdbb, id, flags))
+	if (auto* prc = mdc->mdc_procedures.getVersioned(tdbb, id, flags))
 		rc = prc->getPermanent();
 
 	return rc;
@@ -4938,7 +4936,7 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 	if (rc || !(flags & CacheFlag::AUTOCREATE))
 		return rc;
 
-	if (auto* cs = mdc->mdc_charsets.getObject(tdbb, id, flags))
+	if (auto* cs = mdc->mdc_charsets.getVersioned(tdbb, id, flags))
 		rc = cs->getContainer();
 
 	return rc;
@@ -5099,7 +5097,7 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 		{
 			if (idp->getName() == name)
 			{
-				auto* idv = idp->getObject(tdbb, flags);
+				auto* idv = idp->getVersioned(tdbb, flags);
 				if (idv && idv->getName() == name)
 					return idp;
 			}
@@ -5108,7 +5106,7 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 		flags);
 
 	if (idp)
-		return idp->getObject(tdbb, flags);
+		return idp->getVersioned(tdbb, flags);
 	if (!(flags & CacheFlag::AUTOCREATE))
 		return nullptr;
 
@@ -5121,7 +5119,7 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 			AND IDX.RDB$RELATION_NAME EQ c_name()
 	{
 		if (!idv)
-			idv = rel_indices.getObject(tdbb, IDX.RDB$INDEX_ID - 1, flags);
+			idv = rel_indices.getVersioned(tdbb, IDX.RDB$INDEX_ID - 1, flags);
 		else
 			fb_assert(false);
 	}
@@ -5156,7 +5154,7 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 	{
 		if (!idp)
 		{
-			if (auto* idv = rel_indices.getObject(tdbb, IDX.RDB$INDEX_ID - 1, flags))
+			if (auto* idv = rel_indices.getVersioned(tdbb, IDX.RDB$INDEX_ID - 1, flags))
 				idp = getPermanent(idv);
 		}
 		else
