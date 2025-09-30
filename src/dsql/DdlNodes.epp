@@ -6158,7 +6158,7 @@ bool RelationNode::checkIdRange(thread_db* tdbb, MetaId& relId, const MetaId exi
 // or wraparound of the next relation ID. Keep looking for a
 // usable relation ID until the search space is exhausted.
 
-// Check correctness when ID turns over MAX_RELATION_ID !!!!!!!!!!!!!!!!
+// Check correctness when ID turns over MAX_RELATION_ID !!!!!!
 
 MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 {
@@ -6174,7 +6174,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 		MetaId startId = D.RDB$RELATION_ID;
 		MetaId stopId = MAX_RELATION_ID + 1;
 
-// !!!!!!!! printf("suggest %d %s...", startId, name.c_str()); fflush(stdout);
+// !!!!!! printf("suggest %d %s...", startId, name.c_str()); fflush(stdout);
 
 		for(;;)
 		{
@@ -6211,7 +6211,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 					D.RDB$RELATION_ID = relId + 1;
 				END_MODIFY
 
-// !!!!!!!! printf(" %d\n", relId); fflush(stdout);
+// !!!!!! printf(" %d\n", relId); fflush(stdout);
 				return relId;
 			}
 
@@ -6224,7 +6224,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 	}
 	END_FOR
 
-// !!!!!!!! printf("\n"); fflush(stdout);
+// !!!!!! printf("\n"); fflush(stdout);
 	ERR_post(Arg::Gds(isc_no_meta_update) <<
 			 Arg::Gds(isc_table_name) << Arg::Str(name) <<
 			 Arg::Gds(isc_imp_exc));
@@ -8083,7 +8083,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 
 		if (!null_view)
 			MET_delete_dependencies(tdbb, relName, obj_view);
-/*	// !!!!!!!!!!!!!!  commented in order to get first of all working create table
+/*	// !!!!!!  commented in order to get first of all working create table
 		{ // begin scope
 			const DeferredWork* arg = work->findArg(dfw_arg_force_computed);
 			if (arg)
