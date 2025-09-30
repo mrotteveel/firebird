@@ -2689,7 +2689,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				getPermanent()->owner = P.RDB$OWNER_NAME;
 
 			if (ssDefiner.asBool())
-				invoker = attachment->getUserId(getPermanent()->owner);
+				invoker = dbb->getUserId(getPermanent()->owner);
 
 			setImplemented(true);
 			setDefined(true);
@@ -3711,7 +3711,7 @@ static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 					  name, type, flags, engine, entryPoint, body, ssDefiner);
 }
 
-/* !!!!!!!!!!!!!!!!!!!!
+/* !!!!!!!!!!!!!!!!!!!! kkep it commented - looks like HEAD has new uses of this function
 static bool get_type(thread_db* tdbb, USHORT* id, const UCHAR* name, const TEXT* field)
 {
  **************************************
@@ -4821,7 +4821,7 @@ void Trigger::compile(thread_db* tdbb)
 	statement->triggerName = name;
 
 	if (ssDefiner.asBool())
-		statement->triggerInvoker = att->getUserId(owner);
+		statement->triggerInvoker = dbb->getUserId(owner);
 
 	if (flags & TRG_ignore_perm)
 		statement->flags |= Statement::FLAG_IGNORE_PERM;

@@ -507,8 +507,6 @@ public:
 	Attachment*	att_next;					// Next attachment to database
 	UserId*		att_user;					// User identification
 	UserId*		att_ss_user;				// User identification for SQL SECURITY actual user
-	Firebird::GenericMap<Firebird::Pair<Firebird::Left<
-		Firebird::MetaString, UserId*> > > att_user_ids;	// set of used UserIds
 	jrd_tra*	att_transactions;			// Transactions belonging to attachment
 	jrd_tra*	att_dbkey_trans;			// transaction to control db-key scope
 	TraNumber	att_oldest_snapshot;		// GTT's record versions older than this can be garbage-collected

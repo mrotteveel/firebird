@@ -138,7 +138,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 			}
 
 			if (ssDefiner.asBool())
-				invoker = attachment->getUserId(getPermanent()->owner);	// !!!!!!!!!!!!!!!!!!!!!!!!
+				invoker = dbb->getUserId(getPermanent()->owner);
 
 			size_t count = 0;
 			ULONG length = 0;

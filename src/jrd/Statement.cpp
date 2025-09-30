@@ -265,6 +265,7 @@ Statement* Statement::makeStatement(thread_db* tdbb, CompilerScratch* csb, bool 
 	const auto dbb = tdbb->getDatabase();
 	fb_assert(dbb);
 
+#ifdef DEV_BUILD
 	MemoryPool* defPool = tdbb->getDefaultPool();
 	for (FB_SIZE_T i = 1; i < dbb->dbb_pools.getCount(); ++i)
 	{
@@ -273,6 +274,7 @@ Statement* Statement::makeStatement(thread_db* tdbb, CompilerScratch* csb, bool 
 	}
 	fb_assert(!"wrong pool in makeStatement");
 found:
+#endif
 
 	const auto attachment = tdbb->getAttachment();
 

@@ -197,7 +197,6 @@ Jrd::Attachment::Attachment(MemoryPool* pool, Database* dbb, JProvider* provider
 	  att_database(dbb),
 	  att_user(nullptr),
 	  att_ss_user(nullptr),
-	  att_user_ids(*pool),
 	  att_active_snapshots(*pool),
 	  att_statements(*pool),
 	  att_requests(*pool),
@@ -847,14 +846,7 @@ UserId* Attachment::getUserId(const MetaString& userName)
 	if (att_user && att_user->getUserName() == userName)
 		return att_user;
 
-	UserId* result = NULL;
-	if (!att_user_ids.get(userName, result))
-	{
-		result = FB_NEW_POOL(*att_pool) UserId(*att_pool);
-		result->setUserName(userName);
-		att_user_ids.put(userName, result);
-	}
-	return result;
+	return att_database->getUserId(userName);
 }
 
 void Attachment::checkReplSetLock(thread_db* tdbb)

@@ -770,7 +770,8 @@ namespace Jrd
 		dbb_replica_mode(REPLICA_NONE),
 		dbb_compatibility_index(~0U),
 		dbb_dic(*p),
-		dbb_mdc(FB_NEW_POOL(*p) MetadataCache(*p))
+		dbb_mdc(FB_NEW_POOL(*p) MetadataCache(*p)),
+		dbb_user_ids(*p)
 	{
 		dbb_pools.add(p);
 
@@ -828,5 +829,18 @@ namespace Jrd
 				stmt->release(tdbb);
 		}
 	}
+
+	UserId* Database::getUserId(const MetaString& userName)
+	{
+		UserId* result = NULL;
+		if (!dbb_user_ids.get(userName, result))
+		{
+			result = FB_NEW_POOL(*dbb_permanent) UserId(*dbb_permanent);
+			result->setUserName(userName);
+			dbb_user_ids.put(userName, result);
+		}
+		return result;
+	}
+
 
 } // namespace

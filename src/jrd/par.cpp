@@ -224,7 +224,6 @@ DmlNode* PAR_blr(thread_db* tdbb, Cached::Relation* relation, const UCHAR* blr, 
 
 // Finish parse of memory nodes, returning a compiler scratch block with the results.
 // Caller must do pool handling.
-// !!!!!!!!!!!!!!! FixMe - pool handling in ExtEngineManager.cpp
 void PAR_preparsed_node(thread_db* tdbb, Cached::Relation* relation, DmlNode* node,
 	CompilerScratch* view_csb, CompilerScratch** csb_ptr, Statement** statementPtr,
 	const bool trigger, USHORT flags)

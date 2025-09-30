@@ -451,6 +451,11 @@ public:
 
 	MetadataCache* dbb_mdc;
 
+private:
+	Firebird::GenericMap<Firebird::Pair<Firebird::Left<
+		Firebird::MetaString, UserId*> > > dbb_user_ids;	// set of used UserIds
+
+public:
 	// returns true if primary file is located on raw device
 	bool onRawDevice() const;
 
@@ -586,6 +591,8 @@ public:
 	Request* findSystemRequest(thread_db* tdbb, USHORT id, InternalRequest which);
 	Request* cacheRequest(InternalRequest which, USHORT id, Request* req);
     void releaseSystemRequests(thread_db* tdbb);
+
+	UserId* getUserId(const Firebird::MetaString& userName);
 
 private:
 	//static int blockingAstSharedCounter(void*);
