@@ -2170,7 +2170,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_prm_name, &desc2);
 
 			if ( (procedure = MetadataCache::lookup_procedure(tdbb,
-					QualifiedName(object_name, package_name), CacheFlag::AUTOCREATE | CacheFlag::MINISCAN)) )
+					QualifiedName(object_name, package_name), CacheFlag::AUTOCREATE | CacheFlag::NOSCAN)) )
 			{
 				work = DFW_post_work(transaction, dfw_delete_prm, &desc2, procedure->getId(),
 					package_name);
