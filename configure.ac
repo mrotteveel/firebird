@@ -1453,9 +1453,9 @@ dnl # output
       install_name_tool -id @rpath/lib/libicuuc.dylib gen/\$fb_tgt/firebird/lib/libicuuc.dylib
       install_name_tool -id @rpath/lib/libicui18n.dylib gen/\$fb_tgt/firebird/lib/libicui18n.dylib
       install_name_tool -id @rpath/lib/libicudata.dylib gen/\$fb_tgt/firebird/lib/libicudata.dylib
-      install_name_tool -change @rpath/libicudata.71.1.dylib @loader_path/libicudata.71.1.dylib gen/\$fb_tgt/firebird/lib/libicuuc.71.1.dylib
-      install_name_tool -change @rpath/libicudata.71.1.dylib @loader_path/libicudata.71.1.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.1.dylib
-      install_name_tool -change @rpath/libicuuc.71.1.dylib @loader_path/libicuuc.71.1.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.1.dylib
+      install_name_tool -change @rpath/libicudata.71.dylib @loader_path/libicudata.71.dylib gen/\$fb_tgt/firebird/lib/libicuuc.71.dylib
+      install_name_tool -change @rpath/libicudata.71.dylib @loader_path/libicudata.71.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.dylib
+      install_name_tool -change @rpath/libicuuc.71.dylib @loader_path/libicuuc.71.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.dylib
       ;;
   esac
 
