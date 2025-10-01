@@ -4316,6 +4316,7 @@ void MET_store_dependencies(thread_db* tdbb,
 		switch (dpdo_type)
 		{
 		case obj_relation:
+		case obj_view:
 			relation = dependency.relation;
 			dpdo_name = relation->getName();
 
