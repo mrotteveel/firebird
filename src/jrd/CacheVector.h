@@ -1243,11 +1243,10 @@ public:
 	private:
 		FB_SIZE_T locateData(FB_SIZE_T i)
 		{
-			while (i < data->getCount())
+			for (auto cnt = data->getCount(); i < cnt; ++i)
 			{
 				if (data->getDataNoChecks(i))
 					return i;
-				++i;
 			}
 
 			return eof;
