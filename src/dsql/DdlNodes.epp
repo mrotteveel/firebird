@@ -8794,7 +8794,7 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 		{
 			if (X.RDB$RELATION_ID)
 			{
-				auto* relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID, 0);
+				auto* relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID, CacheFlag::MINISCAN);
 				if (relation)
 				{
 					RelationPages* const relPages = relation->getBasePages();
