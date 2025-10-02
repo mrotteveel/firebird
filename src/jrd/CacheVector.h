@@ -81,6 +81,11 @@ public:
 	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* name, const char* family);
 	void commitErase(thread_db* tdbb);
 
+	bool hasLock() const
+	{
+		return lock != nullptr;
+	}
+
 private:
 	Lock* lock;
 };
@@ -725,7 +730,7 @@ public:
 
 	bool hasEntries() const
 	{
-		return list;
+		return list || hasLock();
 	}
 
 	StoreResult storeObject(thread_db* tdbb, Versioned* obj, ObjectBase::Flag fl)
@@ -970,7 +975,10 @@ public:
 			return nullptr;
 
 		auto* data = ptr->load(atomics::memory_order_relaxed);
-		return (data && data->hasEntries()) ? data : nullptr;
+		if (!data)
+			return nullptr;
+
+		return data->hasEntries() ? data : nullptr;
 	}
 
 	StoredElement* getData(thread_db* tdbb, MetaId id, ObjectBase::Flag fl) const
@@ -1116,7 +1124,7 @@ public:
 				StoredElement* ptr = end->load(atomics::memory_order_relaxed);
 				if (ptr)
 				{
-					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::NOSCAN);
+					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::MINISCAN);
 					if (listEntry && cmp(ptr))
 					{
 						if (!(fl & CacheFlag::ERASED))

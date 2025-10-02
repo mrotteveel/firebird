@@ -437,6 +437,8 @@ private:
 	void compile(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch);
 	void collectParameters(thread_db* tdbb, jrd_tra* transaction, CollectedParameterMap& items);
 
+	MetaId id = 0;
+
 public:
 	MetaName name;
 	bool create;
@@ -576,6 +578,8 @@ private:
 		const CollectedParameter* collectedParameter);
 	void compile(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch);
 	void collectParameters(thread_db* tdbb, jrd_tra* transaction, CollectedParameterMap& items);
+
+	MetaId id = 0;
 
 public:
 	MetaName name;

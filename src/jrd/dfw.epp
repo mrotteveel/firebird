@@ -612,10 +612,7 @@ namespace
 
 				case 3:
 				{
-					getDependencies(work, compile, transaction);
-
-					T* routine = lookupByName(tdbb,
-						QualifiedName(work->dfw_name, work->dfw_package), flag | CacheFlag::AUTOCREATE);
+					auto* routine = getDependencies(work, compile, transaction);
 					if (!routine)
 						return false;
 
@@ -813,7 +810,7 @@ namespace
 	private:
 		// Get relations and fields on which this routine depends, either when it's being
 		// created or when it's modified.
-		static void getDependencies(DeferredWork* work, bool compile, jrd_tra* transaction)
+		static Routine* getDependencies(DeferredWork* work, bool compile, jrd_tra* transaction)
 		{
 			thread_db* tdbb = JRD_get_thread_data();
 			Jrd::Database* dbb = tdbb->getDatabase();
@@ -830,7 +827,7 @@ namespace
 			// get any dependencies now by parsing the blr
 
 			if (!routine)
-				return;
+				return nullptr;
 
 			const MetaName depName(work->dfw_package.isEmpty() ?
 				MetaName(work->dfw_name) : work->dfw_package);
@@ -896,6 +893,7 @@ namespace
 			}
 
 			MetadataCache::verify_cache(tdbb);
+			return routine;
 		}
 	};
 
