@@ -887,6 +887,11 @@ public:
 	// Lists of FK partners should be updated on next update
 	void checkPartners(thread_db* tdbb);
 
+	// On commit of relation dependencies of global field to be cleaned ...
+	void removeDependsFrom(MetaName globField);
+	//			... will be removed
+	void removeDepends(thread_db* tdbb);
+
 	vec<Format*>*	rel_formats;		// Known record formats
 	Indices			rel_indices;		// Active indices
 	MetaName		rel_name;			// ascii relation name
@@ -918,6 +923,8 @@ private:
 	RelationPages* getPagesInternal(thread_db* tdbb, TraNumber tran, bool allocPages);
 
 	ExternalFile* rel_file;
+
+	Firebird::Array<MetaName> rel_clear_deps;
 };
 
 

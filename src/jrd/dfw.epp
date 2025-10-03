@@ -3701,20 +3701,22 @@ static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
  *	Commit changes in relation at phase 7.
  *
  **************************************/
-	AutoRequest request;
-	jrd_rel* relation;
-	USHORT view_count;
-	bool adjusted;
-
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-	Database* dbb = tdbb->getDatabase();
 
 	switch (phase)
 	{
 	case 1:
 	case 2:
+		return true;
+
 	case 3:
+		{
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			if (relation)
+				relation->removeDepends(tdbb);
+		}
+		return true;
+
 	case 4:
 	case 5:
 	case 6:

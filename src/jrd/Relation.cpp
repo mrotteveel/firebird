@@ -152,7 +152,8 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_pages_inst(nullptr),
 	  rel_pages_base(p),
 	  rel_pages_free(nullptr),
-	  rel_file(nullptr)
+	  rel_file(nullptr),
+	  rel_clear_deps(p)
 {
 	rel_partners_lock = FB_NEW_RPT(getPool(), 0)
 		Lock(tdbb, sizeof(SLONG), LCK_rel_partners, this, partners_ast_relation);
@@ -186,6 +187,20 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 
 	return true;*/
 	return false;
+}
+
+void RelationPermanent::removeDependsFrom(MetaName globField)
+{
+	// rel_clear_deps is protected by new relation version,
+	// already created by MET_change_fields() at this moment
+
+	rel_clear_deps.push(globField);
+}
+
+void RelationPermanent::removeDepends(thread_db* tdbb)
+{
+	while (rel_clear_deps.hasData())
+		MET_delete_dependencies(tdbb, rel_clear_deps.pop(), obj_computed);
 }
 
 int RelationPermanent::partners_ast_relation(void* ast_object)

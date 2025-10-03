@@ -515,7 +515,7 @@ ULONG MET_align(const dsc* desc, ULONG value)
 }
 
 
-DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc* field_source)
+Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc* field_source)
 {
 /**************************************
  *
@@ -534,7 +534,7 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 	Attachment* attachment = tdbb->getAttachment();
 
 	dsc relation_name;
-	DeferredWork* dw = NULL;
+	Cached::Relation* calcFieldRelation = nullptr;
 	AutoCacheRequest request(tdbb, irq_m_fields, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request)
@@ -552,7 +552,7 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 				&thread_db::setTransaction,
 				transaction);
 
-			MetadataCache::newVersion<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
+			calcFieldRelation = MetadataCache::newVersion<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
 		}
 		DFW_post_work(transaction, dfw_commit_relation, nullptr, R.RDB$RELATION_ID);
 
@@ -741,7 +741,7 @@ DeferredWork* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const dsc
 	}
 	END_FOR
 
-	return dw;
+	return calcFieldRelation;
 }
 
 

@@ -79,7 +79,7 @@ namespace Jrd
 
 void		MET_activate_shadow(Jrd::thread_db*);
 ULONG		MET_align(const dsc*, ULONG);
-Jrd::DeferredWork*	MET_change_fields(Jrd::thread_db*, Jrd::jrd_tra*, const dsc*);
+Jrd::Cached::Relation*	MET_change_fields(Jrd::thread_db*, Jrd::jrd_tra*, const dsc*);
 void		MET_delete_dependencies(Jrd::thread_db*, const Jrd::MetaName&, int);
 void		MET_delete_shadow(Jrd::thread_db*, USHORT);
 void		MET_error(const TEXT*, ...);

@@ -1350,6 +1350,7 @@ void afterInsertRelation(thread_db* tdbb, Record* record)
 	fb_assert(id);
 	MetadataCache::newVersion<Cached::Relation>(tdbb, id);
 	auto* relation = MetadataCache::lookupRelation(tdbb, id, CacheFlag::MINISCAN);
+
 	// Do not access external file info from cache - it may be not usable yet
 	// On contrary rel_flags (and therefore check for view) are OK
 	if (relation && !EVL_field(nullptr, record, f_rel_ext_file, &desc) &&
@@ -1358,6 +1359,7 @@ void afterInsertRelation(thread_db* tdbb, Record* record)
 		// create the table
 		DPM_create_relation(tdbb, relation);
 	}
+	relation->rel_flags |= REL_get_dependencies;
 }
 
 void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)

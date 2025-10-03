@@ -8083,25 +8083,6 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 		if (!relation)
 			return;
 
-		// in case somebody changed the view definition or a computed
-		// field, reset the dependencies by deleting the current ones
-		// and setting a flag for MET_scan_relation to find the new ones
-
-		if (!null_view)
-			MET_delete_dependencies(tdbb, relName, obj_view);
-/*	// !!!!!!  commented in order to get first of all working create table
-		{ // begin scope
-			const DeferredWork* arg = work->findArg(dfw_arg_force_computed);
-			if (arg)
-			{
-				computed_field = true;
-				MET_delete_dependencies(tdbb, arg->dfw_name, obj_computed);
-			}
-		} // end scope
- */
-		if (!null_view || computed_field)
-			getPermanent(relation)->rel_flags |= REL_get_dependencies;
-
 		if (external_flag)
 		{
 			AutoRequest temp;
@@ -9264,6 +9245,7 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
 		DFW_post_work(transaction, dfw_commit_relation, nullptr, rel->getId());
 		indexList.exec(tdbb, rel, transaction);
+		rel->rel_flags |= REL_get_dependencies;
 
 		if (beforeTriggerWasExecuted)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_TABLE, name, nullptr);

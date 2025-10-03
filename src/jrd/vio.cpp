@@ -3448,11 +3448,11 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 			{
 				MET_change_fields(tdbb, transaction, &desc1);
 				EVL_field(0, new_rpb->rpb_record, f_fld_name, &desc2);
-				DeferredWork* dw = MET_change_fields(tdbb, transaction, &desc2);
+				Cached::Relation* rel = MET_change_fields(tdbb, transaction, &desc2);
 				dsc desc3, desc4;
 				bool rc1, rc2;
 
-				if (dw)
+				if (rel)
 				{
 					// Did we convert computed field into physical, stored field?
 					// If we did, then force the deletion of the dependencies.
@@ -3461,12 +3461,15 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 					// and hence it can be used only by a single field and therefore one relation.
 					rc1 = EVL_field(0, org_rpb->rpb_record, f_fld_computed, &desc3);
 					rc2 = EVL_field(0, new_rpb->rpb_record, f_fld_computed, &desc4);
-					if (rc1 != rc2 || rc1 && MOV_compare(tdbb, &desc3, &desc4)) {
-						DFW_post_work_arg(transaction, dw, &desc1, 0, dfw_arg_force_computed);
+					if (rc1 != rc2 || rc1 && MOV_compare(tdbb, &desc3, &desc4))
+					{
+						MetaName fldName;
+						MOV_get_metaname(tdbb, &desc1, fldName);
+						rel->removeDependsFrom(fldName);
 					}
 				}
 
-				dw = DFW_post_work(transaction, dfw_modify_field, &desc1, 0);
+				DeferredWork* dw = DFW_post_work(transaction, dfw_modify_field, &desc1, 0);
 				DFW_post_work_arg(transaction, dw, &desc2, 0, dfw_arg_new_name);
 
 				rc1 = EVL_field(NULL, org_rpb->rpb_record, f_fld_null_flag, &desc3);
