@@ -12061,6 +12061,8 @@ DmlNode* SysFuncCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScrat
 
 	node->args = PAR_args(tdbb, csb);
 
+	node->function->checkArgsMismatch(node->args->items.getCount());
+
 	if (name == "MAKE_DBKEY")
 	{
 		// Special handling for system function MAKE_DBKEY:
@@ -12124,7 +12126,6 @@ void SysFuncCallNode::make(DsqlCompilerScratch* dsqlScratch, dsc* desc)
 	}
 
 	DSqlDataTypeUtil dataTypeUtil(dsqlScratch);
-	function->checkArgsMismatch(argsArray.getCount());
 	function->makeFunc(&dataTypeUtil, function, desc, argsArray.getCount(), argsArray.begin());
 }
 
@@ -12186,8 +12187,6 @@ ValueExprNode* SysFuncCallNode::pass2(thread_db* tdbb, CompilerScratch* csb)
 {
 	ValueExprNode::pass2(tdbb, csb);
 
-	function->checkArgsMismatch(args->items.getCount());
-
 	dsc desc;
 	getDesc(tdbb, csb, &desc);
 	impureOffset = csb->allocImpure<impure_value>();
@@ -12219,14 +12218,18 @@ ValueExprNode* SysFuncCallNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 
 	if (node->function)
 	{
+		auto& items = node->args->items;
+
+		node->function->checkArgsMismatch(items.getCount());
+
 		if (node->function->setParamsFunc)
 		{
-			Array<dsc> tempDescs(node->args->items.getCount());
-			tempDescs.resize(node->args->items.getCount());
+			Array<dsc> tempDescs(items.getCount());
+			tempDescs.resize(items.getCount());
 
-			Array<dsc*> argsArray(node->args->items.getCount());
+			Array<dsc*> argsArray(items.getCount());
 
-			for (auto& item : node->args->items)
+			for (auto& item : items)
 			{
 				DsqlDescMaker::fromNode(dsqlScratch, item);
 
@@ -12245,7 +12248,7 @@ ValueExprNode* SysFuncCallNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 			node->function->setParamsFunc(&dataTypeUtil, node->function,
 				argsArray.getCount(), argsArray.begin());
 
-			for (auto& item : node->args->items)
+			for (auto& item : items)
 			{
 				PASS1_set_parameter_type(dsqlScratch, item,
 					[&] (dsc* desc) { *desc = item->getDsqlDesc(); },
