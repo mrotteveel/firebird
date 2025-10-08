@@ -7729,6 +7729,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 						FLD IN RDB$FIELDS WITH
 						RFR.RDB$RELATION_NAME EQ relName.c_str() AND
 						RFR.RDB$FIELD_SOURCE EQ FLD.RDB$FIELD_NAME
+						SORTED BY RFR.RDB$FIELD_POSITION
 				{
 					// Update RFR to reflect new fields id
 
