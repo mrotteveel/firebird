@@ -1331,7 +1331,7 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 
 	for (MetaId id = 0; id < format->fmt_count; ++id)
 	{
-		auto* jfld = (*(jrel->rel_fields))[id];
+		const auto* jfld = (*(jrel->rel_fields))[id];
 		if (!jfld)
 		{
 			fb_assert(!format->fmt_desc[id].dsc_dtype);
@@ -1349,7 +1349,8 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 		fld->charLength = jfld->fld_character_length;
 		fld->fieldSource = jfld->fld_source_name;
 		fld->setExactPrecision();
-		fld->flags |= (jfld->fld_computation ? FLD_computed : 0);
+		fld->flags |= (jfld->fld_computation ? FLD_computed : 0) |
+					  (jfld->fld_not_null ? 0 : FLD_nullable);
 
 		if (auto* array = jfld->fld_array)
 		{
@@ -1382,7 +1383,7 @@ dsql_fld* dsql_prc::cpFields(MemoryPool& p, const Array<NestConst<Parameter>>& f
 {
 	dsql_fld* rc = nullptr;
 	dsql_fld** prev = &rc;
-	for (auto& jfld : fields)
+	for (const auto& jfld : fields)
 	{
 		auto* fld = FB_NEW_POOL(p) dsql_fld(p, jfld->prm_desc, &prev);
 		fld->fld_procedure = this;
@@ -1393,6 +1394,8 @@ dsql_fld* dsql_prc::cpFields(MemoryPool& p, const Array<NestConst<Parameter>>& f
 		fld->fieldSource = jfld->prm_field_source;
 		fld->typeOfTable = jfld->prm_type_of_table;
 		fld->typeOfName = jfld->prm_type_of_column;
+		if (jfld->prm_nullable)
+			fld->flags |= FLD_nullable;
 
 		fld->setExactPrecision();
 	}
@@ -1417,7 +1420,6 @@ dsql_fld::dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev)
 	collationId = desc.getCollation();
 	textType = desc.getTextType();
 	charSetId = desc.getCharSet();
-	flags = desc.isNullable() ? FLD_nullable : 0;
 }
 
 dsql_udf::dsql_udf(MemoryPool& p, const class Function* jfun)
@@ -1434,12 +1436,14 @@ dsql_udf::dsql_udf(MemoryPool& p, const class Function* jfun)
 	udf_character_set_id = desc.getCharSet();
 
 	// arguments
-	for (auto& jfld : jfun->getInputFields())
+	for (const auto& jfld : jfun->getInputFields())
 	{
 		if (jfld->prm_default_value)
 			++udf_def_count;
 
 		Argument arg(jfld->prm_name, jfld->prm_desc);
+		if (jfld->prm_nullable)
+			arg.desc.dsc_flags |= FLD_nullable;
 		udf_arguments.add(arg);
 	}
 }

@@ -328,7 +328,7 @@ public:
 	class Argument
 	{
 	public:
-		Argument(MetaName name, dsc desc)
+		Argument(MetaName name, const dsc& desc)
 			: name(name), desc(desc)
 		{ }
 
