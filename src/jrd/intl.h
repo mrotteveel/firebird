@@ -38,6 +38,7 @@ struct IdStorage
 	bool operator==(const IdStorage& id) const { return val == id.val; }
 	bool operator!=(const IdStorage& id) const { return val != id.val; }
 
+private:
 	USHORT val;
 };
 
@@ -53,22 +54,22 @@ struct CSetId : public IdStorage
 {
 	CSetId() : IdStorage(0) { }
 	constexpr explicit CSetId(USHORT id) : IdStorage(id & 0xFF) { }
-	constexpr CSetId(TTypeId tt) : IdStorage(tt.val & 0xFF) { }
+	constexpr CSetId(TTypeId tt) : IdStorage(USHORT(tt) & 0xFF) { }
 };
 
 struct CollId : public IdStorage
 {
 	CollId() : IdStorage(0) { }
 	constexpr explicit CollId(USHORT id) : IdStorage(id) { }
-	constexpr CollId(TTypeId tt) : IdStorage(tt.val >> 8) { }
+	constexpr CollId(TTypeId tt) : IdStorage(USHORT(tt) >> 8) { }
 };
 
 inline TTypeId::TTypeId(CSetId cs, CollId col)
-	: IdStorage((col.val << 8) | (cs.val & 0xFF))
+	: IdStorage((USHORT(col) << 8) | (USHORT(cs) & 0xFF))
 { }
 
 inline constexpr TTypeId::TTypeId(CSetId cs)
-	: IdStorage(cs.val & 0xFF)
+	: IdStorage(USHORT(cs) & 0xFF)
 { }
 
 #include "../intl/charsets.h"
@@ -111,7 +112,6 @@ inline const BYTE ASCII_SPACE			= 32;			// ASCII code for space
 
 #define	COLLATE_NONE			CollId(0)	// No special collation, use codepoint order
 
-#define INTL_GET_TTYPE(dsc)		((dsc)->getTextType())
 #define INTL_GET_CHARSET(dsc)	((dsc)->getCharSet())
 #define INTL_GET_COLLATE(dsc)	((dsc)->getCollation())
 
@@ -166,7 +166,7 @@ inline const BYTE ASCII_SPACE			= 32;			// ASCII code for space
 
 #define	INTL_RES_TTYPE(desc)	(INTL_DYNAMIC_CHARSET(desc) ?\
 			MAP_CHARSET_TO_TTYPE(tdbb->getCharSet()) :\
-		 	INTL_GET_TTYPE (desc))
+		 	(desc)->getTextType())
 
 #define INTL_INDEX_TYPE(desc)	INTL_TEXT_TO_INDEX (INTL_RES_TTYPE (desc))
 

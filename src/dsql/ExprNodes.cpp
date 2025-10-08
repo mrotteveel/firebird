@@ -12713,7 +12713,7 @@ dsc* TrimNode::execute(thread_db* tdbb, Request* request) const
 	if (request->req_flags & req_null)
 		return NULL;
 
-	auto ttype = INTL_GET_TTYPE(valueDesc);
+	auto ttype = valueDesc->getTextType();
 	Collation* tt = INTL_texttype_lookup(tdbb, ttype);
 	CharSet* cs = tt->getCharSet();
 

@@ -574,10 +574,10 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 			break;
 	}
 
-	if (csb->collectingDependencies() && desc->getTextType() != CS_NONE)
+	if (csb->collectingDependencies() && desc->getCharSet() != CS_NONE && desc->getCharSet() != CS_dynamic)
 	{
 		Dependency dependency(obj_collation);
-		dependency.number = INTL_GET_TTYPE(desc);
+		dependency.number = desc->getTextType();
 		csb->addDependency(dependency);
 	}
 

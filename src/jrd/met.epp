@@ -3000,6 +3000,9 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 				fb_assert(rseNode->getKind() == DmlNode::KIND_REC_SOURCE);
 				rel_view_rse = nodeAs<RseNode>(static_cast<RecordSourceNode*>(rseNode));
 				fb_assert(rel_view_rse);
+
+				// for very old gbak images...
+				rel_perm->rel_flags |= REL_jrd_view;
 			}
 			else
 				rel_view_rse = NULL;

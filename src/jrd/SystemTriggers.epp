@@ -1362,10 +1362,10 @@ void afterInsertRelation(thread_db* tdbb, Record* record)
 	relation->rel_flags |= REL_get_dependencies;
 }
 
-void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)
+void afterInsertProcedure(thread_db* tdbb, Record* record)
 {
 	dsc desc;
-	bool idSet = EVL_field(nullptr, newRecord, f_prc_id, &desc);
+	bool idSet = EVL_field(nullptr, record, f_prc_id, &desc);
 	fb_assert(idSet);
 	if (!idSet)
 		return;
@@ -1374,16 +1374,26 @@ void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 	MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
 }
 
-void afterUpdateFunction(thread_db* tdbb, Record* orgRecord, Record* newRecord)
+void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)
+{
+	afterInsertProcedure(tdbb, newRecord);
+}
+
+void afterInsertFunction(thread_db* tdbb, Record* record)
 {
 	dsc desc;
-	bool idSet = EVL_field(nullptr, newRecord, f_fun_id, &desc);
+	bool idSet = EVL_field(nullptr, record, f_fun_id, &desc);
 	fb_assert(idSet);
 	if (!idSet)
 		return;
 
 	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
 	MetadataCache::newVersion<Cached::Function>(tdbb, id);
+}
+
+void afterUpdateFunction(thread_db* tdbb, Record* orgRecord, Record* newRecord)
+{
+	afterInsertFunction(tdbb, newRecord);
 }
 
 void beforeInsertCollation(thread_db* tdbb, Record* record)
@@ -1501,6 +1511,10 @@ void SystemTriggers::executeAfterInsertTriggers(thread_db* tdbb, jrd_rel* relati
 
 		case rel_collations:
 			afterInsertCollation(tdbb, record);
+			break;
+
+		case rel_procedures:
+			afterInsertProcedure(tdbb, record);
 			break;
 	}
 }

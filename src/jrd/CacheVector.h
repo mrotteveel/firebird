@@ -328,7 +328,10 @@ public:
 		auto flags = cacheFlags.load(atomics::memory_order_acquire);
 		for(;;)
 		{
-			fb_assert(traNumber == (flags & CacheFlag::COMMITTED ? nextTrans : currentTrans));
+#ifdef DEV_BUILD
+			if (!tdbb->getAttachment()->isRWGbak())
+				fb_assert(traNumber == (flags & CacheFlag::COMMITTED ? nextTrans : currentTrans));
+#endif
 			if (flags & CacheFlag::COMMITTED)
 				return flags;
 
@@ -620,7 +623,12 @@ public:
 		return entry && entry->isReady();
 	}
 
-	enum Availability {MISSING, MODIFIED, OCCUPIED, READY};
+	enum Availability {
+		MISSING,	// no entries in the list
+		MODIFIED,	// entry modified by current transaction
+		OCCUPIED,	// entry modified by other transaction
+		READY		// entry scan completed or in progress
+	};
 
 	Availability isAvailable(thread_db* tdbb, TraNumber* number = nullptr)
 	{
@@ -875,11 +883,15 @@ public:
 		switch (isAvailable(tdbb, &traNum))
 		{
 		case OCCUPIED:
-			Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
-				Versioned::objectFamily(this), this->c_name(), traNum);
+			if (!tdbb->getAttachment()->isRWGbak())
+			{
+				Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
+					Versioned::objectFamily(this), this->c_name(), traNum);
+			}
+			break;
 
 		case MODIFIED:
-			return;
+			break;
 
 		case MISSING:
 		case READY:
@@ -889,7 +901,7 @@ public:
 					Versioned::objectFamily(this), this->c_name());
 			}
 			storeObject(tdbb, nullptr, CacheFlag::TAG_FOR_UPDATE);
-			return;
+			break;
 		}
 	}
 

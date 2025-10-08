@@ -36,6 +36,7 @@
 #include "../jrd/irq.h"
 #include "../jrd/drq.h"
 #include "../jrd/exe.h"
+#include "../jrd/intl.h"
 
 #include "../jrd/CharSetContainer.h"
 
@@ -200,7 +201,7 @@ public:
 	MetaName prm_field_source;
 	MetaName prm_type_of_column;
 	MetaName prm_type_of_table;
-	std::optional<USHORT> prm_text_type;
+	std::optional<TTypeId> prm_text_type;
 	FUN_T		prm_fun_mechanism;
 	USHORT		prm_seg_length = 0;
 
