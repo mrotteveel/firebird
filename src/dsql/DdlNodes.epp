@@ -12262,8 +12262,11 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
-	jrd_tra* transaction = attachment->getSysTransaction();		// cleanup NOT related to current transaction
 	MetaName indexName;
+
+	// cleanup NOT related to current transaction
+	AutoSetRestore2<jrd_tra*, thread_db> autoTrans(tdbb, &thread_db::getTransaction, &thread_db::setTransaction,
+		attachment->getSysTransaction());
 
 	AutoCacheRequest handle(tdbb, irq_index_id_erase, IRQ_REQUESTS);
 	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
@@ -12277,9 +12280,6 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 
 		if (MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE) == MET_index_deferred_drop)
 		{
-			AutoSetRestore2<jrd_tra*, thread_db> autoRequest(tdbb,
-                                &thread_db::getTransaction, &thread_db::setTransaction, transaction);
-
 			ERASE IND;
 
 			auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
