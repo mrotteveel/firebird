@@ -4775,8 +4775,18 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 				throw;
 			}
 
-			request->req_attachment = tdbb->getAttachment();
+			Cleanup rq([&]()
+			{
+				request->setUnused();
+				CMP_release(tdbb, request);
+			});
 
+			bool rt = request->setUsed();
+			fb_assert(rt);
+
+			auto* attachment = tdbb->getAttachment();
+			request->setAttachment(attachment);
+			attachment->att_requests.add(request);
 			if (in_msg_length)
 			{
 				const ULONG len = inMessage ? inMessage->getFormat(request)->fmt_length : 0;
@@ -4807,7 +4817,6 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 
 			check_autocommit(tdbb, request);
 
-			CMP_release(tdbb, request);
 		}
 		catch (const Exception& ex)
 		{

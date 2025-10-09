@@ -7691,7 +7691,6 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 	jrd_rel* relation = nullptr;
 	int physical_fields = 0;
 	bool external_flag = false;
-	bool computed_field = false;
 	TrigArray* triggers = nullptr;
 
 	SET_TDBB(tdbb);
@@ -7738,10 +7737,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 
 					// force recalculation of RDB$UPDATE_FLAG if field is calculated
 					if (!FLD.RDB$COMPUTED_BLR.isEmpty())
-					{
 						RFR.RDB$UPDATE_FLAG.NULL = TRUE;
-						computed_field = true;
-					}
 
 					if (RFR.RDB$FIELD_ID.NULL || RFR.RDB$UPDATE_FLAG.NULL)
 					{
@@ -12265,8 +12261,9 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	MetaName indexName;
 
 	// cleanup NOT related to current transaction
+	auto* transaction = attachment->getSysTransaction();
 	AutoSetRestore2<jrd_tra*, thread_db> autoTrans(tdbb, &thread_db::getTransaction, &thread_db::setTransaction,
-		attachment->getSysTransaction());
+		transaction);
 
 	AutoCacheRequest handle(tdbb, irq_index_id_erase, IRQ_REQUESTS);
 	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
