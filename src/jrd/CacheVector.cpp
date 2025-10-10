@@ -80,22 +80,6 @@ MdcVersion VersionSupport::next(thread_db* tdbb)
 }
 
 
-// class ObjectBase
-
-void ObjectBase::lockedExcl [[noreturn]] (thread_db* tdbb)
-{
-	fatal_exception::raise("Unspecified object locked exclusive for deletion");
-}
-
-
-// class CachePool
-
-MemoryPool& CachePool::get(thread_db* tdbb)
-{
-	return MetadataCache::get(tdbb)->getPool();
-}
-
-
 // class ElementBase
 
 [[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* name, const char* family)
@@ -173,5 +157,19 @@ void ElementBase::releaseLock(thread_db* tdbb)
 	// avoid calling releaseLock() twice
 	lock = nullptr;
 #endif
+}
+
+
+// Class ConsistencyCheck
+
+bool ConsistencyCheck::commitNumber(thread_db* tdbb)
+{
+	if (!tdbb->getAttachment())
+		return true;
+
+	if (!tdbb->getAttachment()->isRWGbak())
+		return true;
+
+	return false;
 }
 

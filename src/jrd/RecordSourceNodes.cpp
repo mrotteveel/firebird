@@ -1304,8 +1304,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			PAR_error(csb, Arg::Gds(isc_illegal_prc_type) << node->procedure()->getName().toString());
 	}
 
-	// node->isSubRoutine = node->procedure.isSubRoutine();
-	node->procedureId = node->procedure()->getId();
+	node->procedureId = node->procedure.isSubRoutine() ? 0 : node->procedure()->getId();
 
 	if (procedure->isImplemented() && !procedure->isDefined())
 	{

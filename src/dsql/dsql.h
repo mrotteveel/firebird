@@ -344,7 +344,7 @@ public:
 	dsql_udf(MemoryPool& p, const class Function* jfun);
 
 	explicit dsql_udf(MemoryPool& p)
-		: udf_arguments(p)
+		: udf_name(p), udf_arguments(p)
 	{ }
 
 	USHORT udf_dtype = 0;

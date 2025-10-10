@@ -30,6 +30,7 @@
 #define JRD_CACHEVECTOR_H
 
 #include <condition_variable>
+#include <stdio.h>
 
 #include "../common/ThreadStart.h"
 #include "../common/StatusArg.h"
@@ -48,8 +49,14 @@ class ObjectBase
 {
 public:
 	typedef unsigned Flag;
-	virtual void lockedExcl [[noreturn]] (thread_db* tdbb) /*const*/;
 	virtual const char* c_name() const = 0;
+};
+
+
+class ConsistencyCheck
+{
+public:
+	static bool commitNumber(thread_db* tdbb);
 };
 
 
@@ -115,13 +122,6 @@ class VersionSupport
 {
 public:
 	static MdcVersion next(thread_db* tdbb);
-};
-
-
-class CachePool
-{
-public:
-	static MemoryPool& get(thread_db* tdbb);
 };
 
 
@@ -329,8 +329,13 @@ public:
 		for(;;)
 		{
 #ifdef DEV_BUILD
-			if (!tdbb->getAttachment()->isRWGbak())
-				fb_assert(traNumber == (flags & CacheFlag::COMMITTED ? nextTrans : currentTrans));
+			if (ConsistencyCheck::commitNumber(tdbb))
+			{
+				if (flags & CacheFlag::COMMITTED)
+					fb_assert(traNumber <= nextTrans);
+				else
+					fb_assert(traNumber == currentTrans);
+			}
 #endif
 			if (flags & CacheFlag::COMMITTED)
 				return flags;
@@ -392,10 +397,6 @@ private:
 	{
 		fb_assert(!(fl & CacheFlag::NOSCAN));
 		fb_assert(obj);
-
-		auto* traFlags = TransactionNumber::getFlags(tdbb);
-		Firebird::AutoSetRestoreFlag readCommitted(traFlags,
-			(*traFlags) & TRA_degree3 ? 0 : TRA_read_committed | TRA_rec_version, true);
 
 		return (!rld) ? obj->scan(tdbb, fl) :
 			fl & CacheFlag::MINISCAN ? ScanResult::REPEAT : obj->reload(tdbb, fl);
@@ -883,7 +884,7 @@ public:
 		switch (isAvailable(tdbb, &traNum))
 		{
 		case OCCUPIED:
-			if (!tdbb->getAttachment()->isRWGbak())
+			if (ConsistencyCheck::commitNumber(tdbb))
 			{
 				Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
 					Versioned::objectFamily(this), this->c_name(), traNum);
