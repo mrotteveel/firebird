@@ -4812,6 +4812,15 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 
 			if (out_msg_length)
 			{
+				// Workaround for GPRE that generated unneeded blr_send
+				if ((request->req_flags & req_active)
+					&& request->req_operation == Request::req_send)
+				{
+					request->req_flags &= ~req_stall;
+					request->req_operation = Request::req_proceed;
+					EXE_looper(tdbb, request, request->req_next);
+				}
+
 				memcpy(out_msg, outMessage->getBuffer(request), out_msg_length);
 			}
 
