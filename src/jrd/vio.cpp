@@ -2293,7 +2293,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				fb_assert(r2);
 
 				if (r2)
-					MET_scan_partners(tdbb, r2);
+					r2->scanPartners(tdbb);
 			}
 			break;
 
@@ -3632,7 +3632,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 	// if the same page should be fetched for read.
 	// Explicit scan of relation's partners allows to avoid possible deadlock.
 
-	MET_scan_partners(tdbb, getPermanent(org_rpb->rpb_relation));
+	org_rpb->rpb_relation->getPermanent()->scanPartners(tdbb);
 
 	/* We're almost ready to go.  To modify the record, we must first
 	make a copy of the old record someplace else.  Then we must re-fetch
@@ -6574,9 +6574,9 @@ static void refresh_fk_fields(thread_db* tdbb, Record* old_rec, record_param* cu
  *  new_rpb - new record evaluated by modify statement and before-triggers
  *
  **************************************/
-	auto* relation = cur_rpb->rpb_relation->rel_perm;
+	auto* relation = cur_rpb->rpb_relation->getPermanent();
 
-	MET_scan_partners(tdbb, relation);
+	relation->scanPartners(tdbb);
 
 	const auto* frgn = relation->rel_foreign_refs;
 	if (!frgn)

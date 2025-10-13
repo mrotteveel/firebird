@@ -6018,7 +6018,7 @@ DmlNode* FieldNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* cs
 						PAR_warning(Arg::Warning(isc_fldnotdef) << Arg::Str(name) <<
 																   Arg::Str(relation->getName()));
 					}
-					else if (!relation->rel_perm->isDropped())
+					else if (!relation->getPermanent()->isDropped())
 					{
 						PAR_error(csb, Arg::Gds(isc_fldnotdef) << Arg::Str(name) <<
 																  Arg::Str(relation->getName()));

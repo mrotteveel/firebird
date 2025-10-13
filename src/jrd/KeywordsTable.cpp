@@ -87,7 +87,7 @@ const Format* KeywordsTableScan::getFormat(thread_db* tdbb, RelationPermanent* r
 bool KeywordsTableScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 	FB_UINT64 position, Record* record) const
 {
-	const auto records = getRecords(tdbb, relation->rel_perm);
+	const auto records = getRecords(tdbb, relation->getPermanent());
 	return records->fetch(position, record);
 }
 

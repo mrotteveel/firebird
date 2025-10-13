@@ -304,6 +304,7 @@ public:
 	static void post_existence(thread_db* tdbb, jrd_rel* relation);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static IndexStatus getIndexStatus(bool nullFlag, int inactive);
+	static bool getIndexActive(bool nullFlag, int inactive);
 	static MetadataCache* get(thread_db* tdbb)
 	{
 		return getCache(tdbb);

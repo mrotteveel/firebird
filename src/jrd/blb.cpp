@@ -1103,11 +1103,11 @@ void blb::move(thread_db* tdbb, dsc* from_desc, dsc* to_desc,
 
 	Request* request = tdbb->getRequest();
 
-	if (relation->rel_perm->isVirtual()) {
+	if (relation->getPermanent()->isVirtual()) {
 		ERR_post(Arg::Gds(isc_read_only));
 	}
 
-	RelationPages* relPages = relation->rel_perm->getPages(tdbb);
+	RelationPages* relPages = relation->getPermanent()->getPages(tdbb);
 
 	// If either the source value is null or the blob id itself is null
 	// (all zeros), then the blob is null.

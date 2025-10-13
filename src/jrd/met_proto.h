@@ -114,7 +114,6 @@ void		MET_prepare(Jrd::thread_db*, Jrd::jrd_tra*, USHORT, const UCHAR*);
 void		MET_release_existence(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_revoke(Jrd::thread_db*, Jrd::jrd_tra*, const Jrd::MetaName&,
 	const Jrd::MetaName&, const Firebird::string&);
-void		MET_scan_partners(Jrd::thread_db*, Jrd::RelationPermanent*);
 void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, Jrd::Cached::Relation*,
 	const Jrd::MetaName&, int, Jrd::jrd_tra*);
 void		MET_trigger_msg(Jrd::thread_db*, Firebird::string&, const Jrd::MetaName&, USHORT);

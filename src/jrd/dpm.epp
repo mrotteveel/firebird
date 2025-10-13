@@ -1650,7 +1650,7 @@ ULONG DPM_get_blob(thread_db* tdbb,
 	// record doesn't exist, or the record isn't a blob, give up and
 	// let somebody else complain.
 
-	pointer_page* ppage = get_pointer_page(tdbb, relation->rel_perm,
+	pointer_page* ppage = get_pointer_page(tdbb, relation->getPermanent(),
 		relation->getPages(tdbb), &rpb.getWindow(tdbb), pp_sequence, LCK_read);
 	if (!ppage)
 	{
@@ -2055,7 +2055,7 @@ SLONG DPM_prefetch_bitmap(thread_db* tdbb, jrd_rel* relation, PageBitmap* bitmap
 		DECOMPOSE(number, dbb->dbb_max_records, dp_sequence, line);
 		DECOMPOSE(dp_sequence, dbb->dbb_dp_per_pp, pp_sequence, slot);
 
-		const pointer_page* ppage = get_pointer_page(tdbb, relation->rel_perm, &window, pp_sequence, LCK_read);
+		const pointer_page* ppage = get_pointer_page(tdbb, relation->getPermanent(), &window, pp_sequence, LCK_read);
 		if (!ppage)
 			BUGCHECK(249);	// msg 249 pointer page vanished from DPM_prefetch_bitmap
 
@@ -3589,7 +3589,7 @@ static rhd* locate_space(thread_db* tdbb,
 		rpb->rpb_number.decompose(dbb->dbb_max_records, dbb->dbb_dp_per_pp, line, slot, pp_sequence);
 
 		const pointer_page* ppage =
-			get_pointer_page(tdbb, relation->rel_perm, relPages, window, pp_sequence, LCK_read);
+			get_pointer_page(tdbb, relation->getPermanent(), relPages, window, pp_sequence, LCK_read);
 
 		if (ppage)
 		{
@@ -3669,7 +3669,7 @@ static rhd* locate_space(thread_db* tdbb,
 			relPages->rel_sec_data_space = pp_sequence;
 
 		const pointer_page* ppage =
-			get_pointer_page(tdbb, relation->rel_perm, relPages, window, pp_sequence, ppLock);
+			get_pointer_page(tdbb, relation->getPermanent(), relPages, window, pp_sequence, ppLock);
 		if (!ppage)
 			BUGCHECK(254);	// msg 254 pointer page vanished from relation list in locate_space
 
@@ -3712,7 +3712,7 @@ static rhd* locate_space(thread_db* tdbb,
 					CCH_RELEASE(tdbb, window);
 
 					ppLock = LCK_write;
-					ppage = get_pointer_page(tdbb, relation->rel_perm, relPages, window, pp_sequence, ppLock);
+					ppage = get_pointer_page(tdbb, relation->getPermanent(), relPages, window, pp_sequence, ppLock);
 					if (!ppage)
 						BUGCHECK(254);
 
@@ -3782,7 +3782,7 @@ static rhd* locate_space(thread_db* tdbb,
 	int i;
 	for (i = 0; i < 20; ++i)
 	{
-		extend_relation(tdbb, relation->rel_perm, window, type);
+		extend_relation(tdbb, relation->getPermanent(), window, type);
 		space = find_space(tdbb, rpb, size, stack, record, type);
 
 		if (space)
@@ -3859,7 +3859,7 @@ static void mark_full(thread_db* tdbb, record_param* rpb)
 
 	pointer_page* ppage = 0;
 	do {
-		ppage = get_pointer_page(tdbb, relation->rel_perm, relPages, &pp_window, pp_sequence, LCK_write);
+		ppage = get_pointer_page(tdbb, relation->getPermanent(), relPages, &pp_window, pp_sequence, LCK_write);
 		if (!ppage)
 			BUGCHECK(256);	// msg 256 pointer page vanished from mark_full
 

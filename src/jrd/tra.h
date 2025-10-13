@@ -487,7 +487,6 @@ enum dfw_t {
 
 	// deferred works argument types
 	dfw_arg_index_name,		// index name for dfw_delete_index, mandatory
-	dfw_arg_partner_rel_id,	// partner relation id for dfw_delete_index if index is FK, optional
 	dfw_arg_proc_name,		// procedure name for dfw_delete_prm, mandatory
 	dfw_arg_check_blr,		// check if BLR is still compilable
 	dfw_arg_new_name,		// new name

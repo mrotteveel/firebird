@@ -567,7 +567,11 @@ public:
 	jrd_rel(MemoryPool& p, Cached::Relation* r);
 
 	MemoryPool*			rel_pool;
+
+private:
 	Cached::Relation*	rel_perm;
+
+public:
 	USHORT				rel_current_fmt;	// Current format number
 	Format*				rel_current_format;	// Current record format
 	USHORT				rel_dbkey_length;	// RDB$DBKEY length

@@ -1669,7 +1669,7 @@ bool GlobalMappingScan::retrieveRecord(thread_db* tdbb, jrd_rel* relation,
 									FB_UINT64 position, Record* record) const
 {
 	jrd_tra* const transaction = tdbb->getTransaction();
-	return transaction->getMappingList()->getList(tdbb, relation->rel_perm)->fetch(position, record);
+	return transaction->getMappingList()->getList(tdbb, relation->getPermanent())->fetch(position, record);
 }
 
 MappingList::MappingList(jrd_tra* tra)

@@ -306,7 +306,6 @@ bool ExternalFile::get(thread_db* tdbb, record_param* rpb, FB_UINT64& position)
  *
  **************************************/
 	jrd_rel* const relation = rpb->rpb_relation;
-	//fb_assert(relation->rel_perm->rel_file == this);
 
 	Record* const record = rpb->rpb_record;
 	const Format* const format = record->getFormat();

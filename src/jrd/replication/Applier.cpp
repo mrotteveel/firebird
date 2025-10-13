@@ -1189,7 +1189,7 @@ const Format* Applier::findFormat(thread_db* tdbb, jrd_rel* relation, ULONG leng
 	auto format = relation->currentFormat();
 
 	while (format->fmt_length != length && format->fmt_version)
-		format = MET_format(tdbb, relation->rel_perm, format->fmt_version - 1);
+		format = MET_format(tdbb, relation->getPermanent(), format->fmt_version - 1);
 
 	if (format->fmt_length != length)
 	{
@@ -1208,7 +1208,7 @@ void Applier::doInsert(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 	const auto format = record->getFormat();
 	const auto relation = rpb->rpb_relation;
 
-	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->getPermanent(), true);
 
 	for (USHORT id = 0; id < format->fmt_count; id++)
 	{
@@ -1291,7 +1291,7 @@ void Applier::doUpdate(thread_db* tdbb, record_param* orgRpb, record_param* newR
 	const auto format = newRecord->getFormat();
 	const auto relation = newRpb->rpb_relation;
 
-	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->getPermanent(), true);
 
 	for (USHORT id = 0; id < format->fmt_count; id++)
 	{

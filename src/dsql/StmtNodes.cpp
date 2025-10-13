@@ -2702,7 +2702,7 @@ const StmtNode* EraseNode::erase(thread_db* tdbb, Request* request, WhichTrigger
 	}
 
 	request->req_operation = Request::req_return;
-	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->getPermanent(), true);
 
 	if (rpb->rpb_runtime_flags & RPB_just_deleted)
 		return parentStmt;
@@ -5894,7 +5894,7 @@ void ForNode::setWriteLockMode(Request* request) const
 
 void ForNode::checkRecordUpdated(thread_db* tdbb, Request* request, record_param* rpb) const
 {
-	auto* relation = rpb->rpb_relation->rel_perm;
+	auto* relation = rpb->rpb_relation->getPermanent();
 	if (!(marks & MARK_MERGE) || relation->isVirtual() || relation->isView() || relation->getExtFile())
 		return;
 
@@ -5909,7 +5909,7 @@ void ForNode::checkRecordUpdated(thread_db* tdbb, Request* request, record_param
 
 void ForNode::setRecordUpdated(thread_db* tdbb, Request* request, record_param* rpb) const
 {
-	auto* relation = rpb->rpb_relation->rel_perm;
+	auto* relation = rpb->rpb_relation->getPermanent();
 	if (!(marks & MARK_MERGE) || relation->isVirtual() || relation->isView() || relation->getExtFile())
 		return;
 
@@ -8257,7 +8257,7 @@ const StmtNode* ModifyNode::modify(thread_db* tdbb, Request* request, WhichTrigg
 	}
 
 	impure->sta_state = 0;
-	RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
+	RLCK_reserve_relation(tdbb, transaction, relation->getPermanent(), true);
 
 	if (orgRpb->rpb_runtime_flags & RPB_just_deleted)
 	{
@@ -9232,7 +9232,7 @@ const StmtNode* StoreNode::store(thread_db* tdbb, Request* request, WhichTrigger
 
 			impure->sta_state = 0;
 			if (relation)
-				RLCK_reserve_relation(tdbb, transaction, relation->rel_perm, true);
+				RLCK_reserve_relation(tdbb, transaction, relation->getPermanent(), true);
 			break;
 
 		case Request::req_return:
@@ -11788,13 +11788,14 @@ static RelationSourceNode* pass1Update(thread_db* tdbb, CompilerScratch* csb, jr
 	if (view)
 	{
 		fb_assert(viewStream <= MAX_STREAMS);
-		CMP_csb_element(csb, stream)->csb_view = csb->csb_resources->relations.registerResource(view->rel_perm);
+		CMP_csb_element(csb, stream)->csb_view = csb->csb_resources->relations.registerResource(view->getPermanent());
 		CMP_csb_element(csb, stream)->csb_view_stream = viewStream;
 
 		if (stream != updateStream)
 		{
 			fb_assert(viewUpdateStream <= MAX_STREAMS);
-			CMP_csb_element(csb, updateStream)->csb_view = csb->csb_resources->relations.registerResource(view->rel_perm);
+			CMP_csb_element(csb, updateStream)->csb_view =
+				csb->csb_resources->relations.registerResource(view->getPermanent());
 			CMP_csb_element(csb, updateStream)->csb_view_stream = viewUpdateStream;
 		}
 	}

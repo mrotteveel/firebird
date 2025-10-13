@@ -3507,6 +3507,9 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 			if (index->getForeignKey().hasData())
 			{
+				if (relation->rel_flags & REL_check_partners)
+					relation->scanPartners(tdbb);
+
 				fb_assert(relation->rel_foreign_refs);
 				if (relation->rel_foreign_refs)
 				{

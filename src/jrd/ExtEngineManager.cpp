@@ -1861,7 +1861,7 @@ void ExtEngineManager::makeTrigger(thread_db* tdbb, CompilerScratch* csb, Jrd::T
 		const auto extTriggerNode = FB_NEW_POOL(csbPool) ExtTriggerNode(csbPool, extTrigger);
 		mainNode->statements.add(extTriggerNode);
 
-		PAR_preparsed_node(tdbb, trg->relation->rel_perm, mainNode, NULL, &csb, &trg->statement, true, 0);
+		PAR_preparsed_node(tdbb, trg->relation->getPermanent(), mainNode, NULL, &csb, &trg->statement, true, 0);
 	}
 	catch (...)
 	{

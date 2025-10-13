@@ -1970,6 +1970,25 @@ IndexStatus MetadataCache::getIndexStatus(bool nullFlag, int state)
 }
 
 
+bool MetadataCache::getIndexActive(bool nullFlag, int state)
+{
+	if (nullFlag)
+		return true;
+
+	switch (state)
+	{
+	case MET_index_active:
+	case MET_index_deferred_drop:
+		return true;
+
+	default:
+		break;
+	}
+
+	return false;
+}
+
+
 ElementBase::ReturnedId MetadataCache::lookup_index_name(thread_db* tdbb, const MetaName& index_name,
 	IndexStatus* status)
 {
@@ -2115,7 +2134,9 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 				if (relation->getName() != IND.RDB$RELATION_NAME)
 					partner_relation = MetadataCache::lookupRelation(tdbb, IND.RDB$RELATION_NAME, CacheFlag::AUTOCREATE);
 
-				if (partner_relation && !IDX.RDB$INDEX_INACTIVE && !IND.RDB$INDEX_INACTIVE)
+				if (partner_relation &&
+					MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
+					MetadataCache::getIndexActive(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE))
 				{
 					idx->idx_primary_relation = partner_relation->getId();
 					idx->idx_primary_index = IND.RDB$INDEX_ID - 1;
@@ -2301,7 +2322,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const MetaName&
 		X IN RDB$RELATIONS WITH X.RDB$RELATION_NAME EQ name.c_str()
 	{
 		if (auto* relVers = mdc->mdc_relations.getVersioned(tdbb, X.RDB$RELATION_ID, flags))
-			rc = relVers->rel_perm;
+			rc = relVers->getPermanent();
 	}
 	END_FOR
 
@@ -2840,27 +2861,6 @@ void MET_revoke(thread_db* tdbb, jrd_tra* transaction, const MetaName& relation,
 }
 
 
-void MET_scan_partners(thread_db* tdbb, RelationPermanent* relation)
-{
-/**************************************
- *
- *      M E T _ s c a n _ p a r t n e r s
- *
- **************************************
- *
- * Functional description
- *      Scan of foreign references on other relations' primary keys and
- *      scan of primary dependencies on relation's primary key.
- *
- **************************************/
-
-	SET_TDBB(tdbb);
-
-	if (relation->rel_flags & REL_check_partners)
-		relation->scanPartners(tdbb);
-}
-
-
 ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 {
 /**************************************
@@ -2940,7 +2940,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 	// Do we need new format version?
 	if (flags & CacheFlag::DB_VERSION)
 	{
-		RelationNode::makeVersion(tdbb, tdbb->getTransaction(), rel_perm->getName());
+		RelationNode::makeVersion(tdbb, tdbb->getTransaction(), getName());
 		flags &= ~CacheFlag::DB_VERSION;
 	}
 
@@ -4025,7 +4025,9 @@ void RelationPermanent::scanPartners(thread_db* tdbb)
 			if (getName() != IND.RDB$RELATION_NAME)
 				partner_relation = MetadataCache::lookupRelation(tdbb, IND.RDB$RELATION_NAME, CacheFlag::AUTOCREATE);
 
-			if (partner_relation && !IDX.RDB$INDEX_INACTIVE && !IND.RDB$INDEX_INACTIVE)
+			if (partner_relation &&
+				MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
+				MetadataCache::getIndexActive(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE))
 			{
 				dep deps;
 				deps.dep_reference_id = IDX.RDB$INDEX_ID - 1;
@@ -4063,7 +4065,9 @@ void RelationPermanent::scanPartners(thread_db* tdbb)
 			if (getName() != IND.RDB$RELATION_NAME)
 				partner_relation = MetadataCache::lookupRelation(tdbb, IND.RDB$RELATION_NAME, CacheFlag::AUTOCREATE);
 
-			if (partner_relation && !IDX.RDB$INDEX_INACTIVE && !IND.RDB$INDEX_INACTIVE)
+			if (partner_relation &&
+				MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
+				MetadataCache::getIndexActive(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE))
 			{
 				dep deps;
 				deps.dep_reference_id = IDX.RDB$INDEX_ID - 1;
@@ -4666,7 +4670,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, Obje
 		return rc;
 
 	if (auto* rel = mdc->mdc_relations.getVersioned(tdbb, id, flags))
-		rc = rel->rel_perm;
+		rc = rel->getPermanent();
 
 	return rc;
 }
