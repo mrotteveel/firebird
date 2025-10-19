@@ -37,45 +37,45 @@
 
 // Data type information
 
-inline bool DTYPE_IS_TEXT(UCHAR d)
+inline constexpr bool DTYPE_IS_TEXT(UCHAR d) noexcept
 {
 	return d >= dtype_text && d <= dtype_varying;
 }
 
-inline bool DTYPE_IS_DATE(UCHAR t)
+inline constexpr bool DTYPE_IS_DATE(UCHAR t) noexcept
 {
 	return (t >= dtype_sql_date && t <= dtype_timestamp) || (t >= dtype_sql_time_tz && t <= dtype_ex_timestamp_tz);
 }
 
 // DTYPE_IS_BLOB includes both BLOB and ARRAY since array's are implemented over blobs.
-inline bool DTYPE_IS_BLOB(UCHAR d)
+inline constexpr bool DTYPE_IS_BLOB(UCHAR d) noexcept
 {
 	return d == dtype_blob || d == dtype_array;
 }
 
 // DTYPE_IS_BLOB_OR_QUAD includes both BLOB, QUAD and ARRAY since array's are implemented over blobs.
-inline bool DTYPE_IS_BLOB_OR_QUAD(UCHAR d)
+inline constexpr bool DTYPE_IS_BLOB_OR_QUAD(UCHAR d) noexcept
 {
 	return d == dtype_blob || d == dtype_quad || d == dtype_array;
 }
 
 // Exact numeric?
-inline bool DTYPE_IS_EXACT(UCHAR d)
+inline constexpr bool DTYPE_IS_EXACT(UCHAR d) noexcept
 {
 	return d == dtype_int64 || d == dtype_long || d == dtype_short || d == dtype_int128;
 }
 
-inline bool DTYPE_IS_APPROX(UCHAR d)
+inline constexpr bool DTYPE_IS_APPROX(UCHAR d) noexcept
 {
 	return d == dtype_double || d == dtype_real;
 }
 
-inline bool DTYPE_IS_DECFLOAT(UCHAR d)
+inline constexpr bool DTYPE_IS_DECFLOAT(UCHAR d) noexcept
 {
 	return d == dtype_dec128 || d == dtype_dec64;
 }
 
-inline bool DTYPE_IS_NUMERIC(UCHAR d)
+inline constexpr bool DTYPE_IS_NUMERIC(UCHAR d) noexcept
 {
 	return (d >= dtype_byte && d <= dtype_d_float) || d == dtype_int64 ||
 			d == dtype_int128 || DTYPE_IS_DECFLOAT(d);
@@ -89,7 +89,7 @@ typedef struct dsc
 
 	// These Ods::Descriptor constructor and operator were added to have
 	// interoperability between Ods::Descriptor and struct dsc
-	dsc(const Ods::Descriptor& od)
+	dsc(const Ods::Descriptor& od) noexcept
 		: dsc_dtype(od.dsc_dtype),
 		  dsc_scale(od.dsc_scale),
 		  dsc_length(od.dsc_length),
@@ -106,12 +106,16 @@ typedef struct dsc
 	UCHAR*	dsc_address = nullptr; // Used either as offset in a message or as a pointer
 
 #ifdef __cplusplus
-	bool isNullable() const
+	SSHORT dsc_blob_ttype() const noexcept { return dsc_scale | (dsc_flags & 0xFF00);}
+	SSHORT& dsc_ttype() noexcept { return dsc_sub_type;}
+	SSHORT dsc_ttype() const noexcept { return dsc_sub_type;}
+
+	bool isNullable() const noexcept
 	{
 		return dsc_flags & DSC_nullable;
 	}
 
-	void setNullable(bool nullable)
+	void setNullable(bool nullable) noexcept
 	{
 		if (nullable)
 			dsc_flags |= DSC_nullable;
@@ -119,118 +123,118 @@ typedef struct dsc
 			dsc_flags &= ~(DSC_nullable | DSC_null);
 	}
 
-	bool isNull() const
+	bool isNull() const noexcept
 	{
 		return dsc_flags & DSC_null;
 	}
 
-	void setNull()
+	void setNull() noexcept
 	{
 		dsc_flags |= DSC_null | DSC_nullable;
 	}
 
-	void clearNull()
+	void clearNull() noexcept
 	{
 		dsc_flags &= ~DSC_null;
 	}
 
-	bool isBlob() const
+	bool isBlob() const noexcept
 	{
 		return dsc_dtype == dtype_blob || dsc_dtype == dtype_quad;
 	}
 
-	bool isBoolean() const
+	bool isBoolean() const noexcept
 	{
 		return dsc_dtype == dtype_boolean;
 	}
 
-	bool isExact() const
+	bool isExact() const noexcept
 	{
 		return dsc_dtype == dtype_int128 || dsc_dtype == dtype_int64 ||
 			   dsc_dtype == dtype_long || dsc_dtype == dtype_short;
 	}
 
-	bool isNumeric() const
+	bool isNumeric() const noexcept
 	{
 		return DTYPE_IS_NUMERIC(dsc_dtype);
 	}
 
-	bool isText() const
+	bool isText() const noexcept
 	{
 		return DTYPE_IS_TEXT(dsc_dtype);
 	}
 
-	bool isDbKey() const
+	bool isDbKey() const noexcept
 	{
 		return dsc_dtype == dtype_dbkey;
 	}
 
-	bool isDateTime() const
+	bool isDateTime() const noexcept
 	{
 		return DTYPE_IS_DATE(dsc_dtype);
 	}
 
-	bool isDateTimeTz() const
+	bool isDateTimeTz() const noexcept
 	{
 		return dsc_dtype >= dtype_sql_time_tz && dsc_dtype <= dtype_ex_timestamp_tz;
 	}
 
-	bool isDate() const
+	bool isDate() const noexcept
 	{
 		return dsc_dtype == dtype_sql_date;
 	}
 
-	bool isTime() const
+	bool isTime() const noexcept
 	{
 		return dsc_dtype == dtype_sql_time || dsc_dtype == dtype_sql_time_tz || dsc_dtype == dtype_ex_time_tz;
 	}
 
-	bool isTimeStamp() const
+	bool isTimeStamp() const noexcept
 	{
 		return dsc_dtype == dtype_timestamp || dsc_dtype == dtype_timestamp_tz || dsc_dtype == dtype_ex_timestamp_tz;
 	}
 
-	bool isDecFloat() const
+	bool isDecFloat() const noexcept
 	{
 		return DTYPE_IS_DECFLOAT(dsc_dtype);
 	}
 
-	bool isInt128() const
+	bool isInt128() const noexcept
 	{
 		return dsc_dtype == dtype_int128;
 	}
 
-	bool isDecOrInt() const
+	bool isDecOrInt() const noexcept
 	{
 		return isDecFloat() || isExact();
 	}
 
-	bool isDecOrInt128() const
+	bool isDecOrInt128() const noexcept
 	{
 		return isDecFloat() || isInt128();
 	}
 
-	bool is128() const
+	bool is128() const noexcept
 	{
 		return dsc_dtype == dtype_dec128 || dsc_dtype == dtype_int128;
 	}
 
-	bool isApprox() const
+	bool isApprox() const noexcept
 	{
 		return DTYPE_IS_APPROX(dsc_dtype);
 	}
 
-	bool isUnknown() const
+	bool isUnknown() const noexcept
 	{
 		return dsc_dtype == dtype_unknown;
 	}
 
-	UCHAR getType() const
+	UCHAR getType() const noexcept
 	{
 		return dsc_dtype;
 	}
 
-	SSHORT getSubType() const
+	SSHORT getSubType() const noexcept
 	{
 		if (isBlob() || isExact())
 			return dsc_sub_type;
@@ -238,7 +242,7 @@ typedef struct dsc
 		return 0;
 	}
 
-	SSHORT getBlobSubType() const
+	SSHORT getBlobSubType() const noexcept
 	{
 		if (isBlob())
 			return dsc_sub_type;
@@ -246,13 +250,13 @@ typedef struct dsc
 		return isc_blob_text;
 	}
 
-	void setBlobSubType(SSHORT subType)
+	void setBlobSubType(SSHORT subType) noexcept
 	{
 		if (isBlob())
 			dsc_sub_type = subType;
 	}
 
-	CSetId getCharSet() const
+	CSetId getCharSet() const noexcept
 	{
 		if (isText())
 			return CSetId(dsc_sub_type);
@@ -271,7 +275,7 @@ typedef struct dsc
 		return CS_NONE;
 	}
 
-	TTypeId getTextType() const
+	TTypeId getTextType() const noexcept
 	{
 		if (isText())
 			return TTypeId(dsc_sub_type);
@@ -290,7 +294,7 @@ typedef struct dsc
 		return TTypeId(CS_NONE);
 	}
 
-	void setTextType(TTypeId ttype)
+	void setTextType(TTypeId ttype) noexcept
 	{
 		if (isText())
 			dsc_sub_type = ttype;
@@ -301,7 +305,7 @@ typedef struct dsc
 		}
 	}
 
-	CollId getCollation() const
+	CollId getCollation() const noexcept
 	{
 		return CollId(getTextType());
 	}
@@ -316,12 +320,12 @@ typedef struct dsc
 		return dsc_scale;
 	}
 
-	void clear()
+	void clear() noexcept
 	{
 		memset(this, 0, sizeof(*this));
 	}
 
-	void clearFlags()
+	void clearFlags() noexcept
 	{
 		if (isBlob() && dsc_sub_type == isc_blob_text)
 			dsc_flags &= 0xFF00;
@@ -329,7 +333,7 @@ typedef struct dsc
 			dsc_flags = 0;
 	}
 
-	void makeBlob(SSHORT subType, TTypeId ttype, ISC_QUAD* address = NULL)
+	void makeBlob(SSHORT subType, TTypeId ttype, ISC_QUAD* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_blob;
@@ -339,7 +343,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeDate(GDS_DATE* address = NULL)
+	void makeDate(GDS_DATE* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_sql_date;
@@ -347,7 +351,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeDbkey(void* address = NULL)
+	void makeDbkey(void* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_dbkey;
@@ -355,7 +359,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeDouble(double* address = NULL)
+	void makeDouble(double* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_double;
@@ -363,7 +367,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeDecimal64(Firebird::Decimal64* address = NULL)
+	void makeDecimal64(Firebird::Decimal64* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_dec64;
@@ -371,7 +375,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeDecimal128(Firebird::Decimal128* address = NULL)
+	void makeDecimal128(Firebird::Decimal128* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_dec128;
@@ -379,7 +383,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeInt64(SCHAR scale, SINT64* address = NULL)
+	void makeInt64(SCHAR scale, SINT64* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_int64;
@@ -388,7 +392,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeInt128(SCHAR scale, Firebird::Int128* address = NULL)
+	void makeInt128(SCHAR scale, Firebird::Int128* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_int128;
@@ -397,7 +401,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeLong(SCHAR scale, SLONG* address = NULL)
+	void makeLong(SCHAR scale, SLONG* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_long;
@@ -406,7 +410,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeBoolean(UCHAR* address = NULL)
+	void makeBoolean(UCHAR* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_boolean;
@@ -414,7 +418,7 @@ typedef struct dsc
 		dsc_address = address;
 	}
 
-	void makeNullString()
+	void makeNullString() noexcept
 	{
 		clear();
 
@@ -425,7 +429,7 @@ typedef struct dsc
 		dsc_flags = DSC_nullable | DSC_null;
 	}
 
-	void makeShort(SCHAR scale, SSHORT* address = NULL)
+	void makeShort(SCHAR scale, SSHORT* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_short;
@@ -434,7 +438,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeText(USHORT length, TTypeId ttype, UCHAR* address = NULL)
+	void makeText(USHORT length, TTypeId ttype, UCHAR* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_text;
@@ -443,7 +447,7 @@ typedef struct dsc
 		dsc_address = address;
 	}
 
-	void makeTime(GDS_TIME* address = NULL)
+	void makeTime(GDS_TIME* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_sql_time;
@@ -452,7 +456,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeTimeTz(ISC_TIME_TZ* address = NULL)
+	void makeTimeTz(ISC_TIME_TZ* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_sql_time_tz;
@@ -461,7 +465,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeTimeTzEx(ISC_TIME_TZ_EX* address = NULL)
+	void makeTimeTzEx(ISC_TIME_TZ_EX* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_ex_time_tz;
@@ -470,7 +474,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeTimestamp(GDS_TIMESTAMP* address = NULL)
+	void makeTimestamp(GDS_TIMESTAMP* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_timestamp;
@@ -479,7 +483,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeTimestampTz(ISC_TIMESTAMP_TZ* address = NULL)
+	void makeTimestampTz(ISC_TIMESTAMP_TZ* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_timestamp_tz;
@@ -488,7 +492,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeTimestampTzEx(ISC_TIMESTAMP_TZ_EX* address = NULL)
+	void makeTimestampTzEx(ISC_TIMESTAMP_TZ_EX* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_ex_timestamp_tz;
@@ -497,7 +501,7 @@ typedef struct dsc
 		dsc_address = (UCHAR*) address;
 	}
 
-	void makeVarying(USHORT length, TTypeId ttype, UCHAR* address = NULL)
+	void makeVarying(USHORT length, TTypeId ttype, UCHAR* address = NULL) noexcept
 	{
 		clear();
 		dsc_dtype = dtype_varying;
@@ -511,7 +515,7 @@ typedef struct dsc
 		dsc_address = address;
 	}
 
-	bool operator==(const dsc& v) const
+	bool operator==(const dsc& v) const noexcept
 	{
 		return dsc_dtype == v.dsc_dtype &&
 			dsc_scale == v.dsc_scale &&
@@ -521,7 +525,7 @@ typedef struct dsc
 			dsc_address == v.dsc_address;
 	}
 
-	USHORT getStringLength() const;
+	USHORT getStringLength() const noexcept;
 
 	operator Ods::Descriptor() const
 	{
@@ -534,7 +538,19 @@ typedef struct dsc
 		d.dsc_length = dsc_length;
 		d.dsc_sub_type = dsc_sub_type;
 		d.dsc_flags = dsc_flags;
-		d.dsc_offset = (ULONG)(IPTR)dsc_address;
+		d.dsc_offset = (ULONG)(IPTR) dsc_address;
+		return d;
+	}
+
+	operator paramdsc() const noexcept
+	{
+		paramdsc d;
+		d.dsc_dtype = dsc_dtype;
+		d.dsc_scale = dsc_scale;
+		d.dsc_length = dsc_length;
+		d.dsc_sub_type = dsc_sub_type;
+		d.dsc_flags = dsc_flags;
+		d.dsc_address = dsc_address;
 		return d;
 	}
 
@@ -542,7 +558,7 @@ typedef struct dsc
 	void address32bit() const;
 #endif
 
-	const char* typeToText() const;
+	const char* typeToText() const noexcept;
 	void getSqlInfo(SLONG* sqlLength, SLONG* sqlSubType, SLONG* sqlScale, SLONG* sqlType) const;
 #endif	// __cpluplus
 } DSC;
@@ -554,7 +570,7 @@ struct alt_dsc
 	USHORT dsc_flags;			// Not currently used
 };
 
-inline bool DSC_EQUIV(const dsc* d1, const dsc* d2, bool check_collate)
+inline bool DSC_EQUIV(const dsc* d1, const dsc* d2, bool check_collate) noexcept
 {
 	if (((alt_dsc*) d1)->dsc_combined_type == ((alt_dsc*) d2)->dsc_combined_type)
 	{
@@ -581,19 +597,19 @@ inline bool DSC_EQUIV(const dsc* d1, const dsc* d2, bool check_collate)
 // In DSC_*_result tables, DTYPE_CANNOT means that the two operands
 // cannot participate together in the requested operation.
 
-const UCHAR DTYPE_CANNOT	= 127;
+inline constexpr UCHAR DTYPE_CANNOT	= 127;
 
 // Historical alias definition
-const UCHAR dtype_date		= dtype_timestamp;
+inline constexpr UCHAR dtype_date		= dtype_timestamp;
 
-const UCHAR dtype_aligned	= dtype_varying;
-const UCHAR dtype_any_text	= dtype_varying;
-const UCHAR dtype_min_comp	= dtype_packed;
-const UCHAR dtype_max_comp	= dtype_d_float;
+inline constexpr UCHAR dtype_aligned	= dtype_varying;
+inline constexpr UCHAR dtype_any_text	= dtype_varying;
+inline constexpr UCHAR dtype_min_comp	= dtype_packed;
+inline constexpr UCHAR dtype_max_comp	= dtype_d_float;
 
 // NOTE: For types <= dtype_any_text the dsc_sub_type field defines the text type
 
-inline USHORT TEXT_LEN(const dsc* desc)
+inline USHORT TEXT_LEN(const dsc* desc) noexcept
 {
 	return ((desc->dsc_dtype == dtype_text) ?
 		desc->dsc_length :
@@ -604,26 +620,26 @@ inline USHORT TEXT_LEN(const dsc* desc)
 
 // Text Sub types, distinct from character sets & collations
 
-const SSHORT dsc_text_type_none		= 0;	// Normal text
-const SSHORT dsc_text_type_fixed	= 1;	// strings can contain null bytes
-const SSHORT dsc_text_type_ascii	= 2;	// string contains only ASCII characters
-const SSHORT dsc_text_type_metadata	= 3;	// string represents system metadata
+inline constexpr SSHORT dsc_text_type_none		= 0;	// Normal text
+inline constexpr SSHORT dsc_text_type_fixed		= 1;	// strings can contain null bytes
+inline constexpr SSHORT dsc_text_type_ascii		= 2;	// string contains only ASCII characters
+inline constexpr SSHORT dsc_text_type_metadata	= 3;	// string represents system metadata
 
 
 // Exact numeric subtypes: with ODS >= 10, these apply when dtype
 // is short, long, or quad.
 
-const SSHORT dsc_num_type_none		= 0;	// defined as SMALLINT or INTEGER
-const SSHORT dsc_num_type_numeric	= 1;	// defined as NUMERIC(n,m)
-const SSHORT dsc_num_type_decimal	= 2;	// defined as DECIMAL(n,m)
+inline constexpr SSHORT dsc_num_type_none		= 0;	// defined as SMALLINT or INTEGER
+inline constexpr SSHORT dsc_num_type_numeric	= 1;	// defined as NUMERIC(n,m)
+inline constexpr SSHORT dsc_num_type_decimal	= 2;	// defined as DECIMAL(n,m)
 
 // Date type information
 
-inline SCHAR NUMERIC_SCALE(const dsc desc)
+inline constexpr SCHAR NUMERIC_SCALE(const dsc desc) noexcept
 {
 	return ((DTYPE_IS_TEXT(desc.dsc_dtype)) ? 0 : desc.dsc_scale);
 }
 
-const UCHAR DEFAULT_DOUBLE  = dtype_double;
+inline constexpr UCHAR DEFAULT_DOUBLE  = dtype_double;
 
 #endif // COMMON_DSC_H

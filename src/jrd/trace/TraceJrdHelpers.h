@@ -436,8 +436,8 @@ public:
 		if (!m_need_trace)
 			return;
 
-		m_name = trigger->name.c_str();
-		m_relationName = trigger->relation ? trigger->relation->c_name() : "";
+		m_name = trigger->getName();
+		m_relationName = trigger->relation ? trigger->relation->getName() : "";
 
 		const auto type = (trigger->type & ~TRIGGER_TYPE_MASK);
 

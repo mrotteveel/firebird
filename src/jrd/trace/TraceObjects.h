@@ -241,7 +241,7 @@ private:
 		}
 
 		FB_SIZE_T getCount();
-		const dsc* getParam(FB_SIZE_T idx);
+		const paramdsc* getParam(FB_SIZE_T idx);
 		const char* getTextUTF8(Firebird::CheckStatusWrapper* status, FB_SIZE_T idx);
 
 	private:
@@ -249,7 +249,7 @@ private:
 
 		DsqlRequest* const m_stmt;
 		const UCHAR* m_buffer;
-		Firebird::HalfStaticArray<dsc, 16> m_descs;
+		Firebird::HalfStaticArray<paramdsc, 16> m_descs;
 		Firebird::string m_tempUTF8;
 	};
 
@@ -318,7 +318,7 @@ public:
 
 	// TraceParams implementation
 	FB_SIZE_T getCount();
-	const dsc* getParam(FB_SIZE_T idx);
+	const paramdsc* getParam(FB_SIZE_T idx);
 	const char* getTextUTF8(Firebird::CheckStatusWrapper* status, FB_SIZE_T idx);
 
 private:
@@ -341,11 +341,11 @@ public:
 		return m_descs.getCount();
 	}
 
-	const dsc* getParam(FB_SIZE_T idx)
+	const paramdsc* getParam(FB_SIZE_T idx)
 	{
 		fillParams();
 
-		if (/*idx >= 0 &&*/ idx < m_descs.getCount())
+		if (idx < m_descs.getCount())
 			return &m_descs[idx];
 
 		return NULL;
@@ -359,7 +359,7 @@ public:
 protected:
 	virtual void fillParams() = 0;
 
-	Firebird::HalfStaticArray<dsc, 16> m_descs;
+	Firebird::HalfStaticArray<paramdsc, 16> m_descs;
 
 private:
 	TraceParamsImpl	m_traceParams;
@@ -412,7 +412,7 @@ public:
 		else
 		{
 			m_descs.grow(1);
-			m_descs[0].setNull();
+			m_descs[0].dsc_flags |= DSC_null;
 		}
 	}
 
@@ -563,7 +563,7 @@ public:
 		StatementHolder(request),
 		m_name(getName()),
 		m_relationName((request->req_rpb.hasData() && request->req_rpb[0].rpb_relation) ?
-			request->req_rpb[0].rpb_relation->c_name() : ""),
+			request->req_rpb[0].rpb_relation->getName().toQuotedString() : ""),
 		m_which(which),
 		m_action(request->req_trigger_action),
 		m_perf(perf)
@@ -658,7 +658,8 @@ public:
 private:
 	Firebird::PerformanceInfo m_info;
 	TraceCountsArray m_counts;
-	static SINT64 m_dummy_counts[RuntimeStatistics::TOTAL_ITEMS];	// Zero-initialized array with zero counts
+	Firebird::ObjectsArray<Firebird::string> m_tempNames;
+	static SINT64 m_dummy_counts[RuntimeStatistics::GLOBAL_ITEMS];	// Zero-initialized array with zero counts
 };
 
 

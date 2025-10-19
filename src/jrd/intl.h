@@ -85,7 +85,7 @@ inline const BYTE ASCII_SPACE			= 32;			// ASCII code for space
 #define DEFAULT_CHARACTER_SET_NAME	"ISO8859_1"
 #define NATIONAL_CHARACTER_SET		DEFAULT_CHARACTER_SET_NAME
 
-#define DEFAULT_DB_CHARACTER_SET_NAME	"NONE"
+#define DEFAULT_DB_CHARACTER_SET_NAME	"SYSTEM.NONE"
 
 // Character Set used for system metadata information
 

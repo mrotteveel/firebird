@@ -30,7 +30,9 @@
 #include "../jrd/MetaName.h"
 #include "../common/classes/stack.h"
 #include "../common/classes/alloc.h"
+#include <initializer_list>
 #include <optional>
+#include <variant>
 
 namespace Jrd
 {
@@ -100,6 +102,7 @@ public:
 		  mainScratch(aMainScratch),
 		  outerMessagesMap(p),
 		  outerVarsMap(p),
+		  ddlSchema(p),
 		  ctes(p),
 		  cteAliases(p),
 		  subFunctions(p),
@@ -158,16 +161,34 @@ public:
 		dsqlStatement = aDsqlStatement;
 	}
 
+	void qualifyNewName(QualifiedName& name) const;
+	void qualifyExistingName(QualifiedName& name, std::initializer_list<ObjectType> objectTypes);
+
+	void qualifyExistingName(QualifiedName& name, ObjectType objectType)
+	{
+		qualifyExistingName(name, {objectType});
+	}
+
+	std::variant<std::monostate, dsql_prc*, dsql_rel*, dsql_udf*> resolveRoutineOrRelation(QualifiedName& name,
+		std::initializer_list<ObjectType> objectTypes);
+
 	void putBlrMarkers(ULONG marks);
-	void putDtype(const TypeClause* field, bool useSubType);
+	void putType(const dsql_fld* field, bool useSubType);
+
+	// * Generate TypeClause blr and put it to this Scratch
+	// Depends on: typeOfName, typeOfTable and schema:
+	// blr_column_name3/blr_domain_name3 for field with schema
+	// blr_column_name2/blr_domain_name2 for explicit collate
+	// blr_column_name/blr_domain_name for regular field
 	void putType(const TypeClause* type, bool useSubType);
-	void putLocalVariableDecl(dsql_var* variable, DeclareVariableNode* hostParam, const MetaName& collationName);
+	void putLocalVariableDecl(dsql_var* variable, DeclareVariableNode* hostParam, QualifiedName& collationName);
 	void putLocalVariableInit(dsql_var* variable, const DeclareVariableNode* hostParam);
 
-	void putLocalVariable(dsql_var* variable, DeclareVariableNode* hostParam, const MetaName& collationName)
+	void putLocalVariable(dsql_var* variable)
 	{
-		putLocalVariableDecl(variable, hostParam, collationName);
-		putLocalVariableInit(variable, hostParam);
+		QualifiedName dummyCollationName;
+		putLocalVariableDecl(variable, nullptr, dummyCollationName);
+		putLocalVariableInit(variable, nullptr);
 	}
 
 	void putOuterMaps();
@@ -263,6 +284,13 @@ private:
 	bool pass1RelProcIsRecursive(RecordSourceNode* input);
 	BoolExprNode* pass1JoinIsRecursive(RecordSourceNode*& input);
 
+	void putType(const TypeClause& type, bool useSubType, bool useExplicitCollate);
+
+	template<bool THasTableName>
+	void putTypeName(const TypeClause& type, const bool useExplicitCollate);
+
+	void putDtype(const TypeClause& type, const bool useSubType);
+
 	dsql_dbb* dbb = nullptr;				// DSQL attachment
 	jrd_tra* transaction = nullptr;			// Transaction
 	DsqlStatement* dsqlStatement = nullptr;	// DSQL statement
@@ -294,8 +322,8 @@ public:
 	USHORT errorHandlers = 0;				// count of active error handlers
 	USHORT clientDialect = 0;				// dialect passed into the API call
 	USHORT inOuterJoin = 0;					// processing inside outer-join part
-	Firebird::string aliasRelationPrefix;	// prefix for every relation-alias.
-	MetaName package;						// package being defined
+	Firebird::ObjectsArray<QualifiedName> aliasRelationPrefix;	// prefix for every relation-alias.
+	QualifiedName package;				// package being defined
 	Firebird::Stack<SelectExprNode*> currCtes;	// current processing CTE's
 	dsql_ctx* recursiveCtx = nullptr;		// context of recursive CTE
 	USHORT recursiveCtxId = 0;				// id of recursive union stream context
@@ -310,6 +338,8 @@ public:
 	DsqlCompilerScratch* mainScratch = nullptr;
 	Firebird::NonPooledMap<USHORT, USHORT> outerMessagesMap;	// <outer, inner>
 	Firebird::NonPooledMap<USHORT, USHORT> outerVarsMap;		// <outer, inner>
+	MetaName ddlSchema;
+	Firebird::AutoPtr<Firebird::ObjectsArray<Firebird::MetaString>> cachedDdlSchemaSearchPath;
 	dsql_msg* recordKeyMessage = nullptr;	// Side message for positioned DML
 
 private:

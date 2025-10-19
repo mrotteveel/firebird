@@ -275,8 +275,10 @@ blb* blb::create2(thread_db* tdbb,
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	const int maxTempBlobs = MAX_TEMP_BLOBS;
-	if (maxTempBlobs > 0 && transaction->tra_temp_blobs_count >= maxTempBlobs)
+	if constexpr (MAX_TEMP_BLOBS == 0) {
+		// unlimited temp blobs
+	}
+	else if (transaction->tra_temp_blobs_count >= MAX_TEMP_BLOBS)
 	{
 		const Request* request = tdbb->getRequest();
 		string info;
@@ -304,7 +306,7 @@ blb* blb::create2(thread_db* tdbb,
 			}
 		}
 
-		gds__log("Too many temporary blobs (%i allowed)\n%s", maxTempBlobs, info.c_str());
+		gds__log("Too many temporary blobs (%u allowed)\n%s", MAX_TEMP_BLOBS, info.c_str());
 
 		ERR_post(Arg::Gds(isc_random) << Arg::Str("Too many temporary blobs"));
 	}
@@ -980,13 +982,12 @@ SLONG blb::BLB_lseek(USHORT mode, SLONG offset)
 	else if (mode == 2)
 		position += blb_length;
 
-	if (position < 0)
-		position = 0;
-
-	if (position > blb_length)
-		position = blb_length;
-
-	blb_seek = (FB_UINT64) position;
+	if (position <= 0)
+		blb_seek = 0;
+	else if (static_cast<FB_UINT64>(position) > blb_length)
+		blb_seek = blb_length;
+	else
+		blb_seek = static_cast<FB_UINT64>(position);
 	blb_flags |= BLB_seek;
 	blb_flags &= ~BLB_eof;
 
@@ -1749,32 +1750,25 @@ void blb::put_slice(thread_db*	tdbb,
 	if (SDL_info(tdbb->tdbb_status_vector, sdl, &info, 0))
 		ERR_punt();
 
-	jrd_rel* relation = info.sdl_info_relation.length() ?
+	jrd_rel* relation = info.sdl_info_relation.hasData() ?
 		MetadataCache::lookup_relation(tdbb, info.sdl_info_relation, CacheFlag::AUTOCREATE) :
 		MetadataCache::lookup_relation_id(tdbb, info.sdl_info_rid, CacheFlag::AUTOCREATE);
-
-	if (!relation) {
+	if (!relation)
 		IBERROR(196);			// msg 196 relation for array not known
-	}
 
 	SSHORT	n;
-	if (info.sdl_info_field.length()) {
+	if (info.sdl_info_field.length())
 	    n = MET_lookup_field(tdbb, relation, info.sdl_info_field);
-	}
-	else {
+	else
 		n = info.sdl_info_fid;
-	}
 
 	jrd_fld* field;
-	if (n < 0 || !(field = MET_get_field(relation, n))) {
+	if (n < 0 || !(field = MET_get_field(relation, n)))
 		IBERROR(197);			// msg 197 field for array not known
-	}
 
 	ArrayField* array_desc = field->fld_array;
 	if (!array_desc)
-	{
 		ERR_post(Arg::Gds(isc_invalid_dimension) << Arg::Num(0) << Arg::Num(1));
-	}
 
 	// Find and/or allocate array block.  There are three distinct cases:
 
@@ -2107,7 +2101,7 @@ static ISC_STATUS blob_filter(USHORT action, BlobControl* control)
 
 	case isc_blob_filter_seek:
 		fb_assert(false);
-		// fail through ...
+		[[fallthrough]];
 
 	default:
 		ERR_post(Arg::Gds(isc_uns_ext));
@@ -2909,7 +2903,7 @@ static blb* store_array(thread_db* tdbb, jrd_tra* transaction, bid* blob_id)
 					array->arr_desc.iad_length);
 
 	// Write out actual array
-	const USHORT seg_limit = 32768;
+	constexpr USHORT seg_limit = 32768;
 	const BLOB_PTR* p = array->arr_data;
 	SLONG length = array->arr_effective_length;
 	while (length > seg_limit)

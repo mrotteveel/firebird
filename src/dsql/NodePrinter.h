@@ -89,7 +89,7 @@ public:
 		text += "<";
 		text += s;
 		text += ">";
-		text += value.toString();
+		text += value.toQuotedString();
 		text += "</";
 		text += s;
 		text += ">\n";

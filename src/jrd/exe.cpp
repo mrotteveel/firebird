@@ -122,9 +122,9 @@ using namespace Firebird;
 string Item::getDescription(Request* request, const ItemInfo* itemInfo) const
 {
 	if (itemInfo && itemInfo->name.hasData())
-		return itemInfo->name.c_str();
+		return itemInfo->name.toQuotedString();
 
-	int oneBasedIndex = index + 1;
+	const int oneBasedIndex = index + 1;
 	string s;
 
 	if (type == Item::TYPE_VARIABLE)
@@ -157,23 +157,23 @@ string Item::getDescription(Request* request, const ItemInfo* itemInfo) const
 
 // AffectedRows class implementation
 
-AffectedRows::AffectedRows()
+AffectedRows::AffectedRows() noexcept
 {
 	clear();
 }
 
-void AffectedRows::clear()
+void AffectedRows::clear() noexcept
 {
 	writeFlag = false;
 	fetchedRows = modifiedRows = 0;
 }
 
-void AffectedRows::bumpFetched()
+void AffectedRows::bumpFetched() noexcept
 {
 	fetchedRows++;
 }
 
-void AffectedRows::bumpModified(bool increment)
+void AffectedRows::bumpModified(bool increment) noexcept
 {
 	if (increment) {
 		modifiedRows++;
@@ -183,7 +183,7 @@ void AffectedRows::bumpModified(bool increment)
 	}
 }
 
-int AffectedRows::getCount() const
+int AffectedRows::getCount() const noexcept
 {
 	return writeFlag ? modifiedRows : fetchedRows;
 }
@@ -201,12 +201,12 @@ void StatusXcp::clear()
 	status->init();
 }
 
-void StatusXcp::init(const FbStatusVector* vector)
+void StatusXcp::init(const FbStatusVector* vector) noexcept
 {
 	fb_utils::copyStatus(&status, vector);
 }
 
-void StatusXcp::copyTo(FbStatusVector* vector) const
+void StatusXcp::copyTo(FbStatusVector* vector) const noexcept
 {
 	fb_utils::copyStatus(vector, &status);
 }
@@ -262,7 +262,7 @@ static void release_blobs(thread_db*, Request*);
 static void trigger_failure(thread_db*, Request*);
 static void stuff_stack_trace(const Request*);
 
-const size_t MAX_STACK_TRACE = 2048;
+constexpr size_t MAX_STACK_TRACE = 2048;
 
 
 namespace
@@ -463,7 +463,14 @@ void EXE_assignment(thread_db* tdbb, const ValueExprNode* to, dsc* from_desc, bo
 			}
 		}
 
-		if (DTYPE_IS_BLOB_OR_QUAD(from_desc->dsc_dtype) || DTYPE_IS_BLOB_OR_QUAD(to_desc->dsc_dtype))
+		// Strings will be validated in CVT_move()
+
+		if (DSC_EQUIV(from_desc, to_desc, false) && from_desc->dsc_address == to_desc->dsc_address)
+		{
+			// Self-assignment. No need to do anything.
+			return;
+		}
+		else if (DTYPE_IS_BLOB_OR_QUAD(from_desc->dsc_dtype) || DTYPE_IS_BLOB_OR_QUAD(to_desc->dsc_dtype))
 		{
 			// ASF: Don't let MOV_move call blb::move because MOV
 			// will not pass the destination field to blb::move.
@@ -492,6 +499,11 @@ void EXE_assignment(thread_db* tdbb, const ValueExprNode* to, dsc* from_desc, bo
 		}
 		else if (!DSC_EQUIV(from_desc, to_desc, false))
 		{
+			MOV_move(tdbb, from_desc, to_desc);
+		}
+		else if (DTYPE_IS_TEXT(from_desc->dsc_dtype))
+		{
+			// Force slow move to properly handle the case when source string is provided with real length instead of padded length
 			MOV_move(tdbb, from_desc, to_desc);
 		}
 		else if (from_desc->dsc_dtype == dtype_short)
@@ -1381,6 +1393,10 @@ void EXE_execute_triggers(thread_db* tdbb,
 						case TriggerAction::TRIGGER_INSERT:
 							SystemTriggers::executeBeforeInsertTriggers(tdbb, relation, new_rec);
 							break;
+
+						default:
+							// other trigger actions not relevant here
+							break;
 					}
 					break;
 				}
@@ -1392,14 +1408,14 @@ void EXE_execute_triggers(thread_db* tdbb,
 							SystemTriggers::executeAfterDeleteTriggers(tdbb, relation, old_rec);
 							break;
 
-						case TriggerAction::TRIGGER_UPDATE:
-							SystemTriggers::executeAfterUpdateTriggers(tdbb, relation, old_rec, new_rec);
-							break;
-
-						case TriggerAction::TRIGGER_INSERT:
-							SystemTriggers::executeAfterInsertTriggers(tdbb, relation, new_rec);
+						default:
+							// other trigger actions not relevant here
 							break;
 					}
+					break;
+
+				default:
+					// other trigger types not relevant here
 					break;
 			}
 		}
@@ -1438,6 +1454,17 @@ void EXE_execute_triggers(thread_db* tdbb,
 	{
 		for (auto* ptr : triggers)
 		{
+			// The system trigger that implement cascading action can be skipped if
+			// no PK/UK field have been changed by UPDATE.
+
+			if ((which_trig == StmtNode::POST_TRIG) && (trigger_action == TRIGGER_UPDATE) &&
+				(ptr->sysTrigger == fb_sysflag_referential_constraint))
+			{
+				fb_assert(new_rpb);
+				if (!(new_rpb->rpb_runtime_flags & RPB_uk_updated))
+					continue;
+			}
+
 			if (trigger_action == TRIGGER_DDL && ddl_action)
 			{
 				// Skip triggers not matching our action
@@ -1574,20 +1601,20 @@ bool EXE_get_stack_trace(const Request* request, string& sTrace)
 
 		string context, name;
 
-		if (statement->triggerName.length())
+		if (statement->triggerName.object.length())
 		{
 			context = "At trigger";
-			name = statement->triggerName.c_str();
+			name = statement->triggerName.toQuotedString();
 		}
 		else if (statement->procedure)
 		{
 			context = statement->parentStatement ? "At sub procedure" : "At procedure";
-			name = statement->procedure->getName().toString();
+			name = statement->procedure->getName().toQuotedString();
 		}
 		else if (statement->function)
 		{
 			context = statement->parentStatement ? "At sub function" : "At function";
-			name = statement->function->getName().toString();
+			name = statement->function->getName().toQuotedString();
 		}
 		else if (req->req_src_line)
 		{
@@ -1599,7 +1626,7 @@ bool EXE_get_stack_trace(const Request* request, string& sTrace)
 			name.trim();
 
 			if (name.hasData())
-				context += string(" '") + name + string("'");
+				context += string(" ") + name;
 
 			if (sTrace.length() + context.length() > MAX_STACK_TRACE)
 				break;

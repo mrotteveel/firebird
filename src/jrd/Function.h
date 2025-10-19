@@ -24,6 +24,7 @@
 #include "../common/classes/array.h"
 #include "../common/dsc.h"
 #include "../common/classes/NestConst.h"
+#include "../jrd/QualifiedName.h"
 #include "../jrd/val.h"
 #include "../dsql/Nodes.h"
 #include "../jrd/CacheVector.h"
@@ -33,7 +34,6 @@ namespace Jrd
 {
 	class ValueListNode;
 	class QualifiedName;
-	class Function;
 
 	class Function final : public Routine
 	{
@@ -83,12 +83,12 @@ namespace Jrd
 		}
 
 	public:
-		int getObjectType() const override
+		int getObjectType() const noexcept override
 		{
 			return objectType();
 		}
 
-		SLONG getSclType() const override
+		SLONG getSclType() const noexcept override
 		{
 			return obj_functions;
 		}

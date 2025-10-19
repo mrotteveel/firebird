@@ -95,37 +95,36 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 		FOR(REQUEST_HANDLE request_fun TRANSACTION_HANDLE metaTransaction)
 			X IN RDB$FUNCTIONS
-			WITH X.RDB$FUNCTION_ID EQ getPermanent()->getId()
+			CROSS SCH IN RDB$SCHEMAS
+			OVER RDB$SCHEMA_NAME
+			WITH X.RDB$FUNCTION_ID EQ getId()
 		{
 			found = true;
 
-			getPermanent()->setName(QualifiedName(X.RDB$FUNCTION_NAME,
+			getPermanent()->setName(QualifiedName(X.RDB$FUNCTION_NAME, X.RDB$SCHEMA_NAME,
 				(X.RDB$PACKAGE_NAME.NULL ? nullptr : X.RDB$PACKAGE_NAME)));
 			getPermanent()->owner = X.RDB$OWNER_NAME;
 
 			TriState ssDefiner;
 
 			if (!X.RDB$SECURITY_CLASS.NULL)
-			{
-				getPermanent()->setSecurityName(X.RDB$SECURITY_CLASS);
-			}
+				getPermanent()->setSecurityName(QualifiedName(X.RDB$SECURITY_CLASS, SCH.RDB$SECURITY_CLASS));
 			else if (!X.RDB$PACKAGE_NAME.NULL)
 			{
 				AutoCacheRequest requestHandle(tdbb, irq_l_procedure_pkg_class, IRQ_REQUESTS);
 
 				FOR (REQUEST_HANDLE requestHandle TRANSACTION_HANDLE metaTransaction)
 					PKG IN RDB$PACKAGES
-					WITH PKG.RDB$PACKAGE_NAME EQ X.RDB$PACKAGE_NAME
-
+					WITH PKG.RDB$SCHEMA_NAME EQ SCH.RDB$SCHEMA_NAME AND
+						 PKG.RDB$PACKAGE_NAME EQ X.RDB$PACKAGE_NAME
+				{
 					if (!PKG.RDB$SECURITY_CLASS.NULL)
-					{
-						getPermanent()->setSecurityName(PKG.RDB$SECURITY_CLASS);
-					}
+						getPermanent()->setSecurityName(QualifiedName(PKG.RDB$SECURITY_CLASS, SCH.RDB$SECURITY_CLASS));
 
 					// SQL SECURITY of function must be the same if it's defined in package
 					if (!PKG.RDB$SQL_SECURITY.NULL)
 						ssDefiner = (bool) PKG.RDB$SQL_SECURITY;
-
+				}
 				END_FOR
 			}
 
@@ -134,7 +133,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				if (!X.RDB$SQL_SECURITY.NULL)
 					ssDefiner = (bool) X.RDB$SQL_SECURITY;
 				else
-					ssDefiner = MET_get_ss_definer(tdbb);
+					ssDefiner = MET_get_ss_definer(tdbb, X.RDB$SCHEMA_NAME);
 			}
 
 			if (ssDefiner.asBool())
@@ -153,7 +152,8 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 			FOR(REQUEST_HANDLE request_arg TRANSACTION_HANDLE metaTransaction)
 				Y IN RDB$FUNCTION_ARGUMENTS
-				WITH Y.RDB$FUNCTION_NAME EQ getName().identifier.c_str() AND
+				WITH Y.RDB$SCHEMA_NAME EQ getName().schema.c_str() AND
+					 Y.RDB$FUNCTION_NAME EQ getName().object.c_str() AND
 					 Y.RDB$PACKAGE_NAME EQUIV NULLIF(getName().package.c_str(), '')
 				SORTED BY Y.RDB$ARGUMENT_POSITION
 			{
@@ -189,13 +189,14 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 				if (!Y.RDB$FIELD_SOURCE.NULL)
 				{
-					parameter->prm_field_source = Y.RDB$FIELD_SOURCE;
+					parameter->prm_field_source = QualifiedName(Y.RDB$FIELD_SOURCE, Y.RDB$FIELD_SOURCE_SCHEMA_NAME);
 
 					AutoCacheRequest request_arg_fld(tdbb, irq_l_arg_fld, IRQ_REQUESTS);
 
 					FOR(REQUEST_HANDLE request_arg_fld TRANSACTION_HANDLE metaTransaction)
 						F IN RDB$FIELDS
-						WITH F.RDB$FIELD_NAME = Y.RDB$FIELD_SOURCE
+						WITH F.RDB$SCHEMA_NAME = Y.RDB$FIELD_SOURCE_SCHEMA_NAME AND
+							 F.RDB$FIELD_NAME = Y.RDB$FIELD_SOURCE
 					{
 						DSC_make_descriptor(&parameter->prm_desc, F.RDB$FIELD_TYPE,
 											F.RDB$FIELD_SCALE, F.RDB$FIELD_LENGTH,
@@ -228,7 +229,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				}
 
 				if (!Y.RDB$RELATION_NAME.NULL)
-					parameter->prm_type_of_table = Y.RDB$RELATION_NAME;
+					parameter->prm_type_of_table = QualifiedName(Y.RDB$RELATION_NAME, Y.RDB$RELATION_SCHEMA_NAME);
 
 				if (!Y.RDB$FIELD_NAME.NULL)
 					parameter->prm_type_of_column = Y.RDB$FIELD_NAME;
@@ -242,8 +243,8 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 
 					try
 					{
-						parameter->prm_default_value = static_cast<ValueExprNode*>(MET_parse_blob(
-							tdbb, nullptr, &default_value, nullptr, nullptr, false, false));
+						parameter->prm_default_value = static_cast<ValueExprNode*>(MET_parse_blob(tdbb,
+							&function->getName().schema, nullptr, &default_value, nullptr, nullptr, false, false));
 					}
 					catch (const Exception&)
 					{
@@ -274,8 +275,8 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 			// Prepare the exception message to be used in case this function ever
 			// causes an exception.  This is done at this time to save us from preparing
 			// (thus allocating) this message every time the function is called.
-			fun_exception_message.printf(EXCEPTION_MESSAGE,
-				getName().toString().c_str(), X.RDB$ENTRYPOINT, X.RDB$MODULE_NAME);
+			function->fun_exception_message.printf(EXCEPTION_MESSAGE,
+				getName().toQuotedString().c_str(), X.RDB$ENTRYPOINT, X.RDB$MODULE_NAME);
 
 			if (!X.RDB$DETERMINISTIC_FLAG.NULL)
 				fun_deterministic = (X.RDB$DETERMINISTIC_FLAG != 0);
@@ -334,7 +335,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					}
 					else if (!X.RDB$FUNCTION_BLR.NULL)
 					{
-						const string name = getName().toString();
+						const string name = getName().toQuotedString();
 
 						try
 						{
@@ -427,7 +428,7 @@ ScanResult Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 				StaticStatusVector temp_status;
 				ex.stuffException(temp_status);
 
-				const string name = this->getName().toString();
+				const string name = this->getName().toQuotedString();
 				(Arg::Gds(isc_bad_fun_BLR) << Arg::Str(name)
 					<< Arg::StatusVector(temp_status.begin())).raise();
 			}

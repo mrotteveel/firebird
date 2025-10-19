@@ -6,7 +6,7 @@ jobs:
 
   build-linux-ubuntu-x64-clang:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -39,7 +39,7 @@ jobs:
 
   build-linux-docker:
     name: build-linux-docker-${{ matrix.arch }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       FB_DOCKER_PATH: ${{ (startsWith(matrix.arch, 'arm') && 'arm32-arm64') || 'x86-x64' }}
 
@@ -94,7 +94,7 @@ jobs:
 
   build-src-bundle-docker:
     name: build-src-bundle-docker
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -122,8 +122,8 @@ jobs:
 
   build-alpine-x64:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-22.04
-    container: alpine:3.14
+    runs-on: ubuntu-24.04
+    container: alpine:3.22.1
 
     steps:
       - name: Checkout
@@ -156,14 +156,13 @@ jobs:
     if: github.ref_type != 'tag'
     runs-on: ${{ matrix.os }}
     env:
-      VS_VERSION: ${{ (matrix.os == 'windows-2019' && '2019' || (matrix.os == 'windows-2022' && '2022' || '')) }}
+      VS_VERSION: 2022
 
     strategy:
       fail-fast: false
       matrix:
         os:
-          - windows-2022
-          - windows-2019
+          - windows-2025
         platform: [x64, x86]
 
     steps:
@@ -180,13 +179,13 @@ jobs:
         run: |
           for /r %%i in (*.bat) do unix2dos "%%i"
           choco uninstall --no-progress --yes innosetup
-          choco install --no-progress --yes innosetup --version=6.1.2
+          choco install --no-progress --yes innosetup --version=6.4.0
 
       - name: Build
         shell: cmd
         env:
           PLATFORM: ${{ matrix.platform }}
-          VS_SCRIPT: ${{ matrix.os == 'windows-2022' && 'C:\Program Files\Microsoft Visual Studio\%VS_VERSION%\Enterprise\Common7\Tools\VsDevCmd.bat' || 'C:\Program Files (x86)\Microsoft Visual Studio\%VS_VERSION%\Enterprise\Common7\Tools\VsDevCmd.bat' }}
+          VS_SCRIPT: C:\Program Files\Microsoft Visual Studio\%VS_VERSION%\Enterprise\Common7\Tools\VsDevCmd.bat
         run: |
           set SEVENZIP=C:\Program Files\7-Zip
           set INNO6_SETUP_PATH=C:\Program Files (x86)\Inno Setup 6
@@ -442,7 +441,7 @@ jobs:
 
   build-android-initial:
     name: build-android-${{ matrix.arch }}-initial
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       NDK: /home/runner/Android/Ndk
       ARCH: ${{ matrix.arch }}
@@ -474,9 +473,9 @@ jobs:
         run: |
           mkdir downloads
           pushd downloads
-          curl -OL https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+          curl -OL https://dl.google.com/android/repository/android-ndk-r28c-linux.zip
           mkdir -p $NDK
-          unzip android-ndk-r25b-linux.zip -d $NDK && f=("$NDK"/*) && mv "$NDK"/*/* "$NDK" && rmdir "${f[@]}"
+          unzip android-ndk-r28c-linux.zip -d $NDK && f=("$NDK"/*) && mv "$NDK"/*/* "$NDK" && rmdir "${f[@]}"
 
       - name: Build
         run: |
@@ -547,7 +546,7 @@ jobs:
           arch: x86_64
           api-level: 30
           target: google_apis
-          ndk: 25.1.8937393
+          ndk: 28.2.13676358
           emulator-options: -no-window -noaudio -no-boot-anim -camera-back none -port 5554
           emulator-boot-timeout: 900
           script: |
@@ -560,13 +559,13 @@ jobs:
           arch: x86_64
           api-level: 30
           target: google_apis
-          ndk: 25.1.8937393
+          ndk: 28.2.13676358
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none -port 5554
           emulator-boot-timeout: 900
           script: |
             adb wait-for-device
             adb root
-            NDK=/usr/local/lib/android/sdk/ndk/25.1.8937393 builds/install/arch-specific/android/BuildFinalPackage.sh $ARCH
+            NDK=/usr/local/lib/android/sdk/ndk/28.2.13676358 builds/install/arch-specific/android/BuildFinalPackage.sh $ARCH
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
@@ -594,7 +593,7 @@ jobs:
 
   build-android-aar:
     needs: build-android-final
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout

@@ -49,22 +49,22 @@ class jrd_rel;
 class Record;
 
 // trigger types
-const int TRIGGER_PRE_STORE		= 1;
-const int TRIGGER_POST_STORE	= 2;
-const int TRIGGER_PRE_MODIFY	= 3;
-const int TRIGGER_POST_MODIFY	= 4;
-const int TRIGGER_PRE_ERASE		= 5;
-const int TRIGGER_POST_ERASE	= 6;
-const int TRIGGER_MAX			= 7;
+inline constexpr int TRIGGER_PRE_STORE		= 1;
+inline constexpr int TRIGGER_POST_STORE		= 2;
+inline constexpr int TRIGGER_PRE_MODIFY		= 3;
+inline constexpr int TRIGGER_POST_MODIFY	= 4;
+inline constexpr int TRIGGER_PRE_ERASE		= 5;
+inline constexpr int TRIGGER_POST_ERASE		= 6;
+inline constexpr int TRIGGER_MAX			= 7;
 
 // trigger type prefixes
-const int TRIGGER_PRE			= 0;
-const int TRIGGER_POST			= 1;
+inline constexpr int TRIGGER_PRE			= 0;
+inline constexpr int TRIGGER_POST			= 1;
 
 // trigger type suffixes
-const int TRIGGER_STORE			= 1;
-const int TRIGGER_MODIFY		= 2;
-const int TRIGGER_ERASE			= 3;
+inline constexpr int TRIGGER_STORE			= 1;
+inline constexpr int TRIGGER_MODIFY			= 2;
+inline constexpr int TRIGGER_ERASE			= 3;
 
 // that's how trigger action types are encoded
 /*
@@ -100,7 +100,7 @@ example #3:
 #define TRIGGER_ACTION_SLOT(value, slot) \
 	TRIGGER_ACTION(value, (slot * 2 - 1) )
 
-const int TRIGGER_COMBINED_MAX	= 128;
+inline constexpr int TRIGGER_COMBINED_MAX	= 128;
 
 
 
@@ -271,7 +271,7 @@ class ViewContext
 {
 public:
 	explicit ViewContext(MemoryPool& p, const TEXT* context_name,
-						 const TEXT* relation_name, USHORT context,
+						 const QualifiedName& relation_name, USHORT context,
 						 ViewContextType type)
 	: vcx_context_name(p, context_name, fb_strlen(context_name)),
 	  vcx_relation_name(relation_name),
@@ -280,13 +280,13 @@ public:
 	{
 	}
 
-	static USHORT generate(const ViewContext* vc)
+	static USHORT generate(const ViewContext* vc) noexcept
 	{
 		return vc->vcx_context;
 	}
 
 	const Firebird::string vcx_context_name;
-	const MetaName vcx_relation_name;
+	const QualifiedName vcx_relation_name;
 	const USHORT vcx_context;
 	const ViewContextType vcx_type;
 };
@@ -327,14 +327,14 @@ public:
 		  dpMapMark(0)
 	{}
 
-	inline SLONG addRef()
+	inline SLONG addRef() noexcept
 	{
 		return useCount++;
 	}
 
 	void free(RelationPages*& nextFree);
 
-	static inline InstanceId generate(const RelationPages* item)
+	static inline InstanceId generate(const RelationPages* item) noexcept
 	{
 		return item->rel_instance_id;
 	}
@@ -374,7 +374,7 @@ public:
 		}
 	}
 
-	void freeOldestMapItems()
+	void freeOldestMapItems() noexcept
 	{
 		ULONG minMark = MAX_ULONG;
 		FB_SIZE_T i;
@@ -403,7 +403,7 @@ private:
 	RelationPages*	rel_next_free;
 	SLONG			useCount;
 
-	static const ULONG MAX_DPMAP_ITEMS = 64;
+	static constexpr ULONG MAX_DPMAP_ITEMS = 64;
 
 	struct DPItem
 	{
@@ -411,7 +411,7 @@ private:
 		ULONG physNum;
 		ULONG mark;
 
-		static ULONG generate(const DPItem& item)
+		static ULONG generate(const DPItem& item) noexcept
 		{
 			return item.seqNum;
 		}
@@ -577,7 +577,6 @@ public:
 	USHORT				rel_dbkey_length;	// RDB$DBKEY length
 
 	vec<jrd_fld*>*		rel_fields;			// vector of field blocks
-
 	RseNode*			rel_view_rse;		// view record select expression
 	ViewContexts		rel_view_contexts;	// sorted array of view contexts
 
@@ -590,13 +589,13 @@ public:
 	const char* c_name() const override;
 	MetaId getId() const;
 	RelationPages* getPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, bool allocPages = true);
-	bool isTemporary() const;
-	bool isView() const;
-	bool isVirtual() const;
-	bool isSystem() const;
+	bool isSystem() const noexcept;
+	bool isTemporary() const noexcept;
+	bool isVirtual() const noexcept ;
+	bool isView() const noexcept;
 	bool isReplicating(thread_db* tdbb);
 
-	ObjectType getObjectType() const
+	ObjectType getObjectType() const noexcept
 	{
 		return isView() ? obj_view : obj_relation;
 	}
@@ -763,7 +762,7 @@ public:
 	static bool destroy(thread_db* tdbb, RelationPermanent* rel);
 
 	void makeLocks(thread_db* tdbb, Cached::Relation* relation);
-	static constexpr USHORT getRelLockKeyLength();
+	static constexpr USHORT getRelLockKeyLength() noexcept;
 	Lock* createLock(thread_db* tdbb, lck_t, bool);
 	Lock* createLock(thread_db* tdbb, MemoryPool& pool, lck_t, bool);
 	void extFile(thread_db* tdbb, const TEXT* file_name);		// impl in ext.cpp
@@ -828,11 +827,11 @@ public:
 	RelationPages* getPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, bool allocPages = true);
 	bool	delPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, RelationPages* aPages = NULL);
 	void	retainPages(thread_db* tdbb, TraNumber oldNumber, TraNumber newNumber);
-	void	cleanUp();
+	void	cleanUp() noexcept;
 	void	fillPagesSnapshot(RelPagesSnapshot&, const bool AttachmentOnly = false);
 	void	scanPartners(thread_db* tdbb);		// Foreign keys scan - impl. in met.epp
 
-	RelationPages* getBasePages()
+	RelationPages* getBasePages() noexcept
 	{
 		return &rel_pages_base;
 	}
@@ -949,9 +948,10 @@ inline bool jrd_rel::hasData() const
 	return rel_perm->rel_name.hasData();
 }
 
-inline const char* jrd_rel::c_name() const
+// ????????????? inline const char* jrd_rel::c_name() const
+inline bool jrd_rel::isSystem() const noexcept
 {
-	return rel_perm->rel_name.c_str();
+	return rel_perm->isSystem();
 }
 
 inline MetaName jrd_rel::getName() const
@@ -989,12 +989,17 @@ inline RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool al
 	return rel_perm->getPages(tdbb, tran, allocPages);
 }
 
-inline bool jrd_rel::isTemporary() const
+inline bool jrd_rel::isTemporary() const noexcept
 {
 	return rel_perm->isTemporary();
 }
 
-inline bool jrd_rel::isView() const
+inline bool jrd_rel::isVirtual() const noexcept
+{
+	return rel_perm->isVirtual();
+}
+
+inline bool jrd_rel::isView() const noexcept
 {
 	return rel_perm->isView();
 }
@@ -1079,7 +1084,7 @@ inline void GCLock::Exclusive::release()
 
 // Field block, one for each field in a scanned relation
 
-const USHORT FLD_parse_computed = 0x0001;		// computed expression is being parsed
+inline constexpr USHORT FLD_parse_computed = 0x0001;	// computed expression is being parsed
 
 class jrd_fld : public pool_alloc<type_fld>
 {
@@ -1093,9 +1098,9 @@ public:
 	ArrayField*	fld_array;				// array description, if array
 	MetaName	fld_name;				// Field name
 	MetaName	fld_security_name;		// security class name for field
-	MetaName	fld_generator_name;		// identity generator name
+	QualifiedName	fld_generator_name;	// identity generator name
 	MetaName	fld_source_name;		// RDB%FIELD name
-	MetaNamePair	fld_source_rel_field;	// Relation/field source name
+	QualifiedNameMetaNamePair	fld_source_rel_field;	// Relation/field source name
 	std::optional<IdentityType> fld_identity_type;
 	USHORT fld_length;
 	USHORT fld_segment_length;

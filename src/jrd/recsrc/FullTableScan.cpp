@@ -163,7 +163,7 @@ void FullTableScan::getLegacyPlan(thread_db* tdbb, string& plan, unsigned level)
 	if (!level)
 		plan += "(";
 
-	plan += printName(tdbb, m_alias, false) + " NATURAL";
+	plan += printName(tdbb, m_alias) + " NATURAL";
 
 	if (!level)
 		plan += ")";
@@ -191,12 +191,13 @@ void FullTableScan::internalGetPlan(thread_db* tdbb, PlanEntry& planEntry, unsig
 	else if (upperBounds)
 		bounds += " (upper bound)";
 
-	planEntry.lines.add().text = "Table " + printName(tdbb, m_relation()->c_name(), m_alias) + " Full Scan" + bounds;
+	planEntry.lines.add().text = "Table " +
+		printName(tdbb, m_relation()->getName().toQuotedString(), m_alias) + " Full Scan" + bounds;
 	printOptInfo(planEntry.lines);
 
 	planEntry.objectType = m_relation()->getObjectType();
 	planEntry.objectName = m_relation()->getName();
 
-	if (m_alias.hasData() && m_relation()->getName() != m_alias)
+	if (m_alias.hasData() && m_alias != string(m_relation()->getName().object))
 		planEntry.alias = m_alias;
 }

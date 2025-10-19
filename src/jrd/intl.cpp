@@ -177,7 +177,7 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 	if (id == CS_UTF16)
 	{
 		info->charsetName.clear();
-		info->charsetName.push("UTF16");
+		info->charsetName.push(QualifiedName("UTF16)");
 		return true;
 	}
 
@@ -198,8 +198,8 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 			if (colDef->charSetId == id && colDef->collationId == 0)
 			{
 				info->charsetName.clear();
-				info->charsetName.push(csDef->name);
-				info->collationName = colDef->name;
+				info->charsetName.push(QualifiedName(csDef->name, SYSTEM_SCHEMA));
+				info->collationName = QualifiedName(colDef->name, SYSTEM_SCHEMA);
 				info->attributes = colDef->attributes;
 				info->ignoreAttributes = false;
 
@@ -277,46 +277,10 @@ Collation* CharSetVers::getCollation(MetaName name)
 	ERR_post(Arg::Gds(isc_text_subtype) << name);
 }
 
-/*
-void CharSetContainer::unloadCollation(thread_db* tdbb, USHORT tt_id)
-{
-	const USHORT id = TTYPE_TO_COLLATION(tt_id);
-	fb_assert(id != 0);
-
-	Collation* coll(FB_FUNCTION);
-	if (charset_collations.load(tdbb, id, coll))
-	{
-		MutexLockGuard g(MetadataCache::get(tdbb)->mdc_use_mutex, FB_FUNCTION);
-
-		if (coll->useCount != 0)
-		{
-			ERR_post(Arg::Gds(isc_no_meta_update) <<
-					 Arg::Gds(isc_obj_in_use) << Arg::Str(coll->name));
-		}
-
-		fb_assert(coll->existenceLock);
-
-		if (!coll->obsolete)
-		{
-			LCK_convert(tdbb, coll->existenceLock, LCK_EX, LCK_WAIT);
-			coll->obsolete = true;
-			LCK_release(tdbb, coll->existenceLock);
-		}
-	}
-	else
-	{
-		// signal other processes collation is gone
-		AutoPtr<Lock> lock(CharSetContainer::createCollationLock(tdbb, tt_id));
-
-		LCK_lock(tdbb, lock, LCK_EX, LCK_WAIT);
-		LCK_release(tdbb, lock);
-	}
-}
- */
 
 void INTL_lookup_texttype(texttype* tt, const SubtypeInfo* info)
 {
-	IntlManager::lookupCollation(info->baseCollationName.c_str(), info->charsetName,
+	IntlManager::lookupCollation(info->baseCollationName, info->charsetName,
 		info->attributes, info->specificAttributes.begin(),
 		info->specificAttributes.getCount(), info->ignoreAttributes, tt);
 }

@@ -147,7 +147,7 @@ public:
 
 		SLONG relationId;
 		SLONG indexId;
-		MetaName indexName;
+		QualifiedName indexName;
 	};
 
 	struct AccessType
@@ -192,14 +192,14 @@ public:
 private:
 	dsql_ctx* dsqlPassAliasList(DsqlCompilerScratch* dsqlScratch);
 	static dsql_ctx* dsqlPassAlias(DsqlCompilerScratch* dsqlScratch, DsqlContextStack& stack,
-		const MetaName& alias);
+		const QualifiedName& alias);
 
 public:
 	Type const type;
 	AccessType* accessType;
 	RecordSourceNode* recordSourceNode;
 	Firebird::Array<NestConst<PlanNode> > subNodes;
-	Firebird::ObjectsArray<MetaName>* dsqlNames;
+	Firebird::ObjectsArray<QualifiedName>* dsqlNames;
 };
 
 class InversionNode
@@ -354,7 +354,7 @@ public:
 class RelationSourceNode final : public TypedNode<RecordSourceNode, RecordSourceNode::TYPE_RELATION>
 {
 public:
-	explicit RelationSourceNode(MemoryPool& pool, const MetaName& aDsqlName = NULL)
+	explicit RelationSourceNode(MemoryPool& pool, const QualifiedName& aDsqlName = {})
 		: TypedNode<RecordSourceNode, RecordSourceNode::TYPE_RELATION>(pool),
 		  dsqlName(pool, aDsqlName),
 		  alias(pool),
@@ -414,7 +414,7 @@ public:
 	virtual RecordSource* compile(thread_db* tdbb, Optimizer* opt, bool innerSubStream);
 
 public:
-	MetaName dsqlName;
+	QualifiedName dsqlName;
 	Firebird::string alias;	// SQL alias for the relation
 	Rsc::Rel relation;
 
@@ -429,7 +429,7 @@ class ProcedureSourceNode final : public TypedNode<RecordSourceNode, RecordSourc
 {
 public:
 	explicit ProcedureSourceNode(MemoryPool& pool,
-			const QualifiedName& aDsqlName = QualifiedName())
+			const QualifiedName& aDsqlName = {})
 		: TypedNode<RecordSourceNode, RecordSourceNode::TYPE_PROCEDURE>(pool),
 		  dsqlName(pool, aDsqlName),
 		  alias(pool)
@@ -711,6 +711,16 @@ private:
 
 class RseNode final : public TypedNode<RecordSourceNode, RecordSourceNode::TYPE_RSE>
 {
+	enum : UCHAR							// storage is BLR-compatible
+	{
+		INNER_JOIN	= blr_inner,
+		LEFT_JOIN	= blr_left,
+		RIGHT_JOIN	= blr_right,
+		FULL_JOIN	= blr_full,
+		SEMI_JOIN,
+		ANTI_JOIN
+	};
+
 public:
 	enum : USHORT
 	{
@@ -721,9 +731,39 @@ public:
 		FLAG_DSQL_COMPARATIVE	= 0x10,		// transformed from DSQL ComparativeBoolNode
 		FLAG_LATERAL			= 0x20,		// lateral derived table
 		FLAG_SKIP_LOCKED		= 0x40,		// skip locked
-		FLAG_SUB_QUERY			= 0x80,		// sub-query
-		FLAG_SEMI_JOINED		= 0x100		// participates in semi-join
+		FLAG_SUB_QUERY			= 0x80		// sub-query
 	};
+
+	bool isInnerJoin() const
+	{
+		return (rse_jointype == INNER_JOIN);
+	}
+
+	bool isLeftJoin() const
+	{
+		return (rse_jointype == LEFT_JOIN);
+	}
+
+	bool isOuterJoin() const
+	{
+		return (rse_jointype == LEFT_JOIN || rse_jointype == RIGHT_JOIN || rse_jointype == FULL_JOIN);
+	}
+
+	bool isFullJoin() const
+	{
+		return (rse_jointype == FULL_JOIN);
+	}
+
+	bool isSpecialJoin() const
+	{
+		return (rse_jointype == SEMI_JOIN || rse_jointype == ANTI_JOIN);
+	}
+
+	bool isSemiJoin() const
+	{
+		fb_assert(isSpecialJoin());
+		return (rse_jointype == SEMI_JOIN);
+	}
 
 	bool isInvariant() const
 	{
@@ -748,11 +788,6 @@ public:
 	bool isSubQuery() const
 	{
 		return (flags & FLAG_SUB_QUERY) != 0;
-	}
-
-	bool isSemiJoined() const
-	{
-		return (flags & FLAG_SEMI_JOINED) != 0;
 	}
 
 	bool hasWriteLock() const
@@ -885,8 +920,8 @@ public:
 	NestConst<VarInvariantArray> rse_invariants; // Invariant nodes bound to top-level RSE
 	Firebird::Array<NestConst<RecordSourceNode> > rse_relations;
 	USHORT flags = 0;
-	USHORT rse_jointype = blr_inner;	// inner, left, full
-	Firebird::TriState firstRows;					// optimize for first rows
+	UCHAR rse_jointype = INNER_JOIN;
+	Firebird::TriState firstRows;		// optimize for first rows
 };
 
 class SelectExprNode final : public TypedNode<RecordSourceNode, RecordSourceNode::TYPE_SELECT_EXPR>
@@ -978,9 +1013,9 @@ public:
 	}
 	static TableValueFunctionSourceNode* parse(thread_db* tdbb, CompilerScratch* csb,
 											   const SSHORT blrOp);
-	static TableValueFunctionSourceNode* parseTableValueFunctions(thread_db* tdbb,
-																  CompilerScratch* csb,
-																  const SSHORT blrOp);
+	static TableValueFunctionSourceNode* parseFunction(thread_db* tdbb,
+													   CompilerScratch* csb,
+													   const SSHORT blrOp);
 
 	Firebird::string internalPrint(NodePrinter& printer) const override;
 	RecordSourceNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override;
@@ -1007,6 +1042,11 @@ public:
 	virtual dsql_fld* makeField(DsqlCompilerScratch* dsqlScratch);
 	void setDefaultNameField(DsqlCompilerScratch* dsqlScratch);
 
+	virtual const char* getName() const
+	{
+		return nullptr;
+	}
+
 public:
 	MetaName dsqlName;
 	MetaName alias;
@@ -1030,6 +1070,11 @@ public:
 
 	static constexpr char const* FUNC_NAME = "UNLIST";
 	static constexpr USHORT DEFAULT_UNLIST_TEXT_LENGTH = 32;
+
+	const char* getName() const override
+	{
+		return FUNC_NAME;
+	}
 };
 
 } // namespace Jrd

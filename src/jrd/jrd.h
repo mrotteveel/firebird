@@ -109,7 +109,7 @@ namespace Firebird {
 
 namespace Jrd {
 
-const unsigned MAX_CALLBACKS	= 50;
+inline constexpr unsigned MAX_CALLBACKS = 50;
 
 // fwd. decl.
 class thread_db;
@@ -135,7 +135,6 @@ class TraceManager;
 class MessageNode;
 class Database;
 
-
 //
 // Transaction element block
 //
@@ -160,10 +159,10 @@ struct win
 	class BufferDesc* win_bdb;
 	SSHORT win_scans;
 	USHORT win_flags;
-	explicit win(const PageNumber& wp)
+	explicit win(const PageNumber& wp) noexcept
 		: win_page(wp), win_bdb(NULL), win_flags(0)
 	{}
-	win(const USHORT pageSpaceID, const ULONG pageNum)
+	win(const USHORT pageSpaceID, const ULONG pageNum) noexcept
 		: win_page(pageSpaceID, pageNum), win_bdb(NULL), win_flags(0)
 	{}
 };
@@ -177,26 +176,25 @@ typedef win WIN;
 // to the constructor: win my_array[n] = {win(-1), ... (win-1)};
 // When all places are changed, this class can disappear and win's constructor
 // may get the default value of ~0 to "wp".
-struct win_for_array: public win
+struct win_for_array : public win
 {
-	win_for_array()
+	win_for_array() noexcept
 		: win(DB_PAGE_SPACE, ~0)
 	{}
 };
 
 // win_flags
 
-const USHORT WIN_large_scan			= 1;	// large sequential scan
-const USHORT WIN_secondary			= 2;	// secondary stream
-const USHORT WIN_garbage_collector	= 4;	// garbage collector's window
-const USHORT WIN_garbage_collect	= 8;	// scan left a page for garbage collector
-
+inline constexpr USHORT WIN_large_scan			= 1;	// large sequential scan
+inline constexpr USHORT WIN_secondary			= 2;	// secondary stream
+inline constexpr USHORT WIN_garbage_collector	= 4;	// garbage collector's window
+inline constexpr USHORT WIN_garbage_collect		= 8;	// scan left a page for garbage collector
 
 // Helper class to temporarily activate sweeper context
 class ThreadSweepGuard
 {
 public:
-	explicit ThreadSweepGuard(thread_db* tdbb)
+	explicit ThreadSweepGuard(thread_db* tdbb) noexcept
 		: m_tdbb(tdbb)
 	{
 		m_tdbb->markAsSweeper();
@@ -227,19 +225,23 @@ public:
 		m_tdbb->tdbb_status_vector = m_old_status;
 	}
 
-	FbStatusVector* restore()
+	// copying is prohibited
+	ThreadStatusGuard(const ThreadStatusGuard&) = delete;
+	ThreadStatusGuard& operator=(const ThreadStatusGuard&) = delete;
+
+	FbStatusVector* restore() noexcept
 	{
 		m_tdbb->tdbb_status_vector = m_old_status;
 		return m_old_status;
 	}
 
-	operator FbStatusVector*() { return &m_local_status; }
-	FbStatusVector* operator->() { return &m_local_status; }
+	operator FbStatusVector*() noexcept { return &m_local_status; }
+	FbStatusVector* operator->() noexcept { return &m_local_status; }
 
-	operator const FbStatusVector*() const { return &m_local_status; }
-	const FbStatusVector* operator->() const { return &m_local_status; }
+	operator const FbStatusVector*() const noexcept { return &m_local_status; }
+	const FbStatusVector* operator->() const noexcept { return &m_local_status; }
 
-	void copyToOriginal()
+	void copyToOriginal() noexcept
 	{
 		fb_utils::copyStatus(m_old_status, &m_local_status);
 	}
@@ -248,10 +250,6 @@ private:
 	Firebird::FbLocalStatus m_local_status;
 	thread_db* const m_tdbb;
 	FbStatusVector* const m_old_status;
-
-	// copying is prohibited
-	ThreadStatusGuard(const ThreadStatusGuard&);
-	ThreadStatusGuard& operator=(const ThreadStatusGuard&);
 };
 
 
@@ -333,10 +331,9 @@ namespace Jrd {
 			: Jrd::ContextPoolHolder(tdbb, tdbb->getDatabase()->dbb_permanent)
 		{}
 
-	private:
 		// copying is prohibited
-		DatabaseContextHolder(const DatabaseContextHolder&);
-		DatabaseContextHolder& operator=(const DatabaseContextHolder&);
+		DatabaseContextHolder(const DatabaseContextHolder&) = delete;
+		DatabaseContextHolder& operator=(const DatabaseContextHolder&) = delete;
 	};
 
 	class BackgroundContextHolder : public ThreadContextHolder, public DatabaseContextHolder,
@@ -349,33 +346,31 @@ namespace Jrd {
 			  Jrd::Attachment::SyncGuard(att, f)
 		{}
 
-	private:
 		// copying is prohibited
-		BackgroundContextHolder(const BackgroundContextHolder&);
-		BackgroundContextHolder& operator=(const BackgroundContextHolder&);
+		BackgroundContextHolder(const BackgroundContextHolder&) = delete;
+		BackgroundContextHolder& operator=(const BackgroundContextHolder&) = delete;
 	};
 
 	class AttachmentHolder
 	{
 	public:
-		static const unsigned ATT_LOCK_ASYNC			= 1;
-		static const unsigned ATT_DONT_LOCK				= 2;
-		static const unsigned ATT_NO_SHUTDOWN_CHECK		= 4;
-		static const unsigned ATT_NON_BLOCKING			= 8;
+		static constexpr unsigned ATT_LOCK_ASYNC		= 1;
+		static constexpr unsigned ATT_DONT_LOCK			= 2;
+		static constexpr unsigned ATT_NO_SHUTDOWN_CHECK	= 4;
+		static constexpr unsigned ATT_NON_BLOCKING		= 8;
 
 		AttachmentHolder(thread_db* tdbb, StableAttachmentPart* sa, unsigned lockFlags, const char* from);
 		~AttachmentHolder();
+
+		// copying is prohibited
+		AttachmentHolder(const AttachmentHolder&) = delete;
+		AttachmentHolder& operator =(const AttachmentHolder&) = delete;
 
 	private:
 		Firebird::RefPtr<StableAttachmentPart> sAtt;
 		bool async;			// async mutex should be locked instead normal
 		bool nolock; 		// if locked manually, no need to take lock recursively
 		bool blocking;		// holder instance is blocking other instances
-
-	private:
-		// copying is prohibited
-		AttachmentHolder(const AttachmentHolder&);
-		AttachmentHolder& operator =(const AttachmentHolder&);
 	};
 
 	class EngineContextHolder final : public ThreadContextHolder, private AttachmentHolder, private DatabaseContextHolder
@@ -428,10 +423,9 @@ namespace Jrd {
 			(*this)->tdbb_flags |= TDBB_async;
 		}
 
-	private:
 		// copying is prohibited
-		AsyncContextHolder(const AsyncContextHolder&);
-		AsyncContextHolder& operator=(const AsyncContextHolder&);
+		AsyncContextHolder(const AsyncContextHolder&) = delete;
+		AsyncContextHolder& operator=(const AsyncContextHolder&) = delete;
 	};
 
 	class EngineCheckout
@@ -488,11 +482,11 @@ namespace Jrd {
 				m_tdbb->tdbb_quantum = 0;
 		}
 
-	private:
 		// copying is prohibited
-		EngineCheckout(const EngineCheckout&);
-		EngineCheckout& operator=(const EngineCheckout&);
+		EngineCheckout(const EngineCheckout&) = delete;
+		EngineCheckout& operator=(const EngineCheckout&) = delete;
 
+	private:
 		thread_db* const m_tdbb;
 		Firebird::RefPtr<StableAttachmentPart> m_ref;
 		const char* m_from;
@@ -517,11 +511,11 @@ namespace Jrd {
 			m_mutex.leave();
 		}
 
-	private:
 		// copying is prohibited
-		CheckoutLockGuard(const CheckoutLockGuard&);
-		CheckoutLockGuard& operator=(const CheckoutLockGuard&);
+		CheckoutLockGuard(const CheckoutLockGuard&) = delete;
+		CheckoutLockGuard& operator=(const CheckoutLockGuard&) = delete;
 
+	private:
 		Firebird::Mutex& m_mutex;
 	};
 
@@ -540,11 +534,11 @@ namespace Jrd {
 			}
 		}
 
-	private:
 		// copying is prohibited
-		CheckoutSyncGuard(const CheckoutSyncGuard&);
-		CheckoutSyncGuard& operator=(const CheckoutSyncGuard&);
+		CheckoutSyncGuard(const CheckoutSyncGuard&) = delete;
+		CheckoutSyncGuard& operator=(const CheckoutSyncGuard&) = delete;
 
+	private:
 		Firebird::Sync m_sync;
 	};
 

@@ -34,6 +34,7 @@
 #ifndef DSQL_DSQL_H
 #define DSQL_DSQL_H
 
+#include <numeric>
 #include "../common/classes/array.h"
 #include "../common/classes/fb_atomic.h"
 #include "../common/classes/GenericMap.h"
@@ -66,11 +67,11 @@ DEFINE_TRACE_ROUTINE(dsql_trace);
 #include "../dsql/sym.h"
 
 // Context aliases used in triggers
-const char* const OLD_CONTEXT_NAME = "OLD";
-const char* const NEW_CONTEXT_NAME = "NEW";
+inline constexpr const char* OLD_CONTEXT_NAME = "OLD";
+inline constexpr const char* NEW_CONTEXT_NAME = "NEW";
 
-const int OLD_CONTEXT_VALUE = 0;
-const int NEW_CONTEXT_VALUE = 1;
+inline constexpr int OLD_CONTEXT_VALUE = 0;
+inline constexpr int NEW_CONTEXT_VALUE = 1;
 
 namespace Jrd
 {
@@ -117,16 +118,17 @@ namespace Jrd {
 class dsql_dbb : public pool_alloc<dsql_type_dbb>
 {
 public:
-	Firebird::LeftPooledMap<MetaName, class dsql_intlsym*> dbb_charsets;	// known charsets in database
-	Firebird::LeftPooledMap<MetaName, class dsql_intlsym*> dbb_collations;	// known collations in database
+	Firebird::LeftPooledMap<QualifiedName, class dsql_intlsym*> dbb_charsets;	// known charsets in database
+	Firebird::LeftPooledMap<QualifiedName, class dsql_intlsym*> dbb_collations;	// known collations in database
 	Firebird::NonPooledMap<SSHORT, dsql_intlsym*> dbb_charsets_by_id;		// charsets sorted by charset_id
 	Firebird::LeftPooledMap<Firebird::string, DsqlDmlRequest*> dbb_cursors;	// known cursors in database
 	Firebird::AutoPtr<DsqlStatementCache> dbb_statement_cache;
 
-	MemoryPool&		dbb_pool;			// The current pool for the dbb
-	Attachment*		dbb_attachment;
-	MetaName dbb_dfl_charset;
-	bool			dbb_no_charset;
+	MemoryPool& dbb_pool;			// The current pool for the dbb
+	Attachment* dbb_attachment;
+	Firebird::FullPooledMap<MetaName, QualifiedName> dbb_schemas_dfl_charset;
+	QualifiedName dbb_dfl_charset;
+	bool dbb_no_charset = false;
 
 	dsql_dbb(MemoryPool& p, Attachment* attachment);
 	~dsql_dbb();
@@ -149,12 +151,12 @@ public:
 	dsql_rel(const dsql_rel&) = delete;
 	dsql_rel(dsql_rel&&) = delete;
 
-	dsql_fld* rel_fields;			// Field block
-	MetaName rel_name;				// Name of relation
+	dsql_fld* rel_fields = nullptr;	// Field block
+	QualifiedName rel_name;			// Name of relation
 	MetaName rel_owner;				// Owner of relation
-	USHORT rel_id;					// Relation id
-	USHORT rel_dbkey_length;
-	USHORT rel_flags;
+	USHORT rel_id = 0;				// Relation id
+	USHORT rel_dbkey_length = 0;
+	USHORT rel_flags = 0;
 };
 
 // rel_flags bits
@@ -169,7 +171,7 @@ enum rel_flags_vals {
 class TypeClause
 {
 public:
-	TypeClause(MemoryPool& pool, const MetaName& aCollate)
+	TypeClause(MemoryPool& pool, const QualifiedName& aCollate)
 		: fieldSource(pool),
 		  typeOfTable(pool),
 		  typeOfName(pool),
@@ -225,11 +227,11 @@ public:
 	TTypeId textType = TTypeId();
 	bool fullDomain = false;			// Domain name without TYPE OF prefix
 	bool notNull = false;				// NOT NULL was explicit specified
-	MetaName fieldSource;
-	MetaName typeOfTable;				// TYPE OF table name
-	MetaName typeOfName;				// TYPE OF
-	MetaName collate;
-	MetaName charSet;					// empty means not specified
+	QualifiedName fieldSource;
+	QualifiedName typeOfTable;		// TYPE OF table name
+	QualifiedName typeOfName;		// TYPE OF
+	QualifiedName collate;
+	QualifiedName charSet;			// empty means not specified
 	MetaName subTypeName;				// Subtype name for later resolution
 	USHORT flags = 0;
 	USHORT elementDtype = 0;			// Data type of array element
@@ -243,7 +245,7 @@ class dsql_fld : public TypeClause
 {
 public:
 	explicit dsql_fld(MemoryPool& p)
-		: TypeClause(p, nullptr),
+		: TypeClause(p, {}),
 		  fld_name(p)
 	{
 	}
@@ -251,10 +253,7 @@ public:
 	dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev);
 
 public:
-	void resolve(DsqlCompilerScratch* dsqlScratch, bool modifying = false)
-	{
-		DDL_resolve_intl_type(dsqlScratch, this, collate, modifying);
-	}
+	void resolve(DsqlCompilerScratch* dsqlScratch, bool modifying = false);
 
 public:
 	dsql_fld* fld_next = nullptr;				// Next field in relation
@@ -407,7 +406,7 @@ public:
 	{
 	}
 
-	MetaName intlsym_name;
+	QualifiedName intlsym_name;
 	USHORT intlsym_type = 0;		// what type of name
 	USHORT intlsym_flags = 0;
 	TTypeId intlsym_ttype = TTypeId();		// id of implementation
@@ -485,8 +484,8 @@ public:
 	USHORT ctx_scope_level = 0;					// Subquery level within this request
 	USHORT ctx_flags = 0;						// Various flag values
 	USHORT ctx_in_outer_join = 0;				// inOuterJoin when context was created
-	Firebird::string ctx_alias;					// Context alias (can include concatenated derived table alias)
-	Firebird::string ctx_internal_alias;		// Alias as specified in query
+	Firebird::ObjectsArray<QualifiedName> ctx_alias;	// Context alias (can include concatenated derived table alias)
+	QualifiedName ctx_internal_alias;			// Alias as specified in query
 	DsqlContextStack ctx_main_derived_contexts;	// contexts used for blr_derived_expr
 	DsqlContextStack ctx_childs_derived_table;	// Childs derived table context
 	Firebird::LeftPooledMap<MetaName, ImplicitJoin*> ctx_imp_join;	// Map of USING fieldname to ImplicitJoin
@@ -520,10 +519,27 @@ public:
 	const char* getObjectName() const
 	{
 		if (ctx_relation)
-			return ctx_relation->rel_name.c_str();
+			return ctx_relation->getName().toQuotedString();
 		if (ctx_procedure)
-			return ctx_procedure->prc_name.c_str();
+			return ctx_procedure->getName().toQuotedString();
 		return "";
+	}
+
+	Firebird::string getConcatenatedAlias() const
+	{
+		if (ctx_alias.hasData())
+		{
+			return std::accumulate(
+					std::next(ctx_alias.begin()),
+					ctx_alias.end(),
+					ctx_alias[0].toQuotedString(),
+					[](const auto& a, const auto& b) {
+						return a + " " + b.toQuotedString();
+					}
+				);
+		}
+
+		return {};
 	}
 
 	bool getImplicitJoinField(const MetaName& name, NestConst<ValueExprNode>& node);
@@ -532,16 +548,16 @@ public:
 
 // Flag values for ctx_flags
 
-const USHORT CTX_outer_join 			= 0x01;		// reference is part of an outer join
-const USHORT CTX_system					= 0x02;		// Context generated by system (NEW/OLD in triggers, check-constraint, RETURNING)
-const USHORT CTX_null					= 0x04;		// Fields of the context should be resolved to NULL constant
-const USHORT CTX_returning				= 0x08;		// Context generated by RETURNING
-const USHORT CTX_recursive				= 0x10;		// Context has secondary number (ctx_recursive) generated for recursive UNION
-const USHORT CTX_view_with_check_store	= 0x20;		// Context of WITH CHECK OPTION view's store trigger
-const USHORT CTX_view_with_check_modify	= 0x40;		// Context of WITH CHECK OPTION view's modify trigger
-const USHORT CTX_cursor					= 0x80;		// Context is a cursor
-const USHORT CTX_lateral				= 0x100;	// Context is a lateral derived table
-const USHORT CTX_blr_fields				= 0x200;	// Fields of the context are defined inside BLR
+inline constexpr USHORT CTX_outer_join 				= 0x01;		// reference is part of an outer join
+inline constexpr USHORT CTX_system					= 0x02;		// Context generated by system (NEW/OLD in triggers, check-constraint, RETURNING)
+inline constexpr USHORT CTX_null					= 0x04;		// Fields of the context should be resolved to NULL constant
+inline constexpr USHORT CTX_returning				= 0x08;		// Context generated by RETURNING
+inline constexpr USHORT CTX_recursive				= 0x10;		// Context has secondary number (ctx_recursive) generated for recursive UNION
+inline constexpr USHORT CTX_view_with_check_store	= 0x20;		// Context of WITH CHECK OPTION view's store trigger
+inline constexpr USHORT CTX_view_with_check_modify	= 0x40;		// Context of WITH CHECK OPTION view's modify trigger
+inline constexpr USHORT CTX_cursor					= 0x80;		// Context is a cursor
+inline constexpr USHORT CTX_lateral					= 0x100;	// Context is a lateral derived table
+inline constexpr USHORT CTX_blr_fields				= 0x200;	// Fields of the context are defined inside BLR
 
 //! Aggregate/union map block to map virtual fields to their base
 //! TMN: NOTE! This datatype should definitely be renamed!
@@ -589,7 +605,7 @@ public:
 	dsql_par* par_null = nullptr;		// Null parameter, if used
 	ValueExprNode* par_node = nullptr;	// Associated value node, if any
 	MetaName par_name;					// Parameter name, if any
-	MetaName par_rel_name;				// Relation name, if any
+	QualifiedName par_rel_name;			// Relation name, if any
 	MetaName par_owner_name;			// Owner name, if any
 	MetaName par_rel_alias;				// Relation alias, if any
 	MetaName par_alias;					// Alias, if any
@@ -623,7 +639,7 @@ public:
 		  s(p, str)
 	{ }
 
-	explicit IntlString(const Firebird::string& str, const MetaName& cs = NULL)
+	explicit IntlString(const Firebird::string& str, const QualifiedName& cs = {})
 		: charset(cs),
 		  s(str)
 	{ }
@@ -638,19 +654,21 @@ public:
 		  s(p)
 	{ }
 
+	void dsqlPass(DsqlCompilerScratch* dsqlScratch);
+
 	Firebird::string toUtf8(jrd_tra* transaction) const;
 
-	const MetaName& getCharSet() const
+	const QualifiedName& getCharSet() const noexcept
 	{
 		return charset;
 	}
 
-	void setCharSet(const MetaName& value)
+	void setCharSet(const QualifiedName& value)
 	{
 		charset = value;
 	}
 
-	const Firebird::string& getString() const
+	const Firebird::string& getString() const noexcept
 	{
 		return s;
 	}
@@ -666,7 +684,7 @@ public:
 	}
 
 private:
-	MetaName charset;
+	QualifiedName charset;
 	Firebird::string s;
 };
 
@@ -678,7 +696,7 @@ public:
 		  scale(sc)
 	{ }
 
-	int getScale()
+	int getScale() noexcept
 	{
 		return scale;
 	}
@@ -750,11 +768,11 @@ struct SignatureParameter
 	SSHORT type = 0;
 	SSHORT number = 0;
 	MetaName name;
-	MetaName fieldSource;
-	MetaName fieldName;
-	MetaName relationName;
-	MetaName charSetName;
-	MetaName collationName;
+	QualifiedName fieldSource;
+	QualifiedName fieldName;
+	QualifiedName relationName;
+	QualifiedName charSetName;
+	QualifiedName collationName;
 	MetaName subTypeName;
 	std::optional<CollId> collationId;
 	std::optional<SSHORT> nullFlag;
@@ -770,7 +788,7 @@ struct SignatureParameter
 	std::optional<SSHORT> fieldCharSetId;
 	std::optional<SSHORT> fieldPrecision;
 
-	bool operator >(const SignatureParameter& o) const
+	bool operator >(const SignatureParameter& o) const noexcept
 	{
 		return type > o.type || (type == o.type && number > o.number);
 	}
@@ -781,8 +799,9 @@ struct SignatureParameter
 			number == o.number &&
 			name == o.name &&
 			(fieldSource == o.fieldSource ||
-				(fb_utils::implicit_domain(fieldSource.c_str()) &&
-					fb_utils::implicit_domain(o.fieldSource.c_str()))) &&
+				(fieldSource.schema == o.fieldSource.schema &&
+					fb_utils::implicit_domain(fieldSource.object.c_str()) &&
+					fb_utils::implicit_domain(o.fieldSource.object.c_str()))) &&
 			fieldName == o.fieldName &&
 			relationName == o.relationName &&
 			collationId == o.collationId &&

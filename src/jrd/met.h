@@ -91,8 +91,8 @@ public:
 
 // tfb_flags
 
-const int TFB_computed			= 1;
-const int TFB_array				= 2;
+inline constexpr int TFB_computed			= 1;
+inline constexpr int TFB_array				= 2;
 
 } // namespace Jrd
 

@@ -1078,7 +1078,7 @@ dnl if 64-bit mode, then archive tool, ar, needs -X64 option
 fi
 
 XE_SAVE_ENV()
-CXXFLAGS="$CXXFLAGS -std=c++17"
+CXXFLAGS="$CXXFLAGS -std=c++20"
 AC_CACHE_CHECK([whether the C++ compiler understands noexcept], [ac_cv_cxx_noexcept], [
     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[int f(int x) noexcept { return x + 1; }]], [[]])],
 	[ac_cv_cxx_noexcept=yes], [ac_cv_cxx_noexcept=no])])
@@ -1173,9 +1173,10 @@ AC_CHECK_FUNCS(clock_gettime)
 
 dnl Checks for pthread functions
 AC_CHECK_FUNCS(pthread_mutexattr_setprotocol)
-AC_CHECK_FUNCS(pthread_mutexattr_setrobust_np)
-AC_CHECK_FUNCS(pthread_mutex_consistent_np)
-AC_CHECK_FUNCS(pthread_rwlockattr_setkind_np)
+AC_CHECK_FUNCS(pthread_mutexattr_setrobust)
+AC_CHECK_FUNCS(pthread_mutex_consistent)
+AC_CHECK_FUNCS(pthread_mutex_timedlock)
+AC_CHECK_FUNCS(pthread_rwlockattr_setkind)
 AC_CHECK_FUNCS(pthread_cancel)
 AC_CHECK_FUNCS(pthread_atfork)
 AC_CHECK_FUNCS(sigset)
@@ -1434,9 +1435,9 @@ dnl # output
       install_name_tool -id @rpath/lib/libicuuc.dylib gen/\$fb_tgt/firebird/lib/libicuuc.dylib
       install_name_tool -id @rpath/lib/libicui18n.dylib gen/\$fb_tgt/firebird/lib/libicui18n.dylib
       install_name_tool -id @rpath/lib/libicudata.dylib gen/\$fb_tgt/firebird/lib/libicudata.dylib
-      install_name_tool -change @rpath/libicudata.71.dylib @loader_path/libicudata.71.dylib gen/\$fb_tgt/firebird/lib/libicuuc.71.dylib
-      install_name_tool -change @rpath/libicudata.71.dylib @loader_path/libicudata.71.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.dylib
-      install_name_tool -change @rpath/libicuuc.71.dylib @loader_path/libicuuc.71.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.dylib
+      install_name_tool -change @rpath/libicudata.71.1.dylib @loader_path/libicudata.71.1.dylib gen/\$fb_tgt/firebird/lib/libicuuc.71.1.dylib
+      install_name_tool -change @rpath/libicudata.71.1.dylib @loader_path/libicudata.71.1.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.1.dylib
+      install_name_tool -change @rpath/libicuuc.71.1.dylib @loader_path/libicuuc.71.1.dylib gen/\$fb_tgt/firebird/lib/libicui18n.71.1.dylib
       ;;
   esac
 

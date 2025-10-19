@@ -129,8 +129,8 @@ public:
 		Request* request;
 		ProfilerManager* profilerManager;
 		const AccessPath* recordSource;
-		SINT64 lastTicks;
-		SINT64 lastAccumulatedOverhead;
+		SINT64 lastTicks = 0;
+		SINT64 lastAccumulatedOverhead = 0;
 		Event event;
 	};
 
@@ -198,7 +198,7 @@ public:
 	{
 		if (const auto profileRequestId = getRequest(request, Firebird::IProfilerSession::FLAG_BEFORE_EVENTS))
 		{
-			const auto profileStatement = getStatement(request);
+			const auto* profileStatement = getStatement(request);
 			currentSession->pluginSession->beforePsqlLineColumn(profileStatement->id, profileRequestId, line, column);
 		}
 	}
@@ -207,7 +207,7 @@ public:
 	{
 		if (const auto profileRequestId = getRequest(request, Firebird::IProfilerSession::FLAG_AFTER_EVENTS))
 		{
-			const auto profileStatement = getStatement(request);
+			const auto* profileStatement = getStatement(request);
 			currentSession->pluginSession->afterPsqlLineColumn(profileStatement->id, profileRequestId,
 				line, column, &stats);
 		}
@@ -217,7 +217,7 @@ public:
 	{
 		if (const auto profileRequestId = getRequest(request, Firebird::IProfilerSession::FLAG_BEFORE_EVENTS))
 		{
-			const auto profileStatement = getStatement(request);
+			const auto* profileStatement = getStatement(request);
 
 			if (const auto sequencePtr = profileStatement->recSourceSequence.get(recordSource->getRecSourceId()))
 			{
@@ -231,7 +231,7 @@ public:
 	{
 		if (const auto profileRequestId = getRequest(request, Firebird::IProfilerSession::FLAG_AFTER_EVENTS))
 		{
-			const auto profileStatement = getStatement(request);
+			const auto* profileStatement = getStatement(request);
 
 			if (const auto sequencePtr = profileStatement->recSourceSequence.get(recordSource->getRecSourceId()))
 			{
@@ -245,7 +245,7 @@ public:
 	{
 		if (const auto profileRequestId = getRequest(request, Firebird::IProfilerSession::FLAG_BEFORE_EVENTS))
 		{
-			const auto profileStatement = getStatement(request);
+			const auto* profileStatement = getStatement(request);
 
 			if (const auto sequencePtr = profileStatement->recSourceSequence.get(recordSource->getRecSourceId()))
 			{
@@ -259,7 +259,7 @@ public:
 	{
 		if (const auto profileRequestId = getRequest(request, Firebird::IProfilerSession::FLAG_AFTER_EVENTS))
 		{
-			const auto profileStatement = getStatement(request);
+			const auto* profileStatement = getStatement(request);
 
 			if (const auto sequencePtr = profileStatement->recSourceSequence.get(recordSource->getRecSourceId()))
 			{
@@ -285,7 +285,7 @@ public:
 		{
 			Firebird::status_exception::raise(
 				Firebird::Arg::Gds(isc_not_valid_for_var) <<
-				"FLUSH_INTERVAL" <<
+				"\"FLUSH_INTERVAL\"" <<
 				Firebird::Arg::Num(interval));
 		}
 	}
@@ -361,28 +361,28 @@ public:
 	ProfilerPackage(const ProfilerPackage&) = delete;
 	ProfilerPackage& operator=(const ProfilerPackage&) = delete;
 
-private:
-	FB_MESSAGE(AttachmentIdMessage, Firebird::ThrowStatusExceptionWrapper,
+public:
+	FB_MESSAGE(DiscardInput, Firebird::ThrowStatusExceptionWrapper,
 		(FB_BIGINT, attachmentId)
 	);
-
-	//----------
-
-	using DiscardInput = AttachmentIdMessage;
 
 	static Firebird::IExternalResultSet* discardProcedure(Firebird::ThrowStatusExceptionWrapper* status,
 		Firebird::IExternalContext* context, const DiscardInput::Type* in, void* out);
 
 	//----------
 
-	using FlushInput = AttachmentIdMessage;
+	FB_MESSAGE(FlushInput, Firebird::ThrowStatusExceptionWrapper,
+		(FB_BIGINT, attachmentId)
+	);
 
 	static Firebird::IExternalResultSet* flushProcedure(Firebird::ThrowStatusExceptionWrapper* status,
 		Firebird::IExternalContext* context, const FlushInput::Type* in, void* out);
 
 	//----------
 
-	using CancelSessionInput = AttachmentIdMessage;
+	FB_MESSAGE(CancelSessionInput, Firebird::ThrowStatusExceptionWrapper,
+		(FB_BIGINT, attachmentId)
+	);
 
 	static Firebird::IExternalResultSet* cancelSessionProcedure(Firebird::ThrowStatusExceptionWrapper* status,
 		Firebird::IExternalContext* context, const CancelSessionInput::Type* in, void* out);
@@ -409,7 +409,9 @@ private:
 
 	//----------
 
-	using ResumeSessionInput = AttachmentIdMessage;
+	FB_MESSAGE(ResumeSessionInput, Firebird::ThrowStatusExceptionWrapper,
+		(FB_BIGINT, attachmentId)
+	);
 
 	static Firebird::IExternalResultSet* resumeSessionProcedure(Firebird::ThrowStatusExceptionWrapper* status,
 		Firebird::IExternalContext* context, const ResumeSessionInput::Type* in, void* out);

@@ -111,7 +111,7 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 		{
 			// find the corresponding primary key index
 
-			if (!MET_lookup_partner(tdbb, relation, &idx, 0))
+			if (!MET_lookup_partner(tdbb, relation, &idx, {}))
 				continue;
 
 			auto referenced_relation =
@@ -136,17 +136,21 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 			const index_desc::idx_repeat* idx_desc = referenced_idx.idx_rpt;
 			for (USHORT i = 0; i < referenced_idx.idx_count; i++, idx_desc++)
 			{
-				const jrd_fld* referenced_field =
-					MET_get_field(referenced_relation, idx_desc->idx_field);
+				const SLONG ssRelationId = view ? view->rel_id : 0;
+				const jrd_fld* referenced_field = MET_get_field(referenced_relation, idx_desc->idx_field);
+
+				CMP_post_access(tdbb, csb, relation->rel_security_name.schema, ssRelationId,
+					SCL_usage, obj_schemas, QualifiedName(relation->rel_name.schema));
+
 				CMP_post_access(tdbb, csb,
-								referenced_relation->getSecurityName(),
-								(view ? view->getId() : 0),
+								referenced_relation->rel_security_name.object, ssRelationId,
 								SCL_references, obj_relations,
 								referenced_relation->getName());
+
 				CMP_post_access(tdbb, csb,
 								referenced_field->fld_security_name, 0,
 								SCL_references, obj_column,
-								referenced_field->fld_name, referenced_relation->getName());
+								referenced_relation->getName(), referenced_field->fld_name);
 			}
 
 			CCH_RELEASE(tdbb, &referenced_window);
@@ -528,8 +532,8 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		CompilerScratch* csb = NULL;
 		Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 
-		idx->idx_expression_node = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, getPermanent(relation),
-			&m_exprBlob, &csb, &idx->idx_expression_statement, false, false));
+		idx->idx_expression_node = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, &relation->rel_name.schema,
+			getPermanent(relation), &m_exprBlob, &csb, &idx->idx_expression_statement, false, false));
 
 		delete csb;
 	}
@@ -541,8 +545,8 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		CompilerScratch* csb = NULL;
 		Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 
-		idx->idx_condition_node = static_cast<BoolExprNode*> (MET_parse_blob(tdbb, getPermanent(relation),
-			&m_condBlob, &csb, &idx->idx_condition_statement, false, false));
+		idx->idx_condition_node = static_cast<BoolExprNode*> (MET_parse_blob(tdbb, &relation->rel_name.schema,
+			getPermanent(relation), &m_condBlob, &csb, &idx->idx_condition_statement, false, false));
 
 		delete csb;
 	}
@@ -819,7 +823,7 @@ void IDX_create_index(thread_db* tdbb,
 					  IdxCreate createMethod,
 					  jrd_rel* relation,
 					  index_desc* idx,
-					  const TEXT* index_name,
+					  const QualifiedName& index_name,
 					  USHORT* index_id,
 					  jrd_tra* transaction,
 					  SelectivityList& selectivity)
@@ -841,7 +845,7 @@ void IDX_create_index(thread_db* tdbb,
 	if (relation->getExtFile())
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_extfile_uns_op) << Arg::Str(relation->getName()));
+				 Arg::Gds(isc_extfile_uns_op) << relation->getName().toQuotedString());
 	}
 	else if (relation->isVirtual())
 	{
@@ -872,7 +876,7 @@ void IDX_create_index(thread_db* tdbb,
 	if (key_length >= dbb->getMaxIndexKeyLength())
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_keytoobig) << Arg::Str(index_name));
+				 Arg::Gds(isc_keytoobig) << index_name.toQuotedString());
 	}
 
 	if (isForeign)
@@ -1252,6 +1256,8 @@ void IDX_modify(thread_db* tdbb,
 	RelationPages* relPages = org_rpb->rpb_relation->getPages(tdbb);
 	WIN window(relPages->rel_pg_space_id, -1);
 
+	new_rpb->rpb_runtime_flags &= ~RPB_uk_updated;
+
 	while (BTR_next_index(tdbb, getPermanent(org_rpb->rpb_relation), transaction, &idx, &window))
 	{
 		IndexErrorContext context(new_rpb->rpb_relation, &idx);
@@ -1315,6 +1321,9 @@ void IDX_modify(thread_db* tdbb,
 		{
 			context.raise(tdbb, error_code, new_rpb->rpb_record);
 		}
+
+		if (idx.idx_flags & (idx_primary | idx_unique))
+			new_rpb->rpb_runtime_flags |= RPB_uk_updated;
 	}
 }
 
@@ -1358,7 +1367,7 @@ void IDX_modify_check_constraints(thread_db* tdbb,
 	while (BTR_next_index(tdbb, getPermanent(org_rpb->rpb_relation), transaction, &idx, &window))
 	{
 		if (!(idx.idx_flags & (idx_primary | idx_unique)) ||
-			!MET_lookup_partner(tdbb, getPermanent(org_rpb->rpb_relation), &idx, 0))
+			!MET_lookup_partner(tdbb, getPermanent(org_rpb->rpb_relation), &idx, {}))
 		{
 			continue;
 		}
@@ -1438,7 +1447,7 @@ void IDX_modify_flag_uk_modified(thread_db* tdbb,
 	while (BTR_next_index(tdbb, getPermanent(relation), transaction, &idx, &window))
 	{
 		if (!(idx.idx_flags & (idx_primary | idx_unique)) ||
-			!MET_lookup_partner(tdbb, getPermanent(relation), &idx, 0))
+			!MET_lookup_partner(tdbb, getPermanent(relation), &idx, {}))
 		{
 			continue;
 		}
@@ -1762,7 +1771,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 
 	idx_e result = idx_e_ok;
 
-	if (!MET_lookup_partner(tdbb, getPermanent(relation), idx, 0))
+	if (!MET_lookup_partner(tdbb, getPermanent(relation), idx, {}))
 		return result;
 
 	jrd_rel* partner_relation = nullptr;

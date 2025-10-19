@@ -27,105 +27,18 @@
 #ifndef JRD_QUALIFIEDNAME_H
 #define JRD_QUALIFIEDNAME_H
 
-#include "MetaName.h"
+#include "../jrd/MetaName.h"
 #include "../common/classes/array.h"
+#include "../common/classes/fb_pair.h"
+#include "../common/classes/MetaString.h"
+#include "../common/classes/QualifiedMetaString.h"
+#include "../common/StatusArg.h"
 
 namespace Jrd {
 
-class QualifiedName
-{
-public:
-	QualifiedName(MemoryPool& p, const MetaName& aIdentifier, const MetaName& aPackage)
-		: identifier(p, aIdentifier),
-		  package(p, aPackage),
-		  tmp(p)
-	{
-	}
-
-	QualifiedName(const MetaName& aIdentifier, const MetaName& aPackage)
-		: identifier(aIdentifier),
-		  package(aPackage)
-	{
-	}
-
-	QualifiedName(MemoryPool& p, const MetaName& aIdentifier)
-		: identifier(p, aIdentifier),
-		  package(p),
-		  tmp(p)
-	{
-	}
-
-	explicit QualifiedName(const MetaName& aIdentifier)
-		: identifier(aIdentifier)
-	{
-	}
-
-	explicit QualifiedName(MemoryPool& p)
-		: identifier(p),
-		  package(p),
-		  tmp(p)
-	{
-	}
-
-	QualifiedName()
-	{
-	}
-
-	QualifiedName(MemoryPool& p, const QualifiedName& src)
-		: identifier(p, src.identifier),
-		  package(p, src.package),
-		  tmp(p)
-	{
-	}
-
-public:
-	bool operator >(const QualifiedName& m) const
-	{
-		return package > m.package || (package == m.package && identifier > m.identifier);
-	}
-
-	bool operator ==(const QualifiedName& m) const
-	{
-		return identifier == m.identifier && package == m.package;
-	}
-
-	bool operator !=(const QualifiedName& m) const
-	{
-		return !(identifier == m.identifier && package == m.package);
-	}
-
-	bool hasData() const
-	{
-		return identifier.hasData();
-	}
-
-public:
-	Firebird::string& toString() const
-	{
-		if (tmp.hasData())
-			return tmp;
-
-		if (package.hasData())
-		{
-			tmp = package.c_str();
-			tmp += '.';
-		}
-		tmp += identifier.c_str();
-
-		return tmp;
-	}
-
-	const char* c_str() const
-	{
-		return toString().c_str();
-	}
-
-public:
-	MetaName identifier;
-	MetaName package;
-
-	mutable Firebird::string tmp;
-};
+using QualifiedName = Firebird::BaseQualifiedName<MetaName>;
+using QualifiedNameMetaNamePair = Firebird::FullPooledPair<QualifiedName, MetaName>;
+using QualifiedNamePair = Firebird::FullPooledPair<QualifiedName, QualifiedName>;
 
 } // namespace Jrd
 

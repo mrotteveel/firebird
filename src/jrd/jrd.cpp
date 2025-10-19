@@ -151,7 +151,7 @@
 using namespace Jrd;
 using namespace Firebird;
 
-const SSHORT WAIT_PERIOD	= -1;
+constexpr SSHORT WAIT_PERIOD = -1;
 
 #ifdef SUPPORT_RAW_DEVICES
 #define unlink PIO_unlink
@@ -284,7 +284,7 @@ const Attachment* JAttachment::getHandle() const noexcept
 
 void JAttachment::addRef()
 {
-	int v = ++refCounter;
+	const int v = ++refCounter;
 #ifdef DEBUG_ATT_COUNTERS
 	ReferenceCounterDebugger* my = ReferenceCounterDebugger::get(DEB_AR_JATT);
 	const char* point = my ? my->rcd_point : " <Unknown> ";
@@ -449,7 +449,7 @@ static JTransaction* checkTranIntf(StableAttachmentPart* sAtt, JTransaction* jt,
 	return jt;
 };
 
-class EngineFactory : public AutoIface<IPluginFactoryImpl<EngineFactory, CheckStatusWrapper> >
+class EngineFactory final : public AutoIface<IPluginFactoryImpl<EngineFactory, CheckStatusWrapper> >
 {
 public:
 	// IPluginFactory implementation
@@ -533,12 +533,11 @@ namespace
 	class RefMutexUnlock
 	{
 	public:
-		RefMutexUnlock()
-			: entered(false)
+		RefMutexUnlock() noexcept
 		{ }
 
 		explicit RefMutexUnlock(Database::ExistenceRefMutex* p)
-			: ref(p), entered(false)
+			: ref(p)
 		{ }
 
 		void enter()
@@ -588,7 +587,7 @@ namespace
 
 	private:
 		RefPtr<Database::ExistenceRefMutex> ref;
-		bool entered;
+		bool entered = false;
 	};
 
 	// We have 2 more related types of mutexes in database and attachment.
@@ -617,14 +616,14 @@ namespace
 			ExtEngineManager::initialize();
 		}
 
-		static void cleanup()
+		static void cleanup() noexcept
 		{
 		}
 	};
 
 	InitMutex<EngineStartup> engineStartup("EngineStartup");
 
-	class OverwriteHolder : public MutexLockGuard
+	class OverwriteHolder final : public MutexLockGuard
 	{
 	public:
 		explicit OverwriteHolder(Database* to_remove)
@@ -711,7 +710,7 @@ namespace
 		validateHandle(tdbb, blob->getAttachment());
 	}
 
-	inline void validateHandle(Service* service)
+	inline void validateHandle(const Service* service)
 	{
 		if (!service)
 			status_exception::raise(Arg::Gds(isc_bad_svc_handle));
@@ -722,7 +721,7 @@ namespace
 		validateHandle(tdbb, events->getAttachment()->getHandle());
 	}
 
-	inline void validateHandle(thread_db* tdbb, DsqlCursor* const cursor)
+	inline void validateHandle(thread_db* tdbb, const DsqlCursor* const cursor)
 	{
 		if (!cursor)
 			status_exception::raise(Arg::Gds(isc_bad_req_handle));
@@ -731,7 +730,7 @@ namespace
 		validateHandle(tdbb, cursor->getAttachment());
 	}
 
-	inline void validateHandle(thread_db* tdbb, DsqlBatch* const batch)
+	inline void validateHandle(thread_db* tdbb, const DsqlBatch* const batch)
 	{
 		if (!batch)
 			status_exception::raise(Arg::Gds(isc_bad_batch_handle));
@@ -739,7 +738,7 @@ namespace
 		validateHandle(tdbb, batch->getAttachment());
 	}
 
-	inline void validateHandle(thread_db* tdbb, Applier* const applier)
+	inline void validateHandle(thread_db* tdbb, const Applier* const applier)
 	{
 		if (!applier)
 			status_exception::raise(Arg::Gds(isc_bad_repl_handle));
@@ -753,7 +752,7 @@ namespace
 		{
 			PreparedStatement::Builder sql;
 			MetaName missPriv("UNKNOWN");
-			sql << "select" << sql("rdb$type_name", missPriv) << "from rdb$types"
+			sql << "select" << sql("rdb$type_name", missPriv) << "from system.rdb$types"
 				<< "where rdb$field_name = 'RDB$SYSTEM_PRIVILEGES'"
 				<< "  and rdb$type =" << SSHORT(sp);
 			jrd_tra* transaction = attachment->getSysTransaction();
@@ -771,7 +770,7 @@ namespace
 		}
 	}
 
-	USHORT validatePageSize(SLONG pageSize)
+	USHORT validatePageSize(SLONG pageSize) noexcept
 	{
 		USHORT actualPageSize = DEFAULT_PAGE_SIZE;
 
@@ -799,7 +798,7 @@ namespace
 		return actualPageSize;
 	}
 
-	class DefaultCallback : public AutoIface<ICryptKeyCallbackImpl<DefaultCallback, CheckStatusWrapper> >
+	class DefaultCallback final : public AutoIface<ICryptKeyCallbackImpl<DefaultCallback, CheckStatusWrapper> >
 	{
 	public:
 		unsigned int callback(unsigned int, const void*, unsigned int, void*) override
@@ -820,7 +819,7 @@ namespace
 
 	DefaultCallback defCallback;
 
-	ICryptKeyCallback* getDefCryptCallback(ICryptKeyCallback* callback)
+	ICryptKeyCallback* getDefCryptCallback(ICryptKeyCallback* callback) noexcept
 	{
 		return callback ? callback : &defCallback;
 	}
@@ -932,7 +931,7 @@ template EngineContextHolder::EngineContextHolder(
 
 namespace
 {
-	class DatabaseBindings : public CoercionArray
+	class DatabaseBindings final : public CoercionArray
 	{
 	public:
 		DatabaseBindings(MemoryPool& p)
@@ -1029,6 +1028,7 @@ namespace Jrd
 		SLONG	dpb_remote_pid;
 		bool	dpb_no_db_triggers;
 		bool	dpb_gbak_attach;
+		bool 	dpb_gbak_restore_has_schema;
 		bool	dpb_utf8_filename;
 		ULONG	dpb_ext_call_depth;
 		ULONG	dpb_flags;			// to OR'd with dbb_flags
@@ -1050,7 +1050,7 @@ namespace Jrd
 		AuthReader::AuthBlock	dpb_auth_block;
 		string	dpb_role_name;
 		string	dpb_journal;
-		string	dpb_lc_ctype;
+		QualifiedMetaString	dpb_lc_ctype;
 		PathName	dpb_working_directory;
 		string	dpb_set_db_charset;
 		string	dpb_network_protocol;
@@ -1069,11 +1069,13 @@ namespace Jrd
 		string	dpb_decfloat_round;
 		string	dpb_decfloat_traps;
 		string	dpb_owner;
+		Firebird::ObjectsArray<Firebird::MetaString> dpb_schema_search_path;
+		Firebird::ObjectsArray<Firebird::MetaString> dpb_blr_request_schema_search_path;
 
 	public:
-		static const ULONG DPB_FLAGS_MASK = DBB_damaged;
+		static constexpr ULONG DPB_FLAGS_MASK = DBB_damaged;
 
-		DatabaseOptions()
+		DatabaseOptions() noexcept
 		{
 			memset(this, 0, reinterpret_cast<char*>(&this->dpb_user_name) - reinterpret_cast<char*>(this));
 		}
@@ -1094,7 +1096,7 @@ namespace Jrd
 		}
 
 	private:
-		void getPath(ClumpletReader& reader, PathName& s)
+		void getPath(const ClumpletReader& reader, PathName& s)
 		{
 			reader.getPath(s);
 			if (!dpb_utf8_filename)
@@ -1102,7 +1104,7 @@ namespace Jrd
 			ISC_unescape(s);
 		}
 
-		void getString(ClumpletReader& reader, string& s)
+		void getString(const ClumpletReader& reader, string& s)
 		{
 			reader.getString(s);
 			if (!dpb_utf8_filename)
@@ -1116,7 +1118,7 @@ namespace Jrd
 		return &(databaseBindings());
 	}
 
-	void Attachment::setInitialOptions(thread_db* tdbb, DatabaseOptions& options, bool newDb)
+	void Attachment::setInitialOptions(thread_db* tdbb, const DatabaseOptions& options, bool newDb)
 	{
 		if (newDb)
 		{
@@ -1187,7 +1189,7 @@ namespace Jrd
 			USHORT traps = 0;
 
 			do {
-				FB_SIZE_T start = pos + 1;
+				const FB_SIZE_T start = pos + 1;
 				pos = options.dpb_decfloat_traps.find(',', start);
 
 				const auto trap = options.dpb_decfloat_traps.substr(start,
@@ -1217,6 +1219,25 @@ namespace Jrd
 			decFloatStatus.decExtFlag = traps;
 		}
 
+		if (options.dpb_schema_search_path.hasData())
+		{
+			for (const auto& schema : options.dpb_schema_search_path)
+				schemaSearchPath->push(schema);
+		}
+		else
+		{
+			schemaSearchPath->push(PUBLIC_SCHEMA);
+			schemaSearchPath->push(SYSTEM_SCHEMA);
+		}
+
+		if (options.dpb_blr_request_schema_search_path.hasData())
+		{
+			for (const auto& schema : options.dpb_blr_request_schema_search_path)
+				blrRequestSchemaSearchPath->push(schema);
+		}
+		else
+			blrRequestSchemaSearchPath = schemaSearchPath;
+
 		originalTimeZone = options.dpb_session_tz.isEmpty() ?
 			TimeZoneUtil::getSystemTimeZone() :
 			TimeZoneUtil::parse(options.dpb_session_tz.c_str(), options.dpb_session_tz.length());
@@ -1232,31 +1253,35 @@ namespace Jrd
 
 		// reset bindings
 		attachment->att_bindings.clear();
+
+		// reset schema search path
+		attachment->att_schema_search_path = schemaSearchPath;
+		attachment->att_blr_request_schema_search_path = blrRequestSchemaSearchPath;
 	}
 }	// namespace Jrd
 
 /// trace manager support
 
-class TraceFailedConnection :
+class TraceFailedConnection final :
 	public AutoIface<ITraceDatabaseConnectionImpl<TraceFailedConnection, CheckStatusWrapper> >
 {
 public:
 	TraceFailedConnection(const char* filename, const DatabaseOptions* options);
 
 	// TraceConnection implementation
-	unsigned getKind()					{ return KIND_DATABASE; };
-	int getProcessID()					{ return m_options->dpb_remote_pid; }
-	const char* getUserName()			{ return m_id.getUserName().c_str(); }
-	const char* getRoleName()			{ return m_options->dpb_role_name.c_str(); }
-	const char* getCharSet()			{ return m_options->dpb_lc_ctype.c_str(); }
-	const char* getRemoteProtocol()		{ return m_options->dpb_network_protocol.c_str(); }
-	const char* getRemoteAddress()		{ return m_options->dpb_remote_address.c_str(); }
-	int getRemoteProcessID()			{ return m_options->dpb_remote_pid; }
-	const char* getRemoteProcessName()	{ return m_options->dpb_remote_process.c_str(); }
+	unsigned getKind() override					{ return KIND_DATABASE; };
+	int getProcessID() override					{ return m_options->dpb_remote_pid; }
+	const char* getUserName() override			{ return m_id.getUserName().c_str(); }
+	const char* getRoleName() override			{ return m_options->dpb_role_name.c_str(); }
+	const char* getCharSet() override			{ return m_options->dpb_lc_ctype.object.c_str(); }
+	const char* getRemoteProtocol() override	{ return m_options->dpb_network_protocol.c_str(); }
+	const char* getRemoteAddress() override		{ return m_options->dpb_remote_address.c_str(); }
+	int getRemoteProcessID() override			{ return m_options->dpb_remote_pid; }
+	const char* getRemoteProcessName() override { return m_options->dpb_remote_process.c_str(); }
 
 	// TraceDatabaseConnection implementation
-	ISC_INT64 getConnectionID()			{ return 0; }
-	const char* getDatabaseName()		{ return m_filename; }
+	ISC_INT64 getConnectionID() override	{ return 0; }
+	const char* getDatabaseName() override	{ return m_filename; }
 
 private:
 	const char* m_filename;
@@ -1266,7 +1291,7 @@ private:
 
 static void			check_database(thread_db* tdbb, bool async = false);
 static void			commit(thread_db*, jrd_tra*, const bool);
-static bool			drop_file(Database*, const jrd_file*);
+static bool			drop_file(const Database*, const jrd_file*);
 static void			find_intl_charset(thread_db*, Jrd::Attachment*, const DatabaseOptions*);
 static void			init_database_lock(thread_db*);
 static void			run_commit_triggers(thread_db* tdbb, jrd_tra* transaction);
@@ -1275,9 +1300,9 @@ static void			check_single_maintenance(thread_db* tdbb);
 namespace {
 	enum VdnResult {VDN_FAIL, VDN_OK/*, VDN_SECURITY*/};
 
-	const unsigned UNWIND_INTERNAL = 1;
-	const unsigned UNWIND_CREATE = 2;
-	const unsigned UNWIND_NEW = 4;
+	constexpr unsigned UNWIND_INTERNAL = 1;
+	constexpr unsigned UNWIND_CREATE = 2;
+	constexpr unsigned UNWIND_NEW = 4;
 }
 static VdnResult	verifyDatabaseName(const PathName&, FbStatusVector*, bool);
 
@@ -1299,9 +1324,9 @@ static void		waitForShutdown(Semaphore&);
 static THREAD_ENTRY_DECLARE shutdown_thread(THREAD_ENTRY_PARAM);
 
 // purge_attachment() flags
-static const unsigned PURGE_FORCE	= 0x01;
-static const unsigned PURGE_LINGER	= 0x02;
-static const unsigned PURGE_NOCHECK	= 0x04;
+static constexpr unsigned PURGE_FORCE	= 0x01;
+static constexpr unsigned PURGE_LINGER	= 0x02;
+static constexpr unsigned PURGE_NOCHECK	= 0x04;
 
 TraceFailedConnection::TraceFailedConnection(const char* filename, const DatabaseOptions* options) :
 	m_filename(filename),
@@ -1393,7 +1418,7 @@ static ISC_STATUS transliterateException(thread_db* tdbb, const Exception& ex, F
 // Transliterate status vector to the client charset.
 void JRD_transliterate(thread_db* tdbb, Firebird::IStatus* vector) noexcept
 {
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	const Jrd::Attachment* attachment = tdbb->getAttachment();
 	CSetId charSet;
 	if (!attachment || (charSet = attachment->att_client_charset) == CS_METADATA ||
 		charSet == CS_NONE)
@@ -1478,7 +1503,7 @@ void JRD_transliterate(thread_db* tdbb, Firebird::IStatus* vector) noexcept
 }
 
 
-const ULONG SWEEP_INTERVAL		= 20000;
+constexpr ULONG SWEEP_INTERVAL = 20000;
 
 
 static void trace_warning(thread_db* tdbb, FbStatusVector* userStatus, const char* func)
@@ -1516,7 +1541,7 @@ static void trace_failed_attach(const char* filename, const DatabaseOptions& opt
 	TraceFailedConnection conn(origFilename, &options);
 	TraceStatusVectorImpl traceStatus(status, TraceStatusVectorImpl::TS_ERRORS);
 
-	ISC_STATUS s = status->getErrors()[1];
+	const ISC_STATUS s = status->getErrors()[1];
 	const ntrace_result_t result = (s == isc_login || s == isc_no_priv) ?
 		ITracePlugin::RESULT_UNAUTHORIZED : ITracePlugin::RESULT_FAILED;
 	const char* func = flags & UNWIND_CREATE ? "JProvider::createDatabase" : "JProvider::attachDatabase";
@@ -1719,7 +1744,12 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				attachment->att_flags |= ATT_mapping;
 
 			if (options.dpb_gbak_attach)
+			{
 				attachment->att_utility = Attachment::UTIL_GBAK;
+
+				if (options.dpb_gbak_restore_has_schema)
+					attachment->att_flags |= ATT_gbak_restore_has_schema;
+			}
 			else if (options.dpb_gstat_attach)
 				attachment->att_utility = Attachment::UTIL_GSTAT;
 			else if (options.dpb_gfix_attach)
@@ -1840,6 +1870,12 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				INI_init(tdbb);
 				PAG_header(tdbb, true);
 				dbb->dbb_crypto_manager->attach(tdbb, attachment);
+			}
+
+			if (dbb->isRestoring())
+			{
+				if (!options.dpb_gbak_attach && !options.dpb_map_attach && !options.dpb_worker_attach)
+					ERR_post(Arg::Gds(isc_no_user_att_while_restore));
 			}
 
 			// Basic DBB initialization complete
@@ -2396,7 +2432,7 @@ void JEvents::freeEngineData(CheckStatusWrapper* user_status)
 		try
 		{
 			Database* const dbb = tdbb->getDatabase();
-			Attachment* const attachment = tdbb->getAttachment();
+			const Attachment* const attachment = tdbb->getAttachment();
 
 			if (attachment->att_event_session)
 				dbb->eventManager()->cancelEvents(id);
@@ -2664,6 +2700,11 @@ JRequest* JAttachment::compileRequest(CheckStatusWrapper* user_status,
 		TraceBlrCompile trace(tdbb, blr_length, blr);
 		try
 		{
+			const auto attachment = tdbb->getAttachment();
+
+			AutoSetRestore autoSchemaSearchPath(
+				&attachment->att_schema_search_path, attachment->att_blr_request_schema_search_path);
+
 			stmt = CMP_compile(tdbb, blr, blr_length, false, 0, nullptr);
 
 			const auto attachment = tdbb->getAttachment();
@@ -2845,7 +2886,7 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 				{
 					// Superuser can create databases for anyone other
 					fb_utils::dpbItemUpper(options.dpb_owner);
-					if (userId.getUserName() != options.dpb_owner)
+					if (userId.getUserName() != MetaString(options.dpb_owner))
 					{
 						(Arg::Gds(isc_no_priv) << "IMPERSONATE USER" << "DATABASE" << filename).raise();
 					}
@@ -2935,7 +2976,12 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 				attachment->att_flags |= ATT_mapping;
 
 			if (options.dpb_gbak_attach)
+			{
 				attachment->att_utility = Attachment::UTIL_GBAK;
+
+				if (options.dpb_gbak_restore_has_schema)
+					attachment->att_flags |= ATT_gbak_restore_has_schema;
+			}
 
 			if (options.dpb_no_db_triggers)
 				attachment->att_flags |= ATT_no_db_triggers;
@@ -2999,6 +3045,8 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 				if (attachment2)
 				{
 					allow_overwrite = attachment2->getHandle()->locksmith(tdbb, DROP_DATABASE);
+					if (allow_overwrite)
+						REPL_journal_cleanup(attachment2->getHandle()->att_database);
 					attachment2->detach(user_status);
 				}
 				else
@@ -3028,6 +3076,8 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 
 			// Initialize the global objects
 			dbb->initGlobalObjects();
+			if (attachment->isGbak())		// isRWGbak???????????????
+				dbb->setRestoring(true);
 
 			// Initialize locks
 			LCK_init(tdbb, LCK_OWNER_database);
@@ -3302,7 +3352,7 @@ void JAttachment::freeEngineData(CheckStatusWrapper* user_status, bool forceFree
 	{
 		EngineContextHolder tdbb(user_status, this, FB_FUNCTION, AttachmentHolder::ATT_NO_SHUTDOWN_CHECK);
 		Jrd::Attachment* const attachment = getHandle();
-		Database* const dbb = tdbb->getDatabase();
+		const Database* const dbb = tdbb->getDatabase();
 
 		try
 		{
@@ -3490,13 +3540,16 @@ void JAttachment::internalDropDatabase(CheckStatusWrapper* user_status)
 				throw;
 			}
 
+			// Unlink active replication segments
+			REPL_journal_cleanup(dbb);
+
 			// Unlink attachment from database
 			release_attachment(tdbb, attachment, &threadGuard);
 			att = NULL;
 			attachment = NULL;
 			guard.leave();
 
-			PageSpace* pageSpace = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
+			const PageSpace* pageSpace = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
 			const jrd_file* file = pageSpace->file;
 			const Shadow* shadow = dbb->dbb_shadow;
 
@@ -4031,6 +4084,26 @@ void JRequest::getInfo(CheckStatusWrapper* user_status, int level, unsigned int 
 
 		try
 		{
+			for (unsigned i = 0; i < itemsLength; ++i)
+			{
+				if (items[i] == isc_info_message_number || items[i] == isc_info_message_size)
+				{
+					// For proper return these items require request operation req_send or req_receive
+					// Run request from stale status until we get one of these (or end of program)
+					// It is up to caller to make sure that there is no heavy operations between req_next
+					// and the next SuspendNode/ReceiveNode/SelectMessageNode
+					while ((request->req_flags & req_active)
+							&& request->req_operation != Request::req_receive
+							&& request->req_operation != Request::req_send)
+					{
+						request->req_flags &= ~req_stall;
+						request->req_operation = Request::req_sync;
+						EXE_looper(tdbb, request, request->req_next);
+					}
+					break;
+				}
+			}
+
 			INF_request_info(request, itemsLength, items, bufferLength, buffer);
 		}
 		catch (const Exception& ex)
@@ -4730,6 +4803,7 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 		JTransaction* const jt = getTransactionInterface(user_status, tra);
 		EngineContextHolder tdbb(user_status, this, FB_FUNCTION);
 
+		Request* request = nullptr;
 		jrd_tra* transaction = jt->getHandle();
 		validateHandle(tdbb, transaction);
 		check_database(tdbb);
@@ -4748,12 +4822,11 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 			{
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				CompilerScratch* csb = PAR_parse(tdbb, reinterpret_cast<const UCHAR*>(blr),
-					blr_length, false);
+				CompilerScratch* csb = PAR_parse(tdbb, blr, blr_length, false);
 
 				for (FB_SIZE_T i = 0; i < csb->csb_rpt.getCount(); i++)
 				{
-					if (const auto node = csb->csb_rpt[i].csb_message)
+					if (const auto* node = csb->csb_rpt[i].csb_message)
 					{
 						if (node->messageNumber == 0)
 							inMessage = node;
@@ -4829,6 +4902,9 @@ void JAttachment::transactRequest(CheckStatusWrapper* user_status, ITransaction*
 		}
 		catch (const Exception& ex)
 		{
+			if (request)
+				CMP_release(tdbb, request);
+
 			transliterateException(tdbb, ex, user_status, "JAttachment::transactRequest");
 			return;
 		}
@@ -6662,8 +6738,8 @@ void JRD_print_procedure_info(thread_db* tdbb, const char* mesg)
 			if (procedure)
 			{
 				fprintf(fptr, "%s  ,  %d,  %X,  %d, %d\n",
-					(procedure->getName().toString().hasData() ?
-						procedure->getName().toString().c_str() : "NULL"),
+					(procedure->getName().toQuotedString().hasData() ?
+						procedure->getName().toQuotedString().c_str() : "NULL"),
 					procedure->getId(), procedure->flags, procedure->useCount,
 					0); // procedure->prc_alter_count
 			}
@@ -6727,7 +6803,7 @@ static void check_database(thread_db* tdbb, bool async)
  **************************************/
 	SET_TDBB(tdbb);
 
-	Database* const dbb = tdbb->getDatabase();
+	const Database* const dbb = tdbb->getDatabase();
 	Jrd::Attachment* const attachment = tdbb->getAttachment();
 
 	// Test for persistent errors
@@ -6806,7 +6882,7 @@ static void commit(thread_db* tdbb, jrd_tra* transaction, const bool retaining_f
 }
 
 
-static bool drop_file(Database* dbb, const jrd_file* file)
+static bool drop_file(const Database* dbb, const jrd_file* file)
 {
 /**************************************
  *
@@ -6826,7 +6902,7 @@ static bool drop_file(Database* dbb, const jrd_file* file)
 														   Arg::Str(file->fil_string) <<
 								 Arg::Gds(isc_io_delete_err) << SYS_ERR(errno));
 
-		PageSpace* pageSpace = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
+		const PageSpace* pageSpace = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
 		iscDbLogStatus(pageSpace->file->fil_string, &status);
 	}
 
@@ -6850,7 +6926,7 @@ static void find_intl_charset(thread_db* tdbb, Jrd::Attachment* attachment, cons
  **************************************/
 	SET_TDBB(tdbb);
 
-	if (options->dpb_lc_ctype.isEmpty())
+	if (options->dpb_lc_ctype.object.isEmpty())
 	{
 		// No declaration of character set, act like 3.x Interbase
 		attachment->att_client_charset = attachment->att_charset = DEFAULT_ATTACHMENT_CHARSET;
@@ -6866,7 +6942,7 @@ static void find_intl_charset(thread_db* tdbb, Jrd::Attachment* attachment, cons
 		if (CSetId(id) == CS_BINARY)
 		{
 			ERR_post(Arg::Gds(isc_bad_dpb_content) <<
-					 Arg::Gds(isc_invalid_attachment_charset) << Arg::Str(options->dpb_lc_ctype));
+					 Arg::Gds(isc_invalid_attachment_charset) << options->dpb_lc_ctype.toQuotedString());
 		}
 
 		attachment->att_client_charset = attachment->att_charset = CSetId(id);
@@ -6875,7 +6951,7 @@ static void find_intl_charset(thread_db* tdbb, Jrd::Attachment* attachment, cons
 	{
 		// Report an error - we can't do what user has requested
 		ERR_post(Arg::Gds(isc_bad_dpb_content) <<
-				 Arg::Gds(isc_charset_not_found) << Arg::Str(options->dpb_lc_ctype));
+				 Arg::Gds(isc_charset_not_found) << options->dpb_lc_ctype.toQuotedString());
 	}
 }
 
@@ -6918,6 +6994,8 @@ void DatabaseOptions::get(const UCHAR* dpb, FB_SIZE_T dpb_length, bool& invalid_
 
 	dpb_utf8_filename = rdr.find(isc_dpb_utf8_filename);
 
+	string tempStr;
+
 	for (rdr.rewind(); !rdr.isEof(); rdr.moveNext())
 	{
 		switch (rdr.getClumpTag())
@@ -6941,7 +7019,7 @@ void DatabaseOptions::get(const UCHAR* dpb, FB_SIZE_T dpb_length, bool& invalid_
 			if (Config::getServerMode() != MODE_SUPER)
 			{
 				dpb_buffers = rdr.getInt();
-				const unsigned TEMP_LIMIT = 25;
+				constexpr unsigned TEMP_LIMIT = 25;
 				if (dpb_buffers < TEMP_LIMIT)
 				{
 					ERR_post(Arg::Gds(isc_bad_dpb_content) <<
@@ -7077,7 +7155,22 @@ void DatabaseOptions::get(const UCHAR* dpb, FB_SIZE_T dpb_length, bool& invalid_
 			break;
 
 		case isc_dpb_lc_ctype:
-			rdr.getString(dpb_lc_ctype);
+			rdr.getString(tempStr);
+
+			// hack for aliases like utf-8
+			if (tempStr.find('-') != string::npos &&
+				tempStr.find('.') == string::npos &&
+				tempStr.find('"') == string::npos)
+			{
+				tempStr.upper();
+				tempStr = '"' + tempStr + '"';
+			}
+
+			dpb_lc_ctype = QualifiedMetaString::parseSchemaObject(tempStr);
+
+			if (dpb_lc_ctype.schema.isEmpty())
+				dpb_lc_ctype.schema = SYSTEM_SCHEMA;
+
 			break;
 
 		case isc_dpb_shutdown:
@@ -7137,6 +7230,10 @@ void DatabaseOptions::get(const UCHAR* dpb, FB_SIZE_T dpb_length, bool& invalid_
 				rdr.getString(gbakStr);
 				dpb_gbak_attach = gbakStr.hasData();
 			}
+			break;
+
+		case isc_dpb_gbak_restore_has_schema:
+			dpb_gbak_restore_has_schema = true;
 			break;
 
 		case isc_dpb_gstat_attach:
@@ -7317,6 +7414,18 @@ void DatabaseOptions::get(const UCHAR* dpb, FB_SIZE_T dpb_length, bool& invalid_
 			getString(rdr, dpb_owner);
 			break;
 
+		case isc_dpb_search_path:
+			getString(rdr, tempStr);
+			MetaString::parseList(tempStr, dpb_schema_search_path);
+			if (!dpb_schema_search_path.exist(SYSTEM_SCHEMA))
+				dpb_schema_search_path.add(SYSTEM_SCHEMA);
+			break;
+
+		case isc_dpb_blr_request_search_path:
+			getString(rdr, tempStr);
+			MetaString::parseList(tempStr, dpb_blr_request_schema_search_path);
+			break;
+
 		default:
 			break;
 		}
@@ -7376,10 +7485,18 @@ static JAttachment* initAttachment(thread_db* tdbb, const PathName& expanded_nam
 
 	engineStartup.init();
 
+	QualifiedMetaString charSetName;
+
+	if (options.dpb_set_db_charset.hasData())
+		charSetName = QualifiedMetaString::parseSchemaObject(options.dpb_set_db_charset);
+
+	if (charSetName.schema.isEmpty())
+		charSetName.schema = SYSTEM_SCHEMA;
+
 	if (!attach_flag && options.dpb_set_db_charset.hasData() &&
-		!IntlManager::charSetInstalled(options.dpb_set_db_charset))
+		!IntlManager::charSetInstalled(charSetName))
 	{
-		ERR_post(Arg::Gds(isc_charset_not_installed) << options.dpb_set_db_charset);
+		ERR_post(Arg::Gds(isc_charset_not_installed) << charSetName.toQuotedString());
 	}
 
 	// Check to see if the database is already attached
@@ -7596,8 +7713,8 @@ static JAttachment* create_attachment(const PathName& alias_name,
 
 static void check_single_maintenance(thread_db* tdbb)
 {
-	const auto dbb = tdbb->getDatabase();
-	const auto attachment = tdbb->getAttachment();
+	const auto* dbb = tdbb->getDatabase();
+	const auto* attachment = tdbb->getAttachment();
 
 	const ULONG ioBlockSize = dbb->getIOBlockSize();
 	const ULONG headerSize = MAX(RAW_HEADER_SIZE, ioBlockSize);
@@ -7608,7 +7725,7 @@ static void check_single_maintenance(thread_db* tdbb)
 	if (!PIO_header(tdbb, header_page_buffer, headerSize))
 		ERR_post(Arg::Gds(isc_bad_db_format) << Arg::Str(attachment->att_filename));
 
-	const auto header_page = reinterpret_cast<Ods::header_page*>(header_page_buffer);
+	const auto* header_page = reinterpret_cast<Ods::header_page*>(header_page_buffer);
 
 	if (header_page->hdr_shutdown_mode == Ods::hdr_shutdown_single)
 		ERR_post(Arg::Gds(isc_shutdown) << Arg::Str(attachment->att_filename));
@@ -7834,6 +7951,9 @@ void release_attachment(thread_db* tdbb, Jrd::Attachment* attachment, XThreadEns
 	if (!other)
 		sync.lock(SYNC_EXCLUSIVE);
 
+	if (attachment->att_flags & ATT_creator)
+		dbb->setRestoring(false);
+
 	// remove the attachment block from the dbb linked list
 	for (Jrd::Attachment** ptr = &dbb->dbb_attachments; *ptr; ptr = &(*ptr)->att_next)
 	{
@@ -7920,7 +8040,7 @@ static void setEngineReleaseDelay(Database* dbb)
 	}
 
 	++maxLinger;	// avoid rounding errors
-	time_t t = time(NULL);
+	const time_t t = time(NULL);
 	FbLocalStatus s;
 	dbb->dbb_plugin_config->setReleaseDelay(&s, maxLinger > t ? (maxLinger - t) * 1000 * 1000 : 0);
 	check(&s);
@@ -8717,7 +8837,7 @@ static void unwindAttach(thread_db* tdbb, const char* filename, const Exception&
 		}
 		else
 		{
-			auto dbb = tdbb->getDatabase();
+			const auto* dbb = tdbb->getDatabase();
 			if (dbb && (dbb->dbb_flags & DBB_new))
 			{
 				// attach failed before completion of DBB initialization
@@ -9138,7 +9258,7 @@ unsigned int TimeoutTimer::timeToExpire() const
 	return r > 0 ? r : 0;
 }
 
-bool TimeoutTimer::getExpireClock(SINT64& clock) const
+bool TimeoutTimer::getExpireClock(SINT64& clock) const noexcept
 {
 	if (!m_start)
 		return false;
@@ -9155,7 +9275,7 @@ void TimeoutTimer::start()
 		m_start = currTime();
 }
 
-void TimeoutTimer::stop()
+void TimeoutTimer::stop() noexcept
 {
 	m_start = 0;
 }
@@ -9192,7 +9312,7 @@ void thread_db::setRequest(Request* val)
 	reqStat = val ? &val->req_stats : RuntimeStatistics::getDummy();
 }
 
-CSetId thread_db::getCharSet() const
+CSetId thread_db::getCharSet() const noexcept
 {
 	CSetId charSetId;
 
@@ -9292,11 +9412,11 @@ void thread_db::reschedule()
 
 	checkCancelState();
 
-	StableAttachmentPart::Sync* sync = this->getAttachment()->getStable()->getSync();
+	const StableAttachmentPart::Sync* sync = this->getAttachment()->getStable()->getSync();
 
 	if (sync->hasContention())
 	{
-		FB_UINT64 cnt = sync->getLockCounter();
+		const FB_UINT64 cnt = sync->getLockCounter();
 
 		{	// scope
 			EngineCheckout cout(this, FB_FUNCTION);
@@ -9321,7 +9441,7 @@ ULONG thread_db::adjustWait(ULONG wait) const
 		return wait;
 
 	// This limit corresponds to the lock manager restriction (wait time is signed short)
-	static const ULONG MAX_WAIT_TIME = MAX_SSHORT; // seconds
+	constexpr ULONG MAX_WAIT_TIME = MAX_SSHORT; // seconds
 
 	const unsigned int timeout = tdbb_reqTimer->timeToExpire(); // milliseconds
 
@@ -9667,7 +9787,7 @@ void JRD_unwind_request(thread_db* tdbb, Request* request)
 
 namespace
 {
-	class DatabaseDirList : public DirectoryList
+	class DatabaseDirList final : public DirectoryList
 	{
 	private:
 		const PathName getConfigString() const

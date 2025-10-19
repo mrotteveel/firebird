@@ -107,21 +107,21 @@ using namespace Firebird;
 
 namespace
 {
-	inline void SET_DEP_BIT(ULONG* array, const SLONG bit)
+	inline void SET_DEP_BIT(ULONG* array, const SLONG bit) noexcept
 	{
 		array[bit / BITS_PER_LONG] |= (1L << (bit % BITS_PER_LONG));
 	}
 
-	inline bool TEST_DEP_BIT(const ULONG* array, const ULONG bit)
+	inline bool TEST_DEP_BIT(const ULONG* array, const ULONG bit) noexcept
 	{
 		return (array[bit / BITS_PER_LONG] & (1L << (bit % BITS_PER_LONG))) != 0;
 	}
 
-	const int CACHE_PAGES_PER_STREAM			= 15;
+	constexpr int CACHE_PAGES_PER_STREAM = 15;
 
 	// enumeration of sort datatypes
 
-	static const UCHAR sort_dtypes[] =
+	static constexpr UCHAR sort_dtypes[] =
 	{
 		0,							// dtype_unknown
 		SKD_text,					// dtype_text
@@ -154,10 +154,10 @@ namespace
 
 	struct SortField
 	{
-		SortField() : stream(INVALID_STREAM), id(0), desc(nullptr)
+		SortField() noexcept : stream(INVALID_STREAM), id(0), desc(nullptr)
 		{}
 
-		SortField(StreamType _stream, ULONG _id, const dsc* _desc)
+		SortField(StreamType _stream, ULONG _id, const dsc* _desc) noexcept
 			: stream(_stream), id(_id), desc(_desc)
 		{}
 
@@ -166,13 +166,13 @@ namespace
 		const dsc* desc;
 	};
 
-	class CrossJoin : public River
+	class CrossJoin final : public River
 	{
 	public:
 		CrossJoin(Optimizer* opt, RiverList& rivers, JoinType joinType)
 			: River(opt->getCompilerScratch(), nullptr, rivers)
 		{
-			fb_assert(joinType != OUTER_JOIN);
+			fb_assert(joinType != JoinType::OUTER);
 
 			const auto csb = opt->getCompilerScratch();
 			auto iter = opt->getBaseConjuncts();
@@ -197,7 +197,7 @@ namespace
 			{
 				HalfStaticArray<RecordSource*, OPT_STATIC_ITEMS> rsbs(riverCount);
 
-				if (joinType == INNER_JOIN)
+				if (joinType == JoinType::INNER)
 				{
 					// Reorder input rivers according to their possible inter-dependencies
 
@@ -261,7 +261,7 @@ namespace
 				}
 
 				m_rsb = FB_NEW_POOL(csb->csb_pool)
-					NestedLoopJoin(csb, rsbs.getCount(), rsbs.begin(), joinType);
+					NestedLoopJoin(csb, joinType, rsbs.getCount(), rsbs.begin());
 			}
 		}
 	};
@@ -296,7 +296,7 @@ namespace
 		}
 	}
 
-	unsigned getRiverCount(unsigned count, const ValueExprNode* const* eq_class)
+	unsigned getRiverCount(unsigned count, const ValueExprNode* const* eq_class) noexcept
 	{
 		// Given an sort/merge join equivalence class (vector of node pointers
 		// of representative values for rivers), return the count of rivers with values
@@ -434,7 +434,7 @@ namespace
 
 		// If there were none indices, this is a sequential retrieval.
 
-		const auto relation = tail->csb_relation;
+		const auto* relation = tail->csb_relation;
 		if (!relation)
 			return;
 
@@ -455,7 +455,7 @@ namespace
 				if (relationId != arg.relationId)
 				{
 					// index %s cannot be used in the specified plan
-					ERR_post(Arg::Gds(isc_index_unused) << arg.indexName);
+					ERR_post(Arg::Gds(isc_index_unused) << arg.indexName.toQuotedString());
 				}
 
 				if (idx.idx_id == arg.indexId)
@@ -524,7 +524,7 @@ namespace
 		return false;
 	}
 
-	void setDirection(SortNode* fromClause, SortNode* toClause)
+	void setDirection(SortNode* fromClause, SortNode* toClause) noexcept
 	{
 		// Update the direction of a GROUP BY, DISTINCT, or ORDER BY
 		// clause to the same direction as another clause. Do the same
@@ -565,7 +565,7 @@ namespace
 		for (const auto from_end = from_ptr + count; from_ptr != from_end; ++from_ptr)
 		{
 			NestConst<ValueExprNode>* to_ptr = to_clause->expressions.begin();
-			for (const auto to_end = to_ptr + count; to_ptr != to_end; ++to_ptr)
+			for (const auto* to_end = to_ptr + count; to_ptr != to_end; ++to_ptr)
 			{
 				if ((map && mapEqual(*to_ptr, *from_ptr, map)) ||
 					(!map && fieldEqual(*to_ptr, *from_ptr)))
@@ -588,11 +588,10 @@ namespace
 //
 
 Optimizer::Optimizer(thread_db* aTdbb, CompilerScratch* aCsb, RseNode* aRse,
-					 bool parentFirstRows, double parentCardinality)
+					 bool parentFirstRows)
 	: PermanentStorage(*aTdbb->getDefaultPool()),
 	  tdbb(aTdbb), csb(aCsb), rse(aRse),
 	  firstRows(rse->firstRows.valueOr(parentFirstRows)),
-	  cardinality(parentCardinality),
 	  compileStreams(getPool()),
 	  bedStreams(getPool()),
 	  keyStreams(getPool()),
@@ -648,7 +647,7 @@ RecordSource* Optimizer::compile(RseNode* subRse, BoolExprNodeStack* parentStack
 	//			if we're going to sort/aggregate the resultset afterwards
 	const bool subFirstRows = firstRows && !rse->rse_sorted && !rse->rse_aggregate;
 
-	Optimizer subOpt(tdbb, csb, subRse, subFirstRows, cardinality);
+	Optimizer subOpt(tdbb, csb, subRse, subFirstRows);
 	const auto rsb = subOpt.compile(parentStack);
 
 	if (parentStack && subOpt.isInnerJoin())
@@ -699,33 +698,11 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 
 	conjunctCount += distributeEqualities(conjunctStack, conjunctCount);
 
-	if (parentStack)
-	{
-		// AB: If we have limit our retrieval with FIRST / SKIP syntax then
-		// we may not deliver above conditions (from higher rse's) to this
-		// rse, because the results should be consistent.
-		if (rse->rse_skip || rse->rse_first)
-			parentStack = nullptr;
-
-		if (isSemiJoined())
-		{
-			fb_assert(parentStack->hasData());
-
-			// We have a semi-join, look at the parent (priorly joined streams) cardinality.
-			// If it's known to be not very small, nullify the parent conjuncts
-			// to give up a possible nested loop join in favor of a hash join.
-			// Here we assume every equi-join condition having a default selectivity (0.1).
-			// TODO: replace with a proper cost-based decision in the future.
-
-			double subSelectivity = MAXIMUM_SELECTIVITY;
-			for (auto count = parentStack->getCount(); count; count--)
-				subSelectivity *= DEFAULT_SELECTIVITY;
-			const auto thresholdCardinality = MINIMUM_CARDINALITY / subSelectivity;
-
-			if (!cardinality || cardinality > thresholdCardinality)
-				parentStack = nullptr;
-		}
-	}
+	// AB: If we have limit our retrieval with FIRST / SKIP syntax then
+	// we may not deliver above conditions (from higher rse's) to this
+	// rse, because the results should be consistent.
+	if (rse->rse_skip || rse->rse_first)
+		parentStack = nullptr;
 
 	// Set base-point before the parent/distributed nodes begin.
 	const unsigned baseCount = conjunctCount;
@@ -755,7 +732,7 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 		{
 			const auto node = iter.object();
 
-			if (!isInnerJoin() && node->possiblyUnknown())
+			if (isOuterJoin() && node->possiblyUnknown())
 			{
 				// parent missing conjunctions shouldn't be
 				// distributed to FULL OUTER JOIN streams at all
@@ -867,20 +844,19 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 	// record source blocks for all streams
 
 	RiverList rivers, dependentRivers;
-	HalfStaticArray<RseNode*, 4> specialSubQueries;
+	RseNode* specialRse = nullptr;
 
 	bool innerSubStream = false;
 	for (auto node : rse->rse_relations)
 	{
 		fb_assert(sort == rse->rse_sorted);
 		fb_assert(aggregate == rse->rse_aggregate);
+		fb_assert(!specialRse);
 
-		const auto subRse = nodeAs<RseNode>(node);
-
-		if (subRse && subRse->isSemiJoined())
+		if (isSpecialJoin() && innerSubStream)
 		{
-			fb_assert(rse->rse_jointype == blr_inner);
-			specialSubQueries.add(subRse);
+			specialRse = nodeAs<RseNode>(node);
+			fb_assert(specialRse);
 			continue;
 		}
 
@@ -905,14 +881,14 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 			bool computable = false;
 
 			// AB: Save all outer-part streams
-			if (isInnerJoin() || (isLeftJoin() && !innerSubStream))
+			if (isInnerJoin() || ((isLeftJoin() || isSpecialJoin()) && !innerSubStream))
 			{
 				if (node->computable(csb, INVALID_STREAM, false))
 					computable = true;
 
 				// Apply local booleans, if any. Note that it's done
 				// only for inner joins and outer streams of left joins.
-				auto iter = getConjuncts(!isInnerJoin(), false);
+				auto iter = getConjuncts(isLeftJoin(), false);
 				rsb = applyLocalBoolean(rsb, localStreams, iter);
 			}
 
@@ -971,15 +947,14 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 	}
 
 	// Outer joins are processed their own way
-	if (!isInnerJoin())
+	if (rse->isOuterJoin())
 	{
 		rivers.join(dependentRivers);
+		dependentRivers.clear();
 		rsb = OuterJoin(tdbb, this, rse, rivers, &sort).generate();
 	}
 	else
 	{
-		JoinType joinType = INNER_JOIN;
-
 		// AB: If previous rsb's are already on the stack we can't use
 		// a navigational-retrieval for an ORDER BY because the next
 		// streams are JOINed to the previous ones
@@ -990,57 +965,60 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 
 			// AB: We could already have multiple rivers at this
 			// point so try to do some hashing or sort/merging now.
-			while (generateEquiJoin(rivers, joinType))
+			while (generateEquiJoin(rivers, JoinType::INNER))
 				;
 		}
 
 		StreamList joinStreams(compileStreams);
 
-		fb_assert(joinStreams.getCount() != 1 || csb->csb_rpt[joinStreams[0]].csb_relation);
-
-		while (true)
+		if (isInnerJoin())
 		{
-			// AB: Determine which streams have an index relationship
-			// with the currently active rivers. This is needed so that
-			// no merge is made between a new cross river and the
-			// currently active rivers. Where in the new cross river
-			// a stream depends (index) on the active rivers.
-			StreamList dependentStreams, freeStreams;
-			findDependentStreams(joinStreams, dependentStreams, freeStreams);
+			fb_assert(joinStreams.getCount() != 1 || csb->csb_rpt[joinStreams[0]].csb_relation);
 
-			// If we have dependent and free streams then we can't rely on
-			// the sort node to be used for index navigation
-			if (dependentStreams.hasData() && freeStreams.hasData())
+			while (true)
 			{
-				sort = nullptr;
-				sortCanBeUsed = false;
-			}
+				// AB: Determine which streams have an index relationship
+				// with the currently active rivers. This is needed so that
+				// no merge is made between a new cross river and the
+				// currently active rivers. Where in the new cross river
+				// a stream depends (index) on the active rivers.
+				StreamList dependentStreams, freeStreams;
+				findDependentStreams(joinStreams, dependentStreams, freeStreams);
 
-			if (dependentStreams.hasData())
-			{
-				// Copy free streams
-				joinStreams.assign(freeStreams);
-
-				// Make rivers from the dependent streams
-				generateInnerJoin(dependentStreams, rivers, &sort, rse->rse_plan);
-
-				// Generate one river which holds a cross join rsb between
-				// all currently available rivers
-
-				rivers.add(FB_NEW_POOL(getPool()) CrossJoin(this, rivers, joinType));
-				rivers.back()->activate(csb);
-			}
-			else
-			{
-				if (freeStreams.hasData())
+				// If we have dependent and free streams then we can't rely on
+				// the sort node to be used for index navigation
+				if (dependentStreams.hasData() && freeStreams.hasData())
 				{
-					// Deactivate streams from rivers on stack, because
-					// the remaining streams don't have any indexed relationship with them
-					for (const auto river : rivers)
-						river->deactivate(csb);
+					sort = nullptr;
+					sortCanBeUsed = false;
 				}
 
-				break;
+				if (dependentStreams.hasData())
+				{
+					// Copy free streams
+					joinStreams.assign(freeStreams);
+
+					// Make rivers from the dependent streams
+					generateInnerJoin(dependentStreams, rivers, &sort, rse->rse_plan);
+
+					// Generate one river which holds a cross join rsb between
+					// all currently available rivers
+
+					rivers.add(FB_NEW_POOL(getPool()) CrossJoin(this, rivers, JoinType::INNER));
+					rivers.back()->activate(csb);
+				}
+				else
+				{
+					if (freeStreams.hasData())
+					{
+						// Deactivate streams from rivers on stack, because
+						// the remaining streams don't have any indexed relationship with them
+						for (const auto river : rivers)
+							river->deactivate(csb);
+					}
+
+					break;
+				}
 			}
 		}
 
@@ -1050,10 +1028,12 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 		if (rivers.isEmpty() && dependentRivers.isEmpty())
 		{
 			// This case may look weird, but it's possible for recursive unions
-			rsb = FB_NEW_POOL(csb->csb_pool) NestedLoopJoin(csb, 0, nullptr, joinType);
+			rsb = FB_NEW_POOL(csb->csb_pool) NestedLoopJoin(csb, JoinType::INNER, 0, nullptr);
 		}
 		else
 		{
+			auto joinType = JoinType::INNER;
+
 			while (rivers.hasData() || dependentRivers.hasData())
 			{
 				// Re-activate remaining rivers to be hashable/mergeable
@@ -1075,27 +1055,24 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 				rsb = finalRiver->getRecordSource();
 				cardinality = rsb->getCardinality();
 
-				if (specialSubQueries.hasData())
+				if (specialRse)
 				{
-					fb_assert(joinType == INNER_JOIN);
-					joinType = SEMI_JOIN;
+					fb_assert(joinType == JoinType::INNER);
+					joinType = rse->isSemiJoin() ? JoinType::SEMI : JoinType::ANTI;
 
 					rivers.add(finalRiver);
 
-					for (const auto rse : specialSubQueries)
-					{
-						const auto sub = rse->compile(tdbb, this, true);
-						fb_assert(sub);
+					const auto sub = specialRse->compile(tdbb, this, true);
+					fb_assert(sub);
 
-						StreamList localStreams;
-						sub->findUsedStreams(localStreams);
+					StreamList localStreams;
+					sub->findUsedStreams(localStreams);
 
-						const auto subRiver = FB_NEW_POOL(getPool()) River(csb, sub, rse, localStreams);
-						auto& list = subRiver->isDependent(*finalRiver) ? dependentRivers : rivers;
-						list.add(subRiver);
-					}
+					const auto subRiver = FB_NEW_POOL(getPool()) River(csb, sub, specialRse, localStreams);
+					auto& list = subRiver->isDependent(*finalRiver) ? dependentRivers : rivers;
+					list.add(subRiver);
 
-					specialSubQueries.clear();
+					specialRse = nullptr;
 				}
 			}
 		}
@@ -1171,8 +1148,12 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 
 			fb_assert(tail->csb_relation);
 
-			CMP_post_access(tdbb, csb, tail->csb_relation()->getSecurityName(),
-				tail->csb_view ? tail->csb_view()->getId() : 0,
+			const SLONG ssRelationId = tail->csb_view ? tail->csb_view()->rel_id : 0;
+
+			CMP_post_access(tdbb, csb, tail->csb_relation()->getSecurityName().schema, ssRelationId,
+				SCL_usage, obj_schemas, QualifiedName(tail->csb_relation()->getName().schema));
+
+			CMP_post_access(tdbb, csb, tail->csb_relation()->getSecurityName().object, ssRelationId,
 				SCL_update, obj_relations, tail->csb_relation()->getName());
 		}
 
@@ -1532,10 +1513,10 @@ SortedStream* Optimizer::generateSort(const StreamList& streams,
 
 	if (!refetchFlag)
 	{
-		const auto dbb = tdbb->getDatabase();
+		const auto* dbb = tdbb->getDatabase();
 		const auto threshold = dbb->dbb_config->getInlineSortThreshold();
 
-		refetchFlag = (totalLength > threshold);
+		refetchFlag = (totalLength > MIN(threshold, MAX_SORT_RECORD / 2));
 	}
 
 	// Check for persistent fields to be excluded from the sort.
@@ -1545,7 +1526,7 @@ SortedStream* Optimizer::generateSort(const StreamList& streams,
 	{
 		for (auto& item : fields)
 		{
-			const auto relation = csb->csb_rpt[item.stream].csb_relation;
+			const auto* relation = csb->csb_rpt[item.stream].csb_relation;
 
 			if (relation &&
 				!relation()->getExtFile() &&
@@ -1780,7 +1761,7 @@ void Optimizer::checkIndices()
 		if (plan->type != PlanNode::TYPE_RETRIEVE)
 			continue;
 
-		const auto relation = tail->csb_relation;
+		const auto* const relation = tail->csb_relation;
 		if (!relation)
 			return;
 
@@ -1793,9 +1774,9 @@ void Optimizer::checkIndices()
 		{
 			// index %s cannot be used in the specified plan
 			if (isGbak)
-				ERR_post_warning(Arg::Warning(isc_index_unused) << plan->accessType->items[0].indexName);
+				ERR_post_warning(Arg::Warning(isc_index_unused) << plan->accessType->items[0].indexName.toQuotedString());
 			else
-				ERR_post(Arg::Gds(isc_index_unused) << plan->accessType->items[0].indexName);
+				ERR_post(Arg::Gds(isc_index_unused) << plan->accessType->items[0].indexName.toQuotedString());
 		}
 
 		if (!tail->csb_idx)
@@ -1808,21 +1789,19 @@ void Optimizer::checkIndices()
 			if (!(idx.idx_runtime_flags & (idx_plan_dont_use | idx_used)) ||
 				((idx.idx_runtime_flags & idx_plan_navigate) && !(idx.idx_runtime_flags & idx_navigate)))
 			{
-				MetaName index_name;
-				if (relation)
-				{
-					auto* idp = relation()->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
-					if (idp)
-						index_name = idp->getName();
-				}
+				QualifiedName index_name;
+				auto* idp = relation()->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
+				if (idp)
+					index_name = idp->getName();
+
 				if (!index_name.hasData())
 					index_name = "***unknown***";
 
 				// index %s cannot be used in the specified plan
 				if (isGbak)
-					ERR_post_warning(Arg::Warning(isc_index_unused) << Arg::Str(index_name));
+					ERR_post_warning(Arg::Warning(isc_index_unused) << index_name.toQuotedString());
 				else
-					ERR_post(Arg::Gds(isc_index_unused) << Arg::Str(index_name));
+					ERR_post(Arg::Gds(isc_index_unused) << index_name.toQuotedString());
 			}
 		}
 	}
@@ -2027,7 +2006,7 @@ void Optimizer::checkSorts()
 
 					// Walk trough the relations of the RSE and see if a
 					// matching stream can be found.
-					if (newRse->rse_jointype == blr_inner)
+					if (newRse->isInnerJoin())
 					{
 						if (newRse->rse_relations.getCount() == 1)
 							node = newRse->rse_relations[0];
@@ -2207,62 +2186,94 @@ unsigned Optimizer::distributeEqualities(BoolExprNodeStack& orgStack, unsigned b
 	{
 		const auto boolean = iter.object();
 		const auto cmpNode = nodeAs<ComparativeBoolNode>(boolean);
-		ValueExprNode* node1;
-		ValueExprNode* node2;
+		const auto listNode = nodeAs<InListBoolNode>(boolean);
 
-		if (cmpNode &&
-			(cmpNode->blrOp == blr_eql ||
-			 cmpNode->blrOp == blr_gtr || cmpNode->blrOp == blr_geq ||
-			 cmpNode->blrOp == blr_leq || cmpNode->blrOp == blr_lss ||
-			 cmpNode->blrOp == blr_matching || cmpNode->blrOp == blr_containing ||
-			 cmpNode->blrOp == blr_like || cmpNode->blrOp == blr_similar))
-		{
-			node1 = cmpNode->arg1;
-			node2 = cmpNode->arg2;
-		}
-		else
+		if (!cmpNode && !listNode)
 			continue;
 
+		ValueExprNode* fieldNode;
 		bool reverse = false;
 
-		if (!nodeIs<FieldNode>(node1))
+		if (cmpNode)
 		{
-			ValueExprNode* swap_node = node1;
-			node1 = node2;
-			node2 = swap_node;
-			reverse = true;
+			if (cmpNode->blrOp != blr_eql &&
+				cmpNode->blrOp != blr_gtr && cmpNode->blrOp != blr_geq &&
+				cmpNode->blrOp != blr_leq && cmpNode->blrOp != blr_lss &&
+				cmpNode->blrOp != blr_matching && cmpNode->blrOp != blr_containing &&
+				cmpNode->blrOp != blr_like && cmpNode->blrOp != blr_similar)
+			{
+				continue;
+			}
+
+			fieldNode = cmpNode->arg1;
+			ValueExprNode* otherNode = cmpNode->arg2;
+
+			if (!nodeIs<FieldNode>(fieldNode))
+			{
+				std::swap(fieldNode, otherNode);
+				reverse = true;
+			}
+
+			if (!nodeIs<FieldNode>(fieldNode))
+				continue;
+
+			if (!nodeIs<LiteralNode>(otherNode) &&
+				!nodeIs<ParameterNode>(otherNode) &&
+				!nodeIs<VariableNode>(otherNode))
+			{
+				continue;
+			}
+		}
+		else // listNode != nullptr
+		{
+			fieldNode = listNode->arg;
+
+			if (!nodeIs<FieldNode>(fieldNode))
+				continue;
+
+			bool accept = true;
+
+			for (const auto item : listNode->list->items)
+			{
+				if (!nodeIs<LiteralNode>(item) &&
+					!nodeIs<ParameterNode>(item) &&
+					!nodeIs<VariableNode>(item))
+				{
+					accept = false;
+					break;
+				}
+			}
+
+			if (!accept)
+				continue;
 		}
 
-		if (!nodeIs<FieldNode>(node1))
-			continue;
-
-		if (!nodeIs<LiteralNode>(node2) && !nodeIs<ParameterNode>(node2) && !nodeIs<VariableNode>(node2))
-			continue;
+		fb_assert(nodeIs<FieldNode>(fieldNode));
 
 		for (eq_class = classes.begin(); eq_class != classes.end(); ++eq_class)
 		{
-			if (searchStack(node1, *eq_class))
+			if (searchStack(fieldNode, *eq_class))
 			{
 				for (ValueExprNodeStack::iterator temp(*eq_class); temp.hasData(); ++temp)
 				{
-					if (!fieldEqual(node1, temp.object()) && count < MAX_CONJUNCTS_TO_INJECT)
+					if (!fieldEqual(fieldNode, temp.object()) && count < MAX_CONJUNCTS_TO_INJECT)
 					{
-						ValueExprNode* arg1;
-						ValueExprNode* arg2;
-
-						if (reverse)
-						{
-							arg1 = cmpNode->arg1;
-							arg2 = temp.object();
-						}
-						else
-						{
-							arg1 = temp.object();
-							arg2 = cmpNode->arg2;
-						}
-
 						// From the conjuncts X(A,B) and A=C, infer the conjunct X(C,B)
-						AutoPtr<BoolExprNode> newNode(makeInferenceNode(boolean, arg1, arg2));
+
+						AutoPtr<BoolExprNode> newNode;
+
+						if (cmpNode)
+						{
+							newNode = reverse ?
+								makeInferenceNode(boolean, cmpNode->arg1, temp.object()) :
+								makeInferenceNode(boolean, temp.object(), cmpNode->arg2);
+						}
+						else // listNode != nullptr
+						{
+							newNode = makeInferenceNode(boolean, temp.object(), listNode->list);
+						}
+
+						fb_assert(newNode);
 
 						if (augmentStack(newNode, orgStack))
 						{
@@ -2312,7 +2323,7 @@ void Optimizer::findDependentStreams(const StreamList& streams,
 			// SORT/MERGE.
 
 			Retrieval retrieval(tdbb, this, stream, false, false, nullptr, true);
-			const auto candidate = retrieval.getInversion();
+			const auto* candidate = retrieval.getInversion();
 
 			if (candidate->dependentFromStreams.hasData())
 				indexed_relationship = true;
@@ -2400,7 +2411,7 @@ void Optimizer::formRivers(const StreamList& streams,
 
 bool Optimizer::generateEquiJoin(RiverList& rivers, JoinType joinType)
 {
-	fb_assert(joinType != OUTER_JOIN);
+	fb_assert(joinType != JoinType::OUTER);
 
 	ULONG selected_rivers[OPT_STREAM_BITS], selected_rivers2[OPT_STREAM_BITS];
 	ValueExprNode** eq_class;
@@ -2411,7 +2422,7 @@ bool Optimizer::generateEquiJoin(RiverList& rivers, JoinType joinType)
 
 	for (River** iter = orgRivers.begin(); iter < orgRivers.end();)
 	{
-		const auto river = *iter;
+		const auto* river = *iter;
 
 		StreamStateHolder stateHolder2(csb, river->getStreams());
 		stateHolder2.activate();
@@ -2558,7 +2569,7 @@ bool Optimizer::generateEquiJoin(RiverList& rivers, JoinType joinType)
 
 		// Find position of the river with maximum cardinality
 
-		const auto rsb = river->getRecordSource();
+		const auto* rsb = river->getRecordSource();
 		const auto cardinality = rsb->getCardinality();
 
 		if (cardinality > maxCardinality1)
@@ -2587,7 +2598,7 @@ bool Optimizer::generateEquiJoin(RiverList& rivers, JoinType joinType)
 	// If any of to-be-hashed rivers is too large to be hashed efficiently,
 	// then prefer a merge join instead of a hash join.
 
-	const bool useMergeJoin = hashOverflow;
+	const bool useMergeJoin = hashOverflow && (joinType == JoinType::INNER);
 
 	// Build a join stream
 
@@ -2595,7 +2606,7 @@ bool Optimizer::generateEquiJoin(RiverList& rivers, JoinType joinType)
 	RecordSource* finalRsb = nullptr;
 
 	// MERGE JOIN does not support other join types yet
-	if (useMergeJoin && joinType == INNER_JOIN)
+	if (useMergeJoin && joinType == JoinType::INNER)
 	{
 		position = 0;
 		for (const auto river : joinedRivers)
@@ -2622,7 +2633,7 @@ bool Optimizer::generateEquiJoin(RiverList& rivers, JoinType joinType)
 	}
 	else
 	{
-		if (joinType == INNER_JOIN)
+		if (joinType == JoinType::INNER)
 		{
 			// Ensure that the largest river is placed at the first position.
 			// It's important for a hash join to be efficient.
@@ -3040,9 +3051,9 @@ bool Optimizer::getEquiJoinKeys(NestConst<ValueExprNode>& node1,
 string Optimizer::getStreamName(StreamType stream)
 {
 	const auto tail = &csb->csb_rpt[stream];
-	const auto alias = tail->csb_alias;
+	const auto* alias = tail->csb_alias;
 
-	string name = tail->getName();
+	string name = tail->getName().toQuotedString();
 
 	if (alias && alias->hasData())
 	{
@@ -3075,7 +3086,7 @@ string Optimizer::makeAlias(StreamType stream)
 			if (csb_tail->csb_alias)
 				alias_list.push(*csb_tail->csb_alias);
 			else if (csb_tail->csb_relation)
-				alias_list.push(csb_tail->csb_relation()->c_name());
+				alias_list.push(csb_tail->csb_relation->getName().toQuotedString());
 
 			if (!csb_tail->csb_view)
 				break;
@@ -3092,7 +3103,7 @@ string Optimizer::makeAlias(StreamType stream)
 		}
 	}
 	else
-		alias = csb_tail->getName(false);
+		alias = csb_tail->getName(false).toQuotedString();
 
 	return alias;
 }
@@ -3155,6 +3166,37 @@ BoolExprNode* Optimizer::makeInferenceNode(BoolExprNode* boolean,
 }
 
 
+BoolExprNode* Optimizer::makeInferenceNode(BoolExprNode* boolean,
+										   ValueExprNode* arg,
+										   ValueListNode* list)
+{
+	const auto listNode = nodeAs<InListBoolNode>(boolean);
+	fb_assert(listNode);	// see our caller
+
+	// Clone the input predicate
+	const auto newListNode =
+		FB_NEW_POOL(getPool()) InListBoolNode(getPool());
+
+	// But substitute new values for some of the predicate arguments
+	SubExprNodeCopier copier(csb->csb_pool, csb);
+	newListNode->arg = copier.copy(tdbb, arg);
+	newListNode->list = copier.copy(tdbb, list);
+
+	// We may safely copy invariantness flag because:
+	// (1) we only distribute field equalities
+	// (2) invariantness of second argument of STARTING WITH or LIKE is solely
+	//    determined by its dependency on any of the fields
+	// If provisions above change the line below will have to be modified.
+	newListNode->nodFlags = listNode->nodFlags;
+
+	// We cannot safely share the impure area because the original/new data types
+	// for the substituted field could be different, thus affecting the lookup table.
+	// Thus perform the second pass to properly set up the boolean for execution.
+
+	return newListNode->pass2(tdbb, csb);
+}
+
+
 //
 // Optimize a LIKE/SIMILAR expression, if possible, into a "STARTING WITH" AND a "LIKE/SIMILAR".
 // This will allow us to use the index for the starting with, and the LIKE/SIMILAR can just tag
@@ -3192,8 +3234,8 @@ ValueExprNode* Optimizer::optimizeLikeSimilar(ComparativeBoolNode* cmpNode)
 
 	TextType* matchTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(&matchDesc));
 	CharSet* matchCharset = matchTextType->getCharSet();
-	TextType* patternTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(patternDesc));
-	CharSet* patternCharset = patternTextType->getCharSet();
+	const TextType* patternTextType = INTL_texttype_lookup(tdbb, INTL_TTYPE(patternDesc));
+	const CharSet* patternCharset = patternTextType->getCharSet();
 
 	if (cmpNode->blrOp == blr_like)
 	{
@@ -3300,8 +3342,8 @@ ValueExprNode* Optimizer::optimizeLikeSimilar(ComparativeBoolNode* cmpNode)
 
 		MoveBuffer patternBuffer;
 		UCHAR* patternStart;
-		ULONG patternLen = MOV_make_string2(tdbb, patternDesc, INTL_TTYPE(&matchDesc), &patternStart, patternBuffer);
-		const auto patternEnd = patternStart + patternLen;
+		const ULONG patternLen = MOV_make_string2(tdbb, patternDesc, INTL_TTYPE(&matchDesc), &patternStart, patternBuffer);
+		const auto* patternEnd = patternStart + patternLen;
 		const UCHAR* patternPtr = patternStart;
 
 		MoveBuffer prefixBuffer;
@@ -3369,7 +3411,7 @@ ValueExprNode* Optimizer::optimizeLikeSimilar(ComparativeBoolNode* cmpNode)
 	}
 }
 
-void Optimizer::printf(const char* format, ...)
+void Optimizer::printf(const char* format, ...) noexcept
 {
 #ifndef OPT_DEBUG_SYS_REQUESTS
 	if (csb->csb_g_flags & csb_internal)

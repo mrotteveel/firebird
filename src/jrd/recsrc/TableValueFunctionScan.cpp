@@ -38,6 +38,10 @@ TableValueFunctionScan::TableValueFunctionScan(CompilerScratch* csb, StreamType 
 											   const string& alias)
 	: RecordStream(csb, stream), m_alias(csb->csb_pool, alias)
 {
+	const auto tabFunc = csb->csb_rpt[stream].csb_table_value_fun;
+	fb_assert(tabFunc);
+	m_name = tabFunc->name;
+
 	m_cardinality = DEFAULT_CARDINALITY;
 }
 
@@ -56,19 +60,18 @@ bool TableValueFunctionScan::internalGetRecord(thread_db* tdbb) const
 	}
 
 	rpb->rpb_number.increment();
+
 	do
 	{
-		if (!impure->m_recordBuffer->fetch(rpb->rpb_number.getValue(), rpb->rpb_record))
+		if (impure->m_recordBuffer->fetch(rpb->rpb_number.getValue(), rpb->rpb_record))
 		{
-			if (!nextBuffer(tdbb))
-			{
-				rpb->rpb_number.setValid(false);
-				return false;
-			}
-			continue;
+			rpb->rpb_number.setValid(true);
+			return true;
 		}
-		return true;
-	} while (true);
+	} while (nextBuffer(tdbb));
+
+	rpb->rpb_number.setValid(false);
+	return false;
 }
 
 bool TableValueFunctionScan::refetchRecord(thread_db* /*tdbb*/) const
@@ -86,7 +89,7 @@ void TableValueFunctionScan::getLegacyPlan(thread_db* tdbb, string& plan, unsign
 	if (!level)
 		plan += "(";
 
-	plan += printName(tdbb, m_alias, false) + " NATURAL";
+	plan += printName(tdbb, m_alias) + " NATURAL";
 
 	if (!level)
 		plan += ")";
@@ -238,7 +241,8 @@ void UnlistFunctionScan::internalOpen(thread_db* tdbb) const
 			if (size > 0)
 			{
 				dsc fromDesc;
-				fromDesc.makeText(size, textType, (UCHAR*)(IPTR) valueView.data());
+				fromDesc.makeText(static_cast<USHORT>(size), textType,
+					(UCHAR*)(IPTR) valueView.data());
 				assignParameter(tdbb, &fromDesc, toDesc, 0, record);
 				impure->m_recordBuffer->store(record);
 			}
@@ -254,7 +258,9 @@ void UnlistFunctionScan::internalGetPlan(thread_db* tdbb, PlanEntry& planEntry, 
 {
 	planEntry.className = "FunctionScan";
 
-	planEntry.lines.add().text = "Functions " + printName(tdbb, "Unlist", m_alias) + " Scan";
+	planEntry.lines.add().text = "Function " +
+		printName(tdbb, m_name.toQuotedString(), m_alias) + " Scan";
+
 	printOptInfo(planEntry.lines);
 
 	if (m_alias.hasData())
@@ -301,17 +307,19 @@ bool UnlistFunctionScan::nextBuffer(thread_db* tdbb) const
 			impure->m_resultStr->erase();
 			do
 			{
-				auto size = end = valueView.find(separatorView);
+				const auto size = end = valueView.find(separatorView);
 				if (end == std::string_view::npos)
 				{
 					if (!valueView.empty())
-						impure->m_resultStr->append(valueView.data(), valueView.length());
+						impure->m_resultStr->append(valueView.data(),
+							static_cast<string::size_type>(valueView.length()));
 
 					break;
 				}
 
 				if (size > 0)
-					impure->m_resultStr->append(valueView.data(), size);
+					impure->m_resultStr->append(valueView.data(),
+						static_cast<string::size_type>(size));
 
 				valueView.remove_prefix(size + separatorView.length());
 

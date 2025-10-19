@@ -114,7 +114,7 @@ void VirtualTableScan::getLegacyPlan(thread_db* tdbb, string& plan, unsigned lev
 	if (!level)
 		plan += "(";
 
-	plan += printName(tdbb, m_alias, false) + " NATURAL";
+	plan += printName(tdbb, m_alias) + " NATURAL";
 
 	if (!level)
 		plan += ")";
@@ -124,12 +124,13 @@ void VirtualTableScan::internalGetPlan(thread_db* tdbb, PlanEntry& planEntry, un
 {
 	planEntry.className = "VirtualTableScan";
 
-	planEntry.lines.add().text = "Table " + printName(tdbb, m_relation()->c_name(), m_alias) + " Full Scan";
+	planEntry.lines.add().text = "Table " +
+		printName(tdbb, m_relation()->getName().toQuotedString(), m_alias) + " Full Scan";
 	printOptInfo(planEntry.lines);
 
 	planEntry.objectType = m_relation()->getObjectType();
 	planEntry.objectName = m_relation()->getName();
 
-	if (m_alias.hasData() &&  m_relation()->getName() != m_alias)
+	if (m_alias.hasData() && m_alias != string(m_relation()->getName().object))
 		planEntry.alias = m_alias;
 }

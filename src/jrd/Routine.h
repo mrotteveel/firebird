@@ -115,37 +115,42 @@ namespace Jrd
 	public:
 		static void destroy(thread_db* tdbb, Routine* routine);
 
-		const QualifiedName& getName() const { return getPermanent()->getName(); }
-		MetaId getId() const { return getPermanent()->getId(); }
-		const char* c_name() const override { return getPermanent()->c_name(); }
+		const QualifiedName& getName() const noexcept { return getPermanent()->getName(); }
+		MetaId getId() noexcept const { return getPermanent()->getId(); }
 
-		/*const*/ Statement* getStatement() const { return statement; }
+		/*const*/ Statement* getStatement() const noexcept { return statement; }
 		void setStatement(Statement* value);
 
-		bool isImplemented() const { return implemented; }
-		void setImplemented(bool value) { implemented = value; }
+		bool isImplemented() const noexcept { return implemented; }
+		void setImplemented(bool value) noexcept { implemented = value; }
 
-		bool isDefined() const { return defined; }
-		void setDefined(bool value) { defined = value; }
+		bool isDefined() const noexcept { return defined; }
+		void setDefined(bool value) noexcept { defined = value; }
 
 		virtual void checkReload(thread_db* tdbb) const = 0;
 
-		USHORT getDefaultCount() const { return defaultCount; }
-		void setDefaultCount(USHORT value) { defaultCount = value; }
+		USHORT getDefaultCount() const noexcept { return defaultCount; }
+		void setDefaultCount(USHORT value) noexcept { defaultCount = value; }
 
-		const Format* getInputFormat() const { return inputFormat; }
-		void setInputFormat(const Format* value) { inputFormat = value; }
+		const Format* getInputFormat() const noexcept { return inputFormat; }
+		void setInputFormat(const Format* value) noexcept { inputFormat = value; }
 
-		const Format* getOutputFormat() const { return outputFormat; }
-		void setOutputFormat(const Format* value) { outputFormat = value; }
+		const Format* getOutputFormat() const noexcept { return outputFormat; }
+		void setOutputFormat(const Format* value) noexcept { outputFormat = value; }
 
-		const Firebird::Array<NestConst<Parameter> >& getInputFields() const { return inputFields; }
-		Firebird::Array<NestConst<Parameter> >& getInputFields() { return inputFields; }
+		const Firebird::Array<NestConst<Parameter> >& getInputFields() const noexcept
+		{
+			return inputFields;
+		}
+		Firebird::Array<NestConst<Parameter> >& getInputFields() noexcept { return inputFields; }
 
-		const Firebird::Array<NestConst<Parameter> >& getOutputFields() const { return outputFields; }
-		Firebird::Array<NestConst<Parameter> >& getOutputFields() { return outputFields; }
+		const Firebird::Array<NestConst<Parameter> >& getOutputFields() const noexcept
+		{
+			return outputFields;
+		}
+		Firebird::Array<NestConst<Parameter> >& getOutputFields() noexcept { return outputFields; }
 
-		void parseBlr(thread_db* tdbb, CompilerScratch* csb, bid* blob_id, bid* blobDbg);
+		void parseBlr(thread_db* tdbb, CompilerScratch* csb, const bid* blob_id, bid* blobDbg);
 		void parseMessages(thread_db* tdbb, CompilerScratch* csb, Firebird::BlrReader blrReader);
 
 		virtual void releaseFormat()
@@ -162,12 +167,14 @@ namespace Jrd
 		void sharedCheckUnlock(thread_db* tdbb);
 
 	public:
-		virtual int getObjectType() const = 0;
-		virtual SLONG getSclType() const = 0;
-		virtual RoutinePermanent* getPermanent() const = 0;	// Permanent part of data
+		virtual RoutinePermanent* getPermanent() const noexcept = 0;	// Permanent part of data
+		virtual int getObjectType() const noexcept = 0;
 
 	private:
-		Statement* statement;				// compiled routine statement
+		USHORT id;							// routine ID
+		QualifiedName name;				// routine name
+		QualifiedName securityName;		// security class name
+		Statement* statement;			// compiled routine statement
 		bool implemented;					// Is the packaged routine missing the body/entrypoint?
 		bool defined;						// UDF has its implementation module available
 		USHORT defaultCount;				// default input arguments

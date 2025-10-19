@@ -599,7 +599,7 @@ static SimilarToRegex* createPatternMatcher(thread_db* tdbb, const char* pattern
 	{
 		if (pattern)
 		{
-			const int len = strlen(pattern);
+			const FB_SIZE_T len = fb_strlen(pattern);
 
 			//// TODO: Should this be different than trace and replication
 			//// and use case sensitive matcher?
@@ -913,6 +913,8 @@ void Validation::parse_args(thread_db* tdbb)
 
 		switch (sw->in_sw)
 		{
+		case IN_SW_VAL_SCH_INCL:
+		case IN_SW_VAL_SCH_EXCL:
 		case IN_SW_VAL_TAB_INCL:
 		case IN_SW_VAL_TAB_EXCL:
 		case IN_SW_VAL_IDX_INCL:
@@ -934,6 +936,14 @@ void Validation::parse_args(thread_db* tdbb)
 
 		switch (sw->in_sw)
 		{
+		case IN_SW_VAL_SCH_INCL:
+			vdr_sch_incl = createPatternMatcher(tdbb, *argv);
+			break;
+
+		case IN_SW_VAL_SCH_EXCL:
+			vdr_sch_excl = createPatternMatcher(tdbb, *argv);
+			break;
+
 		case IN_SW_VAL_TAB_INCL:
 			vdr_tab_incl = createPatternMatcher(tdbb, *argv);
 			break;
@@ -1143,7 +1153,7 @@ Validation::RTN Validation::corrupt(int err_code, const jrd_rel* relation, ...)
 			fprintf(stdout, "LOG:\tDatabase: %s\n\t%s\n", fn, s.c_str());
 	}
 #endif
-	if (vdr_msg_table[err_code].error)
+	if (err_code >= VAL_MAX_ERROR || vdr_msg_table[err_code].error)
 	{
 		++vdr_errors;
 		s.insert(0, "Error: ");
@@ -1157,7 +1167,7 @@ Validation::RTN Validation::corrupt(int err_code, const jrd_rel* relation, ...)
 	if (relation)
 	{
 		gds__log("Database: %s\n\t%s in table %s (%d)",
-			fn, s.c_str(), relation->getName().c_str(), relation->getId());
+			fn, s.c_str(), relation->getName().toQuotedString().c_str(), relation->getId());
 	}
 	else
 		gds__log("Database: %s\n\t%s", fn, s.c_str());
@@ -1650,15 +1660,27 @@ void Validation::walk_database()
 			if ((vdr_flags & VDR_online) && relation->isSystem())
 				continue;
 
+			if (vdr_sch_incl)
+			{
+				if (!vdr_sch_incl->matches(relation->rel_name.schema.c_str(), relation->rel_name.schema.length()))
+					continue;
+			}
+
+			if (vdr_sch_excl)
+			{
+				if (vdr_sch_excl->matches(relation->rel_name.schema.c_str(), relation->rel_name.schema.length()))
+					continue;
+			}
+
 			if (vdr_tab_incl)
 			{
-				if (!vdr_tab_incl->matches(relation->getName().c_str(), relation->getName().length()))
+				if (!vdr_tab_incl->matches(relation->getName().object.c_str(), relation->getName().object.length()))
 					continue;
 			}
 
 			if (vdr_tab_excl)
 			{
-				if (vdr_tab_excl->matches(relation->getName().c_str(), relation->getName().length()))
+				if (vdr_tab_excl->matches(relation->getName().object.c_str(), relation->getName().object.length()))
 					continue;
 			}
 
@@ -1668,7 +1690,7 @@ void Validation::walk_database()
 				vdr_page_bitmap->clear();
 
 			string relName;
-			relName.printf("Relation %d (%s)", relation->getId(), relation->getName().c_str());
+			relName.printf("Relation %d (%s)", relation->getId(), relation->getName().toQuotedString().c_str());
 			output("%s\n", relName.c_str());
 
 			int errs = vdr_errors;
@@ -3160,10 +3182,13 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 	{
 		if (!(vdr_flags & VDR_online))
 		{
-			const char* msg = relation->getName().hasData() ?
-				"bugcheck during scan of table %d (%s)" :
-				"bugcheck during scan of table %d";
-			gds__log(msg, relation->getId(), relation->getName().c_str());
+			if (relation->getName().hasData())
+			{
+				gds__log("bugcheck during scan of table %d (%s)",
+					relation->rel_id, relation->getName().toQuotedString().c_str());
+			}
+			else
+				gds__log("bugcheck during scan of table %d", relation->rel_id);
 		}
 #ifdef DEBUG_VAL_VERBOSE
 		if (VAL_debug_level)
@@ -3212,20 +3237,32 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 		release_page(&window);
 
 		auto* idx = getPermanent(relation)->lookupIndex(vdr_tdbb, i, CacheFlag::AUTOCREATE);
-		MetaName index;
+		QualifiedName index;
 		if (idx)
 			index = idx->getName();
 		fetch_page(false, relPages->rel_index_root, pag_root, &window, &page);
 
+		if (vdr_sch_incl)
+		{
+			if (!vdr_sch_incl->matches(index.schema.c_str(), index.schema.length()))
+				continue;
+		}
+
+		if (vdr_sch_excl)
+		{
+			if (vdr_sch_excl->matches(index.schema.c_str(), index.schema.length()))
+				continue;
+		}
+
 		if (vdr_idx_incl)
 		{
-			if (!vdr_idx_incl->matches(index.c_str(), index.length()))
+			if (!vdr_idx_incl->matches(index.object.c_str(), index.object.length()))
 				continue;
 		}
 
 		if (vdr_idx_excl)
 		{
-			if (vdr_idx_excl->matches(index.c_str(), index.length()))
+			if (vdr_idx_excl->matches(index.object.c_str(), index.object.length()))
 				continue;
 		}
 
@@ -3243,7 +3280,7 @@ Validation::RTN Validation::walk_root(jrd_rel* relation, bool getInfo)
 			continue;
 		}
 
-		output("Index %d (%s)\n", i + 1, index.c_str());
+		output("Index %d (%s)\n", i + 1, index.toQuotedString().c_str());
 		walk_index(relation, page, i);
 	}
 

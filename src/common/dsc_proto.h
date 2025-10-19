@@ -27,8 +27,8 @@
 #include "../common/dsc.h"
 #include "../jrd/intl.h"
 
-USHORT		DSC_string_length(const struct dsc*);
-const TEXT*	DSC_dtype_tostring(UCHAR);
+USHORT		DSC_string_length(const struct dsc*) noexcept;
+const TEXT*	DSC_dtype_tostring(UCHAR) noexcept;
 void		DSC_get_dtype_name(const dsc*, TEXT*, USHORT);
 bool		DSC_make_descriptor(dsc*, USHORT, SSHORT,
 										   USHORT, SSHORT, CSetId, CollId);

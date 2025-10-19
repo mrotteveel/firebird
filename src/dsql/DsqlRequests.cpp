@@ -275,7 +275,7 @@ DsqlDmlRequest::DsqlDmlRequest(thread_db* tdbb, MemoryPool& pool, dsql_dbb* dbb,
 		Request* request = parentRequest->getRequest();
 		fb_assert(request->req_rpb.getCount() > 0 && request->req_rpb[0].rpb_relation != nullptr);
 
-		const MetaName& relName = request->req_rpb[0].rpb_relation->getName();
+		const auto& relName = request->req_rpb[0].rpb_relation->getName();
 		bool found = false;
 		for (FB_SIZE_T i = 0; i < request->req_rpb.getCount(); ++i)
 		{
@@ -286,8 +286,10 @@ DsqlDmlRequest::DsqlDmlRequest(thread_db* tdbb, MemoryPool& pool, dsql_dbb* dbb,
 				if (found)
 				{
 					// Relation is used twice in cursor
-					ERRD_post(Arg::Gds(isc_dsql_cursor_err)
-								<< Arg::Gds(isc_dsql_cursor_rel_ambiguous) << relName << aStatement->parentCursorName);
+					ERRD_post(
+						Arg::Gds(isc_dsql_cursor_err) <<
+						Arg::Gds(isc_dsql_cursor_rel_ambiguous) <<
+							relName.toQuotedString() << aStatement->parentCursorName.toQuotedString());
 				}
 				parentContext = i;
 				found = true;
@@ -297,8 +299,10 @@ DsqlDmlRequest::DsqlDmlRequest(thread_db* tdbb, MemoryPool& pool, dsql_dbb* dbb,
 		if (!found)
 		{
 			// Relation is not in cursor
-			ERRD_post(Arg::Gds(isc_dsql_cursor_err)
-						<< Arg::Gds(isc_dsql_cursor_rel_not_found) << relName << aStatement->parentCursorName);
+			ERRD_post(
+				Arg::Gds(isc_dsql_cursor_err) <<
+				Arg::Gds(isc_dsql_cursor_rel_not_found) <<
+					relName.toQuotedString() << aStatement->parentCursorName.toQuotedString());
 		}
 		parentRequest->cursors.add(this);
 	}
@@ -425,7 +429,7 @@ void DsqlDmlRequest::setCursor(thread_db* tdbb, const TEXT* name)
 
 	Jrd::ContextPoolHolder context(tdbb, &getPool());
 
-	const size_t MAX_CURSOR_LENGTH = 132 - 1;
+	constexpr size_t MAX_CURSOR_LENGTH = 132 - 1;
 	string cursor = name;
 
 	if (cursor.hasData() && cursor[0] == '\"')
@@ -591,15 +595,20 @@ void DsqlDmlRequest::doExecute(thread_db* tdbb, jrd_tra** traHandle,
 			JRD_receive(tdbb, request, message->msg_number, outMsgLength, outMsg);
 
 			// if this is a singleton select that return some data, make sure there's in fact one record
-
-			if (singleton && (request->req_flags & req_active) && outMsgLength > 0)
+			if (singleton && outMsgLength > 0)
 			{
+				// No record returned though expected
+				if (!(request->req_flags & req_active))
+				{
+					status_exception::raise(Arg::Gds(isc_stream_eof));
+				}
+
 				// Create a temp message buffer and try one more receive.
 				// If it succeed then the next record exists.
 
-				std::unique_ptr<UCHAR[]> message_buffer(new UCHAR[outMsgLength]);
+				HalfStaticArray<UCHAR, BUFFER_SMALL> message_buffer(getPool(), outMsgLength);
 
-				JRD_receive(tdbb, request, message->msg_number, outMsgLength, message_buffer.get());
+				JRD_receive(tdbb, request, message->msg_number, outMsgLength, message_buffer.begin());
 
 				// Still active request means that second record exists
 				if ((request->req_flags & req_active))
@@ -628,6 +637,9 @@ void DsqlDmlRequest::doExecute(thread_db* tdbb, jrd_tra** traHandle,
 						  Arg::Gds(isc_deadlock) <<
 						  Arg::Gds(isc_update_conflict));
 			}
+			break;
+
+		default:
 			break;
 	}
 }
@@ -696,7 +708,7 @@ void DsqlDmlRequest::executeReceiveWithRestarts(thread_db* tdbb, jrd_tra** traHa
 {
 	request->req_flags &= ~req_update_conflict;
 	int numTries = 0;
-	const int MAX_RESTARTS = 10;
+	constexpr int MAX_RESTARTS = 10;
 
 	while (true)
 	{
@@ -970,7 +982,10 @@ void DsqlDdlRequest::execute(thread_db* tdbb, jrd_tra** traHandle,
 				(internalScratch->flags & DsqlCompilerScratch::FLAG_INTERNAL_REQUEST);
 
 			if (!isInternalRequest && node->mustBeReplicated())
-				REPL_exec_sql(tdbb, req_transaction, getDsqlStatement()->getOrgText());
+			{
+				REPL_exec_sql(tdbb, req_transaction, getDsqlStatement()->getOrgText(),
+					*getDsqlStatement()->getSchemaSearchPath());
+			}
 		}
 		catch (status_exception& ex)
 		{

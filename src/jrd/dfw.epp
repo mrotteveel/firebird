@@ -139,8 +139,8 @@
 // Pick up system relation ids
 #include "../jrd/ini.h"
 
-const int COMPUTED_FLAG	= 128;
-const int WAIT_PERIOD	= -1;
+inline constexpr int COMPUTED_FLAG = 128;
+inline constexpr int WAIT_PERIOD = -1;
 
 DATABASE DB = FILENAME "ODS.RDB";
 
@@ -189,17 +189,19 @@ public:
 	USHORT			dfw_id;			// object id, if appropriate
 	USHORT			dfw_count;		// count of block posts
 	string			dfw_name;		// name of object
+	MetaName		dfw_schema;		// schema name
 	MetaName		dfw_package;	// package name
 	SortedArray<int> dfw_ids;		// list of identifiers (or any numbers) needed by an action
 
 public:
 	DeferredWork(MemoryPool& p, DeferredWork*** end,
 				 enum dfw_t t, USHORT id, SavNumber sn, const string& name,
-				 const MetaName& package)
+				 const MetaName& schema, const MetaName& package)
 	  : dfw_type(t), dfw_end(end), dfw_prev(dfw_end ? *dfw_end : NULL),
 		dfw_next(dfw_prev ? *dfw_prev : NULL), dfw_lock(NULL), dfw_args(p),
 		dfw_sav_number(sn), dfw_id(id), dfw_count(1), dfw_name(p, name),
-		dfw_package(p, package), dfw_ids(p)
+		dfw_schema(p, schema), dfw_package(p, package),
+		dfw_ids(p)
 	{
 		// make previous element point to us
 		if (dfw_prev)
@@ -270,12 +272,18 @@ public:
 		return dfw_next;
 	}
 
+	QualifiedName getQualifiedName() const
+	{
+		return QualifiedName(dfw_name, dfw_schema, dfw_package);
+	}
+
 	// hash interface
 	bool isEqual(const DeferredWork& work) const
 	{
 		if (dfw_type == work.dfw_type &&
 			dfw_id == work.dfw_id &&
 			dfw_name == work.dfw_name &&
+			dfw_schema == work.dfw_schema &&
 			dfw_package == work.dfw_package &&
 			dfw_sav_number == work.dfw_sav_number)
 		{
@@ -288,8 +296,8 @@ public:
 
 	static FB_SIZE_T hash(const DeferredWork& work, FB_SIZE_T hashSize)
 	{
-		const int nameLimit = 32;
-		char key[sizeof work.dfw_type + sizeof work.dfw_id + nameLimit];
+		constexpr int nameLimit = 32;
+		char key[sizeof work.dfw_type + sizeof work.dfw_id + nameLimit + nameLimit];
 		memset(key, 0, sizeof key);
 		char* place = key;
 
@@ -300,6 +308,9 @@ public:
 		place += sizeof work.dfw_id;
 
 		work.dfw_name.copyTo(place, nameLimit);	// It's good enough to have first 32 bytes
+		place += nameLimit;
+
+		work.dfw_schema.copyTo(place, nameLimit);	// It's good enough to have first 32 bytes
 
 		return DefaultHash<DeferredWork>::hash(key, sizeof key, hashSize);
 	}
@@ -397,20 +408,19 @@ static bool db_crypt(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool set_linger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool clear_cache(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool change_repl_state(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
-static bool store_view_context_type(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
-static string remove_icu_info_from_attributes(const string&, const string&);
 static bool set_statistics(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
+static string remove_icu_info_from_attributes(const QualifiedName&, const string&);
 
 // ----------------------------------------------------------------
 
 static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
-	const MetaName& fieldName);
-static void check_filename(const Firebird::string&, bool);
-static bool	find_depend_in_dfw(thread_db*, TEXT*, USHORT, USHORT, jrd_tra*);
+	const QualifiedName& fieldName);
+static void check_filename(thread_db*, const Firebird::string&, bool);
+static bool	find_depend_in_dfw(thread_db*, const QualifiedName&, USHORT, USHORT, jrd_tra*);
 static void get_trigger_dependencies(DeferredWork*, bool, jrd_tra*);
 
 static string get_string(const dsc* desc);
-static void setupSpecificCollationAttributes(thread_db*, jrd_tra*, const CSetId, const char*, bool);
+static void setupSpecificCollationAttributes(thread_db*, jrd_tra*, const CSetId, const QualifiedName&, bool);
 
 static ISC_STATUS getErrorCodeByObjectType(int obj_type)
 {
@@ -488,22 +498,21 @@ static void raiseDatabaseInUseError(bool timeout)
 			 Arg::Gds(isc_obj_in_use) << Arg::Str("DATABASE"));
 }
 
-static void raiseObjectInUseError(const string& obj_type, const string& obj_name)
+static void raiseObjectInUseError(const string& obj_type, const QualifiedName& obj_name)
 {
 	string name;
-	name.printf("%s \"%s\"", obj_type.c_str(), obj_name.c_str());
+	name.printf("%s %s", obj_type.c_str(), obj_name.toQuotedString().c_str());
 
 	ERR_post(Arg::Gds(isc_no_meta_update) <<
-			 Arg::Gds(isc_obj_in_use) << Arg::Str(name));
+			 Arg::Gds(isc_obj_in_use) << name);
 }
 
 void DFW_raiseRelationInUseError(const Cached::Relation* relation)
 {
 	const string obj_type =
 		relation->isView() ? "VIEW" : "TABLE";
-	const string obj_name = relation->c_name();
 
-	raiseObjectInUseError(obj_type, obj_name);
+	raiseObjectInUseError(obj_type, relation->getName());
 }
 
 void Jrd::ProtectRelations::relLock::takeLock(thread_db* tdbb, jrd_tra* transaction)
@@ -554,7 +563,7 @@ void Jrd::ProtectRelations::relLock::releaseLock(thread_db* tdbb, jrd_tra* trans
 	}
 }
 
-static const UCHAR nonnull_validation_blr[] =
+static inline constexpr UCHAR nonnull_validation_blr[] =
 {
 	blr_version5,
 	blr_not,
@@ -563,7 +572,7 @@ static const UCHAR nonnull_validation_blr[] =
 	blr_eoc
 };
 
-static void DFW_check_dependencies(thread_db* tdbb,
+static void check_dependencies(thread_db* tdbb,
 							const TEXT* dpdo_name,
 							const TEXT* field_name,
 							const TEXT* package_name,
@@ -612,7 +621,10 @@ namespace
 
 				case 3:
 				{
-					auto* routine = getDependencies(work, compile, transaction);
+					const bool compile = !work->findArg(dfw_arg_check_blr);
+					getDependencies(work, compile, transaction);
+
+					T* routine = lookupByName(tdbb, work->getQualifiedName(), compile);
 					if (!routine)
 						return false;
 
@@ -654,8 +666,8 @@ namespace
 			jrd_tra* transaction)
 		{
 			SET_TDBB(tdbb);
-			const QualifiedName name(work->dfw_name, work->dfw_package);
 			T* routine;
+			const QualifiedName name(work->dfw_name);
 
 			switch (phase)
 			{
@@ -686,7 +698,7 @@ namespace
 					// delete dependency lists
 
 					if (work->dfw_package.isEmpty())
-						MET_delete_dependencies(tdbb, work->dfw_name, objType);
+						MET_delete_dependencies(tdbb, work->getQualifiedName(), objType);
 
 					// Now handle the new definition
 					bool compile = !work->findArg(dfw_arg_check_blr);
@@ -744,7 +756,7 @@ namespace
 			jrd_tra* transaction)
 		{
 			SET_TDBB(tdbb);
-			const QualifiedName name(work->dfw_name, work->dfw_package);
+			const QualifiedName name(work->dfw_name);
 			T* routine;
 
 			switch (phase)
@@ -757,8 +769,7 @@ namespace
 					return false;
 
 				case 1:
-					DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, work->dfw_package.c_str(),
-						objType, transaction);
+					check_dependencies(tdbb, work->getQualifiedName(), NULL, objType, transaction);
 					return true;
 
 				case 2:
@@ -777,16 +788,10 @@ namespace
 					if (!routine)
 						return false;
 
-					/*
-					if (routine->getStatement())
-					{
-						routine->releaseStatement(tdbb);
-					}*/
-
 					// delete dependency lists
 
 					if (work->dfw_package.isEmpty())
-						MET_delete_dependencies(tdbb, work->dfw_name, objType);
+						MET_delete_dependencies(tdbb, work->getQualifiedName(), objType);
 
 					return true;
 				}
@@ -829,8 +834,9 @@ namespace
 			if (!routine)
 				return nullptr;
 
-			const MetaName depName(work->dfw_package.isEmpty() ?
-				MetaName(work->dfw_name) : work->dfw_package);
+			const QualifiedName depName(work->dfw_package.isEmpty() ?
+				work->getQualifiedName() :
+				QualifiedName(work->dfw_package, work->dfw_schema));
 
 			if (!blobId.isEmpty())
 			{
@@ -863,7 +869,7 @@ namespace
 				{
 					for (const auto parameter : *parameters)
 					{
-						if (parameter->prm_type_of_table.hasData())
+						if (parameter->prm_type_of_table.object.hasData())
 						{
 							Dependency dependency(obj_relation);
 							dependency.relation = MetadataCache::lookupRelation(tdbb,
@@ -871,7 +877,7 @@ namespace
 							dependency.subName = parameter->prm_type_of_column;
 							dependencies.push(dependency);
 						}
-						else if (!fb_utils::implicit_domain(parameter->prm_field_source.c_str()))
+						else if (!fb_utils::implicit_domain(parameter->prm_field_source.object.c_str()))
 						{
 							Dependency dependency(obj_field);
 							dependency.name = parameter->prm_field_source;
@@ -937,9 +943,10 @@ namespace
 		Routine* routine = nullptr;
 
 		FOR(REQUEST_HANDLE handle)
-			X IN RDB$FUNCTIONS WITH
-				X.RDB$FUNCTION_NAME EQ work->dfw_name.c_str() AND
-				X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
+			X IN RDB$FUNCTIONS
+			WITH X.RDB$SCHEMA_NAME EQ work->dfw_schema.c_str() AND
+				 X.RDB$FUNCTION_NAME EQ work->dfw_name.c_str() AND
+				 X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
 		{
 			blobId = X.RDB$FUNCTION_BLR;
 			routine = Function::lookup(tdbb, QualifiedName(work->dfw_name, work->dfw_package),
@@ -978,21 +985,25 @@ namespace
 
 		FOR (REQUEST_HANDLE handle)
 			DEP IN RDB$DEPENDENCIES
-			WITH DEP.RDB$DEPENDED_ON_NAME EQ work->dfw_name.c_str() AND
+			WITH DEP.RDB$DEPENDED_ON_SCHEMA_NAME EQ work->dfw_schema.c_str() AND
+				 DEP.RDB$DEPENDED_ON_NAME EQ work->dfw_name.c_str() AND
 				 DEP.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '') AND
 				 DEP.RDB$DEPENDED_ON_TYPE = obj_udf AND
 				 NOT DEP.RDB$FIELD_NAME MISSING AND
 				 NOT ANY ARG IN RDB$FUNCTION_ARGUMENTS
-						 WITH ARG.RDB$FUNCTION_NAME EQ DEP.RDB$DEPENDED_ON_NAME AND
+						 WITH ARG.RDB$SCHEMA_NAME EQ DEP.RDB$DEPENDED_ON_SCHEMA_NAME AND
+							  ARG.RDB$FUNCTION_NAME EQ DEP.RDB$DEPENDED_ON_NAME AND
 							  ARG.RDB$PACKAGE_NAME EQUIV DEP.RDB$PACKAGE_NAME AND
 							  ARG.RDB$ARGUMENT_NAME EQ DEP.RDB$FIELD_NAME
 		{
 			// If the found object is also being deleted, there's no dependency
 
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE, 0, transaction))
+			if (!find_depend_in_dfw(tdbb,
+					QualifiedName(DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_SCHEMA_NAME),
+					DEP.RDB$DEPENDENT_TYPE, 0, transaction))
 			{
 				string& name = names.add();
-				name.printf("%s.%s", work->dfw_name.c_str(), DEP.RDB$FIELD_NAME);
+				name.printf("%s.%s", work->getQualifiedName().toQuotedString().c_str(), DEP.RDB$FIELD_NAME);
 
 				++depCount;
 			}
@@ -1005,7 +1016,7 @@ namespace
 			status << Arg::Gds(isc_no_meta_update) << Arg::Gds(isc_no_delete);
 
 			for (auto& name : names)
-				status << Arg::Gds(isc_parameter_name) << Arg::Str(name);
+				status << Arg::Gds(isc_parameter_name) << name;
 
 			status << Arg::Gds(isc_dependency) << Arg::Num(depCount);
 
@@ -1021,13 +1032,14 @@ namespace
 		Routine* routine = nullptr;
 
 		FOR(REQUEST_HANDLE handle)
-			X IN RDB$PROCEDURES WITH
-				X.RDB$PROCEDURE_NAME EQ work->dfw_name.c_str() AND
-				X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
+			X IN RDB$PROCEDURES
+			WITH X.RDB$SCHEMA_NAME EQ work->dfw_schema.c_str() AND
+				 X.RDB$PROCEDURE_NAME EQ work->dfw_name.c_str() AND
+				 X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
 		{
 			blobId = X.RDB$PROCEDURE_BLR;
 			routine = MetadataCache::lookup_procedure(tdbb,
-				QualifiedName(work->dfw_name, work->dfw_package), compile ? 0 : CacheFlag::MINISCAN);
+				work->getQualifiedName(), compile ? 0 : CacheFlag::MINISCAN);
 		}
 		END_FOR
 
@@ -1062,21 +1074,25 @@ namespace
 
 		FOR (REQUEST_HANDLE handle)
 			DEP IN RDB$DEPENDENCIES
-			WITH DEP.RDB$DEPENDED_ON_NAME EQ work->dfw_name.c_str() AND
+			WITH DEP.RDB$DEPENDED_ON_SCHEMA_NAME EQ work->dfw_schema.c_str() AND
+				 DEP.RDB$DEPENDED_ON_NAME EQ work->dfw_name.c_str() AND
 				 DEP.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '') AND
 				 DEP.RDB$DEPENDED_ON_TYPE = obj_procedure AND
 				 NOT DEP.RDB$FIELD_NAME MISSING AND
 				 NOT ANY PP IN RDB$PROCEDURE_PARAMETERS
-						 WITH PP.RDB$PROCEDURE_NAME EQ DEP.RDB$DEPENDED_ON_NAME AND
+						 WITH PP.RDB$SCHEMA_NAME EQ DEP.RDB$DEPENDED_ON_SCHEMA_NAME AND
+							  PP.RDB$PROCEDURE_NAME EQ DEP.RDB$DEPENDED_ON_NAME AND
 							  PP.RDB$PACKAGE_NAME EQUIV DEP.RDB$PACKAGE_NAME AND
 							  PP.RDB$PARAMETER_NAME EQ DEP.RDB$FIELD_NAME
 		{
 			// If the found object is also being deleted, there's no dependency
 
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE, 0, transaction))
+			if (!find_depend_in_dfw(tdbb,
+					QualifiedName(DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_SCHEMA_NAME),
+					DEP.RDB$DEPENDENT_TYPE, 0, transaction))
 			{
 				string& name = names.add();
-				name.printf("%s.%s", work->dfw_name.c_str(), DEP.RDB$FIELD_NAME);
+				name.printf("%s.%s", work->getQualifiedName().toQuotedString().c_str(), DEP.RDB$FIELD_NAME);
 
 				++depCount;
 			}
@@ -1089,7 +1105,7 @@ namespace
 			status << Arg::Gds(isc_no_meta_update) << Arg::Gds(isc_no_delete);
 
 			for (auto& name : names)
-				status << Arg::Gds(isc_parameter_name) << Arg::Str(name);
+				status << Arg::Gds(isc_parameter_name) << name;
 
 			status << Arg::Gds(isc_dependency) << Arg::Num(depCount);
 
@@ -1098,9 +1114,7 @@ namespace
 	}
 } // namespace
 
-
-
-static const deferred_task task_table[] =
+static inline constexpr deferred_task task_table[] =
 {
 	{ dfw_add_shadow, add_shadow },
 	{ dfw_delete_index, delete_index },
@@ -1151,108 +1165,8 @@ static const deferred_task task_table[] =
 };
 
 
-static void DFW_check_dependencies(thread_db* tdbb,
-							const TEXT* dpdo_name,
-							const TEXT* field_name,
-							const TEXT* package_name,
-							int dpdo_type,
-							jrd_tra* transaction)
-{
-/**************************************
- *
- *	c h e c k _ d e p e n d e n c i e s
- *
- **************************************
- *
- * Functional description
- *	Check the dependency list for relation or relation.field
- *	before deleting such.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
-
-	const MetaName packageName(package_name);
-
-	SLONG dep_counts[obj_type_MAX];
-	for (int i = 0; i < obj_type_MAX; i++)
-		dep_counts[i] = 0;
-
-	if (field_name)
-	{
-		AutoCacheRequest request(tdbb, irq_ch_f_dpd, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			DEP IN RDB$DEPENDENCIES
-				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
-				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
-				AND DEP.RDB$FIELD_NAME EQ field_name
-				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
-				REDUCED TO DEP.RDB$DEPENDENT_NAME
-		{
-			// If the found object is also being deleted, there's no dependency
-
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
-									0, transaction))
-			{
-				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
-			}
-		}
-		END_FOR
-	}
-	else
-	{
-		AutoCacheRequest request(tdbb, irq_ch_dpd, IRQ_REQUESTS);
-
-		FOR(REQUEST_HANDLE request)
-			DEP IN RDB$DEPENDENCIES
-				WITH DEP.RDB$DEPENDED_ON_NAME EQ dpdo_name
-				AND DEP.RDB$DEPENDED_ON_TYPE = dpdo_type
-				AND DEP.RDB$PACKAGE_NAME EQUIV NULLIF(packageName.c_str(), '')
-				REDUCED TO DEP.RDB$DEPENDENT_NAME
-		{
-			// If the found object is also being deleted, there's no dependency
-
-			if (!find_depend_in_dfw(tdbb, DEP.RDB$DEPENDENT_NAME, DEP.RDB$DEPENDENT_TYPE,
-									0, transaction))
-			{
-				++dep_counts[DEP.RDB$DEPENDENT_TYPE];
-			}
-		}
-		END_FOR
-	}
-
-	SLONG total = 0;
-	for (int i = 0; i < obj_type_MAX; i++)
-		total += dep_counts[i];
-
-	if (!total)
-		return;
-
-	if (field_name)
-	{
-		string fld_name(dpdo_name);
-		fld_name.append(".");
-		fld_name.append(field_name);
-
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_no_delete) <<						// Msg353: can not delete
-				 Arg::Gds(isc_field_name) << Arg::Str(fld_name) <<
-				 Arg::Gds(isc_dependency) << Arg::Num(total));	// Msg310: there are %ld dependencies
-	}
-	else
-	{
-		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_no_delete) <<						// can not delete
-				 Arg::Gds(getErrorCodeByObjectType(dpdo_type)) <<
-				 	Arg::Str(QualifiedName(dpdo_name, packageName).toString()) <<
-				 Arg::Gds(isc_dependency) << Arg::Num(total));	// there are %ld dependencies
-	}
-}
-
-
-USHORT DFW_assign_index_type(thread_db* tdbb, const MetaName& name, SSHORT field_type,
-	TTypeId ttype)
+USHORT DFW_assign_index_type(thread_db* tdbb, const QualifiedName& name, SSHORT field_type, TTypeId ttype)
+	SSHORT ttype)
 {
 /**************************************
  *
@@ -1290,7 +1204,7 @@ USHORT DFW_assign_index_type(thread_db* tdbb, const MetaName& name, SSHORT field
 			return INTL_TEXT_TO_INDEX(ttype);
 
 		ERR_post_nothrow(Arg::Gds(isc_no_meta_update) <<
-						 Arg::Gds(isc_random) << Arg::Str(name));
+						 Arg::Gds(isc_random) << name.toQuotedString());
 		INTL_texttype_lookup(tdbb, ttype);	// should punt
 		ERR_punt(); // if INTL_texttype_lookup hasn't punt
 	}
@@ -1630,7 +1544,7 @@ void DFW_perform_post_commit_work(jrd_tra* transaction)
 }
 
 
-DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const dsc* desc, USHORT id,
+DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const dsc* desc, const dsc* schemaDesc, USHORT id,
 	const MetaName& package)
 {
 /**************************************
@@ -1644,12 +1558,12 @@ DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const dsc* de
  *
  **************************************/
 
-	return DFW_post_work(transaction, type, get_string(desc), id, package);
+	return DFW_post_work(transaction, type, get_string(desc), get_string(schemaDesc), id, package);
 }
 
 
-DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const string& name, USHORT id,
-	const MetaName& package)
+DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const string& name, const MetaName& schema,
+	USHORT id, const MetaName& package)
 {
 /**************************************
  *
@@ -1684,7 +1598,7 @@ DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const string&
 		job->hash.add(sp);
 	}
 
-	DeferredWork tmp(AutoStorage::getAutoMemoryPool(), 0, type, id, sav_number, name, package);
+	DeferredWork tmp(AutoStorage::getAutoMemoryPool(), 0, type, id, sav_number, name, schema, package);
 	DeferredWork* work = sp->hash.lookup(tmp);
 	if (work)
 	{
@@ -1695,7 +1609,7 @@ DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const string&
 	// Not already posted, so do so now.
 
 	work = FB_NEW_POOL(*transaction->tra_pool)
-		DeferredWork(*transaction->tra_pool, &(job->end), type, id, sav_number, name, package);
+		DeferredWork(*transaction->tra_pool, &(job->end), type, id, sav_number, name, schema, package);
 	job->end = work->getNextPtr();
 	fb_assert(!(*job->end));
 	sp->hash.add(work);
@@ -1719,7 +1633,7 @@ DeferredWork* DFW_post_work(jrd_tra* transaction, enum dfw_t type, const string&
 }
 
 
-DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const dsc* desc,
+DeferredWork* DFW_post_work_arg(jrd_tra* transaction, DeferredWork* work, const dsc* nameDesc, const dsc* schemaDesc,
 	USHORT id)
 {
 /**************************************
@@ -1732,11 +1646,11 @@ DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const
  *	Post an argument for work to be deferred to commit time.
  *
  **************************************/
-	return DFW_post_work_arg(transaction, work, desc, id, work->dfw_type);
+	return DFW_post_work_arg(transaction, work, nameDesc, schemaDesc, id, work->dfw_type);
 }
 
 
-DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const dsc* desc,
+DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const dsc* nameDesc, const dsc* schemaDesc,
 	USHORT id, Jrd::dfw_t type)
 {
 /**************************************
@@ -1749,14 +1663,14 @@ DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const
  *	Post an argument for work to be deferred to commit time.
  *
  **************************************/
-	const Firebird::string name = get_string(desc);
-
 	DeferredWork* arg = work->findArg(type);
 
 	if (! arg)
 	{
+		const auto schema = get_string(schemaDesc);
+		const auto name = get_string(nameDesc);
 		arg = FB_NEW_POOL(*transaction->tra_pool)
-			DeferredWork(*transaction->tra_pool, 0, type, id, 0, name, "");
+			DeferredWork(*transaction->tra_pool, 0, type, id, 0, name, schema, {});
 		work->dfw_args.add(arg);
 	}
 
@@ -1764,7 +1678,7 @@ DeferredWork* DFW_post_work_arg( jrd_tra* transaction, DeferredWork* work, const
 }
 
 
-void DFW_update_index(const TEXT* name, USHORT id, const SelectivityList& selectivity,
+void DFW_update_index(const QualifiedName& name, USHORT id, const SelectivityList& selectivity,
 	jrd_tra* transaction)
 {
 /**************************************
@@ -1783,8 +1697,10 @@ void DFW_update_index(const TEXT* name, USHORT id, const SelectivityList& select
 	AutoCacheRequest request(tdbb, irq_m_index_seg, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		SEG IN RDB$INDEX_SEGMENTS WITH SEG.RDB$INDEX_NAME EQ name
-			SORTED BY SEG.RDB$FIELD_POSITION
+		SEG IN RDB$INDEX_SEGMENTS
+		WITH SEG.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+			 SEG.RDB$INDEX_NAME EQ name.object.c_str()
+		SORTED BY SEG.RDB$FIELD_POSITION
 	{
 		MODIFY SEG USING
 			SEG.RDB$STATISTICS = selectivity[SEG.RDB$FIELD_POSITION];
@@ -1795,7 +1711,9 @@ void DFW_update_index(const TEXT* name, USHORT id, const SelectivityList& select
 	request.reset(tdbb, irq_m_index, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		IDX IN RDB$INDICES WITH IDX.RDB$INDEX_NAME EQ name
+		IDX IN RDB$INDICES
+		WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+			 IDX.RDB$INDEX_NAME EQ name.object.c_str()
 	{
 		MODIFY IDX USING
 			IDX.RDB$INDEX_ID = id + 1;
@@ -1825,9 +1743,7 @@ static bool add_shadow(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 
 	AutoRequest handle;
 	Shadow* shadow;
-	USHORT sequence, add_sequence;
 	bool finished;
-	ULONG min_page;
 	Firebird::PathName expanded_fname;
 
 	SET_TDBB(tdbb);
@@ -1845,7 +1761,7 @@ static bool add_shadow(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		return true;
 
 	case 4:
-		check_filename(work->dfw_name, false);
+		check_filename(tdbb, work->dfw_name.c_str(), false);
 
 		/* could have two cases:
 		   1) this shadow has already been written to, so add this file using
@@ -1967,7 +1883,7 @@ static bool add_difference(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 				ERR_post(Arg::Gds(isc_no_meta_update) <<
 						 Arg::Gds(isc_wrong_backup_state));
 			}
-			check_filename(work->dfw_name, true);
+			check_filename(tdbb, work->dfw_name.c_str(), true);
 			dbb->dbb_backup_manager->setDifference(tdbb, work->dfw_name.c_str());
 		}
 		break;
@@ -2158,7 +2074,7 @@ static bool set_generator(thread_db* tdbb,
 
 	case 3:
 		{
-			const SLONG id = MET_lookup_generator(tdbb, work->dfw_name);
+			const SLONG id = MET_lookup_generator(tdbb, work->getQualifiedName());
 			if (id >= 0)
 			{
 				fb_assert(id == work->dfw_id);
@@ -2171,7 +2087,7 @@ static bool set_generator(thread_db* tdbb,
 			}
 #ifdef DEV_BUILD
 			else // This is a test only
-				status_exception::raise(Arg::Gds(isc_cant_modify_sysobj) << "generator" << work->dfw_name);
+				status_exception::raise(Arg::Gds(isc_cant_modify_sysobj) << "generator" << work->getQualifiedName());
 #endif
 		}
 		break;
@@ -2196,12 +2112,12 @@ static bool delete_generator(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
  **************************************/
 
 	SET_TDBB(tdbb);
-	const char* gen_name = work->dfw_name.c_str();
+	const char* gen_name = work->getQualifiedName().c_str();
 
 	switch (phase)
 	{
 	case 1:
-		DFW_check_dependencies(tdbb, gen_name, NULL, NULL, obj_generator, transaction);
+		check_dependencies(tdbb, gen_name, NULL, NULL, obj_generator, transaction);
 		break;
 	}
 
@@ -2223,11 +2139,14 @@ static bool store_view_context_type(thread_db* tdbb, SSHORT phase, DeferredWork*
 
 			AutoRequest handle1;
 			FOR (REQUEST_HANDLE handle1 TRANSACTION_HANDLE transaction)
-				VRL IN RDB$VIEW_RELATIONS CROSS
-				REL IN RDB$RELATIONS OVER RDB$RELATION_NAME WITH
-					VRL.RDB$VIEW_NAME = work->dfw_name.c_str() AND
-					VRL.RDB$VIEW_CONTEXT = work->dfw_id AND
-					VRL.RDB$PACKAGE_NAME MISSING
+				VRL IN RDB$VIEW_RELATIONS
+				CROSS REL IN RDB$RELATIONS
+				WITH VRL.RDB$SCHEMA_NAME = work->dfw_schema.c_str() AND
+					 VRL.RDB$VIEW_NAME = work->dfw_name.c_str() AND
+					 VRL.RDB$VIEW_CONTEXT = work->dfw_id AND
+					 VRL.RDB$PACKAGE_NAME MISSING AND
+			 		 REL.RDB$SCHEMA_NAME EQ VRL.RDB$RELATION_SCHEMA_NAME AND
+			 		 REL.RDB$RELATION_NAME EQ VRL.RDB$RELATION_NAME
 			{
 				vct = (REL.RDB$VIEW_BLR.NULL ? VCT_TABLE : VCT_VIEW);
 			}
@@ -2235,9 +2154,10 @@ static bool store_view_context_type(thread_db* tdbb, SSHORT phase, DeferredWork*
 
 			AutoRequest handle2;
 			FOR (REQUEST_HANDLE handle2 TRANSACTION_HANDLE transaction)
-				VRL IN RDB$VIEW_RELATIONS WITH
-					VRL.RDB$VIEW_NAME = work->dfw_name.c_str() AND
-					VRL.RDB$VIEW_CONTEXT = work->dfw_id
+				VRL IN RDB$VIEW_RELATIONS
+				WITH VRL.RDB$SCHEMA_NAME = work->dfw_schema.c_str() AND
+					 VRL.RDB$VIEW_NAME = work->dfw_name.c_str() AND
+					 VRL.RDB$VIEW_CONTEXT = work->dfw_id
 			{
 				MODIFY VRL USING
 					VRL.RDB$CONTEXT_TYPE.NULL = FALSE;
@@ -2294,8 +2214,8 @@ static bool drop_package_header(thread_db* tdbb, SSHORT phase, DeferredWork* wor
 	switch (phase)
 	{
 	case 1:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body);
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_package_body);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_package_header);
 		break;
 	}
 
@@ -2310,7 +2230,7 @@ static bool modify_package_header(thread_db* tdbb, SSHORT phase, DeferredWork* w
 	switch (phase)
 	{
 	case 1:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_header);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_package_header);
 		break;
 	}
 
@@ -2325,7 +2245,7 @@ static bool drop_package_body(thread_db* tdbb, SSHORT phase, DeferredWork* work,
 	switch (phase)
 	{
 	case 1:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_package_body);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_package_body);
 		break;
 	}
 
@@ -2372,7 +2292,7 @@ static bool change_repl_state(thread_db* tdbb, SSHORT phase, DeferredWork* work,
 	return false;
 }
 
-static void check_filename(const Firebird::string& name, bool shareExpand)
+static void check_filename(thread_db* tdbb, const Firebird::string& name, bool shareExpand)
 {
 /**************************************
  *
@@ -2385,6 +2305,9 @@ static void check_filename(const Firebird::string& name, bool shareExpand)
  *	inet node name.
  *
  **************************************/
+	if (tdbb->tdbb_flags & TDBB_replicator)
+		return;
+
 	const Firebird::PathName file_name(name.ToPathName());
 	const bool valid = file_name.find("::") == Firebird::PathName::npos;
 
@@ -2443,7 +2366,7 @@ public:
 } // namespace DbgRebuildIntl
 
 
-static string remove_icu_info_from_attributes(const string& charsetName, const string& specificAttributes)
+static string remove_icu_info_from_attributes(const QualifiedName& charsetName, const string& specificAttributes)
 {
 	DbgRebuildIntl::Lvl debLevel;
 
@@ -2452,7 +2375,7 @@ static string remove_icu_info_from_attributes(const string& charsetName, const s
 
 	if (IntlManager::lookupCharSet(charsetName, cs))
 	{
-		DbgRebuildIntl::out("Remove_icu_info_from_attributes for charset '%s'\n", charsetName.c_str());
+		DbgRebuildIntl::out("Remove_icu_info_from_attributes for charset '%s'\n", charsetName.toQuotedString().c_str());
 
 		AutoPtr<Firebird::CharSet> charSet(Firebird::CharSet::createInstance(*getDefaultMemoryPool(), 0, cs));
 		IntlUtil::SpecificAttributesMap map;
@@ -2465,13 +2388,13 @@ static string remove_icu_info_from_attributes(const string& charsetName, const s
 		}
 	}
 	else
-		DbgRebuildIntl::out("Remove_icu_info_from_attributes - NO CHARSET '%s'\n", charsetName.c_str());
+		DbgRebuildIntl::out("Remove_icu_info_from_attributes - NO CHARSET '%s'\n", charsetName.toQuotedString().c_str());
 
 	return specificAttributes;
 }
 
 
-bool DFW_setupCollationAttributes(const string& collationName, const string& charSetName,
+bool DFW_setupCollationAttributes(const string& collationName, const QualifiedMetaString& charSetName,
 	const string& oldSpecificAttributes, string& newSpecificAttributes, bool dropIcuInfo)
 {
 	string oldCleanedAttributes = dropIcuInfo ?
@@ -2484,7 +2407,7 @@ bool DFW_setupCollationAttributes(const string& collationName, const string& cha
 
 
 static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transaction,
-	const CSetId charSetId, const char* collationName, bool dropIcuInfo)
+	const CSetId charSetId, const QualifiedName& collationName, bool dropIcuInfo)
 {
 /**************************************
  *
@@ -2505,11 +2428,16 @@ static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transacti
 
 	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
 		COLL IN RDB$COLLATIONS
-		CROSS CS IN RDB$CHARACTER_SETS
-			OVER RDB$CHARACTER_SET_ID
-		WITH COLL.RDB$COLLATION_NAME EQ collationName AND
+		CROSS CS IN RDB$CHARACTER_SETS OVER RDB$CHARACTER_SET_ID
+		WITH COLL.RDB$SCHEMA_NAME EQ collationName.schema.c_str() AND
+			 COLL.RDB$COLLATION_NAME EQ collationName.object.c_str() AND
 			 COLL.RDB$CHARACTER_SET_ID EQ charSetId
 	{
+		fb_utils::exact_name(COLL.RDB$COLLATION_NAME);
+
+		if (!COLL.RDB$BASE_COLLATION_NAME.NULL)
+			fb_utils::exact_name(COLL.RDB$BASE_COLLATION_NAME);
+
 		SLONG length = 0;
 		HalfStaticArray<UCHAR, BUFFER_SMALL> buffer;
 
@@ -2521,20 +2449,19 @@ static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transacti
 		}
 
 		const string specificAttributes((const char*) buffer.begin(), length);
-		DbgRebuildIntl::out("Try collation %s with %s\n", collationName, specificAttributes.c_str());
+		DbgRebuildIntl::out("Try collation %s with %s\n", collationName.toQuotedString().c_str(), specificAttributes.c_str());
 
 		// ASF: If setupCollationAttributes fail we store the original
 		// attributes. This should be what we want for new databases
 		// and restores.
 		string newSpecificAttributes;
 		if (DFW_setupCollationAttributes(
-				fb_utils::exact_name(COLL.RDB$BASE_COLLATION_NAME.NULL ?
-					COLL.RDB$COLLATION_NAME : COLL.RDB$BASE_COLLATION_NAME),
-				fb_utils::exact_name(CS.RDB$CHARACTER_SET_NAME),
+				(COLL.RDB$BASE_COLLATION_NAME.NULL ? COLL.RDB$COLLATION_NAME : COLL.RDB$BASE_COLLATION_NAME),
+				QualifiedMetaString(CS.RDB$CHARACTER_SET_NAME, CS.RDB$SCHEMA_NAME),
 				specificAttributes, newSpecificAttributes, dropIcuInfo) &&
 			newSpecificAttributes != specificAttributes) // if nothing changed, we do nothing
 		{
-			DbgRebuildIntl::out("  Recreate collation %s\n", collationName);
+			DbgRebuildIntl::out("  Recreate collation %s\n", collationName.toQuotedString().c_str());
 
 			MODIFY COLL USING
 				if (newSpecificAttributes.isEmpty())
@@ -2582,62 +2509,86 @@ void DFW_reset_icu(thread_db* tdbb)
 		transaction = TRA_start(tdbb, 0, 0);
 		tdbb->setTransaction(transaction);
 
-		SortedArray<MetaName> indices;
+		SortedArray<QualifiedName> indices;
 		ProtectRelations tables(tdbb, transaction);
 
 		// Get list of affected indices & tables
-		const char* indSql =
-			"select ind.RDB$INDEX_NAME, rel.RDB$RELATION_ID,"
-			" coalesce(coll.RDB$BASE_COLLATION_NAME, coll.RDB$COLLATION_NAME), cs.RDB$CHARACTER_SET_NAME, "
-			" coll.RDB$SPECIFIC_ATTRIBUTES "
-			"from RDB$INDICES ind "
-			"join RDB$RELATIONS rel on ind.RDB$RELATION_NAME = rel.RDB$RELATION_NAME "
-			"join RDB$INDEX_SEGMENTS seg on ind.RDB$INDEX_NAME = seg.RDB$INDEX_NAME "
-			"join RDB$RELATION_FIELDS rfl on rfl.RDB$RELATION_NAME = ind.RDB$RELATION_NAME "
-			" and rfl.RDB$FIELD_NAME = seg.RDB$FIELD_NAME "
-			"join RDB$FIELDS fld on rfl.RDB$FIELD_SOURCE = fld.RDB$FIELD_NAME "
-			"join RDB$COLLATIONS coll on fld.RDB$CHARACTER_SET_ID = coll.RDB$CHARACTER_SET_ID "
-			" and coalesce(rfl.RDB$COLLATION_ID, fld.RDB$COLLATION_ID) = coll.RDB$COLLATION_ID "
-			"join RDB$CHARACTER_SETS cs on coll.RDB$CHARACTER_SET_ID = cs.RDB$CHARACTER_SET_ID "
-			"where coll.RDB$SPECIFIC_ATTRIBUTES like '%COLL-VERSION=%' "
-			" and coalesce(ind.RDB$INDEX_INACTIVE, 0) = 0 "
-			" and coalesce(rel.RDB$RELATION_TYPE, 0) = 0 "		// rel_persistent
-			"group by ind.RDB$INDEX_NAME, rel.RDB$RELATION_ID, coll.RDB$BASE_COLLATION_NAME, "
-			" coll.RDB$COLLATION_NAME, cs.RDB$CHARACTER_SET_NAME, coll.RDB$SPECIFIC_ATTRIBUTES";
-
+		const char* indSql = R""(
+			select ind.RDB$SCHEMA_NAME,
+			       ind.RDB$INDEX_NAME,
+			       rel.RDB$RELATION_ID,
+			       rtrim(coalesce(coll.RDB$BASE_COLLATION_NAME, coll.RDB$COLLATION_NAME)),
+			       cs.RDB$SCHEMA_NAME,
+			       cs.RDB$CHARACTER_SET_NAME,
+			       coll.RDB$SPECIFIC_ATTRIBUTES
+			    from SYSTEM.RDB$INDICES ind
+			    join SYSTEM.RDB$RELATIONS rel
+			        on ind.RDB$SCHEMA_NAME = rel.RDB$SCHEMA_NAME and
+			           ind.RDB$RELATION_NAME = rel.RDB$RELATION_NAME
+			    join SYSTEM.RDB$INDEX_SEGMENTS seg
+			        on ind.RDB$SCHEMA_NAME = seg.RDB$SCHEMA_NAME and
+			           ind.RDB$INDEX_NAME = seg.RDB$INDEX_NAME
+			    join SYSTEM.RDB$RELATION_FIELDS rfl
+			        on rfl.RDB$SCHEMA_NAME = ind.RDB$SCHEMA_NAME and
+			           rfl.RDB$RELATION_NAME = ind.RDB$RELATION_NAME and
+			           rfl.RDB$FIELD_NAME = seg.RDB$FIELD_NAME
+			    join SYSTEM.RDB$FIELDS fld
+			        on rfl.RDB$FIELD_SOURCE_SCHEMA_NAME = fld.RDB$SCHEMA_NAME and
+			           rfl.RDB$FIELD_SOURCE = fld.RDB$FIELD_NAME
+			    join SYSTEM.RDB$COLLATIONS coll
+			        on fld.RDB$CHARACTER_SET_ID = coll.RDB$CHARACTER_SET_ID and
+			           coalesce(rfl.RDB$COLLATION_ID, fld.RDB$COLLATION_ID) = coll.RDB$COLLATION_ID
+			    join SYSTEM.RDB$CHARACTER_SETS cs
+			        on coll.RDB$CHARACTER_SET_ID = cs.RDB$CHARACTER_SET_ID
+			    where coll.RDB$SPECIFIC_ATTRIBUTES like '%COLL-VERSION=%' and
+			          coalesce(ind.RDB$INDEX_INACTIVE, 0) = 0 and
+			          coalesce(rel.RDB$RELATION_TYPE, 0) = 0  -- rel_persistent
+			    group by ind.RDB$SCHEMA_NAME,
+			             ind.RDB$INDEX_NAME,
+			             rel.RDB$RELATION_ID,
+			             rtrim(coalesce(coll.RDB$BASE_COLLATION_NAME, coll.RDB$COLLATION_NAME)),
+			             coll.RDB$SCHEMA_NAME,
+			             coll.RDB$COLLATION_NAME,
+			             cs.RDB$SCHEMA_NAME,
+			             cs.RDB$CHARACTER_SET_NAME,
+			             coll.RDB$SPECIFIC_ATTRIBUTES
+		)"";
 		{	// scope
 			AutoPreparedStatement ps(attachment->prepareStatement(tdbb, transaction, indSql));
 			AutoResultSet rs(ps->executeQuery(tdbb, transaction));
-			while(rs->fetch(tdbb))
-			{
-				MetaName t(rs->getMetaName(tdbb, 1));
 
-				const MetaName collationName(rs->getMetaName(tdbb, 3));
-				const MetaName charsetName(rs->getMetaName(tdbb, 4));
-				const string specificAttributes(rs->getString(tdbb, 5));
-				string icuLessAttributes = remove_icu_info_from_attributes(charsetName.c_str(), specificAttributes);
-				DbgRebuildIntl::out("check index %s SA:'%s' ILA:'%s'\n",
-					t.c_str(), specificAttributes.c_str(), icuLessAttributes.c_str());
+			while (rs->fetch(tdbb))
+			{
+				const QualifiedName indexName(rs->getMetaName(tdbb, 2), rs->getMetaName(tdbb, 1));
+				const USHORT rel_id = rs->getInt(tdbb, 3);
+				const string collationName(rs->getMetaName(tdbb, 4));
+				const QualifiedName charsetName(rs->getMetaName(tdbb, 6), rs->getMetaName(tdbb, 5));
+				const string specificAttributes(rs->getString(tdbb, 7));
+
+				string icuLessAttributes = remove_icu_info_from_attributes(charsetName, specificAttributes);
 				string newSpecificAttributes;
-				if (!IntlManager::setupCollationAttributes(collationName.c_str(),
-						charsetName.c_str(), icuLessAttributes, newSpecificAttributes))
+
+				DbgRebuildIntl::out("check index %s SA:'%s' ILA:'%s'\n",
+					indexName.toQuotedString().c_str(), specificAttributes.c_str(), icuLessAttributes.c_str());
+
+				if (!IntlManager::setupCollationAttributes(collationName,
+						charsetName, icuLessAttributes, newSpecificAttributes))
 				{
 					DbgRebuildIntl::out("setupCollationAttributes failed for %s\n", collationName.c_str());
 					continue;
 				}
+
 				DbgRebuildIntl::out("newSpecificAttributes '%s'\n", newSpecificAttributes.c_str());
 				if (newSpecificAttributes == specificAttributes)
 					continue;
 
 				DbgRebuildIntl::out("Add index\n");
-				if (!indices.exist(t))
-					indices.add(rs->getMetaName(tdbb, 1));
+				if (!indices.exist(indexName))
+					indices.add(indexName);
 
-				USHORT rel_id = rs->getInt(tdbb, 2);
 				if (!tables.exists(rel_id))
 				{
-					auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE);
-					if (relation)
+					if (const auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE))
 						tables.addRelation(relation);
 				}
 			}
@@ -2650,32 +2601,33 @@ void DFW_reset_icu(thread_db* tdbb)
 
 		// Change collation's attributes
 		const char* collSql =
-			"select coll.RDB$COLLATION_NAME, coll.RDB$CHARACTER_SET_ID from RDB$COLLATIONS coll "
+			"select coll.RDB$SCHEMA_NAME, coll.RDB$COLLATION_NAME, coll.RDB$CHARACTER_SET_ID from RDB$COLLATIONS coll "
 			"where coll.RDB$SPECIFIC_ATTRIBUTES like '%COLL-VERSION=%'";
 		{	// scope
 			AutoPreparedStatement ps(attachment->prepareStatement(tdbb, transaction, collSql));
 			AutoResultSet rs(ps->executeQuery(tdbb, transaction));
 			while(rs->fetch(tdbb))
 			{
-				MetaName collName(rs->getMetaName(tdbb, 1));
-				const CSetId charSetId(rs->getSmallInt(tdbb, 2));
+				QualifiedName collName(rs->getMetaName(tdbb, 2), rs->getMetaName(tdbb, 1));
+				const CSetId charSetId(rs->getSmallInt(tdbb, 3));
 
-				setupSpecificCollationAttributes(tdbb, transaction, charSetId, collName.c_str(), true);
+				setupSpecificCollationAttributes(tdbb, transaction, charSetId, collName, true);
 			}
 		}
 
 		// Reactivate indices
 		{	// scope
-			for (MetaName* idx = indices.begin(); idx != indices.end(); ++idx)
+			for (const auto& idx : indices)
 			{
 				AutoRequest request;
 
 				FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 					IDX IN RDB$INDICES
-					WITH IDX.RDB$INDEX_NAME EQ idx->c_str()
+					WITH IDX.RDB$SCHEMA_NAME EQ idx.schema.c_str() AND
+						 IDX.RDB$INDEX_NAME EQ idx.object.c_str()
 				{
 					MODIFY IDX
-						DbgRebuildIntl::out("Re-activate index %s\n", idx->c_str());
+						DbgRebuildIntl::out("Re-activate index %s\n", idx.toQuotedString().c_str());
 						IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
 						IDX.RDB$INDEX_INACTIVE = FALSE;
 					END_MODIFY
@@ -2804,7 +2756,7 @@ static void check_computed_dependencies(thread_db* tdbb, jrd_tra* transaction,
 
 
 static bool find_depend_in_dfw(thread_db*	tdbb,
-							   TEXT*	object_name,
+							   const QualifiedName& object_name,
 							   USHORT	dep_type,
 							   USHORT	rel_id,
 							   jrd_tra*		transaction)
@@ -2824,8 +2776,8 @@ static bool find_depend_in_dfw(thread_db*	tdbb,
 	SET_TDBB(tdbb);
 	Jrd::Attachment* attachment = tdbb->getAttachment();
 
-	fb_utils::exact_name(object_name);
 	enum dfw_t dfw_type;
+
 	switch (dep_type)
 	{
 	case obj_view:
@@ -2870,7 +2822,8 @@ static bool find_depend_in_dfw(thread_db*	tdbb,
 			(work->dfw_type == dfw_modify_field && dfw_type == dfw_delete_global) ||
 			(work->dfw_type == dfw_modify_trigger && dfw_type == dfw_delete_trigger) ||
 			(work->dfw_type == dfw_modify_function && dfw_type == dfw_delete_function)) &&
-			work->dfw_name == object_name && work->dfw_package.isEmpty() &&
+			work->dfw_schema == object_name.schema &&
+			work->dfw_name == object_name.object.c_str() && work->dfw_package.isEmpty() &&
 			(!rel_id || rel_id == work->dfw_id))
 		{
 			if (work->dfw_type == dfw_modify_procedure || work->dfw_type == dfw_modify_function)
@@ -2891,7 +2844,7 @@ static bool find_depend_in_dfw(thread_db*	tdbb,
 			{
 				const DeferredWork* arg = work->dfw_args[i];
 				if (arg->dfw_type == dfw_arg_index_name &&
-					arg->dfw_name == object_name)
+					QualifiedName(arg->dfw_name, work->dfw_schema) == object_name)
 				{
 					return true;
 				}
@@ -2910,13 +2863,16 @@ static bool find_depend_in_dfw(thread_db*	tdbb,
 
 			FOR(REQUEST_HANDLE request)
 				FLD IN RDB$FIELDS CROSS
-					RFR IN RDB$RELATION_FIELDS CROSS
-					REL IN RDB$RELATIONS
-					WITH FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
-					AND FLD.RDB$FIELD_NAME EQ object_name
-					AND REL.RDB$RELATION_NAME EQ RFR.RDB$RELATION_NAME
+				RFR IN RDB$RELATION_FIELDS CROSS
+				REL IN RDB$RELATIONS
+				WITH FLD.RDB$SCHEMA_NAME EQ object_name.schema.c_str() AND
+					 FLD.RDB$FIELD_NAME EQ object_name.object.c_str() AND
+					 RFR.RDB$FIELD_SOURCE_SCHEMA_NAME EQ FLD.RDB$SCHEMA_NAME AND
+					 RFR.RDB$FIELD_SOURCE EQ FLD.RDB$FIELD_NAME AND
+					 REL.RDB$SCHEMA_NAME EQ RFR.RDB$SCHEMA_NAME AND
+					 REL.RDB$RELATION_NAME EQ RFR.RDB$RELATION_NAME
 			{
-				if (!find_depend_in_dfw(tdbb, RFR.RDB$FIELD_NAME, obj_computed,
+				if (!find_depend_in_dfw(tdbb, QualifiedName(RFR.RDB$FIELD_NAME), obj_computed,
 										REL.RDB$RELATION_ID, transaction))
 				{
 					return false;
@@ -2933,8 +2889,9 @@ static bool find_depend_in_dfw(thread_db*	tdbb,
 			AutoRequest request;
 
 			FOR(REQUEST_HANDLE request)
-				FLD IN RDB$FIELDS WITH
-					FLD.RDB$FIELD_NAME EQ object_name
+				FLD IN RDB$FIELDS
+				WITH FLD.RDB$SCHEMA_NAME EQ object_name.schema.c_str() AND
+					 FLD.RDB$FIELD_NAME EQ object_name.object.c_str()
 			{
 				if (!FLD.RDB$VALIDATION_BLR.NULL)
 					return false;
@@ -2976,7 +2933,7 @@ static bool create_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	{
 	case 1:
 		{
-			const MetaName depName(work->dfw_name);
+			const MetaName depName(work->getQualifiedName());
 			AutoRequest handle;
 			bid validation;
 			validation.clear();
@@ -3009,7 +2966,7 @@ static bool create_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 		return true;
 
 	case 4:	// after scan_relation (phase 3)
-		check_computed_dependencies(tdbb, transaction, work->dfw_name);
+		check_computed_dependencies(tdbb, transaction, work->getQualifiedName());
 		break;
 	}
 
@@ -3065,18 +3022,18 @@ static bool delete_field(thread_db*	tdbb, SSHORT phase, DeferredWork* work, jrd_
 		{
 			ERR_post(Arg::Gds(isc_no_meta_update) <<
 					 Arg::Gds(isc_no_delete) <<								// Msg353: can not delete
-					 Arg::Gds(isc_domain_name) << Arg::Str(work->dfw_name) <<
+					 Arg::Gds(isc_domain_name) << Arg::Str(work->getQualifiedName()) <<
 					 Arg::Gds(isc_dependency) << Arg::Num(field_count)); 	// Msg310: there are %ld dependencies
 		}
 
-		DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_field, transaction);
+		check_dependencies(tdbb, work->getQualifiedName().c_str(), NULL, NULL, obj_field, transaction);
 
 	case 2:
 		return true;
 
 	case 3:
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_computed);
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_validation);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_computed);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_validation);
 		break;
 	}
 
@@ -3104,7 +3061,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	{
 	case 1:
 		{
-			const MetaName depName(work->dfw_name);
+			const MetaName depName(work->getQualifiedName());
 			AutoRequest handle;
 
 			// If a domain is being changed to NOT NULL, schedule validation of involved relations.
@@ -3151,7 +3108,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 			// ASF: If there are procedures depending on the domain, it can't be renamed.
 			if (arg && depName != arg->dfw_name.c_str())
-				DFW_check_dependencies(tdbb, depName.c_str(), NULL, NULL, obj_field, transaction);
+				check_dependencies(tdbb, depName.c_str(), NULL, NULL, obj_field, transaction);
 
 			MET_delete_dependencies(tdbb, depName, obj_validation);
 
@@ -3174,7 +3131,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 		return true;
 
 	case 4:	// after scan_relation (phase 3)
-		check_computed_dependencies(tdbb, transaction, work->dfw_name);
+		check_computed_dependencies(tdbb, transaction, work->getQualifiedName());
 		break;
 	}
 
@@ -3200,7 +3157,7 @@ static bool grant_privileges(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 		return true;
 
 	case 2:
-		GRANT_privileges(tdbb, work->dfw_name, work->dfw_id, transaction);
+		GRANT_privileges(tdbb, work->getQualifiedName(), work->dfw_id, transaction);
 		break;
 
 	default:
@@ -3231,7 +3188,7 @@ static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 	{
 	case 1:
 		setupSpecificCollationAttributes(tdbb, transaction, id,
-			work->dfw_name.c_str(), false);
+			work->getQualifiedName().c_str(), false);
 		return true;
 
 	case 2:
@@ -3282,7 +3239,7 @@ static bool delete_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 	switch (phase)
 	{
 	case 1:
-		DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_collation, transaction);
+		check_dependencies(tdbb, work->getQualifiedName().c_str(), NULL, NULL, obj_collation, transaction);
 		return true;
 
 	case 2:
@@ -3327,7 +3284,7 @@ static bool delete_parameter(thread_db* tdbb, SSHORT phase, DeferredWork*, jrd_t
 			const DeferredWork* arg = work->dfw_args;
 			fb_assert(arg && (arg->dfw_type == dfw_arg_proc_name));
 
-			DFW_check_dependencies(tdbb, arg->dfw_name.c_str(), work->dfw_name.c_str(),
+			check_dependencies(tdbb, arg->dfw_name.c_str(), work->getQualifiedName().c_str(),
 							   obj_procedure, transaction);
 		}
 		*/
@@ -3379,7 +3336,7 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
 			if (relation)
 			{
-				auto* index = relation->lookupIndex(tdbb, work->dfw_name, 0);
+				auto* index = relation->lookupIndex(tdbb, work->getQualifiedName(), 0);
 				if (index)
 					index->commit(tdbb);
 			}
@@ -3446,7 +3403,7 @@ static bool set_statistics(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 					SelectivityList selectivity(*tdbb->getDefaultPool());
 					const USHORT id = IDX.RDB$INDEX_ID - 1;
 					IDX_statistics(tdbb, relation, id, selectivity);
-					DFW_update_index(work->dfw_name.c_str(), id, selectivity, transaction);
+					DFW_update_index(work->getQualifiedName().c_str(), id, selectivity, transaction);
 				}
 			}
 		}
@@ -3478,7 +3435,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 		return false;
 
 	case 1:
-		DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_index, transaction);
+		check_dependencies(tdbb, work->getQualifiedName().c_str(), NULL, NULL, obj_index, transaction);
 		return true;
 
 	case 2:
@@ -3501,7 +3458,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			if (isTempIndex)
 				return true;
 
-			auto* index = relation->lookup_index(tdbb, work->dfw_name, CacheFlag::ERASED);
+			auto* index = relation->lookup_index(tdbb, work->getQualifiedName(), CacheFlag::ERASED);
 			if (!index)
 				break;
 
@@ -3539,8 +3496,8 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				}
 			}
 		}
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_index_expression);
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_index_condition);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_index_expression);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_index_condition);
 		return true;
 
 	case 5:
@@ -3552,7 +3509,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 			{
-				auto* index = relation->lookupIndex(tdbb, work->dfw_name, CacheFlag::ERASED);
+				auto* index = relation->lookupIndex(tdbb, work->getQualifiedName(), CacheFlag::ERASED);
 				if (index)
 					index->commit(tdbb);
 			}
@@ -3590,7 +3547,7 @@ static bool create_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_name, 0);
+			auto* relation = MetadataCache::lookupRelation(tdbb, work->getQualifiedName(), 0);
 			if (relation)
 				relation->commit(tdbb);
 		}
@@ -3658,7 +3615,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 		{
 			ERR_post(Arg::Gds(isc_no_meta_update) <<
 					 Arg::Gds(isc_no_delete) << // Msg353: can not delete
-					 Arg::Gds(isc_table_name) << Arg::Str(work->dfw_name) <<
+					 Arg::Gds(isc_table_name) << Arg::Str(work->getQualifiedName()) <<
 					 Arg::Gds(isc_dependency) << Arg::Num(view_count));
 					 // Msg310: there are %ld dependencies
 		}
@@ -3668,7 +3625,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 			if (!relation)
 				return false;
 
-			DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL,
+			check_dependencies(tdbb, work->getQualifiedName().c_str(), NULL, NULL,
 				(relation->isView() ? obj_view : obj_relation), transaction);
 		}
 		return true;
@@ -3802,7 +3759,7 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 		if (relation)
 		{
-			DFW_check_dependencies(tdbb, relation->c_name(), work->dfw_name.c_str(), NULL,
+			check_dependencies(tdbb, relation->c_name(), work->getQualifiedName().c_str(), NULL,
 							   (relation->isView() ? obj_view : obj_relation),
 							   transaction);
 		}
@@ -3896,7 +3853,7 @@ static bool delete_exception(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 	switch (phase)
 	{
 	case 1:
-		DFW_check_dependencies(tdbb, work->dfw_name.c_str(), NULL, NULL, obj_exception, transaction);
+		check_dependencies(tdbb, work->getQualifiedName().c_str(), NULL, NULL, obj_exception, transaction);
 		break;
 	}
 
@@ -3930,7 +3887,7 @@ static bool compute_security(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 		{
 			// Get security class.  This may return NULL if it doesn't exist
 
-			SCL_clear_classes(tdbb, work->dfw_name.c_str());
+			SCL_clear_classes(tdbb, work->getQualifiedName().c_str());
 
 			AutoRequest handle;
 			FOR(REQUEST_HANDLE handle) X IN RDB$DATABASE
@@ -3981,7 +3938,7 @@ static bool delete_global(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd
 					FLD.RDB$FIELD_NAME EQ work->dfw_name.c_str() AND
 					FLD.RDB$COMPUTED_BLR NOT MISSING
 			{
-				MET_delete_dependencies(tdbb, work->dfw_name, obj_computed);
+				MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_computed);
 			}
 			END_FOR
 		}
@@ -4095,7 +4052,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 			bool compile = !work->findArg(dfw_arg_check_blr);
 
 			// get rid of old dependencies, bring in the new
-			MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger);
+			MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_trigger);
 			get_trigger_dependencies(work, compile, transaction);
 		}
 		return true;
@@ -4128,7 +4085,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 			const DeferredWork* arg = work->findArg(dfw_arg_check_blr);
 			if (arg)
 			{
-				const MetaName relation_name(arg->dfw_name);
+				const auto relation_name(arg->getQualifiedName());
 				fb_assert(relation_name.hasData());
 				SSHORT valid_blr = FALSE;
 
@@ -4151,7 +4108,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 						{
 							Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-							MET_load_trigger(tdbb, rel, work->dfw_name,
+							MET_load_trigger(tdbb, rel, work->getQualifiedName(),
 								[&triggers](int t)->Triggers& {return triggers[t];});
 
 							for (int i = 1; i < TRIGGER_MAX; ++i)
@@ -4183,8 +4140,10 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 				AutoCacheRequest request(tdbb, irq_trg_validate, IRQ_REQUESTS);
 
 				FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-					TRG IN RDB$TRIGGERS WITH
-						TRG.RDB$TRIGGER_NAME EQ work->dfw_name.c_str() AND TRG.RDB$TRIGGER_BLR NOT MISSING
+					TRG IN RDB$TRIGGERS
+					WITH TRG.RDB$SCHEMA_NAME EQ work->dfw_schema.c_str() AND
+						 TRG.RDB$TRIGGER_NAME EQ work->dfw_name.c_str() AND
+						 TRG.RDB$TRIGGER_BLR NOT MISSING
 				{
 					MODIFY TRG USING
 						TRG.RDB$VALID_BLR = valid_blr;
@@ -4235,7 +4194,7 @@ static bool delete_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 
 	case 3:
 		// get rid of dependencies
-		MET_delete_dependencies(tdbb, work->dfw_name, obj_trigger);
+		MET_delete_dependencies(tdbb, work->getQualifiedName(), obj_trigger);
 		return true;
 
 	case 4:
@@ -4314,7 +4273,7 @@ static void get_trigger_dependencies(DeferredWork* work, bool compile, jrd_tra* 
 			par_flags = 0;
 
 		Jrd::ContextPoolHolder context(tdbb, new_pool);
-		const MetaName depName(work->dfw_name);
+		const MetaName depName(work->getQualifiedName());
 		MET_get_dependencies(tdbb, relation, NULL, 0, NULL, &blob_id, (compile ? &statement : NULL),
 							 NULL, depName, obj_trigger, par_flags, transaction);
 	}
@@ -4347,7 +4306,7 @@ static bool check_not_null(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 		{
 			if (work->dfw_ids.isEmpty())
 				break;
-			jrd_rel* relation = MetadataCache::lookup_relation(tdbb, work->dfw_name, CacheFlag::AUTOCREATE);
+			jrd_rel* relation = MetadataCache::lookup_relation(tdbb, work->getQualifiedName(), CacheFlag::AUTOCREATE);
 			if ((!relation) || relation->isView())
 				break;
 

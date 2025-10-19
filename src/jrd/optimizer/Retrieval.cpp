@@ -1220,7 +1220,7 @@ InversionNode* Retrieval::makeIndexScanNode(IndexScratch* indexScratch) const
 	fb_assert(csb);
 
 	// For external requests, determine index name (to be reported in plans)
-	MetaName indexName;
+	QualifiedName indexName;
 	if (relation && !(csb->csb_g_flags & csb_internal))
 	{
 		auto* idp = relation()->lookupIndex(tdbb, idx->idx_id, CacheFlag::AUTOCREATE);

@@ -81,13 +81,14 @@ Action parameters switches :
   -N[AME]    <string>                   Session name
   -I[D]      <number>                   Session ID
   -C[ONFIG]  <string>                   Trace configuration file name
+  -P[LUGINS] <string list>              Plugins list for use with trace session; valid list separators: '\t', ',', ';'
 
 Connection parameters switches :
   -SE[RVICE]  <string>                  Service name
   -U[SER]     <string>                  User name
   -P[ASSWORD] <string>                  Password
   -FE[TCH]    <string>                  Fetch password from file
-  -T[RUSTED]  <string>                  Force trusted authentication
+  -T[RUSTED]                            Force trusted authentication
 
 Also, it prints usage screen if run without parameters.
 

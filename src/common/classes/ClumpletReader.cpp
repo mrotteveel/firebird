@@ -274,10 +274,11 @@ ClumpletReader::ClumpletType ClumpletReader::getClumpletType(UCHAR tag) const
 	case Tpb:
 		switch (tag)
 		{
-        case isc_tpb_lock_write:
-        case isc_tpb_lock_read:
+		case isc_tpb_lock_write:
+		case isc_tpb_lock_read:
 		case isc_tpb_lock_timeout:
 		case isc_tpb_at_snapshot_number:
+        case isc_tpb_lock_table_schema:
 			return TraditionalDpb;
 		default:
 			break;
@@ -422,6 +423,7 @@ ClumpletReader::ClumpletType ClumpletReader::getClumpletType(UCHAR tag) const
 			case isc_spb_dbname:
 			case isc_spb_command_line:
 			case isc_spb_sts_table:
+			case isc_spb_sts_schema:
 				return StringSpb;
 			case isc_spb_options:
 				return IntSpb;
@@ -474,6 +476,7 @@ ClumpletReader::ClumpletType ClumpletReader::getClumpletType(UCHAR tag) const
 			{
 			case isc_spb_trc_cfg:
 			case isc_spb_trc_name:
+			case isc_spb_trc_plugins:
 				return StringSpb;
 			case isc_spb_trc_id:
 				return IntSpb;
@@ -485,6 +488,8 @@ ClumpletReader::ClumpletType ClumpletReader::getClumpletType(UCHAR tag) const
 		case isc_action_svc_validate:
 			switch (tag)
 			{
+			case isc_spb_val_sch_incl:
+			case isc_spb_val_sch_excl:
 			case isc_spb_val_tab_incl:
 			case isc_spb_val_tab_excl:
 			case isc_spb_val_idx_incl:

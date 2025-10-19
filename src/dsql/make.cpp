@@ -281,6 +281,10 @@ ValueExprNode* MAKE_constant(const char* str, dsql_constant_type numeric_flag, S
 				case CONSTANT_TIMESTAMP:
 					literal->litDesc.dsc_dtype = tz ? dtype_timestamp_tz : dtype_timestamp;
 					break;
+
+				default:
+					fb_assert(false);
+					return NULL;
 			}
 
 			literal->litDesc.dsc_sub_type = 0;
@@ -311,6 +315,10 @@ ValueExprNode* MAKE_constant(const char* str, dsql_constant_type numeric_flag, S
 					else
 						*(ISC_TIMESTAMP*) literal->litDesc.dsc_address = ts.utc_timestamp;
 					break;
+
+				default:
+					fb_assert(false);
+					return NULL;
 			}
 
 			break;
@@ -341,7 +349,7 @@ ValueExprNode* MAKE_constant(const char* str, dsql_constant_type numeric_flag, S
     @param character_set
 
  **/
-LiteralNode* MAKE_str_constant(const IntlString* constant, CSetId character_set)
+LiteralNode* MAKE_str_constant(IntlString* constant, CSetId character_set)
 {
 	thread_db* tdbb = JRD_get_thread_data();
 
@@ -525,9 +533,9 @@ dsql_par* MAKE_parameter(dsql_msg* message, bool sqlda_flag, bool null_flag,
 	message->msg_parameters.insert(0, parameter);
 	parameter->par_parameter = message->msg_parameter++;
 
-	parameter->par_rel_name = NULL;
-	parameter->par_owner_name = NULL;
-	parameter->par_rel_alias = NULL;
+	parameter->par_rel_name.clear();
+	parameter->par_owner_name = nullptr;
+	parameter->par_rel_alias = nullptr;
 
 	if (node)
 		MAKE_parameter_names(parameter, node);

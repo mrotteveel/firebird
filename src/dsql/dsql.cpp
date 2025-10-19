@@ -102,7 +102,7 @@ unsigned DSQL_debug = 0;
 
 namespace
 {
-	const UCHAR record_info[] =
+	inline constexpr UCHAR record_info[] =
 	{
 		isc_info_req_update_count, isc_info_req_delete_count,
 		isc_info_req_select_count, isc_info_req_insert_count
@@ -120,6 +120,7 @@ dsql_dbb::dsql_dbb(MemoryPool& p, Attachment* attachment)
 	  dbb_charsets_by_id(p),
 	  dbb_cursors(p),
 	  dbb_pool(p),
+	  dbb_schemas_dfl_charset(p),
 	  dbb_dfl_charset(p)
 {
 	dbb_attachment = attachment;
@@ -138,6 +139,13 @@ MemoryPool* dsql_dbb::createPool(ALLOC_PARAMS0)
 void dsql_dbb::deletePool(MemoryPool* pool)
 {
 	dbb_attachment->att_database->deletePool(pool);
+}
+
+
+void dsql_fld::resolve(DsqlCompilerScratch* dsqlScratch, bool modifying)
+{
+	dsqlScratch->qualifyExistingName(collate, obj_collation);
+	DDL_resolve_intl_type(dsqlScratch, this, collate, modifying);
 }
 
 
@@ -719,20 +727,26 @@ static UCHAR* put_item(	UCHAR	item,
 }
 
 
+void IntlString::dsqlPass(DsqlCompilerScratch* dsqlScratch)
+{
+	if (charset.object.hasData())
+		dsqlScratch->qualifyExistingName(charset, obj_charset);
+}
+
 // Return as UTF8
 string IntlString::toUtf8(jrd_tra* transaction) const
 {
 	CSetId id = CS_dynamic;
 
-	if (charset.hasData())
+	if (charset.object.hasData())
 	{
-		const dsql_intlsym* resolved = METD_get_charset(transaction, charset.length(), charset.c_str());
+		const dsql_intlsym* resolved = METD_get_charset(transaction, charset);
 
 		if (!resolved)
 		{
 			// character set name is not defined
 			ERRD_post(Arg::Gds(isc_sqlerr) << Arg::Num(-504) <<
-					  Arg::Gds(isc_charset_not_found) << charset);
+					  Arg::Gds(isc_charset_not_found) << charset.toQuotedString());
 		}
 
 		id = resolved->intlsym_charset_id;
@@ -828,6 +842,9 @@ static void sql_info(thread_db* tdbb,
 			case DsqlStatement::TYPE_SELECT_BLOCK:
 			case DsqlStatement::TYPE_RETURNING_CURSOR:
 				value |= IStatement::FLAG_HAS_CURSOR;
+				break;
+			default:
+				// no flag modification
 				break;
 			}
 			length = put_vax_long(buffer, value);
@@ -1024,14 +1041,15 @@ static void sql_info(thread_db* tdbb,
 								[](void* arg, SSHORT offset, const char* line)
 								{
 									auto& localPath = *static_cast<decltype(path)*>(arg);
-									auto lineLen = strlen(line);
+									auto lineLen = fb_strlen(line);
 
 									// Trim trailing spaces.
 									while (lineLen > 0 && line[lineLen - 1] == ' ')
 										--lineLen;
 
 									char offsetStr[10];
-									const auto offsetLen = sprintf(offsetStr, "%5d", (int) offset);
+									const auto offsetLen = snprintf(offsetStr, sizeof(offsetStr),
+										"%5d", (int) offset);
 
 									localPath.push(reinterpret_cast<const UCHAR*>(offsetStr), offsetLen);
 									localPath.push(' ');
@@ -1091,7 +1109,7 @@ static void sql_info(thread_db* tdbb,
 					items++;
 				break;
 			}
-			// else fall into
+			[[fallthrough]];
 
 		default:
 			buffer[0] = item;
@@ -1203,6 +1221,7 @@ static UCHAR* var_info(const dsql_msg* message,
 			for (const UCHAR* describe = items; describe < end_describe;)
 			{
 				USHORT length;
+				string str;
 				MetaName name;
 				const UCHAR* buffer = buf;
 				UCHAR item = *describe++;
@@ -1248,10 +1267,21 @@ static UCHAR* var_info(const dsql_msg* message,
 						length = 0;
 					break;
 
-				case isc_info_sql_relation:
-					if (param->par_rel_name.hasData())
+				case isc_info_sql_relation_schema:
+					if (param->par_rel_name.schema.hasData())
 					{
-						name = attachment->nameToUserCharSet(tdbb, param->par_rel_name);
+						name = attachment->nameToUserCharSet(tdbb, param->par_rel_name.schema);
+						length = name.length();
+						buffer = reinterpret_cast<const UCHAR*>(name.c_str());
+					}
+					else
+						length = 0;
+					break;
+
+				case isc_info_sql_relation:
+					if (param->par_rel_name.object.hasData())
+					{
+						name = attachment->nameToUserCharSet(tdbb, param->par_rel_name.object);
 						length = name.length();
 						buffer = reinterpret_cast<const UCHAR*>(name.c_str());
 					}

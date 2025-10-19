@@ -378,13 +378,13 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 		for (auto& idx : indices)
 		{
 			auto* idp = this->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
-			MetaName idx_name;
+			QualifiedName idx_name;
 			if (idp)
 				idx_name = idp->getName();
 
 			idx.idx_root = 0;
 			SelectivityList selectivity(*pool);
-			IDX_create_index(tdbb, IdxCreate::AtOnce, rel, &idx, idx_name.c_str(), NULL, idxTran, selectivity);
+			IDX_create_index(tdbb, IdxCreate::AtOnce, rel, &idx, idx_name, NULL, idxTran, selectivity);
 
 #ifdef VIO_DEBUG
 			VIO_trace(DEBUG_WRITES,
@@ -460,7 +460,7 @@ void RelationPermanent::retainPages(thread_db* tdbb, TraNumber oldNumber, TraNum
 	if (!rel_pages_inst)
 		return;
 
-	SINT64 inst_id = oldNumber;
+	const SINT64 inst_id = oldNumber;
 	FB_SIZE_T pos;
 	if (!rel_pages_inst->find(oldNumber, pos))
 		return;
@@ -484,12 +484,12 @@ void RelationPermanent::getRelLockKey(thread_db* tdbb, UCHAR* key)
 	memcpy(key, &inst_id, sizeof(inst_id));
 }
 
-USHORT constexpr RelationPermanent::getRelLockKeyLength()
+constexpr USHORT RelationPermanent::getRelLockKeyLength() noexcept
 {
 	return sizeof(ULONG) + sizeof(SINT64);
 }
 
-void RelationPermanent::cleanUp()
+void RelationPermanent::cleanUp() noexcept
 {
 	delete rel_pages_inst;
 	rel_pages_inst = NULL;
