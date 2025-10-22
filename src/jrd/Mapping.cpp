@@ -1684,7 +1684,7 @@ RecordBuffer* MappingList::makeBuffer(thread_db* tdbb)
 	return getData(rel_global_auth_mapping);
 }
 
-RecordBuffer* MappingList::getList(thread_db* tdbb, RelationPermanent* relation)
+RecordBuffer* MappingList::getList(thread_db* tdbb, const RelationPermanent* relation)
 {
 	fb_assert(relation);
 	fb_assert(relation->getId() == rel_global_auth_mapping);

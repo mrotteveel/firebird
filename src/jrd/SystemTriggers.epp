@@ -324,11 +324,15 @@ void afterUpdateIndex(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 		(!EVL_field(nullptr, newRecord, f_idx_inactive, &desc) ||
 			MOV_get_long(tdbb, &desc, 0) == 0))
 	{
-		MetaName indexName, relName;
+		MetaName iName, rName, schemaName;
 		if (EVL_field(nullptr, newRecord, f_idx_name, &desc))
-			MOV_get_metaname(tdbb, &desc, indexName);
+			MOV_get_metaname(tdbb, &desc, iName);
 		if (EVL_field(nullptr, newRecord, f_idx_relation, &desc))
-			MOV_get_metaname(tdbb, &desc, relName);
+			MOV_get_metaname(tdbb, &desc, rName);
+		if (EVL_field(nullptr, newRecord, f_idx_schema, &desc))
+			MOV_get_metaname(tdbb, &desc, schemaName);
+		QualifiedName relName(rName, schemaName);
+		QualifiedName indexName(iName, schemaName);
 		bool expressionIndex = EVL_field(nullptr, newRecord, f_idx_exp_blr, &desc);
 
 		MemoryPool& pool = *MemoryPool::getContextPool();
@@ -724,7 +728,7 @@ void afterDeleteRelationConstraint(thread_db* tdbb, Record* record)
 
 		if (idxId != MAX_META_ID)
 		{
-			auto* rel = MetadataCache::lookupRelation(tdbb, relationName, 0);
+			auto* rel = MetadataCache::lookupRelation(tdbb, QualifiedName(relationName, schemaName), 0);
 			if (rel)
 			{
 				IDX_mark_index(tdbb, rel, idxId);
@@ -1041,7 +1045,7 @@ void beforeInsertSchema(thread_db* tdbb, Record* record)
 	if (!EVL_field(nullptr, record, f_sch_schema, &desc))
 		return;;
 
-	USHORT ttype;
+	TTypeId ttype;
 	UCHAR* schemaStr;
 	const auto schemaByteLen = CVT_get_string_ptr(&desc, &ttype, &schemaStr, nullptr, 0, 0);
 

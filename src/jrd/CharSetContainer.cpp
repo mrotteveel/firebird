@@ -56,12 +56,11 @@ int CharSetVers::objectType()
 	return obj_charset;
 }
 
-const char* CharSetContainer::c_name() const
+QualifiedName CharSetContainer::getName() const
 {
-	return cs->getName();
+	if (names.hasData())
+		return names[0];
+
+	return QualifiedName(cs->getName());
 }
 
-MetaName CharSetContainer::getName() const
-{
-	return cs->getName();
-}

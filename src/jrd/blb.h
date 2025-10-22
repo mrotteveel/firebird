@@ -28,6 +28,7 @@
 #define JRD_BLB_H
 
 #include "../include/fb_blk.h"
+#include "../intl/charsets.h"
 
 #include "../jrd/RecordNumber.h"
 #include "../jrd/EngineInterface.h"
@@ -77,11 +78,11 @@ public:
 	jrd_rel* blb_relation = nullptr; // Relation, if known
 	JBlob* blb_interface = nullptr;
 
-	FB_UINT64 blb_length = 0;	// Blob's total length (in bytes)
-	USHORT blb_flags = 0;		// Interesting stuff (see below)
+	FB_UINT64 blb_length = 0;		// Blob's total length (in bytes)
+	USHORT blb_flags = 0;			// Interesting stuff (see below)
 
 	SSHORT blb_sub_type = isc_blob_untyped; // Blob's declared sub-type
-	CSetId blb_charset = 0;		// Blob's charset
+	CSetId blb_charset = CS_NONE;	// Blob's charset
 
 	// inline functions
 	bool hasBuffer() const;

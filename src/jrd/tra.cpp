@@ -1110,7 +1110,7 @@ jrd_tra* TRA_reconnect(thread_db* tdbb, const UCHAR* id, USHORT length)
  *
  **************************************/
 	SET_TDBB(tdbb);
-	const Database* const dbb = tdbb->getDatabase();
+	Database* const dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 	Jrd::Attachment* const attachment = tdbb->getAttachment();
 
@@ -1655,7 +1655,7 @@ jrd_tra* TRA_start(thread_db* tdbb, ULONG flags, SSHORT lock_timeout, Jrd::jrd_t
  *
  **************************************/
 	SET_TDBB(tdbb);
-	const Database* const dbb = tdbb->getDatabase();
+	Database* const dbb = tdbb->getDatabase();
 	Jrd::Attachment* const attachment = tdbb->getAttachment();
 
 	// Starting new transactions should be allowed for threads which
@@ -1712,7 +1712,7 @@ jrd_tra* TRA_start(thread_db* tdbb, int tpb_length, const UCHAR* tpb, Jrd::jrd_t
  *
  **************************************/
 	SET_TDBB(tdbb);
-	const Database* dbb = tdbb->getDatabase();
+	Database* dbb = tdbb->getDatabase();
 	Jrd::Attachment* attachment = tdbb->getAttachment();
 
 	// Starting new transactions should be allowed for threads which
@@ -2149,14 +2149,14 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 		if (level)
 		{
 			lock_type = oldlock; // Preserve the old, more powerful lock.
-			ERR_post_warning(Arg::Warning(isc_tpb_reserv_stronger_wng) << relation->rel_name.toQuotedString() <<
+			ERR_post_warning(Arg::Warning(isc_tpb_reserv_stronger_wng) << relation->getName().toQuotedString() <<
 																		  Arg::Str(oldname) <<
 																		  Arg::Str(newname));
 		}
 		else
 		{
 			ERR_post(Arg::Gds(isc_bad_tpb_content) <<
-					 Arg::Gds(isc_tpb_reserv_stronger) << relation->rel_name.toQuotedString() <<
+					 Arg::Gds(isc_tpb_reserv_stronger) << relation->getName().toQuotedString() <<
 														  Arg::Str(oldname) <<
 														  Arg::Str(newname));
 		}
@@ -2169,14 +2169,14 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 		if (relation->isVirtual())
 		{
 			ERR_post(Arg::Gds(isc_bad_tpb_content) <<
-					 Arg::Gds(isc_tpb_reserv_virtualtbl) << relation->rel_name.toQuotedString());
+					 Arg::Gds(isc_tpb_reserv_virtualtbl) << relation->getName().toQuotedString());
 		}
 
 		// Reject explicit attempts to take locks on system tables.
 		if (relation->isSystem())
 		{
 			ERR_post(Arg::Gds(isc_bad_tpb_content) <<
-		    		 Arg::Gds(isc_tpb_reserv_systbl) << relation->rel_name.toQuotedString());
+		    		 Arg::Gds(isc_tpb_reserv_systbl) << relation->getName().toQuotedString());
 		}
 
 		if (relation->isTemporary() && (lock_type == LCK_PR || lock_type == LCK_EX))
@@ -2184,7 +2184,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 			ERR_post(Arg::Gds(isc_bad_tpb_content) <<
 					 Arg::Gds(isc_tpb_reserv_temptbl) << Arg::Str(get_lockname_v3(LCK_PR)) <<
 					 									 Arg::Str(get_lockname_v3(LCK_EX)) <<
-														 relation->rel_name.toQuotedString());
+														 relation->getName().toQuotedString());
 		}
 	}
 	else
@@ -2229,7 +2229,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 			// should be a BUGCHECK
 			ERR_post(Arg::Gds(isc_bad_tpb_content) <<
 					 Arg::Gds(isc_tpb_reserv_baserelnotfound) << ctx[i]->vcx_relation_name.toQuotedString() <<
-																 relation->rel_name.toQuotedString() <<
+																 relation->getName().toQuotedString() <<
 																 Arg::Str(option_name));
 		}
 
@@ -3221,7 +3221,7 @@ static void transaction_options(thread_db* tdbb,
 
 				attachment->qualifyExistingName(tdbb, relationName, {obj_relation});
 
-				jrd_rel* relation = MetadataCache::lookup_relation(tdbb, metaName, CacheFlag::AUTOCREATE);
+				jrd_rel* relation = MetadataCache::lookup_relation(tdbb, relationName, CacheFlag::AUTOCREATE);
 				if (!relation)
 				{
 					ERR_post(
@@ -4092,10 +4092,10 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 		if (blobRelation)
 		{
 			auto security_name = (fld && fld->fld_security_name.hasData()) ?
-				fld->fld_security_name : blobRelation->rel_security_name;
+				fld->fld_security_name : blobRelation->getSecurityName().object;
 			fb_assert(security_name.hasData());
 
-			SecurityClass* s_class = SCL_get_class(tdbb, security_name.c_str());
+			SecurityClass* s_class = SCL_get_class(tdbb, security_name);
 			if (!s_class)
 				return;
 
@@ -4107,7 +4107,7 @@ void jrd_tra::checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool 
 				{
 					ThreadStatusGuard status_vector(tdbb);
 
-					SCL_check_schema(tdbb, blb_relation->rel_name.schema, SCL_usage);
+					SCL_check_schema(tdbb, blobRelation->getName().schema, SCL_usage);
 
 					if (fld)
 					{

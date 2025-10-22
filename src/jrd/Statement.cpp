@@ -1056,7 +1056,7 @@ Request::Request(Firebird::AutoMemoryPool& pool, Database* dbb, /*const*/ Statem
 	pool.release();
 }
 
-bool Request::setUsed()
+bool Request::setUsed() noexcept
 {
 	bool old = isUsed();
 	if (old)
@@ -1064,15 +1064,25 @@ bool Request::setUsed()
 	return req_inUse.compare_exchange_strong(old, true);
 }
 
-void Request::setUnused()
+void Request::setUnused() noexcept
 {
 	fb_assert(isUsed());
 	req_inUse.store(false, std::memory_order_release);
 }
 
-bool Request::isUsed() const
+bool Request::isUsed() const noexcept
 {
 	return req_inUse.load(std::memory_order_relaxed);
+}
+
+bool Request::hasInternalStatement() const noexcept
+{
+	return statement->flags & Statement::FLAG_INTERNAL;
+}
+
+bool Request::hasPowerfulStatement() const noexcept
+{
+	return statement->flags & Statement::FLAG_POWERFUL;
 }
 
 #ifdef DEV_BUILD

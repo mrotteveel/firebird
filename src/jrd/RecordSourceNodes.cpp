@@ -483,7 +483,7 @@ dsql_ctx* PlanNode::dsqlPassAliasList(DsqlCompilerScratch* dsqlScratch)
 				for (; arg != end; ++arg)
 				{
 					if (!METD_get_view_relation(dsqlScratch->getTransaction(),
-							dsqlScratch, viewRelation->getName(), *arg, relation, procedure))
+							dsqlScratch, viewRelation->rel_name, *arg, relation, procedure))
 					{
 						break;
 					};
@@ -575,8 +575,8 @@ dsql_ctx* PlanNode::dsqlPassAlias(DsqlCompilerScratch* dsqlScratch, DsqlContextS
 		// Check for matching relation name; aliases take priority so
 		// save the context in case there is an alias of the same name.
 		// Also to check that there is no self-join in the query.
-		if ((context->ctx_relation && PASS1_compare_alias(context->ctx_relation->getName(), alias)) ||
-			(context->ctx_procedure && PASS1_compare_alias(context->ctx_procedure->getName(), alias)))
+		if ((context->ctx_relation && PASS1_compare_alias(context->ctx_relation->rel_name, alias)) ||
+			(context->ctx_procedure && PASS1_compare_alias(context->ctx_procedure->prc_name, alias)))
 		{
 			if (result_context)
 			{
@@ -894,18 +894,18 @@ void RelationSourceNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 	}
 	else
 	{
-		if (relation->getName().schema != dsqlScratch->ddlSchema)
+		if (relation->rel_name.schema != dsqlScratch->ddlSchema)
 		{
 			dsqlScratch->appendUChar(blr_relation3);
-			dsqlScratch->appendMetaString(relation->getName().schema.c_str());
-			dsqlScratch->appendMetaString(relation->getName().object.c_str());
+			dsqlScratch->appendMetaString(relation->rel_name.schema.c_str());
+			dsqlScratch->appendMetaString(relation->rel_name.object.c_str());
 			if (dsqlContext->ctx_alias.isEmpty())
 				dsqlScratch->appendMetaString("");
 		}
 		else
 		{
 			dsqlScratch->appendUChar(dsqlContext->ctx_alias.hasData() ? blr_relation2 : blr_relation);
-			dsqlScratch->appendMetaString(relation->getName().object.c_str());
+			dsqlScratch->appendMetaString(relation->rel_name.object.c_str());
 		}
 	}
 
@@ -1008,13 +1008,18 @@ void RelationSourceNode::pass1Source(thread_db* tdbb, CompilerScratch* csb, RseN
 		}
 	}
 
+	// make sure we can access active relation's version
+
+	jrd_rel* jrdRel = relationView(tdbb);
+	if (!jrdRel)
+	{
+		fatal_exception::raiseFmt("Relation '%s' unavailable",
+			relationView ? relationView()->getName().toQuotedString().c_str() : "<noname>");
+	}
+
 	// check for a view - if not, nothing more to do
 
-	auto* jrdRel = relationView(tdbb);
-	if (!jrdRel)
-		fatal_exception::raiseFmt("Relation '%s' unavailable", relationView() ? relationView()->c_name() : "<noname>");
-
-	RseNode* viewRse = relationView(tdbb)->rel_view_rse;
+	RseNode* viewRse = jrdRel->rel_view_rse;
 	if (!viewRse)
 		return;
 
@@ -1205,10 +1210,9 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 							}
 						}
 						else if (!node->procedure)
+						{
 							csb->qualifyExistingName(tdbb, name, obj_procedure);
 							proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
-						{
-							node->procedure = MET_lookup_procedure(tdbb, name, false);
 						}
 
 						break;
@@ -1424,7 +1428,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 				{
 					Dependency dependency(obj_procedure);
 					dependency.procedure = node->procedure();
-					dependency.subName = argName;
+					dependency.subName = &argName;
 					csb->addDependency(dependency);
 				}
 			}
@@ -1594,7 +1598,7 @@ void ProcedureSourceNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 	if (dsqlProcedure->prc_flags & PRC_subproc)
 	{
 		dsqlScratch->appendUChar(blr_subproc);
-		dsqlScratch->appendMetaString(dsqlProcedure->getName().object.c_str());
+		dsqlScratch->appendMetaString(dsqlProcedure->prc_name.object.c_str());
 
 		const auto& contextAliases = dsqlContext->getConcatenatedAlias();
 		appendContextAlias(dsqlScratch, contextAliases);
@@ -1610,16 +1614,16 @@ void ProcedureSourceNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 		}
 		else
 		{
-			if (dsqlProcedure->getName().package.hasData())
+			if (dsqlProcedure->prc_name.package.hasData())
 			{
 				dsqlScratch->appendUChar(dsqlContext->ctx_alias.hasData() ? blr_procedure4 : blr_procedure3);
-				dsqlScratch->appendMetaString(dsqlProcedure->getName().package.c_str());
-				dsqlScratch->appendMetaString(dsqlProcedure->getName().object.c_str());
+				dsqlScratch->appendMetaString(dsqlProcedure->prc_name.package.c_str());
+				dsqlScratch->appendMetaString(dsqlProcedure->prc_name.object.c_str());
 			}
 			else
 			{
 				dsqlScratch->appendUChar(dsqlContext->ctx_alias.hasData() ? blr_procedure2 : blr_procedure);
-				dsqlScratch->appendMetaString(dsqlProcedure->getName().object.c_str());
+				dsqlScratch->appendMetaString(dsqlProcedure->prc_name.object.c_str());
 			}
 		}
 

@@ -221,7 +221,7 @@ static int cmp_numeric_string(const dsc* arg1, const dsc* arg2, Firebird::Decima
 	Decimal128 buffer;		// enough to fit any required data
 	SSHORT scale = 0;
 	UCHAR* text;
-	USHORT ttype;
+	TTypeId ttype;
 	USHORT textLen = CVT_get_string_ptr(arg2, &ttype, &text, nullptr, 0, 0);
 
 	dsc num2;

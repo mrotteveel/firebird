@@ -431,13 +431,14 @@ public:
 		const auto attachment = m_tdbb->getAttachment();
 		const auto trace_mgr = attachment->att_trace_manager;
 
-		m_need_trace = trace_mgr->needs(ITraceFactory::TRACE_EVENT_TRIGGER_COMPILE);
+		m_need_trace = !trigger->sysTrigger &&
+			trace_mgr->needs(ITraceFactory::TRACE_EVENT_TRIGGER_COMPILE);
 
 		if (!m_need_trace)
 			return;
 
-		m_name = trigger->getName();
-		m_relationName = trigger->relation ? trigger->relation->getName() : "";
+		m_name = trigger->getName().toQuotedString();
+		m_relationName = trigger->relation ? trigger->relation->getName().toQuotedString() : "";
 
 		const auto type = (trigger->type & ~TRIGGER_TYPE_MASK);
 

@@ -194,7 +194,7 @@ void RuntimeStatistics::adjustPageStats(RuntimeStatistics& baseStats, const Runt
 	}
 }
 
-RuntimeStatistics::Accumulator::Accumulator(thread_db* tdbb, const jrd_rel* relation, StatType type)
+RuntimeStatistics::Accumulator::Accumulator(thread_db* tdbb, const jrd_rel* relation, const RecordStatType type)
 	: m_tdbb(tdbb), m_type(type), m_id(relation->getId()), m_counter(0)
 {}
 

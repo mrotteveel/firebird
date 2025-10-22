@@ -2052,19 +2052,20 @@ void AutoRequest::release()
 	}
 }
 
-Firebird::string CompilerScratch::csb_repeat::getName(bool allowEmpty) const
+QualifiedName CompilerScratch::csb_repeat::getName(bool allowEmpty) const
 {
 	if (csb_relation)
-		return csb_relation()->c_name();
+		return csb_relation()->getName();
 	else if (csb_procedure)
-		return csb_procedure()->c_name();
+		return csb_procedure()->getName();
 	else if (csb_table_value_fun)
-		return csb_table_value_fun->name;
+		return QualifiedName(csb_table_value_fun->name);
 	//// TODO: LocalTableSourceNode
+	//// TODO: JsonTableSourceNode
 	else
 	{
 		fb_assert(allowEmpty);
-		return "";
+		return QualifiedName("");
 	}
 }
 

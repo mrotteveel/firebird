@@ -248,7 +248,7 @@ void AssignmentNode::validateTarget(thread_db* tdbb, CompilerScratch* csb, const
 			string fieldName(field ? field->fld_name.toQuotedString() : "<unknown>");
 
 			if (field && tail->csb_relation)
-				fieldName = tail->csb_relation->rel_name.toQuotedString() + "." + fieldName;
+				fieldName = tail->csb_relation()->getName().toQuotedString() + "." + fieldName;
 
 			ERR_post(Arg::Gds(isc_read_only_field) << fieldName);
 		}
@@ -3378,7 +3378,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 	if (mismatchStatus.hasData())
 	{
 		status_exception::raise(Arg::Gds(isc_prcmismat) <<
-			node->procedure->getName().toQuotedString() << mismatchStatus);
+			node->procedure()->getName().toQuotedString() << mismatchStatus);
 	}
 
 	if (csb->collectingDependencies() && !node->procedure.isSubRoutine())
@@ -3395,7 +3395,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 			{
 				Dependency dependency(obj_procedure);
 				dependency.procedure = node->procedure();
-				dependency.subName = argName;
+				dependency.subName = &argName;
 				csb->addDependency(dependency);
 			}
 		}
@@ -3406,7 +3406,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 			{
 				Dependency dependency(obj_procedure);
 				dependency.procedure = node->procedure();
-				dependency.subName = argName;
+				dependency.subName = &argName;
 				csb->addDependency(dependency);
 			}
 		}
@@ -3931,12 +3931,12 @@ void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) cons
 	{
 		status_exception::raise(
 			Arg::Gds(isc_proc_pack_not_implemented) <<
-				procedure->getName().object.toQuotedString() << procedure->getName().package.toQuotedString());
+				procedure()->getName().object.toQuotedString() << procedure()->getName().package.toQuotedString());
 	}
 	else if (!proc->isDefined())
 	{
 		status_exception::raise(
-			Arg::Gds(isc_prcnotdef) << procedure->getName().toQuotedString() <<
+			Arg::Gds(isc_prcnotdef) << procedure()->getName().toQuotedString() <<
 			Arg::Gds(isc_modnotfound));
 	}
 
@@ -5282,7 +5282,7 @@ DmlNode* ExceptionNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch
 
 			if (csb->collectingDependencies())
 			{
-				CompilerScratch::Dependency dependency(obj_exception);
+				Dependency dependency(obj_exception);
 				dependency.number = item->code;
 				csb->addDependency(dependency);
 			}
@@ -9072,11 +9072,8 @@ bool StoreNode::pass1Store(thread_db* tdbb, CompilerScratch* csb, StoreNode* nod
 		jrd_rel* const relation = tail->csb_relation(tdbb);
 		if (!relation)
 		{
-			MetaName relName;
-			if (tail->csb_relation)
-				relName = tail->csb_relation()->c_name();
-			else
-				relName = "*** unknown ***";
+			string relName = tail->csb_relation ? tail->csb_relation()->getName().toQuotedString() :
+				"*** unknown ***";
 
 			ERR_post(Arg::Gds(isc_relnotdef) << relName);
 		}
@@ -11935,10 +11932,10 @@ static RelationSourceNode* pass1Update(thread_db* tdbb, CompilerScratch* csb, jr
 
 	const SLONG ssRelationId = view ? view->getId() : 0;
 
-	CMP_post_access(tdbb, csb, relation->rel_security_name.schema, ssRelationId,
-		SCL_usage, obj_schemas, QualifiedName(relation->rel_name.schema));
+	CMP_post_access(tdbb, csb, relation->getSecurityName().schema, ssRelationId,
+		SCL_usage, obj_schemas, QualifiedName(relation->getSecurityName().schema));
 
-	CMP_post_access(tdbb, csb, relation->rel_security_name.object, ssRelationId,
+	CMP_post_access(tdbb, csb, relation->getSecurityName().object, ssRelationId,
 		priv, obj_relations, relation->getName());
 
 	// ensure that the view is set for the input streams,
@@ -11969,8 +11966,14 @@ static RelationSourceNode* pass1Update(thread_db* tdbb, CompilerScratch* csb, jr
 
 	if (triggers)
 	{
-		csb->csb_rpt[updateStream].csb_flags |= csb_view_update;
-		return NULL;
+		for (auto* t : triggers)
+		{
+			if (t->sysTrigger == fb_sysflag_user)
+			{
+				csb->csb_rpt[updateStream].csb_flags |= csb_view_update;
+				return NULL;
+			}
+		}
 	}
 
 	// we've got a view without triggers, let's check whether it's updateable
@@ -12166,15 +12169,15 @@ static void preprocessAssignments(thread_db* tdbb, CompilerScratch* csb,
 	if (insertOverride->has_value())
 	{
 		if (!identityType.has_value())
-			ERR_post(Arg::Gds(isc_overriding_without_identity) << relation->getName());
+			ERR_post(Arg::Gds(isc_overriding_without_identity) << relation->getName().toQuotedString());
 
 		if (identityType == IDENT_TYPE_BY_DEFAULT && *insertOverride == OverrideClause::SYSTEM_VALUE)
-			ERR_post(Arg::Gds(isc_overriding_system_invalid) << relation->getName());
+			ERR_post(Arg::Gds(isc_overriding_system_invalid) << relation->getName().toQuotedString());
 	}
 	else
 	{
 		if (identityType == IDENT_TYPE_ALWAYS)
-			ERR_post(Arg::Gds(isc_overriding_missing) << relation->getName());
+			ERR_post(Arg::Gds(isc_overriding_missing) << relation->getName().toQuotedString());
 	}
 }
 

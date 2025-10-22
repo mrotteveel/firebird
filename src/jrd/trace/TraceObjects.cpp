@@ -105,7 +105,7 @@ bool descToUTF8(const paramdsc* param, string& result)
 
 	try
 	{
-		if (!Jrd::DataTypeUtil::convertToUTF8(src, result, param->getCharSet(), status_exception::raise))
+		if (!Jrd::DataTypeUtil::convertToUTF8(src, result, CSetId(param->dsc_sub_type), status_exception::raise))
 			result = src;
 	}
 	catch (const Firebird::Exception&)

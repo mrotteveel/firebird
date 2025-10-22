@@ -33,7 +33,6 @@
 namespace Jrd
 {
 	class ValueListNode;
-	class QualifiedName;
 
 	class Function final : public Routine
 	{
@@ -120,7 +119,7 @@ namespace Jrd
 		bool fun_deterministic;
 		const ExtEngineManager::Function* fun_external;
 
-		Cached::Function* getPermanent() const override
+		Cached::Function* getPermanent() const noexcept override
 		{
 			return cachedFunction;
 		}

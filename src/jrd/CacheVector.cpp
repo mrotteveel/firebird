@@ -82,10 +82,22 @@ MdcVersion VersionSupport::next(thread_db* tdbb)
 
 // class ElementBase
 
-[[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* name, const char* family)
+[[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* family, const QualifiedName& name)
 {
 	fatal_exception::raiseFmt("%s %s%sid=%d busy in another thread - operation failed\n",
-		family, name ? name : "", name ? " " : "", id);
+		family, name.toQuotedString().c_str(), name.hasData() ? " " : "", id);
+}
+
+[[noreturn]] void ElementBase::newVersionBusy(const char* family, const QualifiedName& name, TraNumber traNum)
+{
+	Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
+		family, name.toQuotedString().c_str(), traNum);
+}
+
+[[noreturn]] void ElementBase::newVersionScan(const char* family, const QualifiedName& name)
+{
+	Firebird::fatal_exception::raiseFmt("newVersion: %s %s is scanned by us\n",
+		family, name.toQuotedString().c_str());
 }
 
 void ElementBase::commitErase(thread_db* tdbb)
@@ -130,21 +142,27 @@ Lock* ElementBase::makeLock(thread_db* tdbb, MemoryPool& p, SINT64 key, enum lck
 	return lck;
 }
 
-void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, const char* family, const char* name)
+void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, const char* family, const QualifiedName& name)
 {
 	if (!LCK_lock(tdbb, lock, flags & CacheFlag::ERASED ? LCK_EX : LCK_PW, LCK_WAIT))
-		Firebird::fatal_exception::raiseFmt("Unable to obtain WRITE rescan lock for %s %s", family, name);
+	{
+		Firebird::fatal_exception::raiseFmt("Unable to obtain WRITE rescan lock for %s %s",
+			family, name.toQuotedString().c_str());
+	}
 
 	LCK_convert(tdbb, lock, LCK_PR, LCK_WAIT);	// never fails
 }
 
-void ElementBase::setLock(thread_db* tdbb, const char* family, const char* name)
+void ElementBase::setLock(thread_db* tdbb, const char* family, const QualifiedName& name)
 {
 	fb_assert(lock);
 	if (lock)
 	{
 		if (!LCK_lock(tdbb, lock, LCK_PR, LCK_WAIT))
-			Firebird::fatal_exception::raiseFmt("Unable to obtain READ rescan lock for %s %s", family, name);
+		{
+			Firebird::fatal_exception::raiseFmt("Unable to obtain READ rescan lock for %s %s",
+				family, name.toQuotedString().c_str());
+		}
 	}
 }
 

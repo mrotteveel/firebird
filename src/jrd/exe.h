@@ -433,11 +433,11 @@ struct Dependency
 		Cached::Relation* relation;
 		Cached::Function* function;
 		Cached::Procedure* procedure;
-		MetaName name;
+		const QualifiedName* name;
 		SLONG number;
 	};
 
-	MetaName subName;
+	const MetaName* subName;
 	SLONG subNumber;
 };
 
@@ -678,23 +678,6 @@ inline void CompilerScratch::csb_repeat::activate() noexcept
 inline void CompilerScratch::csb_repeat::deactivate() noexcept
 {
 	csb_flags &= ~csb_active;
-}
-
-inline QualifiedName CompilerScratch::csb_repeat::getName(bool allowEmpty) const
-{
-	if (csb_relation)
-		return csb_relation->rel_name;
-	else if (csb_procedure)
-		return csb_procedure->getName();
-	else if (csb_table_value_fun)
-		return QualifiedName(csb_table_value_fun->name);
-	//// TODO: LocalTableSourceNode
-	//// TODO: JsonTableSourceNode
-	else
-	{
-		fb_assert(allowEmpty);
-		return {};
-	}
 }
 
 class AutoSetCurrentCursorId : private Firebird::AutoSetRestore<ULONG>

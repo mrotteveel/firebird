@@ -2293,7 +2293,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				}
 
 				EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
-				DFW_post_work(transaction, dfw_delete_trigger, &desc, trg_type);
+				DFW_post_work(transaction, dfw_delete_trigger, &desc, &schemaDesc, trg_type);
 			}
 			break;
 
@@ -3602,11 +3602,11 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 			{
 				EVL_field(0, new_rpb->rpb_record, f_idx_schema, &schemaDesc);
 				EVL_field(0, new_rpb->rpb_record, f_idx_name, &desc1);
-
 				EVL_field(0, new_rpb->rpb_record, f_idx_relation, &desc2);
-				MetaName relation_name;
-				MOV_get_metaname(tdbb, &desc2, relation_name);
-				auto* irel = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
+
+				MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
+				MOV_get_metaname(tdbb, &desc2, object_name.object);
+				auto* irel = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE);
 				fb_assert(irel);
 
 				if (EVL_field(0, new_rpb->rpb_record, f_idx_statistics, &desc2) &&
@@ -3638,15 +3638,17 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 		case rel_triggers:
 			{
-				dsc rname, tname;
+				dsc schemaName, rname, tname;
 
-				bool onRelation = EVL_field(0, org_rpb->rpb_record, f_trg_rname, &rname);
+				bool onRelation = EVL_field(0, new_rpb->rpb_record, f_trg_rname, &rname);
+				MOV_get_metaname(tdbb, &rname, object_name.object);
 				EVL_field(0, new_rpb->rpb_record, f_trg_schema, &schemaDesc);
+				MOV_get_metaname(tdbb, &schemaName, object_name.schema);
 
 				if (!check_nullify_source(tdbb, org_rpb, new_rpb, f_trg_source))
 					protect_system_table_delupd(tdbb, relation, "UPDATE");
 				else if (onRelation)
-					SCL_check_relation(tdbb, &rname, SCL_control | SCL_alter);
+					SCL_check_relation(tdbb, object_name, SCL_control | SCL_alter);
 
 				if (dfw_should_know(tdbb, org_rpb, new_rpb, f_trg_desc, true))
 				{
@@ -3654,11 +3656,10 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 						(USHORT) MOV_get_int64(tdbb, &desc2, 0) : 0;
 
 					EVL_field(0, org_rpb->rpb_record, f_trg_name, &tname);
-					DFW_post_work(transaction, dfw_modify_trigger, &tname, trg_type);
+					DFW_post_work(transaction, dfw_modify_trigger, &tname, &schemaDesc, trg_type);
 
 					if (onRelation)
 					{
-						MOV_get_metaname(tdbb, &rname, object_name);
 						RelationPermanent::newVersion(tdbb, object_name);
 
 						USHORT new_trg_type = EVL_field(0, new_rpb->rpb_record, f_trg_type, &desc2) ?
@@ -4409,18 +4410,19 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 		case rel_indices:
 			protect_system_table_insert(tdbb, request, relation);
 
-			EVL_field(0, rpb->rpb_record, f_idx_schema, &schemaDesc);
-			EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
-			MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
-			MOV_get_metaname(tdbb, &desc, object_name.object);
-			auto* irel = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
-			fb_assert(irel);
+			{
+				EVL_field(0, rpb->rpb_record, f_idx_schema, &schemaDesc);
+				EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
+				MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
+				MOV_get_metaname(tdbb, &desc, object_name.object);
+				auto* irel = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE);
+				fb_assert(irel);
 
-			DSC idx_name;
-			EVL_field(0, rpb->rpb_record, f_idx_name, &idx_name);
+				EVL_field(0, rpb->rpb_record, f_idx_name, &desc);
 
-			// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
-			DFW_post_work(transaction, dfw_create_index, &idx_name, &schemaDesc, irel->getId());
+				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
+				DFW_post_work(transaction, dfw_create_index, &desc, &schemaDesc, irel->getId());
+			}
 
 			set_system_flag(tdbb, rpb->rpb_record, f_idx_sys_flag);
 			break;
@@ -4507,12 +4509,13 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 				if (onRelation)
 				{
-					// check if this  request go through without checking permissions
-					if (!(request->getStatement()->flags & (Statement::FLAG_IGNORE_PERM | Statement::FLAG_INTERNAL)))
-						SCL_check_relation(tdbb, &desc, SCL_control | SCL_alter);
-
 					MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 					MOV_get_metaname(tdbb, &desc, object_name.object);
+
+					// check if this  request go through without checking permissions
+					if (!(request->getStatement()->flags & (Statement::FLAG_IGNORE_PERM | Statement::FLAG_INTERNAL)))
+						SCL_check_relation(tdbb, object_name, SCL_control | SCL_alter);
+
 					RelationPermanent::newVersion(tdbb, object_name);
 				}
 				else
@@ -4523,7 +4526,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				}
 
 				EVL_field(0, rpb->rpb_record, f_trg_name, &desc);
-				DFW_post_work(transaction, dfw_create_trigger, &desc, trg_type);
+				DFW_post_work(transaction, dfw_create_trigger, &desc, &schemaDesc, trg_type);
 			}
 			break;
 
@@ -5042,7 +5045,7 @@ static void check_rel_field_class(thread_db* tdbb,
 	EVL_field(0, rpb->rpb_record, f_rfr_schema, &schemaDesc);
 	EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
 
-	MetaName object_name;
+	QualifiedName object_name;
 	MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 	MOV_get_metaname(tdbb, &desc, object_name.object);
 	RelationPermanent::newVersion(tdbb, object_name);
@@ -5931,7 +5934,7 @@ static void gbak_put_search_system_schema_flag(thread_db* tdbb, record_param* rp
 
 				if (!newBid.isEmpty())
 				{
-					desc2.makeBlob(isc_blob_untyped, 0, reinterpret_cast<ISC_QUAD*>(&newBid));
+					desc2.makeBlob(isc_blob_untyped, CS_NONE, reinterpret_cast<ISC_QUAD*>(&newBid));
 					blb::move(tdbb, &desc2, &desc, relation, rpb->rpb_record, field);
 				}
 			}

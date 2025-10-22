@@ -434,8 +434,7 @@ namespace
 
 		// If there were none indices, this is a sequential retrieval.
 
-		const auto* relation = tail->csb_relation;
-		if (!relation)
+		if (!tail->csb_relation)
 			return;
 
 		if (!tail->csb_idx)
@@ -1526,12 +1525,12 @@ SortedStream* Optimizer::generateSort(const StreamList& streams,
 	{
 		for (auto& item : fields)
 		{
-			const auto* relation = csb->csb_rpt[item.stream].csb_relation;
+			const auto* relation = csb->csb_rpt[item.stream].csb_relation();
 
 			if (relation &&
-				!relation()->getExtFile() &&
-				!relation()->isView() &&
-				!relation()->isVirtual())
+				!relation->getExtFile() &&
+				!relation->isView() &&
+				!relation->isVirtual())
 			{
 				item.desc = nullptr;
 				--fieldCount;
@@ -1761,7 +1760,7 @@ void Optimizer::checkIndices()
 		if (plan->type != PlanNode::TYPE_RETRIEVE)
 			continue;
 
-		const auto* const relation = tail->csb_relation;
+		auto* const relation = tail->csb_relation();
 		if (!relation)
 			return;
 
@@ -1790,12 +1789,12 @@ void Optimizer::checkIndices()
 				((idx.idx_runtime_flags & idx_plan_navigate) && !(idx.idx_runtime_flags & idx_navigate)))
 			{
 				QualifiedName index_name;
-				auto* idp = relation()->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
+				auto* idp = relation->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
 				if (idp)
 					index_name = idp->getName();
 
 				if (!index_name.hasData())
-					index_name = "***unknown***";
+					index_name = QualifiedName("***unknown***");
 
 				// index %s cannot be used in the specified plan
 				if (isGbak)
@@ -3086,7 +3085,7 @@ string Optimizer::makeAlias(StreamType stream)
 			if (csb_tail->csb_alias)
 				alias_list.push(*csb_tail->csb_alias);
 			else if (csb_tail->csb_relation)
-				alias_list.push(csb_tail->csb_relation->getName().toQuotedString());
+				alias_list.push(csb_tail->csb_relation()->getName().toQuotedString());
 
 			if (!csb_tail->csb_view)
 				break;

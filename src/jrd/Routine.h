@@ -65,12 +65,11 @@ namespace Jrd
 		static bool destroy(thread_db* tdbb, RoutinePermanent* routine);
 		void releaseLock(thread_db*) { }
 
-		const QualifiedName& getName() const { return name; }
+		const QualifiedName& getName() const noexcept { return name; }
 		void setName(const QualifiedName& value) { name = value; }
-		const char* c_name() const { return name.c_str(); }
 
-		const MetaName& getSecurityName() const { return securityName; }
-		void setSecurityName(const MetaName& value) { securityName = value; }
+		const QualifiedName& getSecurityName() const noexcept { return securityName; }
+		void setSecurityName(const QualifiedName& value) { securityName = value; }
 
 		bool hasData() const { return name.hasData(); }
 
@@ -80,7 +79,7 @@ namespace Jrd
 	public:
 		MetaId id;							// routine ID
 		QualifiedName name;					// routine name
-		MetaName securityName;				// security class name
+		QualifiedName securityName;				// security class name
 		bool subRoutine;                    // Is this a subroutine?
 		MetaName owner;
 	};
@@ -116,7 +115,7 @@ namespace Jrd
 		static void destroy(thread_db* tdbb, Routine* routine);
 
 		const QualifiedName& getName() const noexcept { return getPermanent()->getName(); }
-		MetaId getId() noexcept const { return getPermanent()->getId(); }
+		MetaId getId() const noexcept { return getPermanent()->getId(); }
 
 		/*const*/ Statement* getStatement() const noexcept { return statement; }
 		void setStatement(Statement* value);
@@ -169,6 +168,7 @@ namespace Jrd
 	public:
 		virtual RoutinePermanent* getPermanent() const noexcept = 0;	// Permanent part of data
 		virtual int getObjectType() const noexcept = 0;
+		virtual SLONG getSclType() const noexcept = 0;
 
 	private:
 		USHORT id;							// routine ID

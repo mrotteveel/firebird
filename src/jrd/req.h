@@ -33,6 +33,7 @@
 #include "../jrd/Attachment.h"
 #include "../jrd/Record.h"
 #include "../jrd/RecordNumber.h"
+#include "../jrd/RecordNumber.h"
 #include "../common/classes/timestamp.h"
 #include "../common/TimeZoneUtil.h"
 
@@ -364,15 +365,8 @@ public:
 		return statement;
 	}
 
-	bool hasInternalStatement() const noexcept
-	{
-		return statement->flags & Statement::FLAG_INTERNAL;
-	}
-
-	bool hasPowerfulStatement() const noexcept
-	{
-		return statement->flags & Statement::FLAG_POWERFUL;
-	}
+	bool hasInternalStatement() const noexcept;
+	bool hasPowerfulStatement() const noexcept;
 
 	void setAttachment(Attachment* newAttachment) noexcept
 	{
@@ -393,9 +387,9 @@ public:
 		req_id = id;
 	}
 
-	bool setUsed();
-	void setUnused();
-	bool isUsed() const;
+	bool setUsed() noexcept;
+	void setUnused() noexcept;
+	bool isUsed() const noexcept;
 
 private:
 	Statement* const statement;

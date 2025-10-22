@@ -521,7 +521,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	if (dsqlScratch->functions.get(name, userFunc))
 	{
-		if (userFunc->udf_private && name.package != dsqlScratch->package)
+		if (userFunc->udf_private && name.getSchemaAndPackage() != dsqlScratch->package)
 		{
 			status_exception::raise(Arg::Gds(isc_private_function) <<
 				Arg::Str(name.object) << Arg::Str(name.package));
@@ -539,7 +539,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 	{
 		userFunc = FB_NEW_POOL(dsqlScratch->getPool()) dsql_udf(dsqlScratch->getPool(), jfunc);
 
-		if (userFunc->udf_private && name.package != dsqlScratch->package)
+		if (userFunc->udf_private && name.getSchemaAndPackage() != dsqlScratch->package)
 		{
 			status_exception::raise(Arg::Gds(isc_private_procedure) <<
 				Arg::Str(name.object) << Arg::Str(name.package));
@@ -614,7 +614,7 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 	dsql_prc* procedure = NULL;
 	if (dsqlScratch->procedures.get(name, procedure))
 	{
-		if (procedure->prc_private && name.package != dsqlScratch->package)
+		if (procedure->prc_private && name.getSchemaAndPackage() != dsqlScratch->package)
 		{
 			status_exception::raise(Arg::Gds(isc_private_procedure) <<
 				Arg::Str(name.object) << Arg::Str(name.package));
@@ -632,7 +632,7 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 		{
 			procedure = FB_NEW_POOL(dsqlScratch->getPool()) dsql_prc(dsqlScratch->getPool(), jproc);
 
-			if (procedure->prc_private && name.package != dsqlScratch->package)
+			if (procedure->prc_private && name.getSchemaAndPackage() != dsqlScratch->package)
 			{
 				status_exception::raise(Arg::Gds(isc_private_procedure) <<
 					Arg::Str(name.object) << Arg::Str(name.package));

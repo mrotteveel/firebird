@@ -935,6 +935,7 @@ void Applier::deleteRecord(thread_db* tdbb, TraNumber traNum,
 void Applier::setSequence(thread_db* tdbb, const QualifiedName& genName, SINT64 value)
 {
 	const auto dbb = tdbb->getDatabase();
+	const auto attachment = tdbb->getAttachment();		// ??????????????//
 
 	QualifiedName qualifiedGenName(genName);
 	attachment->qualifyExistingName(tdbb, qualifiedGenName, {obj_generator});
@@ -1178,7 +1179,7 @@ bool Applier::lookupRecord(thread_db* tdbb,
 		return true;
 	}
 
-	raiseError("Table %s has no unique key", relation->rel_name.toQuotedString().c_str());
+	raiseError("Table %s has no unique key", relation->getName().toQuotedString().c_str());
 }
 
 const Format* Applier::findFormat(thread_db* tdbb, jrd_rel* relation, ULONG length)

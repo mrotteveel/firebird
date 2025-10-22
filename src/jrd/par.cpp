@@ -82,7 +82,7 @@ static void par_error(BlrReader& blrReader, const Arg::StatusVector& v, bool isS
 static PlanNode* par_plan(thread_db*, CompilerScratch*);
 static void parseSubRoutines(thread_db* tdbb, CompilerScratch* csb);
 static void setNodeLineColumn(CompilerScratch* csb, DmlNode* node, ULONG blrOffset);
-static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_status, MetaName name,
+static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_status, const QualifiedName& name,
 	Cached::Relation* relation);
 
 namespace
@@ -584,7 +584,7 @@ USHORT PAR_desc(thread_db* tdbb, CompilerScratch* csb, dsc* desc, ItemInfo* item
 				Dependency dependency(obj_relation);
 				auto* rel = MetadataCache::lookupRelation(tdbb, *relationName, CacheFlag::AUTOCREATE);
 				if (!rel)
-					fatal_exception::raiseFmt("Unexpectedly lost relation %s\n", relationName->c_str());
+					fatal_exception::raiseFmt("Unexpectedly lost relation %s\n", relationName->toQuotedString().c_str());
 				dependency.relation = rel;
 				dependency.subName = fieldName;
 				csb->addDependency(dependency);
@@ -999,7 +999,7 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 	}
 
 	if (field_name.length() > 0)
-		dependency.subName = field_name;
+		dependency.subName = FB_NEW_POOL(*tdbb->getDefaultPool()) MetaName(*tdbb->getDefaultPool(), field_name);
 	else if (id >= 0)
 		dependency.subNumber = id;
 
@@ -1007,7 +1007,7 @@ void PAR_dependency(thread_db* tdbb, CompilerScratch* csb, StreamType stream, SS
 }
 
 
-static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_status, MetaName name,
+static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_status, const QualifiedName& name,
 	Cached::Relation* relation)
 {
 	switch(idx_status)
@@ -1017,21 +1017,21 @@ static void checkIndexStatus(CompilerScratch* csb, bool isGbak, IndexStatus idx_
 	case MET_index_deferred_drop:
 		if (isGbak)
 		{
-			PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name) <<
-													   Arg::Str(relation->getName()));
+			PAR_warning(Arg::Warning(isc_indexname) << Arg::Str(name.toQuotedString()) <<
+													   Arg::Str(relation->getName().toQuotedString()));
 		}
 		else
 		{
-			PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-												  	  Arg::Str(relation->getName()));
+			PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name.toQuotedString()) <<
+												  	  Arg::Str(relation->getName().toQuotedString()));
 		}
 		break;
 
 	case MET_index_deferred_active:
 		if (!isGbak)
 		{
-			PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name) <<
-													  Arg::Str(relation->getName()));
+			PAR_error(csb, Arg::Gds(isc_indexname) << Arg::Str(name.toQuotedString()) <<
+													  Arg::Str(relation->getName().toQuotedString()));
 		}
 		break;
 
@@ -1184,7 +1184,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				if (csb->collectingDependencies())
 				{
 					Dependency dependency(obj_index);
-					dependency.name = item.indexName;
+					dependency.name = &item.indexName;
 					csb->addDependency(dependency);
 				}
 
@@ -1235,7 +1235,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					if (csb->collectingDependencies())
 					{
 						Dependency dependency(obj_index);
-						dependency.name = item.indexName;
+						dependency.name = &item.indexName;
 						csb->addDependency(dependency);
 		            }
 				}

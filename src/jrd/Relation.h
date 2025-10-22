@@ -113,10 +113,11 @@ public:
 	Firebird::HalfStaticArray<UCHAR, 128> debugInfo;	// Debug info
 	Statement* statement = nullptr;						// Compiled statement
 	bool releaseInProgress = false;
+	fb_sysflag sysTrigger = fb_sysflag_user;			// See fb_sysflag in constants.h
 	FB_UINT64 type = 0;					// Trigger type
 	USHORT flags = 0;					// Flags as they are in RDB$TRIGGERS table
 	jrd_rel* relation = nullptr;		// Trigger parent relation
-	MetaName name;						// Trigger name
+	QualifiedName name;					// Trigger name
 	MetaName engine;					// External engine name
 	MetaName owner;						// Owner for SQL SECURITY
 	Firebird::string entryPoint;		// External trigger entrypoint
@@ -134,6 +135,11 @@ public:
 	explicit Trigger(MemoryPool& p)
 		: blr(p), debugInfo(p), entryPoint(p), extBody(p)
 	{}
+
+	const QualifiedName& getName() const noexcept
+	{
+		return name;
+	}
 };
 
 // Set of triggers (use separate arrays for triggers of different types)
@@ -190,14 +196,15 @@ class DbTriggersHeader : public Firebird::PermanentStorage
 public:
 	DbTriggersHeader(thread_db*, MemoryPool& p, MetaId& t, NoData = NoData());
 
-	MetaId getId()
+	MetaId getId() const noexcept
 	{
 		return type;
 	}
 
+	const QualifiedName& getName() const noexcept;
+
 	static bool destroy(thread_db* tdbb, DbTriggersHeader* trigs);
 	void releaseLock(thread_db*) { }
-	const char* c_name() const;
 
 private:
 	MetaId type;
@@ -231,11 +238,6 @@ public:
 		return scan(tdbb, flags);
 	}
 
-	const char* c_name() const override
-	{
-		return perm->c_name();
-	}
-
 	static const char* objectFamily(void*)
 	{
 		return "set of database-wide triggers on";
@@ -247,7 +249,7 @@ private:
 	DbTriggersHeader* perm;
 
 public:
-	decltype(perm) getPermanent() const
+	decltype(perm) getPermanent() const noexcept
 	{
 		return perm;
 	}
@@ -455,7 +457,7 @@ public:
 		return false;
 	}
 
-	MetaId getId() const
+	MetaId getId() const noexcept
 	{
 		return idp_id;
 	}
@@ -468,15 +470,7 @@ public:
 		return idp_relation;
 	}
 
-	MetaName getName() const
-	{
-		return idp_name;
-	}
-
-	const char* c_name() const;
-
-public:
-	MetaName			idp_name;		// used only as temp mirror for c_name() implementation
+	const QualifiedName& getName() const;
 
 private:
 	RelationPermanent*	idp_relation;
@@ -503,11 +497,7 @@ public:
 		return scan(tdbb, flags);
 	}
 
-	const char* c_name() const override
-	{
-		return idv_name.c_str();
-	}
-	MetaName getName() const
+	const QualifiedName& getName() const noexcept
 	{
 		return idv_name;
 	}
@@ -517,12 +507,12 @@ public:
 		return "index";
 	}
 
-	MetaName getForeignKey() const
+	QualifiedName getForeignKey() const
 	{
 		return idv_foreignKey;
 	}
 
-	MetaId getId() const
+	MetaId getId() const noexcept
 	{
 		return perm->getId();
 	}
@@ -541,11 +531,11 @@ public:
 
 private:
 	Cached::Index* perm;
-	MetaName idv_name;
+	QualifiedName idv_name;
 	SSHORT idv_uniqFlag = 0;
 	SSHORT idv_segmentCount = 0;
 	SSHORT idv_type = 0;
-	MetaName idv_foreignKey;						// FOREIGN RELATION NAME
+	QualifiedName idv_foreignKey;					// FOREIGN RELATION NAME
 	IndexStatus idv_active = MET_index_state_unknown;
 
 public:
@@ -586,12 +576,11 @@ public:
 	Firebird::TriState	rel_repl_state;		// replication state
 
 	bool hasData() const;
-	const char* c_name() const override;
-	MetaId getId() const;
+	MetaId getId() const noexcept;
 	RelationPages* getPages(thread_db* tdbb, TraNumber tran = MAX_TRA_NUMBER, bool allocPages = true);
 	bool isSystem() const noexcept;
 	bool isTemporary() const noexcept;
-	bool isVirtual() const noexcept ;
+	bool isVirtual() const noexcept;
 	bool isView() const noexcept;
 	bool isReplicating(thread_db* tdbb);
 
@@ -600,11 +589,11 @@ public:
 		return isView() ? obj_view : obj_relation;
 	}
 
-	MetaName getName() const;
-	MemoryPool& getPool() const;
-	MetaName getSecurityName() const;
-	MetaName getOwnerName() const;
-	ExternalFile* getExtFile() const;
+	const QualifiedName& getName() const noexcept;
+	MemoryPool& getPool() const noexcept;
+	const QualifiedName& getSecurityName() const noexcept;
+	MetaName getOwnerName() const noexcept;
+	ExternalFile* getExtFile() const noexcept;
 
 	static void destroy(thread_db* tdbb, jrd_rel *rel);
 	static jrd_rel* create(thread_db* tdbb, MemoryPool& p, Cached::Relation* perm);
@@ -622,7 +611,7 @@ public:
 
 public:
 	void releaseTriggers(thread_db* tdbb, bool destroy);
-	const Trigger* findTrigger(const MetaName trig_name) const;
+	const Trigger* findTrigger(const QualifiedName& trig_name) const;
 	const Format* currentFormat() const;
 
 	decltype(rel_perm) getPermanent() const
@@ -768,9 +757,9 @@ public:
 	void extFile(thread_db* tdbb, const TEXT* file_name);		// impl in ext.cpp
 
 	IndexVersion* lookup_index(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	IndexVersion* lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
+	IndexVersion* lookup_index(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	Cached::Index* lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	Cached::Index* lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags);
+	Cached::Index* lookupIndex(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 
 	void newIndexVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
@@ -841,32 +830,32 @@ public:
 		return rel_name.hasData();
 	}
 
-	const char* c_name() const
-	{
-		return rel_name.c_str();
-	}
-
-	MetaName getName() const
+	const QualifiedName& getName() const noexcept
 	{
 		return rel_name;
 	}
 
-	MetaId getId() const
+	MetaId getId() const noexcept
 	{
 		return rel_id;
 	}
 
-	MetaName getSecurityName() const
+	const QualifiedName& getSecurityName() const noexcept
 	{
 		return rel_security_name;
 	}
 
-	ExternalFile* getExtFile() const
+	MetaName getOwnerName() const noexcept
+	{
+		return rel_owner_name;
+	}
+
+	ExternalFile* getExtFile() const noexcept
 	{
 		return rel_file;
 	}
 
-	void setExtFile(ExternalFile* f)
+	void setExtFile(ExternalFile* f) noexcept
 	{
 		fb_assert(!rel_file);
 		rel_file = f;
@@ -876,32 +865,32 @@ public:
 	PageNumber getIndexRootPage(thread_db* tdbb);
 	Record* getGCRecord(thread_db* tdbb, const Format* const format);
 
-	bool isSystem() const;
-	bool isTemporary() const;
-	bool isVirtual() const;
-	bool isView() const;
+	bool isSystem() const noexcept;
+	bool isTemporary() const noexcept;
+	bool isVirtual() const noexcept;
+	bool isView() const noexcept;
 	bool isReplicating(thread_db* tdbb);
 
 	static int partners_ast_relation(void* ast_object);
 
 	// Relation must be updated on next use or commit
-	static Cached::Relation* newVersion(thread_db* tdbb, const MetaName name);
+	static Cached::Relation* newVersion(thread_db* tdbb, const QualifiedName& name);
 
 	// Lists of FK partners should be updated on next update
 	void checkPartners(thread_db* tdbb);
 
 	// On commit of relation dependencies of global field to be cleaned ...
-	void removeDependsFrom(MetaName globField);
+	void removeDependsFrom(const QualifiedName& globField);
 	//			... will be removed
 	void removeDepends(thread_db* tdbb);
 
 	vec<Format*>*	rel_formats;		// Known record formats
 	Indices			rel_indices;		// Active indices
-	MetaName		rel_name;			// ascii relation name
+	QualifiedName	rel_name;			// ascii relation name
 	MetaId			rel_id;
 
 	MetaName		rel_owner_name;		// ascii owner
-	MetaName		rel_security_name;	// security class name for relation
+	QualifiedName	rel_security_name;	// security class name for relation
 	std::atomic<ULONG>	rel_flags;		// flags
 
 	Firebird::TriState	rel_repl_state;	// replication state
@@ -927,7 +916,7 @@ private:
 
 	ExternalFile* rel_file;
 
-	Firebird::Array<MetaName> rel_clear_deps;
+	Firebird::Array<QualifiedName> rel_clear_deps;
 };
 
 
@@ -948,40 +937,34 @@ inline bool jrd_rel::hasData() const
 	return rel_perm->rel_name.hasData();
 }
 
-// ????????????? inline const char* jrd_rel::c_name() const
-inline bool jrd_rel::isSystem() const noexcept
+inline const QualifiedName& jrd_rel::getName() const noexcept
 {
-	return rel_perm->isSystem();
+	return rel_perm->getName();
 }
 
-inline MetaName jrd_rel::getName() const
-{
-	return rel_perm->rel_name;
-}
-
-inline MemoryPool& jrd_rel::getPool() const
+inline MemoryPool& jrd_rel::getPool() const noexcept
 {
 	return rel_perm->getPool();
 }
 
-inline ExternalFile* jrd_rel::getExtFile() const
+inline ExternalFile* jrd_rel::getExtFile() const noexcept
 {
 	return rel_perm->getExtFile();
 }
 
-inline MetaName jrd_rel::getSecurityName() const
+inline const QualifiedName& jrd_rel::getSecurityName() const noexcept
 {
-	return rel_perm->rel_security_name;
+	return rel_perm->getSecurityName();
 }
 
-inline MetaName jrd_rel::getOwnerName() const
+inline MetaName jrd_rel::getOwnerName() const noexcept
 {
-	return rel_perm->rel_owner_name;
+	return rel_perm->getOwnerName();
 }
 
-inline MetaId jrd_rel::getId() const
+inline MetaId jrd_rel::getId() const noexcept
 {
-	return rel_perm->rel_id;
+	return rel_perm->getId();
 }
 
 inline RelationPages* jrd_rel::getPages(thread_db* tdbb, TraNumber tran, bool allocPages)
@@ -1004,12 +987,7 @@ inline bool jrd_rel::isView() const noexcept
 	return rel_perm->isView();
 }
 
-inline bool jrd_rel::isVirtual() const
-{
-	return rel_perm->isVirtual();
-}
-
-inline bool jrd_rel::isSystem() const
+inline bool jrd_rel::isSystem() const noexcept
 {
 	return rel_perm->isSystem();
 }
@@ -1025,22 +1003,22 @@ inline Record* jrd_rel::getGCRecord(thread_db* tdbb)
 }
 
 
-inline bool RelationPermanent::isSystem() const
+inline bool RelationPermanent::isSystem() const noexcept
 {
 	return rel_flags & REL_system;
 }
 
-inline bool RelationPermanent::isTemporary() const
+inline bool RelationPermanent::isTemporary() const noexcept
 {
 	return (rel_flags & (REL_temp_tran | REL_temp_conn));
 }
 
-inline bool RelationPermanent::isVirtual() const
+inline bool RelationPermanent::isVirtual() const noexcept
 {
 	return (rel_flags & REL_virtual);
 }
 
-inline bool RelationPermanent::isView() const
+inline bool RelationPermanent::isView() const noexcept
 {
 	return (rel_flags & REL_jrd_view);
 }
@@ -1099,7 +1077,7 @@ public:
 	MetaName	fld_name;				// Field name
 	MetaName	fld_security_name;		// security class name for field
 	QualifiedName	fld_generator_name;	// identity generator name
-	MetaName	fld_source_name;		// RDB%FIELD name
+	QualifiedName	fld_source_name;	// RDB%FIELD name
 	QualifiedNameMetaNamePair	fld_source_rel_field;	// Relation/field source name
 	std::optional<IdentityType> fld_identity_type;
 	USHORT fld_length;

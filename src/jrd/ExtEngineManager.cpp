@@ -608,7 +608,7 @@ private:
 
 		TTypeId charSetId;
 
-		if (!MET_get_char_coll_subtype(tdbb, &charSetId, charSetName))
+		if (!MetadataCache::get_char_coll_subtype(tdbb, &charSetId, charSetName))
 			status_exception::raise(Arg::Gds(isc_charset_not_found) << charSetName.toQuotedString());
 
 		attachment->att_charset = charSetId;

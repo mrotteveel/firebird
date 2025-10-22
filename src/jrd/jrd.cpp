@@ -2707,7 +2707,6 @@ JRequest* JAttachment::compileRequest(CheckStatusWrapper* user_status,
 
 			stmt = CMP_compile(tdbb, blr, blr_length, false, 0, nullptr);
 
-			const auto attachment = tdbb->getAttachment();
 			const auto rootRequest = stmt->makeRootRequest(tdbb);
 			rootRequest->setAttachment(attachment);
 			attachment->att_requests.add(rootRequest);
@@ -6934,9 +6933,7 @@ static void find_intl_charset(thread_db* tdbb, Jrd::Attachment* attachment, cons
 	}
 
 	TTypeId id;
-	const UCHAR* lc_ctype = reinterpret_cast<const UCHAR*>(options->dpb_lc_ctype.c_str());
-
-	if (MetadataCache::get_char_coll_subtype(tdbb, &id, lc_ctype, options->dpb_lc_ctype.length()) &&
+	if (MetadataCache::get_char_coll_subtype(tdbb, &id, options->dpb_lc_ctype) &&
 		INTL_defined_type(tdbb, id))
 	{
 		if (CSetId(id) == CS_BINARY)

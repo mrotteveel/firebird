@@ -34,7 +34,7 @@ class Request;
 class Resources;
 class thread_db;
 class jrd_tra;
-
+/*
 // System transaction is always transaction 0.
 const TraNumber TRA_system_transaction = 0;
 
@@ -67,7 +67,7 @@ const ULONG TRA_auto_release_temp_blobid	= 0x400000L;	// remove temp ids of mate
 // flags derived from TPB, see also transaction_options() at tra.cpp
 const ULONG TRA_OPTIONS_MASK = (TRA_degree3 | TRA_readonly | TRA_ignore_limbo | TRA_read_committed |
 	TRA_autocommit | TRA_rec_version | TRA_read_consistency | TRA_no_auto_undo | TRA_restart_requests | TRA_auto_release_temp_blobid);
-
+*/
 enum tra_wait_t {
 	tra_no_wait,
 	tra_probe,

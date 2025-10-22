@@ -244,7 +244,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					try
 					{
 						parameter->prm_default_value = static_cast<ValueExprNode*>(MET_parse_blob(tdbb,
-							&function->getName().schema, nullptr, &default_value, nullptr, nullptr, false, false));
+							&getName().schema, nullptr, &default_value, nullptr, nullptr, false, false));
 					}
 					catch (const Exception&)
 					{
@@ -275,7 +275,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 			// Prepare the exception message to be used in case this function ever
 			// causes an exception.  This is done at this time to save us from preparing
 			// (thus allocating) this message every time the function is called.
-			function->fun_exception_message.printf(EXCEPTION_MESSAGE,
+			fun_exception_message.printf(EXCEPTION_MESSAGE,
 				getName().toQuotedString().c_str(), X.RDB$ENTRYPOINT, X.RDB$MODULE_NAME);
 
 			if (!X.RDB$DETERMINISTIC_FLAG.NULL)

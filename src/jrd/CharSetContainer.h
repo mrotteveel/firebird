@@ -70,8 +70,7 @@ public:
 		return cs != nullptr;
 	}
 
-	const char* c_name() const;
-	MetaName getName() const;
+	QualifiedName getName() const;
 	MetaId getId();
 
 	Lock* getLock()
@@ -97,11 +96,6 @@ public:
 		: perm(parent), charset_collations(perm->getPool())
 	{ }
 
-	const char* c_name() const override
-	{
-		return perm->c_name();
-	}
-
 	static const char* objectFamily(void*)
 	{
 		return "character set";
@@ -112,7 +106,7 @@ public:
 		return perm->getId();
 	}
 
-	MetaName getName() const
+	QualifiedName getName() const
 	{
 		return perm->getName();
 	}
@@ -129,7 +123,7 @@ public:
 	}
 
 	Collation* getCollation(CollId id);
-	Collation* getCollation(MetaName name);
+	Collation* getCollation(const QualifiedName& name);
 	Cached::CharSet* getContainer() const
 	{
 		return perm;

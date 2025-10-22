@@ -1989,7 +1989,7 @@ bool CreateAlterFunctionNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch*
 
 		if (!secondPass && runTriggers)
 		{
-			if (package.isEmpty())
+			if (name.package.isEmpty())
 				executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_FUNCTION, name, {});
 
 			MetadataCache::oldVersion<Cached::Function>(tdbb, id, CacheFlag::OLD_ALTER);
@@ -2715,7 +2715,7 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	MetaId id;
 
 	//MetadataCache::oldVersion<Cached::Function>(tdbb, id);	-- missing ID in the node
-	MetadataCache::lookup_function(tdbb, QualifiedName(name, ""), CacheFlag::OLD_DROP);
+	MetadataCache::lookup_function(tdbb, name, CacheFlag::OLD_DROP);
 
 	dropArguments(tdbb, transaction, name);
 
@@ -2771,7 +2771,7 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	{
 		MetadataCache::erase<Cached::Function>(tdbb, id);
 
-	 	if (package.isEmpty())
+	 	if (name.package.isEmpty())
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_FUNCTION, name, {});
 	}
 
@@ -3036,7 +3036,7 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 
 		if (!secondPass && runTriggers)
 		{
-			if (package.isEmpty())
+			if (name.package.isEmpty())
 				executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_PROCEDURE, name, {});
 
 			MetadataCache::oldVersion<Cached::Procedure>(tdbb, id, CacheFlag::OLD_ALTER);
@@ -3636,7 +3636,7 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	{
 		MetadataCache::erase<Cached::Procedure>(tdbb, id);
 
-		if (package.isEmpty())
+		if (name.package.isEmpty())
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_PROCEDURE, name, {});
 	}
 
@@ -6441,8 +6441,11 @@ USHORT RelationNode::calcDbKeyLength(thread_db* tdbb)
 
 	FOR(REQUEST_HANDLE handle)
 		Z IN RDB$VIEW_RELATIONS CROSS
-		R IN RDB$RELATIONS OVER RDB$RELATION_NAME
-			WITH Z.RDB$VIEW_NAME = name.c_str() AND
+		R IN RDB$RELATIONS
+			WITH Z.RDB$RELATION_NAME EQ R.RDB$RELATION_NAME AND
+				 Z.RDB$RELATION_SCHEMA_NAME EQ R.RDB$SCHEMA_NAME AND
+				 Z.RDB$VIEW_NAME EQ name.c_str() AND
+				 Z.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
 				 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
 				  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
 	{
@@ -8033,7 +8036,7 @@ void RelationNode::dropFromPublication(thread_db* tdbb,
 }
 
 
-void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName relName)
+void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const QualifiedName& relName)
 {
 /**************************************
  *
@@ -8068,7 +8071,10 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 		AutoCacheRequest request_fmt1(tdbb, irq_format1, IRQ_REQUESTS);
 
 		FOR(REQUEST_HANDLE request_fmt1 TRANSACTION_HANDLE transaction)
-			REL IN RDB$RELATIONS WITH REL.RDB$RELATION_NAME EQ relName.c_str()
+			REL IN RDB$RELATIONS
+				WITH REL.RDB$SCHEMA_NAME EQ relName.schema.c_str() AND
+					REL.RDB$RELATION_NAME EQ relName.object.c_str()
+
 		{
 			relation = MetadataCache::lookup_relation_id(tdbb, REL.RDB$RELATION_ID, CacheFlag::AUTOCREATE);
 			if (!relation)
@@ -8079,6 +8085,17 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 			external_flag = REL.RDB$EXTERNAL_FILE[0];
 			triggers = &relation->rel_triggers;
 
+			if (REL.RDB$VIEW_BLR.NULL)
+			{
+				if (REL.RDB$FORMAT == MAX_TABLE_VERSIONS)
+					raiseTooManyVersionsError(obj_relation, work->getQualifiedName());
+			}
+			else
+			{
+				if (REL.RDB$FORMAT == MAX_VIEW_VERSIONS)
+					raiseTooManyVersionsError(obj_view, work->getQualifiedName());
+			}
+
 			if (REL.RDB$FORMAT == MAX_TABLE_VERSIONS)
 				raiseTooManyVersionsError(REL.RDB$VIEW_BLR.NULL ? obj_relation : obj_view, relName);
 
@@ -8088,10 +8105,11 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 
 				FOR(REQUEST_HANDLE request_fmtx TRANSACTION_HANDLE transaction)
 					RFR IN RDB$RELATION_FIELDS CROSS
-						FLD IN RDB$FIELDS WITH
-						RFR.RDB$RELATION_NAME EQ relName.c_str() AND
-						RFR.RDB$FIELD_SOURCE EQ FLD.RDB$FIELD_NAME
-						SORTED BY RFR.RDB$FIELD_POSITION
+						FLD IN RDB$FIELDS
+						WITH RFR.RDB$SCHEMA_NAME EQ relName.schema.c_str() AND
+							RFR.RDB$RELATION_NAME EQ relName.object.c_str() AND
+							FLD.RDB$SCHEMA_NAME EQ RFR.RDB$FIELD_SOURCE_SCHEMA_NAME AND
+							FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
 				{
 					// Update RFR to reflect new fields id
 
@@ -8135,8 +8153,12 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 											desc.makeText(static_cast<USHORT>(strlen(REL.RDB$RELATION_NAME)),
 												CS_METADATA, (UCHAR*) REL.RDB$RELATION_NAME);
 
+											dsc schemaDesc;
+											desc.makeText(static_cast<USHORT>(strlen(REL.RDB$SCHEMA_NAME)),
+												CS_METADATA, (UCHAR*) REL.RDB$SCHEMA_NAME);
+
 											DeferredWork* work = DFW_post_work(transaction,
-												dfw_check_not_null, &desc, 0);
+												dfw_check_not_null, &desc, &schemaDesc, 0);
 											SortedArray<int>& ids = DFW_get_ids(work);
 
 											FB_SIZE_T pos;
@@ -8161,7 +8183,8 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 									AutoRequest temp;
 									RFR.RDB$UPDATE_FLAG = 0;
 									FOR(REQUEST_HANDLE temp) X IN RDB$TRIGGERS WITH
-										X.RDB$RELATION_NAME EQ relName.c_str() AND
+										X.RDB$SCHEMA_NAME EQ relName.schema.c_str() AND
+										X.RDB$RELATION_NAME EQ relName.object.c_str() AND
 											X.RDB$TRIGGER_TYPE EQ 1
 									{
 										RFR.RDB$UPDATE_FLAG = 1;
@@ -8178,8 +8201,11 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 					putSummaryRecord(tdbb, blob, RSR_field_id, (UCHAR*)&n, sizeof(n));
 					putSummaryRecord(tdbb, blob, RSR_field_name, (UCHAR*) RFR.RDB$FIELD_NAME,
 									   fb_utils::name_length(RFR.RDB$FIELD_NAME));
-					putSummaryRecord(tdbb, blob, RSR_field_source, (UCHAR*) RFR.RDB$FIELD_SOURCE,
-									   fb_utils::name_length(RFR.RDB$FIELD_SOURCE));
+
+					QualifiedName fldsrc(RFR.RDB$FIELD_SOURCE, RFR.RDB$FIELD_SOURCE_SCHEMA_NAME);
+					putSummaryRecord(tdbb, blob, RSR_field_source, (UCHAR*)(fldsrc.toQuotedString().c_str()),
+									   fldsrc.toQuotedString().length());
+
 					if (!FLD.RDB$FIELD_LENGTH.NULL)
 					{
 						n = FLD.RDB$FIELD_LENGTH;
@@ -8267,7 +8293,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 							DPM_delete_relation(tdbb, getPermanent(relation));
 
 						ERR_post(Arg::Gds(isc_no_meta_update) <<
-								 Arg::Gds(isc_random) << Arg::Str(relName));
+								 Arg::Gds(isc_random) << relName.toQuotedString());
 					}
 
 					// Make sure the text type specified is implemented
@@ -8277,7 +8303,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName r
 							DPM_delete_relation(tdbb, getPermanent(relation));
 
 						ERR_post_nothrow(Arg::Gds(isc_no_meta_update) <<
-										 Arg::Gds(isc_random) << Arg::Str(relName));
+										 Arg::Gds(isc_random) << relName.toQuotedString());
 						INTL_texttype_lookup(tdbb, tfb->tfb_desc.getTextType());	// should punt
 						ERR_punt(); // if INTL_texttype_lookup hasn't punt
 					}

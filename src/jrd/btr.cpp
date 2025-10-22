@@ -6991,8 +6991,6 @@ string print_key(thread_db* tdbb, jrd_rel* relation, index_desc* idx, Record* re
  *	Convert index key into textual representation.
  *
  **************************************/
-	string key;
-
 	fb_assert(relation && idx && record);
 
 	constexpr FB_SIZE_T MAX_KEY_STRING_LEN = 250;

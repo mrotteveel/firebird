@@ -113,13 +113,13 @@ using namespace Firebird;
 
 static ULONG get_rel_flags_from_FLAGS(USHORT);
 static void get_trigger(thread_db*, jrd_rel*, bid*, bid*, Triggers&, const QualifiedName&, FB_UINT64,
-	USHORT, const MetaName&, const string&, const bid*, TriState ssDefiner);
+	SSHORT, USHORT, const MetaName&, const string&, const bid*, TriState ssDefiner);
 static void lookup_view_contexts(thread_db*, jrd_rel*);
 static void make_relation_scope_name(const QualifiedName&, const USHORT, string& str);
-static ValueExprNode* parse_field_default_blr(thread_db* tdbb, bid* blob_id);
+static ValueExprNode* parse_field_default_blr(thread_db* tdbb, const MetaName& schema, bid* blob_id);
 static BoolExprNode* parse_field_validation_blr(thread_db* tdbb, bid* blob_id, const QualifiedName& name);
 static void save_trigger_data(thread_db*, Triggers&, jrd_rel*, Statement*, blb*, blb*,
-	const QualifiedName*, FB_UINT64, USHORT, const MetaName&, const string&,
+	const QualifiedName*, FB_UINT64, fb_sysflag, USHORT, const MetaName&, const string&,
 	const bid*, TriState ssDefiner);
 static bool verify_TRG_ignore_perm(thread_db*, const QualifiedName&);
 
@@ -557,7 +557,7 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 
 			calcFieldRelation = MetadataCache::newVersion<Cached::Relation>(tdbb, R.RDB$RELATION_ID);
 		}
-		DFW_post_work(transaction, dfw_commit_relation, nullptr, R.RDB$RELATION_ID);
+		DFW_post_work(transaction, dfw_commit_relation, nullptr, nullptr, R.RDB$RELATION_ID);
 
 		AutoCacheRequest request2(tdbb, irq_m_fields4, IRQ_REQUESTS);
 
@@ -701,7 +701,6 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 		schemaDesc.makeText(triggerName.schema.length(), CS_METADATA, (UCHAR*) triggerName.schema.c_str());
 		nameDesc.makeText(triggerName.object.length(), CS_METADATA, (UCHAR*) triggerName.object.c_str());
 		DeferredWork* dw2 = DFW_post_work(transaction, dfw_modify_trigger, &nameDesc, &schemaDesc, TRG.RDB$TRIGGER_TYPE);
-		DFW_post_work_arg(transaction, dw2, nullptr, nullptr, TRG.RDB$TRIGGER_TYPE, dfw_arg_trg_type);
 
 		nameDesc.dsc_length = triggerRelationName.length();
 		nameDesc.dsc_address = (UCHAR*) triggerRelationName.c_str();
@@ -1086,7 +1085,7 @@ bool MET_get_char_coll_subtype_info(thread_db* tdbb, USHORT id, SubtypeInfo* inf
 
 
 DmlNode* MET_get_dependencies(thread_db* tdbb,
-							  Cached::Relation* relation,
+							  jrd_rel* relation,
 							  const UCHAR* blob,
 							  const ULONG blob_length,
 							  CompilerScratch* view_csb,
@@ -1126,12 +1125,12 @@ DmlNode* MET_get_dependencies(thread_db* tdbb,
 
 	if (blob)
 	{
-		node = PAR_blr(tdbb, &object_name.schema, relation, blob, blob_length, view_csb, &csb, statementPtr,
-			(type == obj_trigger && relation != NULL), 0);
+		node = PAR_blr(tdbb, &object_name.schema, getPermanent(relation), blob, blob_length,
+			view_csb, &csb, statementPtr, (type == obj_trigger && relation != NULL), 0);
 	}
 	else
 	{
-		node = MET_parse_blob(tdbb, &object_name.schema, relation, blob_id, &csb, statementPtr,
+		node = MET_parse_blob(tdbb, &object_name.schema, getPermanent(relation), blob_id, &csb, statementPtr,
 			(type == obj_trigger && relation != NULL), type == obj_validation);
 	}
 
@@ -1345,7 +1344,7 @@ ScanResult DbTriggers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		if ((TRG.RDB$TRIGGER_TYPE & mask) == type)
 		{
-			MET_load_trigger(tdbb, nullptr, TRG.RDB$TRIGGER_NAME, [this](int)->Triggers& {return *this;});
+			MET_load_trigger(tdbb, nullptr, QualifiedName(TRG.RDB$TRIGGER_NAME, TRG.RDB$SCHEMA_NAME), [this](int)->Triggers& {return *this;});
 		}
 	}
 	END_FOR
@@ -1490,6 +1489,7 @@ void MET_load_trigger(thread_db* tdbb,
 							triggers(0),
 							trigger_name,
 							TRG.RDB$TRIGGER_TYPE,
+							TRG.RDB$SYSTEM_FLAG,
 							trig_flags,
 							engine,
 							entryPoint,
@@ -1508,7 +1508,9 @@ void MET_load_trigger(thread_db* tdbb,
 							&TRG.RDB$TRIGGER_BLR,
 							&debug_blob_id,
 							triggers(trigger_action),
+							trigger_name,
 							(UCHAR) trigger_action,
+							TRG.RDB$SYSTEM_FLAG,
 							trig_flags,
 							engine,
 							entryPoint,
@@ -2168,8 +2170,8 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 				const QualifiedName partnerRelationName(IND.RDB$RELATION_NAME, IND.RDB$SCHEMA_NAME);
 
 				//// ASF: Hack fix for CORE-4304, until nasty interactions between dfw and met are not resolved.
-				const jrd_rel* partner_relation = relation->getName() == partnerRelationName ?
-					relation : MetadataCache::lookupRelation(tdbb, IND.RDB$RELATION_NAME, CacheFlag::AUTOCREATE);
+				const auto* partner_relation = relation->getName() == partnerRelationName ?
+					relation : MetadataCache::lookupRelation(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
 
 				if (partner_relation &&
 					MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
@@ -2369,7 +2371,7 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const Qualified
 	return rc;
 }
 
-jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags)
+jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 /**************************************
  *
@@ -2419,12 +2421,13 @@ CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, CSetId id, ObjectBas
 
 
 DmlNode* MET_parse_blob(thread_db*					tdbb,
-				   Cached::Relation*				relation,
-				   bid*								blob_id,
-				   CompilerScratch**				csb_ptr,
-				   Statement**						statementPtr,
-				   const bool						trigger,
-				   bool 							validationExpr)
+						const MetaName*				schema,
+						Cached::Relation*			relation,
+						bid*						blob_id,
+						CompilerScratch**			csb_ptr,
+						Statement**					statementPtr,
+						const bool					trigger,
+						bool 						validationExpr)
 {
 /**************************************
  *
@@ -2538,11 +2541,10 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			if (getName().toQuotedString().length() == 0)
 				getPermanent()->name = QualifiedName(P.RDB$PROCEDURE_NAME, P.RDB$SCHEMA_NAME, P.RDB$PACKAGE_NAME);
 
-			MetaName secClass;
 			TriState ssDefiner;
 
 			if (!P.RDB$SECURITY_CLASS.NULL)
-				setSecurityName(QualifiedName(P.RDB$SECURITY_CLASS, SCH.RDB$SECURITY_CLASS));
+				getPermanent()->setSecurityName(QualifiedName(P.RDB$SECURITY_CLASS, SCH.RDB$SECURITY_CLASS));
 			else if (!P.RDB$PACKAGE_NAME.NULL)
 			{
 				AutoCacheRequest requestHandle(tdbb, irq_l_procedure_pkg_class, IRQ_REQUESTS);
@@ -2553,16 +2555,13 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 						 PKG.RDB$PACKAGE_NAME EQ P.RDB$PACKAGE_NAME
 				{
 					if (!PKG.RDB$SECURITY_CLASS.NULL)
-						setSecurityName(QualifiedName(PKG.RDB$SECURITY_CLASS, SCH.RDB$SECURITY_CLASS));
+						getPermanent()->setSecurityName(QualifiedName(PKG.RDB$SECURITY_CLASS, SCH.RDB$SECURITY_CLASS));
 
 					if (!PKG.RDB$SQL_SECURITY.NULL)
 						ssDefiner = (bool) PKG.RDB$SQL_SECURITY;
 				}
 				END_FOR
 			}
-
-			if (getPermanent()->securityName.length() == 0)
-				getPermanent()->securityName = secClass;
 
 			if (ssDefiner.isUnknown())
 			{
@@ -2649,7 +2648,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 					try
 					{
 						parameter->prm_default_value = static_cast<ValueExprNode*>(
-							MET_parse_blob(tdbb, &procedure->getName().schema, nullptr, &pa_default_value,
+							MET_parse_blob(tdbb, &getName().schema, nullptr, &pa_default_value,
 								NULL, NULL, false, false));
 					}
 					catch (const Exception&)
@@ -2666,7 +2665,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 			const bool external = !P.RDB$ENGINE_NAME.NULL;	// ODS_12_0
 
-			auto& paramArray = procedure->getOutputFields();
+			auto& paramArray = getOutputFields();
 			if (paramArray.hasData() && paramArray[0])
 			{
 				Format* format = Format::newFormat(mdc->getPool(), getOutputFields().getCount());
@@ -2948,7 +2947,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 			{
 				found = true;
 
-				rel_perm->rel_name = REL.RDB$RELATION_NAME;
+				rel_perm->rel_name = QualifiedName(REL.RDB$RELATION_NAME, REL.RDB$SCHEMA_NAME);
 				rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
 				if (!REL.RDB$RELATION_TYPE.NULL)
 					rel_perm->rel_flags |= MET_get_rel_flags_from_TYPE(REL.RDB$RELATION_TYPE);
@@ -2998,7 +2997,10 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 	bool found = false;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE trans)
-		REL IN RDB$RELATIONS WITH REL.RDB$RELATION_ID EQ getId()
+		REL IN RDB$RELATIONS
+		CROSS SCH IN RDB$SCHEMAS
+		WITH REL.RDB$RELATION_ID EQ getId() AND
+			 SCH.RDB$SCHEMA_NAME EQ REL.RDB$SCHEMA_NAME
 	{
 		found = true;
 
@@ -3035,13 +3037,12 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 
 			if (dependencies)
 			{
-				const QualifiedName depName(REL.RDB$RELATION_NAME, REL.RDB$SCHEMA_NAME);
-				rseNode = MET_get_dependencies(tdbb, getPermanent(), NULL, 0, NULL, &REL.RDB$VIEW_BLR,
-					NULL, &csb, depName, obj_view, 0, trans);
+				rseNode = MET_get_dependencies(tdbb, this, NULL, 0, NULL, &REL.RDB$VIEW_BLR,
+					NULL, &csb, getName(), obj_view, 0, trans);
 			}
 			else
 			{
-				rseNode = MET_parse_blob(tdbb, &relation->rel_name.schema, rel_perm, &REL.RDB$VIEW_BLR,
+				rseNode = MET_parse_blob(tdbb, &getName().schema, rel_perm, &REL.RDB$VIEW_BLR,
 					&csb, NULL, false, false);
 			}
 
@@ -3171,7 +3172,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 				break;
 
 			case RSR_field_source:
-				field->fld_source_name = reinterpret_cast<char*>(p);
+				field->fld_source_name = QualifiedName::parseSchemaObject(reinterpret_cast<char*>(p));
 				break;
 
 			case RSR_view_context:
@@ -3207,7 +3208,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 					AutoSetRestoreFlag<USHORT> flag(&field->fld_flags, FLD_parse_computed, true);
 
 					DmlNode* nod = dependencies ?
-						MET_get_dependencies(tdbb, rel_perm, p, length, csb, NULL, NULL, NULL,
+						MET_get_dependencies(tdbb, this, p, length, csb, NULL, NULL, NULL,
 							QualifiedName(field->fld_name, getName().schema), obj_computed,
 							csb_computed_field, trans) :
 						PAR_blr(tdbb, &getName().schema, rel_perm, p, length, csb, NULL, NULL,
@@ -3557,8 +3558,8 @@ ULONG MET_get_rel_flags_from_TYPE(USHORT type)
 
 static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 						bid* blob_id, bid* debug_blob_id, Triggers& triggers,
-						const QualifiedName& name, FB_UINT64 type, USHORT flags,
-						const MetaName& engine, const string& entryPoint,
+						const QualifiedName& name, FB_UINT64 type, SSHORT sysTrigger,
+						USHORT flags, const MetaName& engine, const string& entryPoint,
 						const bid* body, TriState ssDefiner)
 {
 /**************************************
@@ -3587,13 +3588,13 @@ static void get_trigger(thread_db* tdbb, jrd_rel* relation,
 		debugInfoBlob = blb::open(tdbb, attachment->getMetaTransaction(tdbb), debug_blob_id);
 
 	save_trigger_data(tdbb, triggers, relation, NULL, blrBlob, debugInfoBlob,
-					  name, type, flags, engine, entryPoint, body, ssDefiner);
+					  &name, type, (fb_sysflag)sysTrigger, flags, engine, entryPoint, body, ssDefiner);
 }
 
 
 static bool get_type(thread_db* tdbb, USHORT* id, const MetaName& name, const TEXT* field)
 {
- **************************************
+/**************************************
  *
  *      g e t _ t y p e
  *
@@ -3793,8 +3794,9 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb,
 
 	if (charSetName.hasData())
 	{
-		auto* cs = mdc_charsets.lookup(tdbb,
-			[name](CharSetContainer* csc)
+		auto* mdc = MetadataCache::get(tdbb);
+		auto* cs = mdc->mdc_charsets.lookup(tdbb,
+			[charSetName](CharSetContainer* csc)
 			{
 				return csc->names.exist(charSetName);
 			},
@@ -3814,7 +3816,7 @@ bool MetadataCache::resolve_charset_and_collation(thread_db* tdbb,
 		if (!coll)
 			return false;
 
-		*id = TTypeId(CSetId(COL.RDB$CHARACTER_SET_ID), CollId(COL.RDB$COLLATION_ID));
+		*id = coll->getType();		//TTypeId(cs->getId(), CollId(COL.RDB$COLLATION_ID));
 		return true;
 	}
 
@@ -3855,7 +3857,7 @@ ScanResult CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		{
 			QualifiedName aliasName(T.RDB$TYPE_NAME, SYSTEM_SCHEMA);
 			if (getName() != aliasName)
-				perm->names.push(T.RDB$TYPE_NAME);
+				perm->names.push(aliasName);
 		}
 		END_FOR
 	}
@@ -3865,16 +3867,16 @@ ScanResult CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			CROSS COL IN RDB$COLLATIONS OVER RDB$CHARACTER_SET_ID
 		WITH CS.RDB$CHARACTER_SET_ID EQ getId()
 	{
-		fb_assert(perm->names.exist(CS.RDB$CHARACTER_SET_NAME));
+		fb_assert(perm->names.exist(QualifiedName(CS.RDB$CHARACTER_SET_NAME, CS.RDB$SCHEMA_NAME)));
 
 		SubtypeInfo info;
 		info.charsetName = perm->names;
-		info.collationName = COL.RDB$COLLATION_NAME;
+		info.collationName = QualifiedName(COL.RDB$COLLATION_NAME, COL.RDB$SCHEMA_NAME);
 		info.attributes = (USHORT)COL.RDB$COLLATION_ATTRIBUTES;
 		info.ignoreAttributes = COL.RDB$COLLATION_ATTRIBUTES.NULL;
 
 		if (COL.RDB$BASE_COLLATION_NAME.NULL)
-			info.baseCollationName = info.collationName;
+			info.baseCollationName = info.collationName.object.c_str();
 		else
 			info.baseCollationName = COL.RDB$BASE_COLLATION_NAME;
 
@@ -3943,8 +3945,8 @@ ScanResult CharSetVers::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relation,
 							  Statement* statement, blb* blrBlob, blb* debugInfoBlob,
-							  const QualifiedName* name, FB_UINT64 type,  USHORT flags,
-							  const MetaName& engine, const string& entryPoint,
+							  const QualifiedName* name, FB_UINT64 type, fb_sysflag sysTrigger,
+							  USHORT flags, const MetaName& engine, const string& entryPoint,
 							  const bid* body, TriState ssDefiner)
 {
 /**************************************
@@ -3998,6 +4000,7 @@ static void save_trigger_data(thread_db* tdbb, Triggers& vector, jrd_rel* relati
 	t->engine = engine;
 	t->entryPoint = entryPoint;
 	t->ssDefiner = ssDefiner;
+	t->sysTrigger = sysTrigger;
 	t->owner = relation ? relation->getOwnerName() : tdbb->getDatabase()->dbb_owner;
 
 	vector.addTrigger(tdbb, t);
@@ -4119,24 +4122,9 @@ void RelationPermanent::scanPartners(thread_db* tdbb)
 }
 
 
-const Trigger* jrd_rel::findTrigger(const MetaName trig_name) const
-{
-	for (int n = TRIGGER_PRE_STORE; n <= TRIGGER_POST_ERASE; ++n)
-	{
-		for (auto t : rel_triggers[n])
-		{
-			if (t->name == trig_name)
-				return t;
-		}
-	}
-
-	return nullptr;
-}
-
-
 void MET_store_dependencies(thread_db* tdbb,
 							Array<Dependency>& dependencies,
-							Cached::Relation* dep_rel,
+							jrd_rel* dep_rel,
 							const QualifiedName& object_name,
 							int dependency_type,
 							jrd_tra* transaction)
@@ -4157,15 +4145,17 @@ void MET_store_dependencies(thread_db* tdbb,
 
 	SET_TDBB(tdbb);
 
-	const Trigger* t = nullptr;
-	const bool checkTableScope = (dependency_type == obj_computed);
+	const Trigger* t;
+	const bool checkTableScope =
+		(dependency_type == obj_computed) ||
+		(dependency_type == obj_trigger) && dep_rel && (t = dep_rel->findTrigger(object_name)) && (t->sysTrigger);
 
 	while (dependencies.hasData())
 	{
 		Dependency dependency = dependencies.pop();
 
 		if (!dependency.relation && !dependency.function && !dependency.procedure &&
-			!dependency.name.hasData() && !dependency.number)
+			!dependency.name && !dependency.number)
 		{
 			continue;
 		}
@@ -4186,11 +4176,11 @@ void MET_store_dependencies(thread_db* tdbb,
 			fb_assert(dep_rel || !checkTableScope);
 
 			if (checkTableScope &&
-				( (dep_rel->rel_flags & (REL_temp_tran | REL_temp_conn)) !=
+				( (dep_rel->getPermanent()->rel_flags & (REL_temp_tran | REL_temp_conn)) !=
 				  (relation->rel_flags & (REL_temp_tran | REL_temp_conn)) ))
 			{
 				if ( !( // master is ON COMMIT PRESERVE, detail is ON COMMIT DELETE
-						(dep_rel->rel_flags & REL_temp_tran) && (relation->rel_flags & REL_temp_conn) ||
+						(dep_rel->getPermanent()->rel_flags & REL_temp_tran) && (relation->rel_flags & REL_temp_conn) ||
 						// computed field of a view
 						(dependency_type == obj_computed) && dep_rel->isView()
 					   ))
@@ -4198,7 +4188,7 @@ void MET_store_dependencies(thread_db* tdbb,
 					string sMaster, sChild;
 
 					make_relation_scope_name(relation->getName(), relation->rel_flags, sMaster);
-					make_relation_scope_name(dep_rel->getName(), dep_rel->rel_flags, sChild);
+					make_relation_scope_name(dep_rel->getName(), dep_rel->getPermanent()->rel_flags, sChild);
 
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
 							 Arg::Gds(isc_met_wrong_gtt_scope) << Arg::Str(sChild) <<
@@ -4259,7 +4249,7 @@ void MET_store_dependencies(thread_db* tdbb,
 
 		MetaName field_name;
 
-		if (dependency.subNumber || dependency.subName.hasData())
+		if (dependency.subNumber || dependency.subName)
 		{
 			if (dependency.subNumber)
 			{
@@ -4281,14 +4271,14 @@ void MET_store_dependencies(thread_db* tdbb,
 				}
 			}
 			else
-				field_name = dependency.subName;
+				field_name = *dependency.subName;
 		}
 
 		if (field_name.hasData())
 		{
 			AutoCacheRequest request(tdbb, irq_c_deps_f, IRQ_REQUESTS);
 			bool found = false;
-			fb_assert(dpdo_name.hasData());
+			fb_assert(dpdo_name);
 
 			FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 				X IN RDB$DEPENDENCIES
@@ -4333,7 +4323,7 @@ void MET_store_dependencies(thread_db* tdbb,
 
 		AutoCacheRequest request(tdbb, irq_s_deps, IRQ_REQUESTS);
 
-		fb_assert(dpdo_name.hasData());
+		fb_assert(dpdo_name);
 
 		STORE(REQUEST_HANDLE request TRANSACTION_HANDLE tdbb->getTransaction()) DEP IN RDB$DEPENDENCIES
 		{
@@ -4679,7 +4669,7 @@ void Trigger::compile(thread_db* tdbb)
 									 *csb->csb_dbg_info);
 			}
 
-			PAR_blr(tdbb, getPermanent(relation), blr.begin(), (ULONG) blr.getCount(), NULL,
+			PAR_blr(tdbb, &name.schema, getPermanent(relation), blr.begin(), (ULONG) blr.getCount(), NULL,
 					&csb, &statement, (relation ? true : false), par_flags);
 
 			trace.finish(statement, ITracePlugin::RESULT_SUCCESS);
@@ -4709,6 +4699,9 @@ void Trigger::compile(thread_db* tdbb)
 
 	if (ssDefiner.asBool())
 		statement->triggerInvoker = dbb->getUserId(owner);
+
+	if (sysTrigger != fb_sysflag_user)
+		statement->flags |= Statement::FLAG_SYS_TRIGGER | Statement::FLAG_INTERNAL;
 
 	if (flags & TRG_ignore_perm)
 		statement->flags |= Statement::FLAG_IGNORE_PERM;
@@ -4829,12 +4822,12 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 	return rc;
 }
 
-MetadataCache* MetadataCache::getCache(thread_db* tdbb)
+MetadataCache* MetadataCache::getCache(thread_db* tdbb) noexcept
 {
 	return tdbb->getDatabase()->dbb_mdc;
 }
 
-int jrd_prc::objectType()
+int jrd_prc::objectType() noexcept
 {
 	return obj_procedure;
 }
@@ -4912,17 +4905,17 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
 		IND IN RDB$INDICES
 		CROSS REL IN RDB$RELATIONS
-			OVER RDB$RELATION_NAME
+			OVER RDB$RELATION_NAME, RDB$SCHEMA_NAME
 		WITH IND.RDB$INDEX_ID EQ getId() + 1
 			AND REL.RDB$RELATION_ID EQ relId
 	{
 		found = true;
 
-		idv_name = IND.RDB$INDEX_NAME;
+		idv_name = QualifiedName(IND.RDB$INDEX_NAME, IND.RDB$SCHEMA_NAME);
 		idv_uniqFlag = IND.RDB$UNIQUE_FLAG;
 		idv_segmentCount = IND.RDB$SEGMENT_COUNT;
 		idv_type = IND.RDB$INDEX_TYPE;
-		idv_foreignKey = IND.RDB$FOREIGN_KEY;
+		idv_foreignKey = QualifiedName(IND.RDB$FOREIGN_KEY, IND.RDB$FOREIGN_KEY_SCHEMA_NAME);
 
 		idv_active = MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE);
 
@@ -4938,7 +4931,6 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 		idv_active = MET_index_inactive;
 		return ScanResult::MISS;
 	}
-	perm->idp_name = idv_name;
 
 	auto* relation = (expression.hasData() || condition.hasData()) ?
 		MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE) : nullptr;
@@ -4950,7 +4942,7 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 		CompilerScratch* csb = nullptr;
 		Cleanup cc([csb]() {delete csb;});
-		MET_parse_blob(tdbb, relation, &expression, &csb, nullptr, false, false);
+		MET_parse_blob(tdbb, &relation->getName().schema, relation, &expression, &csb, nullptr, false, false);
 		idv_expression_statement = Statement::makeValueExpression(tdbb, idv_expression, idv_expression_desc, csb, false);
 
 		stmtPool.release();
@@ -4963,7 +4955,7 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 		CompilerScratch* csb = nullptr;
 		Cleanup cc([csb]() {delete csb;});
-		MET_parse_blob(tdbb, relation, &condition, &csb, nullptr, false, false);
+		MET_parse_blob(tdbb, &relation->getName().schema, relation, &condition, &csb, nullptr, false, false);
 		idv_condition_statement = Statement::makeBoolExpression(tdbb, idv_condition, csb, false);
 
 		stmtPool.release();
@@ -4972,7 +4964,7 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	return found ? ScanResult::COMPLETE : ScanResult::MISS;
 }
 
-IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)
+IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
 
@@ -4998,12 +4990,16 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 		return nullptr;
 
 	// We need to look up the index in RDB$INDICES
+	fb_assert(getName().schema == name.schema);
+
 	AutoCacheRequest request(tdbb, irq_get_index_by_name, IRQ_REQUESTS);
 	IndexVersion* idv = nullptr;
 
 	FOR(REQUEST_HANDLE request)
-		IDX IN RDB$INDICES WITH IDX.RDB$INDEX_NAME EQ name.c_str()
-			AND IDX.RDB$RELATION_NAME EQ c_name()
+		IDX IN RDB$INDICES
+		WITH IDX.RDB$INDEX_NAME EQ name.object.c_str() AND
+			IDX.RDB$SCHEMA_NAME EQ getName().schema.c_str() AND
+			IDX.RDB$RELATION_NAME EQ getName().object.c_str()
 	{
 		if (!idv)
 			idv = rel_indices.getVersioned(tdbb, IDX.RDB$INDEX_ID - 1, flags);
@@ -5015,7 +5011,7 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaName name, Ob
 	return idv;
 }
 
-Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, ObjectBase::Flag flags)
+Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
 
@@ -5036,8 +5032,10 @@ Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaName name, Ob
 	AutoCacheRequest request(tdbb, irq_get_index_by_name, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request)
-		IDX IN RDB$INDICES WITH IDX.RDB$INDEX_NAME EQ name.c_str()
-			AND IDX.RDB$RELATION_NAME EQ c_name()
+		IDX IN RDB$INDICES
+		WITH IDX.RDB$INDEX_NAME EQ name.object.c_str() AND
+			IDX.RDB$SCHEMA_NAME EQ getName().schema.c_str() AND
+			IDX.RDB$RELATION_NAME EQ getName().object.c_str()
 	{
 		if (!idp)
 		{

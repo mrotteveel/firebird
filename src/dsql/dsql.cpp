@@ -1423,7 +1423,7 @@ dsql_fld* dsql_prc::cpFields(MemoryPool& p, const Array<NestConst<Parameter>>& f
 		fld->segLength = jfld->prm_seg_length;
 		fld->fieldSource = jfld->prm_field_source;
 		fld->typeOfTable = jfld->prm_type_of_table;
-		fld->typeOfName = jfld->prm_type_of_column;
+		fld->typeOfName = QualifiedName(jfld->prm_type_of_column);
 		if (jfld->prm_nullable)
 			fld->flags |= FLD_nullable;
 
@@ -1434,7 +1434,7 @@ dsql_fld* dsql_prc::cpFields(MemoryPool& p, const Array<NestConst<Parameter>>& f
 }
 
 dsql_fld::dsql_fld(MemoryPool& p, const dsc& desc, dsql_fld*** prev)
-	: TypeClause(p, nullptr),
+	: TypeClause(p, {}),
 	  fld_name(p)
 {
 	if (prev)

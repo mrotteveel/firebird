@@ -1677,7 +1677,7 @@ protected:
 		AddConstraintClause* clause, Firebird::ObjectsArray<CreateDropConstraint>& constraints,
 		bool* notNull = NULL);
 	void defineConstraint(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction,
-		MetaName& constraintName, Constraint& constraint);
+		QualifiedName& constraintName, Constraint& constraint);
 	void defineCheckConstraint(DsqlCompilerScratch* dsqlScratch, Constraint& constraint,
 		BoolSourceClause* clause);
 	void defineCheckConstraintTrigger(DsqlCompilerScratch* dsqlScratch, Constraint& constraint,
@@ -1695,7 +1695,7 @@ protected:
 	void stuffTriggerFiringCondition(const Constraint& constraint, BlrDebugWriter& blrWriter);
 
 public:
-	static void makeVersion(thread_db* tdbb, jrd_tra* transaction, MetaName relName);
+	static void makeVersion(thread_db* tdbb, jrd_tra* transaction, const QualifiedName& relName);
 
 private:
 	static blb* setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_view,
@@ -1709,7 +1709,7 @@ private:
 	static void getArrayDesc(thread_db* tdbb, const TEXT* field_name, Ods::InternalArrayDesc* desc);
 	static Format* makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::Relation* relation,
 		USHORT* version, TemporaryField* stack);
-	static void raiseTooManyVersionsError(const int obj_type, const MetaName& obj_name);
+	static void raiseTooManyVersionsError(const int obj_type, const QualifiedName& obj_name);
 
 public:
 	NestConst<RelationSourceNode> dsqlNode;
@@ -1929,7 +1929,7 @@ public:
 	{
 	}
 
-	ModifyIndexNode(MetaName indexName, bool create)
+	ModifyIndexNode(const QualifiedName& indexName, bool create)
 		: indexName(indexName),
 		  create(create)
 	{
@@ -1996,6 +1996,7 @@ public:
 public:
 	Firebird::string internalPrint(NodePrinter& printer) const override;
 	void checkPermission(thread_db* tdbb, jrd_tra* transaction) override;
+	void execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction) override;
 	DdlNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override;
 
 protected:
@@ -2039,7 +2040,7 @@ private:
 class AlterIndexNode final : public ModifyIndexNode, public DdlNode
 {
 public:
-	AlterIndexNode(MemoryPool& p, const QualifiedName& aName, bool aActive)
+	AlterIndexNode(MemoryPool& p, const QualifiedName& name, bool active)
 		: ModifyIndexNode(name, active),
 		  DdlNode(p)
 	{
@@ -2052,8 +2053,8 @@ public:
 
 	DdlNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override
 	{
-		dsqlScratch->qualifyExistingName(name, obj_index);
-		dsqlScratch->ddlSchema = name.schema;
+		dsqlScratch->qualifyExistingName(indexName, obj_index);
+		dsqlScratch->ddlSchema = indexName.schema;
 
 		return DdlNode::dsqlPass(dsqlScratch);
 	}
@@ -2063,7 +2064,7 @@ public:
 protected:
 	void putErrorPrefix(Firebird::Arg::StatusVector& statusVector) override
 	{
-		statusVector << Firebird::Arg::Gds(isc_dsql_alter_index_failed) << indexName;
+		statusVector << Firebird::Arg::Gds(isc_dsql_alter_index_failed) << indexName.toQuotedString();
 	}
 
 public:
@@ -2120,8 +2121,8 @@ public:
 
 	DdlNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override
 	{
-		dsqlScratch->qualifyExistingName(name, obj_index);
-		dsqlScratch->ddlSchema = name.schema;
+		dsqlScratch->qualifyExistingName(indexName, obj_index);
+		dsqlScratch->ddlSchema = indexName.schema;
 
 		return DdlNode::dsqlPass(dsqlScratch);
 	}
@@ -2131,12 +2132,12 @@ public:
 protected:
 	void putErrorPrefix(Firebird::Arg::StatusVector& statusVector) override
 	{
-		statusVector << Firebird::Arg::Gds(isc_dsql_drop_index_failed) << indexName;
+		statusVector << Firebird::Arg::Gds(isc_dsql_drop_index_failed) << indexName.toQuotedString();
 	}
 
 private:
 	MetaId idxId;
-	MetaName partnerRelName;
+	QualifiedName partnerRelName;
 
 public:
 	bool silent = false;

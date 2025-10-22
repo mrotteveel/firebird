@@ -625,7 +625,7 @@ namespace
 		{
 			for (auto relName : *this)
 			{
-				QualifiedName name(relName, SYSTEM_SCHEMA)
+				QualifiedName name(relName, SYSTEM_SCHEMA);
 				RelationNode::makeVersion(tdbb, tdbb->getTransaction(), name);
 				auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
 				fb_assert(rel);
@@ -984,7 +984,7 @@ void INI_init(thread_db* tdbb)
 		{
 			const auto field = FB_NEW_POOL(*pool) jrd_fld(*pool);
 			field->fld_name = localFields[fieldPos].name;
-			field->fld_source_name = names[localFields[fieldPos].gfield->gfld_name];
+			field->fld_source_name = QualifiedName(names[localFields[fieldPos].gfield->gfld_name], SYSTEM_SCHEMA);
 			field->fld_length = localFields[fieldPos].gfield->gfld_length;
 			*iter = field;
 			++fieldPos;

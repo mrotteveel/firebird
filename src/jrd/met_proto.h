@@ -74,7 +74,7 @@ namespace Jrd
 
 		CharsetVariants charsetName;
 		QualifiedName collationName;
-		QualifiedName baseCollationName;
+		Firebird::string baseCollationName;
 		USHORT attributes;
 		bool ignoreAttributes;
 		Firebird::UCharBuffer specificAttributes;
@@ -83,13 +83,13 @@ namespace Jrd
 
 void		MET_activate_shadow(Jrd::thread_db*);
 ULONG		MET_align(const dsc*, ULONG);
-Jrd::Cached::Relation*	MET_change_fields(Jrd::thread_db*, Jrd::jrd_tra*, const dsc*);
-void		MET_delete_dependencies(Jrd::thread_db*, const Jrd::MetaName&, int);
+Jrd::Cached::Relation*	MET_change_fields(Jrd::thread_db*, Jrd::jrd_tra*, const dsc*, const dsc*);
+void		MET_delete_dependencies(Jrd::thread_db*, const Jrd::QualifiedName&, int);
 void		MET_delete_shadow(Jrd::thread_db*, USHORT);
 void		MET_error(const TEXT*, ...);
 Jrd::Format*	MET_format(Jrd::thread_db*, Jrd::RelationPermanent*, USHORT);
 bool		MET_get_char_coll_subtype_info(Jrd::thread_db*, USHORT, Jrd::SubtypeInfo* info);
-Jrd::DmlNode*	MET_get_dependencies(Jrd::thread_db*, Jrd::Cached::Relation*, const UCHAR*, const ULONG,
+Jrd::DmlNode*	MET_get_dependencies(Jrd::thread_db*, Jrd::jrd_rel*, const UCHAR*, const ULONG,
 								Jrd::CompilerScratch*, Jrd::bid*, Jrd::Statement**,
 								Jrd::CompilerScratch**, const Jrd::QualifiedName&, int, USHORT,
 								Jrd::jrd_tra*, const Jrd::QualifiedName& = {});
@@ -121,7 +121,7 @@ void		MET_prepare(Jrd::thread_db*, Jrd::jrd_tra*, USHORT, const UCHAR*);
 void		MET_release_existence(Jrd::thread_db*, Jrd::jrd_rel*);
 void		MET_revoke(Jrd::thread_db*, Jrd::jrd_tra*, const Jrd::QualifiedName&,
 	const Jrd::QualifiedName&, const Firebird::string&);
-void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, Jrd::Cached::Relation*,
+void		MET_store_dependencies(Jrd::thread_db*, Firebird::Array<Jrd::Dependency>&, const Jrd::jrd_rel*,
 	const Jrd::QualifiedName&, int, Jrd::jrd_tra*);
 void		MET_trigger_msg(Jrd::thread_db*, Firebird::string&, const Jrd::QualifiedName&, USHORT);
 void		MET_update_shadow(Jrd::thread_db*, Jrd::Shadow*, USHORT);

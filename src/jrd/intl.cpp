@@ -177,7 +177,7 @@ bool CharSetContainer::lookupInternalCharSet(CSetId id, SubtypeInfo* info)
 	if (id == CS_UTF16)
 	{
 		info->charsetName.clear();
-		info->charsetName.push(QualifiedName("UTF16)");
+		info->charsetName.push(QualifiedName("UTF16"));
 		return true;
 	}
 
@@ -235,7 +235,7 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, No
 	{
 		memset(csL, 0, sizeof(charset));
 
-		if (IntlManager::lookupCharSet(csName.c_str(), csL) &&
+		if (IntlManager::lookupCharSet(csName, csL) &&
 			(csL->charset_flags & CHARSET_ASCII_BASED))
 		{
 			cs = CharSet::createInstance(p, cs_id, csL);
@@ -245,7 +245,7 @@ CharSetContainer::CharSetContainer(thread_db* tdbb, MemoryPool& p, MetaId id, No
 
 	delete csL;
 	ERR_post(Arg::Gds(isc_charset_not_installed) <<
-		(info.charsetName.hasData() ? Arg::Str(info.charsetName[0]) : Arg::Str("<Unknown character set>")));
+		(info.charsetName.hasData() ? Arg::Str(info.charsetName[0].toQuotedString()) : Arg::Str("<Unknown character set>")));
 }
 
 CsConvert CharSetContainer::lookupConverter(thread_db* tdbb, CSetId toCsId)
@@ -268,13 +268,13 @@ Collation* CharSetVers::getCollation(CollId id)
 	return charset_collations[id];
 }
 
-Collation* CharSetVers::getCollation(MetaName name)
+Collation* CharSetVers::getCollation(const QualifiedName& name)
 {
 	FB_SIZE_T pos;
 	if (charset_collations.find([name](Collation* col) { return col->name == name; }, pos))
 		return charset_collations[pos];
 
-	ERR_post(Arg::Gds(isc_text_subtype) << name);
+	ERR_post(Arg::Gds(isc_text_subtype) << name.toQuotedString());
 }
 
 

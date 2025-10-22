@@ -280,6 +280,7 @@ static inline void collect_missing_privs(BurpGlobals* tdgbl, USHORT type, const 
 
 } // namespace
 
+
 void activateIndex(BurpGlobals* tdgbl, const QualifiedMetaString& indexName)
 {
 	BURP_verbose(285, indexName.toQuotedString());
@@ -303,6 +304,7 @@ void activateIndex(BurpGlobals* tdgbl, const QualifiedMetaString& indexName)
 			fError = true;
 			fb_utils::copyStatus(&local_status_vector, isc_status);
 		END_ERROR;
+	}
 	END_FOR;
 
 	ON_ERROR

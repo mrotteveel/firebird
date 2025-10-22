@@ -302,7 +302,7 @@ public:
 
 	void setRequest(Request* val);
 
-	CSetId getCharSet() const;
+	CSetId getCharSet() const noexcept;
 
 	void markAsSweeper()
 	{
@@ -747,7 +747,7 @@ public:
 
 	void setRequest(Request* val);
 
-	SSHORT getCharSet() const noexcept;
+	CSetId getCharSet() const noexcept;
 
 	void markAsSweeper() noexcept
 	{

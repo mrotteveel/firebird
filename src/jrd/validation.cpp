@@ -1662,13 +1662,13 @@ void Validation::walk_database()
 
 			if (vdr_sch_incl)
 			{
-				if (!vdr_sch_incl->matches(relation->rel_name.schema.c_str(), relation->rel_name.schema.length()))
+				if (!vdr_sch_incl->matches(relation->getName().schema.c_str(), relation->getName().schema.length()))
 					continue;
 			}
 
 			if (vdr_sch_excl)
 			{
-				if (vdr_sch_excl->matches(relation->rel_name.schema.c_str(), relation->rel_name.schema.length()))
+				if (vdr_sch_excl->matches(relation->getName().schema.c_str(), relation->getName().schema.length()))
 					continue;
 			}
 
@@ -3185,10 +3185,10 @@ Validation::RTN Validation::walk_relation(jrd_rel* relation)
 			if (relation->getName().hasData())
 			{
 				gds__log("bugcheck during scan of table %d (%s)",
-					relation->rel_id, relation->getName().toQuotedString().c_str());
+					relation->getId(), relation->getName().toQuotedString().c_str());
 			}
 			else
-				gds__log("bugcheck during scan of table %d", relation->rel_id);
+				gds__log("bugcheck during scan of table %d", relation->getId());
 		}
 #ifdef DEBUG_VAL_VERBOSE
 		if (VAL_debug_level)

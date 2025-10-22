@@ -656,7 +656,6 @@ bool IntlManager::lookupCharSet(const QualifiedMetaString& charSetName, charset*
 
 void IntlManager::lookupCollation(const string& collationName,
 								  const CharsetVariants& charsetVariants,
-								  const QualifiedMetaString& charSetName,
 								  USHORT attributes, const UCHAR* specificAttributes,
 								  ULONG specificAttributesLen, bool ignoreAttributes,
 								  texttype* tt)
@@ -668,8 +667,9 @@ void IntlManager::lookupCollation(const string& collationName,
 	char *statusBuffer = statusBufferBig;
 	ULONG bufferLength = sizeof(statusBufferBig);
 
-	for(const auto& charSetName : charsetVariants)
+	for(const auto& csName : charsetVariants)
 	{
+		QualifiedMetaString charSetName(csName);
 		if (charSetCollations->get({charSetName, charSetName.object}, charSetExternalInfo) &&
 			charSetCollations->get({charSetName, collationName}, collationExternalInfo))
 		{

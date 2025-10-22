@@ -137,12 +137,12 @@ public:
 	}
 
 public:
-	int getObjectType() const override
+	int getObjectType() const noexcept override
 	{
 		return obj_procedure;
 	}
 
-	SLONG getSclType() const override
+	SLONG getSclType() const noexcept override
 	{
 		return obj_procedures;
 	}
@@ -169,12 +169,12 @@ public:
 		prc_external = NULL;
 	}
 
-	Cached::Procedure* getPermanent() const override
+	Cached::Procedure* getPermanent() const noexcept override
 	{
 		return cachedProcedure;
 	}
 
-	static const char* objectFamily(void*)
+	static const char* objectFamily(void*) noexcept
 	{
 		return "procedure";
 	}
@@ -182,7 +182,7 @@ public:
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag fl);
 	void checkReload(thread_db* tdbb) const override;
 
-	static int objectType();
+	static int objectType() noexcept;
 	static const enum lck_t LOCKTYPE = LCK_prc_rescan;
 };
 
@@ -198,9 +198,9 @@ public:
 	bool		prm_nullable;
 	prm_mech_t	prm_mechanism;
 	MetaName prm_name;
-	MetaName prm_field_source;
+	QualifiedName prm_field_source;
 	MetaName prm_type_of_column;
-	MetaName prm_type_of_table;
+	QualifiedName prm_type_of_table;
 	std::optional<TTypeId> prm_text_type;
 	FUN_T		prm_fun_mechanism;
 	USHORT		prm_seg_length = 0;
@@ -294,42 +294,41 @@ public:
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	static jrd_rel* lookup_relation(thread_db*, const MetaName&, ObjectBase::Flag flags);
+	static jrd_rel* lookup_relation(thread_db*, const QualifiedName&, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, const MetaName& name, ObjectBase::Flag flags);
+	static Cached::Relation* lookupRelation(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id);
 	Cached::Relation* lookupRelationNoChecks(MetaId id);
-	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const MetaName& index_name, IndexStatus* status);
-	static void post_existence(thread_db* tdbb, jrd_rel* relation);
+	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const QualifiedName& index_name, IndexStatus* status);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static IndexStatus getIndexStatus(bool nullFlag, int inactive);
 	static bool getIndexActive(bool nullFlag, int inactive);
-	static MetadataCache* get(thread_db* tdbb)
+	static MetadataCache* get(thread_db* tdbb) noexcept
 	{
 		return getCache(tdbb);
 	}
 
 	template<typename ID>
-	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const UCHAR* name, USHORT length)
+	static bool get_char_coll_subtype(thread_db* tdbb, ID* id, const QualifiedName& name)
 	{
 		fb_assert(id);
 
 		TTypeId ttId;
-		bool rc = get_texttype(tdbb, &ttId, name, length);
+		bool rc = get_texttype(tdbb, &ttId, name);
 		*id = ttId;
 		return rc;
 	}
 
 private:
-	static bool get_texttype(thread_db* tdbb, TTypeId* id, const UCHAR* name, USHORT length);
+	static bool get_texttype(thread_db* tdbb, TTypeId* id, const QualifiedName& name);
 
 public:
-	bool resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
-									   const UCHAR* charset, const UCHAR* collation);
+	static bool resolve_charset_and_collation(thread_db* tdbb, TTypeId* id,
+		const QualifiedName& charset, const QualifiedName& collation);
 	static DSqlCacheItem* get_dsql_cache_item(thread_db* tdbb, sym_type type, const QualifiedName& name);
-	static void dsql_cache_release(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
-	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const MetaName& name, const MetaName& package = "");
+	static void dsql_cache_release(thread_db* tdbb, sym_type type, const QualifiedName& name);
+	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const QualifiedName& name);
 	// end of former met_proto.h
 
 	static CharSetVers* lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
@@ -347,17 +346,17 @@ public:
 		return ++mdc_version;
 	}
 
-	SLONG lookupSequence(thread_db*, const MetaName& genName)
+	SLONG lookupSequence(thread_db*, const QualifiedName& genName)
 	{
 		return mdc_generators.lookup(genName);
 	}
 
-	void setSequence(thread_db*, SLONG id, const MetaName& name)
+	void setSequence(thread_db*, SLONG id, const QualifiedName& name)
 	{
 		mdc_generators.store(id, name);
 	}
 
-	bool getSequence(thread_db*, SLONG id, MetaName& name)
+	bool getSequence(thread_db*, SLONG id, QualifiedName& name)
 	{
 		return mdc_generators.lookup(id, name);
 	}
@@ -436,7 +435,7 @@ private:
 		}
 	};
 
-	static MetadataCache* getCache(thread_db* tdbb);
+	static MetadataCache* getCache(thread_db* tdbb) noexcept;
 
 	class GeneratorFinder
 	{
@@ -447,7 +446,7 @@ private:
 			: m_objects(pool)
 		{}
 
-		void store(SLONG id, const MetaName& name)
+		void store(SLONG id, const QualifiedName& name)
 		{
 			fb_assert(id >= 0);
 			fb_assert(name.hasData());
@@ -466,7 +465,7 @@ private:
 			}
 		}
 
-		bool lookup(SLONG id, MetaName& name)
+		bool lookup(SLONG id, QualifiedName& name)
 		{
 			Guard g(m_tx, FB_FUNCTION);
 
@@ -479,7 +478,7 @@ private:
 			return false;
 		}
 
-		SLONG lookup(const MetaName& name)
+		SLONG lookup(const QualifiedName& name)
 		{
 			Guard g(m_tx, FB_FUNCTION);
 
@@ -492,7 +491,7 @@ private:
 		}
 
 	private:
-		Firebird::Array<MetaName> m_objects;
+		Firebird::Array<QualifiedName> m_objects;
 		Firebird::Mutex m_tx;
 	};
 

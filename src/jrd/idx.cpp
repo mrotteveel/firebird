@@ -139,11 +139,11 @@ void IDX_check_access(thread_db* tdbb, CompilerScratch* csb, Cached::Relation* v
 				const SLONG ssRelationId = view ? view->rel_id : 0;
 				const jrd_fld* referenced_field = MET_get_field(referenced_relation, idx_desc->idx_field);
 
-				CMP_post_access(tdbb, csb, relation->rel_security_name.schema, ssRelationId,
-					SCL_usage, obj_schemas, QualifiedName(relation->rel_name.schema));
+				CMP_post_access(tdbb, csb, relation->getSecurityName().schema, ssRelationId,
+					SCL_usage, obj_schemas, QualifiedName(relation->getName().schema));
 
 				CMP_post_access(tdbb, csb,
-								referenced_relation->rel_security_name.object, ssRelationId,
+								referenced_relation->getSecurityName().object, ssRelationId,
 								SCL_references, obj_relations,
 								referenced_relation->getName());
 
@@ -532,7 +532,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		CompilerScratch* csb = NULL;
 		Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 
-		idx->idx_expression_node = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, &relation->rel_name.schema,
+		idx->idx_expression_node = static_cast<ValueExprNode*> (MET_parse_blob(tdbb, &relation->getName().schema,
 			getPermanent(relation), &m_exprBlob, &csb, &idx->idx_expression_statement, false, false));
 
 		delete csb;
@@ -545,7 +545,7 @@ bool IndexCreateTask::handler(WorkItem& _item)
 		CompilerScratch* csb = NULL;
 		Jrd::ContextPoolHolder context(tdbb, dbb->createPool(ALLOC_ARGS0));
 
-		idx->idx_condition_node = static_cast<BoolExprNode*> (MET_parse_blob(tdbb, &relation->rel_name.schema,
+		idx->idx_condition_node = static_cast<BoolExprNode*> (MET_parse_blob(tdbb, &relation->getName().schema,
 			getPermanent(relation), &m_condBlob, &csb, &idx->idx_condition_statement, false, false));
 
 		delete csb;

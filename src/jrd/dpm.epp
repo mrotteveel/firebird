@@ -134,7 +134,7 @@ namespace
 		return (TraNumber(sequence) << 32) + number;
 	}
 
-	inline bool swept_at_restore(thread_db* tdbb, const jrd_rel* relation)
+	inline bool swept_at_restore(thread_db* tdbb, const Cached::Relation* relation)
 	{
 		return tdbb->getDatabase()->isRestoring() && !relation->isSystem();
 	}
@@ -2424,7 +2424,7 @@ void DPM_store( thread_db* tdbb, record_param* rpb, PageStack& stack, const Jrd:
 	Ods::pag* page = rpb->getWindow(tdbb).win_buffer;
 
 	// When restoring, mark primary data page as swept, pointer page already marked by locate_space()
-	if (swept_at_restore(tdbb, rpb->rpb_relation) && (type == DPM_primary))
+	if (swept_at_restore(tdbb, rpb->rpb_relation->getPermanent()) && (type == DPM_primary))
 	{
 		page->pag_flags |= dpg_swept;
 		CCH_RELEASE(tdbb, &rpb->getWindow(tdbb));
@@ -3591,7 +3591,7 @@ static rhd* locate_space(thread_db* tdbb,
 	Database* dbb = tdbb->getDatabase();
 	CHECK_DBB(dbb);
 
-	jrd_rel* relation = rpb->rpb_relation;
+	auto* relation = rpb->rpb_relation->getPermanent();
 	RelationPages* relPages = relation->getPages(tdbb);
 	WIN* window = &rpb->getWindow(tdbb);
 
@@ -3607,7 +3607,7 @@ static rhd* locate_space(thread_db* tdbb,
 		rpb->rpb_number.decompose(dbb->dbb_max_records, dbb->dbb_dp_per_pp, line, slot, pp_sequence);
 
 		const pointer_page* ppage =
-			get_pointer_page(tdbb, relation->getPermanent(), relPages, window, pp_sequence, LCK_read);
+			get_pointer_page(tdbb, relation, relPages, window, pp_sequence, LCK_read);
 
 		if (ppage)
 		{
@@ -3687,7 +3687,7 @@ static rhd* locate_space(thread_db* tdbb,
 			relPages->rel_sec_data_space = pp_sequence;
 
 		const pointer_page* ppage =
-			get_pointer_page(tdbb, relation->getPermanent(), relPages, window, pp_sequence, ppLock);
+			get_pointer_page(tdbb, relation, relPages, window, pp_sequence, ppLock);
 		if (!ppage)
 			BUGCHECK(254);	// msg 254 pointer page vanished from relation list in locate_space
 
@@ -3730,7 +3730,7 @@ static rhd* locate_space(thread_db* tdbb,
 					CCH_RELEASE(tdbb, window);
 
 					ppLock = LCK_write;
-					ppage = get_pointer_page(tdbb, relation->getPermanent(), relPages, window, pp_sequence, ppLock);
+					ppage = get_pointer_page(tdbb, relation, relPages, window, pp_sequence, ppLock);
 					if (!ppage)
 						BUGCHECK(254);
 
@@ -3806,7 +3806,7 @@ static rhd* locate_space(thread_db* tdbb,
 	int i;
 	for (i = 0; i < 20; ++i)
 	{
-		extend_relation(tdbb, relation->getPermanent(), window, type);
+		extend_relation(tdbb, relation, window, type);
 		space = find_space(tdbb, rpb, size, stack, record, type);
 
 		if (space)
@@ -4138,7 +4138,7 @@ static void store_big_record(thread_db* tdbb,
 	bool markPP = false;
 
 	// When restoring, mark primary data page as swept, pointer page already marked by locate_space()
-	if (swept_at_restore(tdbb, rpb->rpb_relation) && (type == DPM_primary))
+	if (swept_at_restore(tdbb, rpb->rpb_relation->getPermanent()) && (type == DPM_primary))
 	{
 		page->dpg_header.pag_flags |= dpg_swept;
 	}

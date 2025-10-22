@@ -5146,7 +5146,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	{
 		Dependency dependency(obj_relation);
 		dependency.relation = MetadataCache::lookupRelation(tdbb, relationName, CacheFlag::AUTOCREATE);
-		dependency.subName = fieldName;
+		dependency.subName = FB_NEW_POOL(pool) MetaName(fieldName);
 		csb->addDependency(dependency);
 	}
 
@@ -6518,12 +6518,12 @@ dsql_fld* FieldNode::resolveContext(DsqlCompilerScratch* dsqlScratch, const Qual
 
 	if (relation)
 	{
-		dsqlName = relation->getName();
+		dsqlName = relation->rel_name;
 		outputField = relation->rel_fields;
 	}
 	else if (procedure)
 	{
-		dsqlName = procedure->getName();
+		dsqlName = procedure->prc_name;
 		outputField = procedure->prc_outputs;
 	}
 	else if	(tableValueFunctionContext)
@@ -6881,19 +6881,18 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		const SLONG ssRelationId = tail->csb_view ? tail->csb_view()->getId() :
 			csb->csb_view ? csb->csb_view()->getId() : 0;
 
-		CMP_post_access(tdbb, csb, relation->rel_security_name.schema, ssRelationId,
-			SCL_usage, obj_schemas, QualifiedName(relation->getName().schema));
+		CMP_post_access(tdbb, csb, relation()->rel_security_name.schema, ssRelationId,
+			SCL_usage, obj_schemas, QualifiedName(relation()->getName().schema));
 
-		CMP_post_access(tdbb, csb, relation->rel_security_name.object, ssRelationId,
-			privilege, obj_relations, relation->getName());
+		CMP_post_access(tdbb, csb, relation()->rel_security_name.object, ssRelationId,
+			privilege, obj_relations, relation()->getName());
 
 		// Field-level privilege access is posted for every operation except DELETE
 
 		if (privilege != SCL_delete)
 		{
 			CMP_post_access(tdbb, csb, field->fld_security_name, ssRelationId,
-//				privilege, obj_column, field->fld_name, relation()->getName());			names order ???????????????
-				privilege, obj_column, relation->getName(), field->fld_name);
+				privilege, obj_column, relation()->getName(), field->fld_name);
 		}
 	}
 
@@ -6910,7 +6909,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 		// Msg 364 "cannot access column %s in view %s"
 		ERR_post(Arg::Gds(isc_no_field_access) <<
 			field->fld_name.toQuotedString() <<
-			relation->getName().toQuotedString());
+			relation()->getName().toQuotedString());
 	}
 
 	// The previous test below is an apparent temporary fix
@@ -6961,7 +6960,7 @@ ValueExprNode* FieldNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 			// This is an assignment to a computed column. Report the error here when we have the field name.
 			ERR_post(
 				Arg::Gds(isc_read_only_field) <<
-				(relation->getName().toQuotedString() + "." + field->fld_name.toQuotedString()));
+				(relation()->getName().toQuotedString() + "." + field->fld_name.toQuotedString()));
 		}
 
 		FB_SIZE_T pos;
@@ -10213,7 +10212,7 @@ ValueExprNode* RecordKeyNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 			dsql_ctx* context = stack.object();
 
 			if ((!context->ctx_relation ||
-					!PASS1_compare_alias(context->ctx_relation->getName(), dsqlQualifier) ||
+					!PASS1_compare_alias(context->ctx_relation->rel_name, dsqlQualifier) ||
 					context->ctx_internal_alias.object.hasData()) &&
 				(context->ctx_internal_alias.object.isEmpty() ||
 					!PASS1_compare_alias(context->ctx_internal_alias, dsqlQualifier)))
@@ -13369,7 +13368,7 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 			{
 				Dependency dependency(obj_udf);
 				dependency.function = node->function();
-				dependency.subName = argName;
+				dependency.subName = &argName;
 				csb->addDependency(dependency);
 			}
 		}
@@ -13540,12 +13539,12 @@ ValueExprNode* UdfCallNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 	{
 		if (!(csb->csb_g_flags & (csb_internal | csb_ignore_perm)))
 		{
-			SLONG ssRelationId = csb->csb_view ? csb->csb_view->rel_id : 0;
+			SLONG ssRelationId = csb->csb_view() ? csb->csb_view()->rel_id : 0;
 
-			CMP_post_access(tdbb, csb, function->getSecurityName().schema, ssRelationId,
-				SCL_usage, obj_schemas, QualifiedName(function->getName().schema));
+			CMP_post_access(tdbb, csb, function()->getSecurityName().schema, ssRelationId,
+				SCL_usage, obj_schemas, QualifiedName(function()->getName().schema));
 
-			if (function->getName().package.isEmpty())
+			if (function()->getName().package.isEmpty())
 			{
 				if (!ssRelationId && csb->csb_parent_relation)
 				{
@@ -13553,13 +13552,13 @@ ValueExprNode* UdfCallNode::pass1(thread_db* tdbb, CompilerScratch* csb)
 					ssRelationId = csb->csb_parent_relation()->rel_id;
 				}
 
-				CMP_post_access(tdbb, csb, function->getSecurityName().object, ssRelationId,
-					SCL_execute, obj_functions, function->getName());
+				CMP_post_access(tdbb, csb, function()->getSecurityName().object, ssRelationId,
+					SCL_execute, obj_functions, function()->getName());
 			}
 			else
 			{
-				CMP_post_access(tdbb, csb, function->getSecurityName().object, ssRelationId,
-					SCL_execute, obj_packages, function->getName().getSchemaAndPackage());
+				CMP_post_access(tdbb, csb, function()->getSecurityName().object, ssRelationId,
+					SCL_execute, obj_packages, function()->getName().getSchemaAndPackage());
 			}
 
 			ExternalAccess temp(ExternalAccess::exa_function, function()->getId());
@@ -13653,13 +13652,13 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 	{
 		status_exception::raise(
 			Arg::Gds(isc_func_pack_not_implemented) <<
-				function->getName().object.toQuotedString() <<
-				function->getName().getSchemaAndPackage().toQuotedString());
+				function()->getName().object.toQuotedString() <<
+				function()->getName().getSchemaAndPackage().toQuotedString());
 	}
 	else if (!func->isDefined())
 	{
 		status_exception::raise(
-			Arg::Gds(isc_funnotdef) << function->getName().toQuotedString() <<
+			Arg::Gds(isc_funnotdef) << function()->getName().toQuotedString() <<
 			Arg::Gds(isc_modnotfound));
 	}
 
@@ -14552,12 +14551,12 @@ static void setParameterInfo(dsql_par* parameter, const dsql_ctx* context)
 
 	if (context->ctx_relation)
 	{
-		parameter->par_rel_name = context->ctx_relation->getName();
+		parameter->par_rel_name = context->ctx_relation->rel_name;
 		parameter->par_owner_name = context->ctx_relation->rel_owner;
 	}
 	else if (context->ctx_procedure)
 	{
-		parameter->par_rel_name = context->ctx_procedure->getName();
+		parameter->par_rel_name = context->ctx_procedure->prc_name;
 		parameter->par_owner_name = context->ctx_procedure->prc_owner;
 	}
 

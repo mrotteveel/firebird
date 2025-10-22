@@ -76,29 +76,6 @@ Triggers& TrigArray::operator[](int t)
 	fatal_exception::raise("Invalid trigger type");
 }
 
-const char* DbTriggersHeader::c_name() const
-{
-	switch(type)
-	{
-	case TRIGGER_CONNECT:
-		return "database connect";
-
-	case TRIGGER_DISCONNECT:
-		return "database disconnect";
-
-	case TRIGGER_TRANS_START:
-		return "transaction start";
-
-	case TRIGGER_TRANS_COMMIT:
-		return "transaction commit";
-
-	case TRIGGER_TRANS_ROLLBACK:
-		return "transaction rollback";
-	}
-
-	return "DDL";
-}
-
 const Triggers& TrigArray::operator[](int t) const
 {
 	switch(t)
@@ -189,7 +166,7 @@ bool RelationPermanent::destroy(thread_db* tdbb, RelationPermanent* rel)
 	return false;
 }
 
-void RelationPermanent::removeDependsFrom(MetaName globField)
+void RelationPermanent::removeDependsFrom(const QualifiedName& globField)
 {
 	// rel_clear_deps is protected by new relation version,
 	// already created by MET_change_fields() at this moment
@@ -603,7 +580,7 @@ PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
 }
 
 
-Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const MetaName name)
+Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const QualifiedName& name)
 {
 	auto* relation = MetadataCache::lookupRelation(tdbb, name,
 		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::MINISCAN);
@@ -612,7 +589,7 @@ Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const MetaName 
 	if (relation && relation->getId())
 	{
 		relation->newVersion(tdbb);
-		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, relation->getId());
+		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, nullptr, relation->getId());
 
 		return relation;
 	}
@@ -633,13 +610,6 @@ void RelationPermanent::releaseLock(thread_db* tdbb)
 		if (index)
 			index->releaseLocks(tdbb);
 	}
-}
-
-
-const char* IndexPermanent::c_name() const
-{
-	// Here we use MetaName's feature - pointers in it are DBB-lifetime stable
-	return idp_name.c_str();
 }
 
 
@@ -1033,6 +1003,19 @@ const Format* jrd_rel::currentFormat() const
 	return rel_current_format;
 }
 
+const Trigger* jrd_rel::findTrigger(const QualifiedName& trig_name) const
+{
+	for (int n = TRIGGER_PRE_STORE; n <= TRIGGER_POST_ERASE; ++n)
+	{
+		for (auto t : rel_triggers[n])
+		{
+			if (t->name == trig_name)
+				return t;
+		}
+	}
+
+	return nullptr;
+}
 
 
 void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
@@ -1069,6 +1052,21 @@ DbTriggersHeader::DbTriggersHeader(thread_db* tdbb, MemoryPool& p, MetaId& t, No
 bool DbTriggersHeader::destroy(thread_db* tdbb, DbTriggersHeader* trigs)
 {
 	return false;
+}
+
+const QualifiedName& DbTriggersHeader::getName() const noexcept
+{
+	static const QualifiedName tnames[] = {
+		QualifiedName("CONNECT"),
+		QualifiedName("DISCONNECT"),
+		QualifiedName("TRANSACTION START"),
+		QualifiedName("TRANSACTION COMMIT"),
+		QualifiedName("TRANSACTION ROLLBACK"),
+		QualifiedName("DDL")
+	};
+
+	fb_assert(type < FB_NELEM(tnames));
+	return tnames[type];
 }
 
 int DbTriggers::objectType()

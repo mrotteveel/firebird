@@ -38,6 +38,7 @@
 #include "../jrd/SharedReadVector.h"
 #include "../jrd/constants.h"
 #include "../jrd/tra_proto.h"
+#include "../jrd/QualifiedName.h"
 
 namespace Jrd {
 
@@ -49,7 +50,6 @@ class ObjectBase
 {
 public:
 	typedef unsigned Flag;
-	virtual const char* c_name() const = 0;
 };
 
 
@@ -73,8 +73,8 @@ private:
 
 public:
 	Lock* makeLock(thread_db* tdbb, MemoryPool& p, SINT64 key, lck_t locktype);
-	void pingLock(thread_db* tdbb, ObjectBase::Flag flags, const char* family, const char* name);
-	void setLock(thread_db* tdbb, const char* family, const char* name);
+	void pingLock(thread_db* tdbb, ObjectBase::Flag flags, const char* family, const QualifiedName& name);
+	void setLock(thread_db* tdbb, const char* family, const QualifiedName& name);
 	virtual void releaseLocks(thread_db* tdbb) = 0;
 	void releaseLock(thread_db* tdbb);
 
@@ -85,7 +85,9 @@ public:
 	virtual void cleanup(thread_db* tdbb) = 0;
 
 public:
-	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* name, const char* family);
+	[[noreturn]] void busyError(thread_db* tdbb, MetaId id, const char* family, const QualifiedName& name);
+	[[noreturn]] void newVersionBusy(const char* family, const QualifiedName& name, TraNumber traNum);
+	[[noreturn]] void newVersionScan(const char* family, const QualifiedName& name);
 	void commitErase(thread_db* tdbb);
 
 	bool hasLock() const
@@ -419,7 +421,7 @@ public:
 		if ((thd == Thread::getId()) && (state == SCANNING))
 			return ScanResult::COMPLETE;
 
-		permanent->setLock(tdbb, Versioned::objectFamily(permanent), permanent->c_name());
+		permanent->setLock(tdbb, Versioned::objectFamily(permanent), permanent->getName());
 
 		std::unique_lock<std::mutex> g(mtx);
 		for(;;)
@@ -813,7 +815,7 @@ public:
 			auto flags = current->commit(tdbb, TransactionNumber::current(tdbb), TransactionNumber::next(tdbb));
 
 			if (flags & CacheFlag::NOCOMMIT)	// Committed newly created version in cache
-				pingLock(tdbb, flags, Versioned::objectFamily(this), this->c_name());
+				pingLock(tdbb, flags, Versioned::objectFamily(this), this->getName());
 
 			if (flags & CacheFlag::ERASED)
 				commitErase(tdbb);
@@ -851,7 +853,7 @@ public:
 		if (storeObject(tdbb, nullptr, CacheFlag::ERASED | CacheFlag::NOCOMMIT) == StoreResult::DUP)
 		{
 			Versioned* oldObj = getVersioned(tdbb, 0);
-			busyError(tdbb, this->getId(), this->c_name(), V::objectFamily(this));
+			busyError(tdbb, this->getId(), V::objectFamily(this), this->getName());
 		}
 
 		return this;
@@ -885,10 +887,7 @@ public:
 		{
 		case OCCUPIED:
 			if (ConsistencyCheck::commitNumber(tdbb))
-			{
-				Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
-					Versioned::objectFamily(this), this->c_name(), traNum);
-			}
+				newVersionBusy(Versioned::objectFamily(this), this->getName(), traNum);
 			break;
 
 		case MODIFIED:
@@ -897,10 +896,8 @@ public:
 		case MISSING:
 		case READY:
 			if (scanInProgress())
-			{
-				Firebird::fatal_exception::raiseFmt("newVersion: %s %s is scanned by us\n",
-					Versioned::objectFamily(this), this->c_name());
-			}
+				newVersionScan(Versioned::objectFamily(this), this->getName());
+
 			storeObject(tdbb, nullptr, CacheFlag::TAG_FOR_UPDATE);
 			break;
 		}
