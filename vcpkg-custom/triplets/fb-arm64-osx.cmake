@@ -8,3 +8,5 @@ set(VCPKG_OSX_ARCHITECTURES arm64)
 if(PORT STREQUAL "icu")
     set(VCPKG_LIBRARY_LINKAGE dynamic)
 endif()
+
+set(VCPKG_LINKER_FLAGS "-Wl,-headerpad_max_install_names" CACHE STRING "" FORCE)
