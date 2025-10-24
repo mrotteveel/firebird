@@ -4124,7 +4124,7 @@ void RelationPermanent::scanPartners(thread_db* tdbb)
 
 void MET_store_dependencies(thread_db* tdbb,
 							Array<Dependency>& dependencies,
-							jrd_rel* dep_rel,
+							const jrd_rel* dep_rel,
 							const QualifiedName& object_name,
 							int dependency_type,
 							jrd_tra* transaction)

@@ -1899,24 +1899,10 @@ static void store_intlnames(thread_db* tdbb, NonRelationSecurity& security)
 
 			X.RDB$COLLATION_ATTRIBUTES = collation->attributes;
 
-			string charSetName, modAttributes;
-			for (const auto* charSet = IntlManager::defaultCharSets;
-				charSet->name; ++charSet)
+			if (collation->specificAttributes)
 			{
-				if (charSet->id == collation->charSetId)
-				{
-					charSetName = charSet->name;
-					break;
-				}
-			}
-
-			fb_assert(charSetName.hasData());
-			DFW_setupCollationAttributes(collation->baseName ? collation->baseName : collation->name,
-				charSetName, collation->specificAttributes ? collation->specificAttributes : "", modAttributes);
-
-			if (modAttributes.hasData())
-			{
-				attachment->storeMetaDataBlob(tdbb, transaction, &X.RDB$SPECIFIC_ATTRIBUTES, modAttributes);
+				attachment->storeMetaDataBlob(tdbb, transaction,
+					&X.RDB$SPECIFIC_ATTRIBUTES, collation->specificAttributes);
 				X.RDB$SPECIFIC_ATTRIBUTES.NULL = FALSE;
 			}
 			else
@@ -1925,12 +1911,6 @@ static void store_intlnames(thread_db* tdbb, NonRelationSecurity& security)
 		END_STORE
 
 		security.storePrivileges(tdbb, collation->name, obj_collation);
-	}
-
-	for (const IntlManager::CharSetDefinition* charSet = IntlManager::defaultCharSets;
-		 charSet->name; ++charSet)
-	{
-		MetadataCache::lookup_charset(tdbb, charSet->id, CacheFlag::UPGRADE | CacheFlag::NOCOMMIT);
 	}
 }
 

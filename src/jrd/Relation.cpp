@@ -955,10 +955,23 @@ void RelationPages::free(RelationPages*& nextFree)
 	dpMapMark = 0;
 }
 
+
+/// IndexPermanent
+
 [[noreturn]] void IndexPermanent::errIndexGone()
 {
 	fatal_exception::raise("Index is gone unexpectedly");
 }
+
+const QualifiedName& IndexPermanent::getName() const
+{
+	static QualifiedName empty("");
+	auto* v = idp_relation->lookup_index(JRD_get_thread_data(), getId(), CacheFlag::AUTOCREATE);
+	return v ? v->getName() : empty;
+}
+
+
+/// jrd_rel
 
 void jrd_rel::destroy(thread_db* tdbb, jrd_rel* rel)
 {

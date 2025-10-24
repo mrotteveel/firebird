@@ -1677,7 +1677,7 @@ protected:
 		AddConstraintClause* clause, Firebird::ObjectsArray<CreateDropConstraint>& constraints,
 		bool* notNull = NULL);
 	void defineConstraint(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction,
-		QualifiedName& constraintName, Constraint& constraint);
+		MetaName& constraintName, Constraint& constraint);
 	void defineCheckConstraint(DsqlCompilerScratch* dsqlScratch, Constraint& constraint,
 		BoolSourceClause* clause);
 	void defineCheckConstraintTrigger(DsqlCompilerScratch* dsqlScratch, Constraint& constraint,
@@ -1701,7 +1701,7 @@ private:
 	static blb* setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_view,
 		TrigArray* triggers, blb* blob);
 	static void setupTriggerDetails(thread_db* tdbb, jrd_rel* relation, blb* blob, TrigArray* triggers,
-		const TEXT* trigger_name, bool null_view);
+		const QualifiedName& trigger_name, bool null_view);
 	static void putSummaryRecord(thread_db* tdbb, blb* blob, rsr_t type, const UCHAR* data, ULONG length);
 	static void putSummaryBlob(thread_db* tdbb, blb* blob, rsr_t type, bid* blob_id, jrd_tra* transaction);
 	static bool validateTextType(thread_db* tdbb, const TemporaryField* tfb);
@@ -1945,6 +1945,7 @@ public:
 
 protected:
 	Firebird::string print(NodePrinter& printer) const;
+	static Cached::Relation* getRelByIndex(thread_db* tdbb, const QualifiedName& index, jrd_tra* transaction);
 
 public:
 	QualifiedName indexName;
@@ -1991,7 +1992,7 @@ public:
 
 public:
 	static ModifyIndexNode* store(thread_db* tdbb, MemoryPool& p, jrd_tra* transaction, QualifiedName& name,
-		const Definition& definition, QualifiedName* referredIndexName = nullptr);
+		Definition& definition, QualifiedName* referredIndexName = nullptr);
 
 public:
 	Firebird::string internalPrint(NodePrinter& printer) const override;
@@ -2137,7 +2138,6 @@ protected:
 
 private:
 	MetaId idxId;
-	QualifiedName partnerRelName;
 
 public:
 	bool silent = false;
@@ -2895,7 +2895,7 @@ protected:
 
 private:
 	bool collectObjects(thread_db* tdbb, jrd_tra* transaction,
-		Firebird::Array<Firebird::RightPooledPair<ObjectType, MetaName>>* objects = nullptr);
+		Firebird::Array<Firebird::NonPooledPair<ObjectType, MetaName>>* objects = nullptr);
 
 public:
 	MetaName name;

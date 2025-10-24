@@ -2391,18 +2391,6 @@ static string remove_icu_info_from_attributes(const QualifiedName& charsetName, 
 }
 
 
-bool DFW_setupCollationAttributes(const string& collationName, const QualifiedName& charSetName,
-	const string& oldSpecificAttributes, string& newSpecificAttributes, bool dropIcuInfo)
-{
-	string oldCleanedAttributes = dropIcuInfo ?
-		remove_icu_info_from_attributes(charSetName, oldSpecificAttributes) : oldSpecificAttributes;
-
-	DbgRebuildIntl::out("dropIcuInfo %d oldCleanedAttributes %s\n", dropIcuInfo, oldCleanedAttributes.c_str());
-
-	return IntlManager::setupCollationAttributes(collationName, charSetName, oldCleanedAttributes, newSpecificAttributes);
-}
-
-
 static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transaction,
 	const CSetId charSetId, const QualifiedName& collationName, bool dropIcuInfo)
 {
@@ -2448,14 +2436,19 @@ static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transacti
 		const string specificAttributes((const char*) buffer.begin(), length);
 		DbgRebuildIntl::out("Try collation %s with %s\n", collationName.toQuotedString().c_str(), specificAttributes.c_str());
 
+		QualifiedName charsetName(CS.RDB$CHARACTER_SET_NAME, CS.RDB$SCHEMA_NAME);
+		string icuLessAttributes = dropIcuInfo ?
+			remove_icu_info_from_attributes(charsetName, specificAttributes) : specificAttributes;
+		DbgRebuildIntl::out("dropIcuInfo %d icuLessAttributes %s\n", dropIcuInfo, icuLessAttributes.c_str());
+		string newSpecificAttributes;
+
 		// ASF: If setupCollationAttributes fail we store the original
 		// attributes. This should be what we want for new databases
-		// and restores.
-		string newSpecificAttributes;
-		if (DFW_setupCollationAttributes(
+		// and restores. CREATE COLLATION will fail in DYN.
+		if (IntlManager::setupCollationAttributes(
 				(COLL.RDB$BASE_COLLATION_NAME.NULL ? COLL.RDB$COLLATION_NAME : COLL.RDB$BASE_COLLATION_NAME),
 				QualifiedMetaString(CS.RDB$CHARACTER_SET_NAME, CS.RDB$SCHEMA_NAME),
-				specificAttributes, newSpecificAttributes, dropIcuInfo) &&
+				icuLessAttributes, newSpecificAttributes) &&
 			newSpecificAttributes != specificAttributes) // if nothing changed, we do nothing
 		{
 			DbgRebuildIntl::out("  Recreate collation %s\n", collationName.toQuotedString().c_str());

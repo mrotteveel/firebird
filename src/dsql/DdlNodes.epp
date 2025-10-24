@@ -3191,8 +3191,9 @@ bool CreateAlterProcedureNode::executeAlter(thread_db* tdbb, DsqlCompilerScratch
 
 		FOR (REQUEST_HANDLE request3 TRANSACTION_HANDLE transaction)
 			P IN RDB$PROCEDURES
-			WITH P.RDB$PROCEDURE_NAME EQ name.c_str() AND
-				 P.RDB$PACKAGE_NAME EQUIV NULLIF(package.c_str(), '')
+			WITH P.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 P.RDB$PROCEDURE_NAME EQ name.object.c_str() AND
+				 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 		{
 			MODIFY P
 			{
@@ -6444,7 +6445,7 @@ USHORT RelationNode::calcDbKeyLength(thread_db* tdbb)
 		R IN RDB$RELATIONS
 			WITH Z.RDB$RELATION_NAME EQ R.RDB$RELATION_NAME AND
 				 Z.RDB$RELATION_SCHEMA_NAME EQ R.RDB$SCHEMA_NAME AND
-				 Z.RDB$VIEW_NAME EQ name.c_str() AND
+				 Z.RDB$VIEW_NAME EQ name.object.c_str() AND
 				 Z.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
 				 (Z.RDB$CONTEXT_TYPE = VCT_TABLE OR
 				  Z.RDB$CONTEXT_TYPE = VCT_VIEW)
@@ -8088,12 +8089,12 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 			if (REL.RDB$VIEW_BLR.NULL)
 			{
 				if (REL.RDB$FORMAT == MAX_TABLE_VERSIONS)
-					raiseTooManyVersionsError(obj_relation, work->getQualifiedName());
+					raiseTooManyVersionsError(obj_relation, relName);
 			}
 			else
 			{
 				if (REL.RDB$FORMAT == MAX_VIEW_VERSIONS)
-					raiseTooManyVersionsError(obj_view, work->getQualifiedName());
+					raiseTooManyVersionsError(obj_view, relName);
 			}
 
 			if (REL.RDB$FORMAT == MAX_TABLE_VERSIONS)
@@ -8326,7 +8327,8 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 						try
 						{
 							ValueExprNode* defaultNode = static_cast<ValueExprNode*>(MET_parse_blob(
-								tdbb, getPermanent(relation), defaultValue, NULL, &defaultStatement, false, false));
+								tdbb, &relName.schema, getPermanent(relation), defaultValue, NULL,
+								&defaultStatement, false, false));
 
 							AutoPtr<Request> defaultRequest(defaultStatement->findRequest(tdbb));
 
@@ -8430,7 +8432,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 						DPM_delete_relation(tdbb, getPermanent(relation));
 
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
-							 Arg::Gds(isc_table_name) << Arg::Str(relName) <<
+							 Arg::Gds(isc_table_name) << relName.toQuotedString() <<
 			 				 Arg::Gds(isc_must_have_phys_field));
 				}
 
@@ -8453,8 +8455,11 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 					AutoRequest handle;
 					FOR(REQUEST_HANDLE handle)
 						Z IN RDB$VIEW_RELATIONS
-						CROSS R IN RDB$RELATIONS OVER RDB$RELATION_NAME
-						WITH Z.RDB$VIEW_NAME = relName.c_str()
+						CROSS R IN RDB$RELATIONS
+						WITH Z.RDB$SCHEMA_NAME = relName.schema.c_str() AND
+							 Z.RDB$VIEW_NAME = relName.object.c_str() AND
+							 R.RDB$SCHEMA_NAME EQ Z.RDB$RELATION_SCHEMA_NAME AND
+							 R.RDB$RELATION_NAME EQ Z.RDB$RELATION_NAME
 					{
 						REL.RDB$DBKEY_LENGTH += R.RDB$DBKEY_LENGTH;
 					}
@@ -8516,18 +8521,20 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 
 	// system triggers
 
+#ifdef DEV_BUILD
 	AutoCacheRequest request_fmtx(tdbb, irq_format4, IRQ_REQUESTS);
 
 	FOR (REQUEST_HANDLE request_fmtx)
 		TRG IN RDB$TRIGGERS
-		WITH TRG.RDB$RELATION_NAME = relation->getName().c_str()
-			AND TRG.RDB$SYSTEM_FLAG = 1
+		WITH TRG.RDB$SCHEMA_NAME EQ relation->getName().schema.c_str() AND
+			 TRG.RDB$RELATION_NAME EQ relation->getName().object.c_str() AND
+			 TRG.RDB$SYSTEM_FLAG EQ fb_sysflag_system
 		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 	{
-		if (!TRG.RDB$TRIGGER_INACTIVE)
-			setupTriggerDetails(tdbb, relation, blob, triggers, TRG.RDB$TRIGGER_NAME, null_view);
+		fb_assert(false);		// should have no more system triggers in database
 	}
 	END_FOR
+#endif
 
 	// user triggers
 
@@ -8535,20 +8542,26 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 
 	FOR (REQUEST_HANDLE request_fmtx)
 		TRG IN RDB$TRIGGERS
-		WITH TRG.RDB$RELATION_NAME EQ relation->getName().c_str()
-		AND TRG.RDB$SYSTEM_FLAG = 0
-		AND (NOT ANY
-			CHK IN RDB$CHECK_CONSTRAINTS CROSS
-			RCN IN RDB$RELATION_CONSTRAINTS
-			WITH TRG.RDB$TRIGGER_NAME EQ CHK.RDB$TRIGGER_NAME
-			AND CHK.RDB$CONSTRAINT_NAME EQ RCN.RDB$CONSTRAINT_NAME
-			AND (RCN.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT
-			    OR RCN.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY)
+		WITH TRG.RDB$SCHEMA_NAME EQ relation->getName().schema.c_str() AND
+			 TRG.RDB$RELATION_NAME EQ relation->getName().object.c_str() AND
+			 TRG.RDB$SYSTEM_FLAG = fb_sysflag_user AND
+			 (NOT ANY
+				CHK IN RDB$CHECK_CONSTRAINTS
+				CROSS RCN IN RDB$RELATION_CONSTRAINTS
+				WITH TRG.RDB$SCHEMA_NAME EQ CHK.RDB$SCHEMA_NAME AND
+					 TRG.RDB$TRIGGER_NAME EQ CHK.RDB$TRIGGER_NAME AND
+					 CHK.RDB$SCHEMA_NAME EQ RCN.RDB$SCHEMA_NAME AND
+					 CHK.RDB$CONSTRAINT_NAME EQ RCN.RDB$CONSTRAINT_NAME AND
+					 (RCN.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT OR
+				      RCN.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY)
 			)
 		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 	{
 		if (!TRG.RDB$TRIGGER_INACTIVE)
-			setupTriggerDetails(tdbb, relation, blob, triggers, TRG.RDB$TRIGGER_NAME, null_view);
+		{
+			setupTriggerDetails(tdbb, relation, blob, triggers,
+				QualifiedName(TRG.RDB$TRIGGER_NAME, TRG.RDB$SCHEMA_NAME), null_view);
+		}
 	}
 	END_FOR
 
@@ -8560,21 +8573,28 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 
 	FOR (REQUEST_HANDLE request_fmtx)
 		TRG IN RDB$TRIGGERS
-		WITH TRG.RDB$RELATION_NAME = relation->getName().c_str()
-		AND (TRG.RDB$SYSTEM_FLAG BT fb_sysflag_check_constraint AND fb_sysflag_view_check
-			OR (TRG.RDB$SYSTEM_FLAG = 0 AND ANY
-			CHK IN RDB$CHECK_CONSTRAINTS CROSS
-			RCN IN RDB$RELATION_CONSTRAINTS
-				WITH TRG.RDB$TRIGGER_NAME EQ CHK.RDB$TRIGGER_NAME
-				AND CHK.RDB$CONSTRAINT_NAME EQ RCN.RDB$CONSTRAINT_NAME
-				AND (RCN.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT
-				    OR RCN.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY)
-		    	)
-			)
+		WITH TRG.RDB$SCHEMA_NAME EQ relation->getName().schema.c_str() AND
+			 TRG.RDB$RELATION_NAME EQ relation->getName().object.c_str() AND
+			 (TRG.RDB$SYSTEM_FLAG BT fb_sysflag_check_constraint AND fb_sysflag_view_check OR
+			  (TRG.RDB$SYSTEM_FLAG = fb_sysflag_user AND
+			   ANY
+				CHK IN RDB$CHECK_CONSTRAINTS
+				CROSS RCN IN RDB$RELATION_CONSTRAINTS
+				WITH TRG.RDB$SCHEMA_NAME EQ CHK.RDB$SCHEMA_NAME AND
+					 TRG.RDB$TRIGGER_NAME EQ CHK.RDB$TRIGGER_NAME AND
+					 CHK.RDB$SCHEMA_NAME EQ RCN.RDB$SCHEMA_NAME AND
+					 CHK.RDB$CONSTRAINT_NAME EQ RCN.RDB$CONSTRAINT_NAME AND
+					 (RCN.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT OR
+					  RCN.RDB$CONSTRAINT_TYPE EQ FOREIGN_KEY)
+			  )
+			 )
 		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 	{
 		if (!TRG.RDB$TRIGGER_INACTIVE)
-			setupTriggerDetails(tdbb, relation, blob, triggers, TRG.RDB$TRIGGER_NAME, null_view);
+		{
+			setupTriggerDetails(tdbb, relation, blob, triggers,
+				QualifiedName(TRG.RDB$TRIGGER_NAME, TRG.RDB$SCHEMA_NAME), null_view);
+		}
 	}
 	END_FOR
 
@@ -8583,7 +8603,7 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 
 
 void RelationNode::setupTriggerDetails(thread_db* tdbb, jrd_rel* relation, blb* blob,
-	TrigArray* triggers, const TEXT* trigger_name, bool null_view)
+	TrigArray* triggers, const QualifiedName& trigger_name, bool null_view)
 {
 /**************************************
  *
@@ -8602,7 +8622,7 @@ void RelationNode::setupTriggerDetails(thread_db* tdbb, jrd_rel* relation, blb* 
  **************************************/
 
 	putSummaryRecord(tdbb, blob, RSR_trigger_name,
-		(const UCHAR*) trigger_name, fb_utils::name_length(trigger_name));
+		(const UCHAR*) trigger_name.object.c_str(), trigger_name.object.length());
 
 	if (!null_view) {
 		MET_load_trigger(tdbb, relation, trigger_name, [&](int t)->Triggers& {return (*triggers)[t];});
@@ -8610,10 +8630,10 @@ void RelationNode::setupTriggerDetails(thread_db* tdbb, jrd_rel* relation, blb* 
 }
 
 
-void RelationNode::raiseTooManyVersionsError(const int obj_type, const MetaName& obj_name)
+void RelationNode::raiseTooManyVersionsError(const int obj_type, const QualifiedName& obj_name)
 {
 	ERR_post(Arg::Gds(isc_no_meta_update) <<
-			 Arg::Gds(getErrorCodeByObjectType(obj_type)) << Arg::Str(obj_name) <<
+			 Arg::Gds(getErrorCodeByObjectType(obj_type)) << obj_name.toQuotedString() <<
 			 Arg::Gds(isc_version_err));
 }
 
@@ -8895,7 +8915,7 @@ Format* RelationNode::makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::
 		delete format;
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
 				 Arg::Gds(isc_rec_size_err) << Arg::Num(offset) <<
-				 Arg::Gds(isc_table_name) << Arg::Str(relation->getName()));
+				 Arg::Gds(isc_table_name) << relation->getName().toQuotedString());
 		// Msg361: new record size of %ld bytes is too big
 	}
 
@@ -9156,7 +9176,8 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 
 		FOR(REQUEST_HANDLE request)
 			X IN RDB$RELATIONS WITH
-				X.RDB$RELATION_NAME EQ name.c_str() AND
+				X.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				X.RDB$RELATION_NAME EQ name.object.c_str() AND
 				X.RDB$RELATION_ID NOT MISSING
 		{
 			if (X.RDB$RELATION_ID)
@@ -9638,7 +9659,7 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 		}
 
 		MetadataCache::newVersion<Cached::Relation>(tdbb, rel->getId());
-		DFW_post_work(transaction, dfw_commit_relation, nullptr, rel->getId());
+		DFW_post_work(transaction, dfw_commit_relation, nullptr, nullptr, rel->getId());
 		indexList.exec(tdbb, rel, transaction);
 		rel->rel_flags |= REL_get_dependencies;
 
@@ -11391,14 +11412,15 @@ ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* t
 
 		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 			IDX IN RDB$INDICES
-				WITH IDX.RDB$INDEX_NAME EQ indexName.c_str()
+				WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+					 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 		{
-			relName = IDX.RDB$RELATION_NAME;
+			relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 		}
 		END_FOR
 
 		if (!relName.hasData())
-			fatal_exception::raiseFmt("Relation for index %s not known", indexName.c_str());
+			fatal_exception::raiseFmt("Relation for index %s not known", indexName.toQuotedString().c_str());
 	}
 
 	Cached::Relation* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
@@ -11406,7 +11428,7 @@ ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* t
 	if (!relation)
 	{
 		fatal_exception::raiseFmt("Relation %s for creation of index %s not found",
-			relName.c_str(), indexName.c_str());
+			relName.toQuotedString().c_str(), indexName.toQuotedString().c_str());
 	}
 
 	if (create)
@@ -11433,6 +11455,34 @@ string ModifyIndexNode::print(Jrd::NodePrinter& printer) const
 	NODE_PRINT(printer, create);
 
 	return "ModifyIndexNode";
+}
+
+Cached::Relation* ModifyIndexNode::getRelByIndex(thread_db* tdbb, const QualifiedName& index, jrd_tra* transaction)
+{
+	SET_TDBB(tdbb);
+
+	Attachment* attachment = tdbb->getAttachment();
+
+	Cached::Relation* relation = nullptr;
+
+	static const CachedRequestId requestCacheId;
+	AutoCacheRequest request(tdbb, requestCacheId);
+
+	FOR(REQUEST_HANDLE request)
+		IDX IN RDB$INDICES
+		WITH
+			IDX.RDB$SCHEMA_NAME EQ index.schema.c_str() AND
+			IDX.RDB$INDEX_NAME EQ index.object.c_str()
+	{
+		fb_assert(!relation);
+		relation = MetadataCache::lookupRelation(tdbb,
+			QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME), CacheFlag::AUTOCREATE);
+	}
+	END_FOR
+
+	if (relation->rel_flags & REL_check_partners)
+		relation->scanPartners(tdbb);
+	return relation;
 }
 
 
@@ -11484,7 +11534,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	if (!relation)
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+				 Arg::Gds(isc_idx_create_err) << indexName.toQuotedString());
 		// Msg308: can't create index %s
 	}
 
@@ -11506,7 +11556,8 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES CROSS
 		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME
-			WITH IDX.RDB$INDEX_NAME EQ indexName.c_str()
+			WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+				 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
@@ -11522,13 +11573,13 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			if (!idx.idx_count)
 			{
 				ERR_post(Arg::Gds(isc_no_meta_update) <<
-						 Arg::Gds(isc_idx_seg_err) << Arg::Str(indexName));
+						 Arg::Gds(isc_idx_seg_err) << indexName.toQuotedString());
 				// Msg304: segment count of 0 defined for index %s
 			}
 			else
 			{
 				ERR_post(Arg::Gds(isc_no_meta_update) <<
-						 Arg::Gds(isc_idx_key_err) << Arg::Str(indexName));
+						 Arg::Gds(isc_idx_key_err) << indexName.toQuotedString());
 				// Msg311: too many keys defined for index %s
 			}
 		}
@@ -11544,7 +11595,8 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 
 		FOR(REQUEST_HANDLE rc_request TRANSACTION_HANDLE transaction)
 			RC IN RDB$RELATION_CONSTRAINTS WITH
-			RC.RDB$INDEX_NAME EQ indexName.c_str() AND
+			RC.RDB$INDEX_NAME EQ indexName.object.c_str() AND
+			RC.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
 			RC.RDB$CONSTRAINT_TYPE = PRIMARY_KEY
 		{
 			idx.idx_flags |= idx_primary;
@@ -11565,7 +11617,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			{
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				MET_get_dependencies(tdbb, rel, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
+				MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
 					nullptr, &csb, indexName, obj_index_condition, 0,
 					transaction);
 
@@ -11594,10 +11646,13 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			SEG IN RDB$INDEX_SEGMENTS CROSS
 			RFR IN RDB$RELATION_FIELDS CROSS
 			FLD IN RDB$FIELDS
-				WITH SEG.RDB$INDEX_NAME EQ indexName.c_str()
-				AND RFR.RDB$RELATION_NAME EQ rel->c_name()
-				AND RFR.RDB$FIELD_NAME EQ SEG.RDB$FIELD_NAME
-				AND FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
+			WITH SEG.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+				 SEG.RDB$INDEX_NAME EQ indexName.object.c_str() AND
+				 RFR.RDB$SCHEMA_NAME EQ SEG.RDB$SCHEMA_NAME AND
+				 RFR.RDB$RELATION_NAME EQ rel->getName().object.c_str() AND
+				 RFR.RDB$FIELD_NAME EQ SEG.RDB$FIELD_NAME AND
+				 FLD.RDB$SCHEMA_NAME EQ RFR.RDB$FIELD_SOURCE_SCHEMA_NAME AND
+				 FLD.RDB$FIELD_NAME EQ RFR.RDB$FIELD_SOURCE
 		{
 			if (++key_count > idx.idx_count || SEG.RDB$FIELD_POSITION > idx.idx_count ||
 				FLD.RDB$FIELD_TYPE == blr_blob || !FLD.RDB$DIMENSIONS.NULL)
@@ -11605,7 +11660,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 				if (key_count > idx.idx_count)
 				{
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
-							 Arg::Gds(isc_idx_key_err) << Arg::Str(indexName));
+							 Arg::Gds(isc_idx_key_err) << indexName.toQuotedString());
 					// Msg311: too many keys defined for index %s
 				}
 				else if (SEG.RDB$FIELD_POSITION > idx.idx_count)
@@ -11615,18 +11670,18 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 							 Arg::Gds(isc_inval_key_posn) <<
 							 // Msg358: invalid key position
 							 Arg::Gds(isc_field_name) << Arg::Str(RFR.RDB$FIELD_NAME) <<
-							 Arg::Gds(isc_index_name) << Arg::Str(indexName));
+							 Arg::Gds(isc_index_name) << indexName.toQuotedString());
 				}
 				else if (FLD.RDB$FIELD_TYPE == blr_blob)
 				{
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
-							 Arg::Gds(isc_blob_idx_err) << Arg::Str(indexName));
+							 Arg::Gds(isc_blob_idx_err) << indexName.toQuotedString());
 					// Msg350: attempt to index blob column in index %s
 				}
 				else
 				{
 					ERR_post(Arg::Gds(isc_no_meta_update) <<
-							 Arg::Gds(isc_array_idx_err) << Arg::Str(indexName));
+							 Arg::Gds(isc_array_idx_err) << indexName.toQuotedString());
 					// Msg351: attempt to index array column in index %s
 				}
 			}
@@ -11656,19 +11711,19 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	END_FOR
 
 	if (!idx.idx_count)
-		fatal_exception::raiseFmt("The record for %s was not found in RDB$INDICES", indexName.c_str());
+		fatal_exception::raiseFmt("The record for %s was not found in RDB$INDICES", indexName.toQuotedString().c_str());
 
 	if (key_count != idx.idx_count)
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_key_field_err) << Arg::Str(indexName));
+				 Arg::Gds(isc_key_field_err) << indexName.toQuotedString());
 		// Msg352: too few key columns found for index %s (incorrect column name?)
 	}
 
 	if (rel->isView())
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+				 Arg::Gds(isc_idx_create_err) << indexName.toQuotedString());
 		// Msg308: can't create index %s
 	}
 
@@ -11683,7 +11738,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	{
 		idx.idx_id = idx_invalid;
 
-		if (MET_lookup_partner(tdbb, rel, &idx, indexName.c_str()))
+		if (MET_lookup_partner(tdbb, rel, &idx, indexName))
 		{
 			partner_relation = MetadataCache::lookupRelation(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
 		}
@@ -11736,7 +11791,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	fb_assert(idxId <= dbb->dbb_max_idx);
 	idx.idx_id = idxId;
 	SelectivityList selectivity(*tdbb->getDefaultPool());
-	IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName.c_str(),
+	IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName,
 					&idxId, transaction, selectivity);
 	fb_assert(idxId == idx.idx_id);
 	if (!tempConn)
@@ -11776,7 +11831,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	if (!relation)
 	{
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-				 Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+				 Arg::Gds(isc_idx_create_err) << indexName.toQuotedString());
 		// Msg308: can't create index %s
 	}
 
@@ -11795,10 +11850,11 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	AutoCacheRequest request(tdbb, irq_c_exp_index, IRQ_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		IDX IN RDB$INDICES CROSS
-		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME WITH
-		IDX.RDB$EXPRESSION_BLR NOT MISSING AND
-		IDX.RDB$INDEX_NAME EQ indexName.c_str()
+		IDX IN RDB$INDICES
+		CROSS REL IN RDB$RELATIONS OVER RDB$SCHEMA_NAME, RDB$RELATION_NAME
+		WITH IDX.RDB$EXPRESSION_BLR NOT MISSING AND
+			 IDX.RDB$SCHEMA_NAME EQ rel->getName().schema.c_str() AND
+			 IDX.RDB$INDEX_NAME EQ rel->getName().object.c_str()
 	{
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
@@ -11812,7 +11868,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 		{
 			// Msg359: segments not allowed in expression index %s
 			ERR_post(Arg::Gds(isc_no_meta_update) <<
-				Arg::Gds(isc_no_segments_err) << Arg::Str(indexName));
+				Arg::Gds(isc_no_segments_err) << indexName.toQuotedString());
 		}
 
 		if (IDX.RDB$UNIQUE_FLAG)
@@ -11828,7 +11884,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 		{
 			Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-			MET_get_dependencies(tdbb, rel, nullptr, 0, nullptr, &IDX.RDB$EXPRESSION_BLR,
+			MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$EXPRESSION_BLR,
 				nullptr, &csb, indexName, obj_index_expression, 0,
 				transaction);
 
@@ -11861,7 +11917,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 			{
 				Jrd::ContextPoolHolder context(tdbb, new_pool);
 
-				MET_get_dependencies(tdbb, rel, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
+				MET_get_dependencies(tdbb, relation, nullptr, 0, nullptr, &IDX.RDB$CONDITION_BLR,
 					nullptr, &csb, indexName, obj_index_condition, 0,
 					transaction);
 
@@ -11883,7 +11939,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	{
 		// Msg308: can't create index %s
 		ERR_post(Arg::Gds(isc_no_meta_update) <<
-			Arg::Gds(isc_idx_create_err) << Arg::Str(indexName));
+			Arg::Gds(isc_idx_create_err) << indexName.toQuotedString());
 	}
 
 	delete csb;
@@ -11903,7 +11959,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	{
 		fb_assert(idxId <= dbb->dbb_max_idx);
 		idx.idx_id = idxId;
-		IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName.c_str(), &idxId,
+		IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName, &idxId,
 			transaction, selectivity);
 
 		fb_assert(idxId == idx.idx_id);
@@ -11948,8 +12004,6 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 	DYN_UTIL_check_unique_name(tdbb, transaction, idxName, obj_index);
 	definition.index = idxName;
 
-	AutoCacheRequest request(tdbb, drq_s_indices, DYN_REQUESTS);
-
 	ULONG keyLength = 0;
 
 	AutoCacheRequest request(tdbb, drq_s_indices, DYN_REQUESTS);
@@ -11965,8 +12019,8 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 		IDX.RDB$EXPRESSION_SOURCE.NULL = TRUE;
 		IDX.RDB$EXPRESSION_BLR.NULL = TRUE;
 		IDX.RDB$RELATION_NAME.NULL = FALSE;
-		strcpy(IDX.RDB$SCHEMA_NAME, name.schema.c_str());
-		strcpy(IDX.RDB$INDEX_NAME, name.object.c_str());
+		strcpy(IDX.RDB$SCHEMA_NAME, idxName.schema.c_str());
+		strcpy(IDX.RDB$INDEX_NAME, idxName.object.c_str());
 		strcpy(IDX.RDB$RELATION_NAME, definition.relation.object.c_str());
 		IDX.RDB$SYSTEM_FLAG = 0;
 
@@ -12035,17 +12089,17 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 				if (GF.RDB$FIELD_TYPE == blr_blob)
 				{
 					// msg 116 "attempt to index blob field in index %s"
-					status_exception::raise(Arg::PrivateDyn(116) << name.toQuotedString());
+					status_exception::raise(Arg::PrivateDyn(116) << idxName.toQuotedString());
 				}
 				else if (!GF.RDB$DIMENSIONS.NULL)
 				{
 					// msg 117 "attempt to index array field in index %s"
-					status_exception::raise(Arg::PrivateDyn(117) << name.toQuotedString());
+					status_exception::raise(Arg::PrivateDyn(117) << idxName.toQuotedString());
 				}
 				else if (!GF.RDB$COMPUTED_BLR.NULL)
 				{
 					// msg 179 "attempt to index COMPUTED BY field in index %s"
-					status_exception::raise(Arg::PrivateDyn(179) << name.toQuotedString());
+					status_exception::raise(Arg::PrivateDyn(179) << idxName.toQuotedString());
 				}
 				else if (GF.RDB$FIELD_TYPE == blr_varying || GF.RDB$FIELD_TYPE == blr_text)
 				{
@@ -12087,7 +12141,7 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 			if (!found)
 			{
 				// msg 120 "Unknown columns in index %s"
-				status_exception::raise(Arg::PrivateDyn(120) << name.toQuotedString());
+				status_exception::raise(Arg::PrivateDyn(120) << idxName.toQuotedString());
 			}
 		}
 
@@ -12107,7 +12161,7 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 		if (keyLength >= MAX_KEY)
 		{
 			// msg 118 "key size too big for index %s"
-			status_exception::raise(Arg::PrivateDyn(118) << name.toQuotedString());
+			status_exception::raise(Arg::PrivateDyn(118) << idxName.toQuotedString());
 		}
 
 		if (definition.columns.hasData())
@@ -12134,7 +12188,7 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 		else if (IDX.RDB$EXPRESSION_BLR.NULL)
 		{
 			// msg 119 "no keys for index %s"
-			status_exception::raise(Arg::PrivateDyn(119) << name.toQuotedString());
+			status_exception::raise(Arg::PrivateDyn(119) << idxName.toQuotedString());
 		}
 
 		if (definition.refColumns.hasData())
@@ -12467,8 +12521,8 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
-		WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 IDX.RDB$INDEX_NAME EQ name.object.c_str()
+		WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
 		found = true;
 
@@ -12476,7 +12530,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 			active = true;
 		else
 		{
-			active = !IDX.RDB$INDEX_INACTIVE;
+			active = IDX.RDB$INDEX_INACTIVE == MET_index_active;
 			deferred = IDX.RDB$INDEX_INACTIVE == MET_index_deferred_active;
 		}
 
@@ -12484,7 +12538,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 		{
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_INDEX, indexName, {});
 
-			relName = IDX.RDB$RELATION_NAME;
+			relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 			relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
 			fb_assert(relation);
 
@@ -12603,7 +12657,7 @@ void SetStatisticsNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 //----------------------
 
 
-DropIndexNode::DropIndexNode(MemoryPool& p, const MetaName& name)
+DropIndexNode::DropIndexNode(MemoryPool& p, const QualifiedName& name)
 	: ModifyIndexNode(name, false),
 	  DdlNode(p),
 	  idxId(MAX_META_ID)
@@ -12660,20 +12714,17 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
-		WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 IDX.RDB$INDEX_NAME EQ name.object.c_str()
+		WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
 		fb_assert(IDX.RDB$INDEX_ID);
 		idxId = IDX.RDB$INDEX_ID - 1;
-		relName = IDX.RDB$RELATION_NAME;
+		relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 
 		rel = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
 		fb_assert(rel);
 
 		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
-
-		if (!IDX.RDB$FOREIGN_KEY.NULL)
-			partnerRelName = IDX.RDB$FOREIGN_KEY;
 
 		if (rel)
 			rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
@@ -12737,7 +12788,10 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
-	MetaName indexName;
+	QualifiedName indexName, partnerIdxName;
+	bool processPartners = false;
+
+	auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
 
 	// cleanup NOT related to current transaction
 	auto* transaction = attachment->getSysTransaction();
@@ -12748,17 +12802,19 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
 		IND IN RDB$INDICES
 		CROSS REL IN RDB$RELATIONS
-			OVER RDB$RELATION_NAME
+			OVER RDB$RELATION_NAME, RDB$SCHEMA_NAME
 		WITH IND.RDB$INDEX_ID EQ indexId + 1
 			AND REL.RDB$RELATION_ID EQ relId
 	{
-		indexName = IND.RDB$INDEX_NAME;
+		indexName = QualifiedName(IND.RDB$INDEX_NAME, IND.RDB$SCHEMA_NAME);
+
+		if (!IND.RDB$FOREIGN_KEY.NULL)
+			partnerIdxName = QualifiedName(IND.RDB$FOREIGN_KEY, IND.RDB$FOREIGN_KEY_SCHEMA_NAME);
 
 		if (MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE) == MET_index_deferred_drop)
 		{
 			ERASE IND;
 
-			auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
 			if (rel)
 			{
 				auto idx = rel->eraseIndex(tdbb, indexId);
@@ -12782,6 +12838,19 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	{
 		MET_delete_dependencies(tdbb, indexName, obj_index_expression);
 		MET_delete_dependencies(tdbb, indexName, obj_index_condition);
+	}
+
+	if (partnerIdxName.hasData())
+	{
+		auto partner = getRelByIndex(tdbb, partnerIdxName, transaction);
+
+		if (rel && partner)
+		{
+			rel->checkPartners(tdbb);
+
+			if (rel != partner)
+				partner->checkPartners(tdbb);
+		}
 	}
 }
 
@@ -16036,7 +16105,7 @@ void DropSchemaNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 }
 
 bool DropSchemaNode::collectObjects(thread_db* tdbb, jrd_tra* transaction,
-	Array<RightPooledPair<ObjectType, MetaName>>* objects)
+	Array<NonPooledPair<ObjectType, MetaName>>* objects)
 {
 	if (objects)
 		objects->clear();
@@ -16215,6 +16284,4 @@ bool DropSchemaNode::collectObjects(thread_db* tdbb, jrd_tra* transaction,
 	return objects && objects->hasData();
 }
 
-
->>>>>>> master
 }	// namespace Jrd

@@ -1112,7 +1112,7 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id)
 
 		delete_tree(tdbb, relation_id, id, next, prior);
 
-		// clear RDB$INDEX_ID
+		// clear RDB$INDEX_ID and related stuff
 		DropIndexNode::clearId(tdbb, relation_id, id);
 
 		return tree_exists;
