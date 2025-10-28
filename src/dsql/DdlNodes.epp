@@ -11595,8 +11595,8 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 
 		FOR(REQUEST_HANDLE rc_request TRANSACTION_HANDLE transaction)
 			RC IN RDB$RELATION_CONSTRAINTS WITH
-			RC.RDB$INDEX_NAME EQ indexName.object.c_str() AND
 			RC.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+			RC.RDB$INDEX_NAME EQ indexName.object.c_str() AND
 			RC.RDB$CONSTRAINT_TYPE = PRIMARY_KEY
 		{
 			idx.idx_flags |= idx_primary;
