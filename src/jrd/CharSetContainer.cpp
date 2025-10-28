@@ -61,6 +61,6 @@ QualifiedName CharSetContainer::getName() const
 	if (names.hasData())
 		return names[0];
 
-	return QualifiedName(cs->getName());
+	return QualifiedName(cs->getName(), SYSTEM_SCHEMA);
 }
 

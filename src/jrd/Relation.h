@@ -470,7 +470,7 @@ public:
 		return idp_relation;
 	}
 
-	const QualifiedName& getName() const;
+	const QualifiedName& getName();
 
 private:
 	RelationPermanent*	idp_relation;

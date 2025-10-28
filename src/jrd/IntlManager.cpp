@@ -73,7 +73,7 @@ namespace Jrd {
 
 struct ExternalInfo
 {
-	ExternalInfo(const PathName& a_moduleName, const string& a_name, const string& a_configInfo)
+	ExternalInfo(const PathName& a_moduleName, const MetaString& a_name, const string& a_configInfo)
 		: moduleName(a_moduleName),
 		  name(a_name),
 		  configInfo(a_configInfo)
@@ -92,11 +92,11 @@ struct ExternalInfo
 	}
 
 	PathName moduleName;
-	string name;
+	MetaString name;
 	string configInfo;
 };
 
-using CharSetCollationName = FullPooledPair<QualifiedMetaString, string>;
+using CharSetCollationName = FullPooledPair<QualifiedMetaString, MetaString>;
 
 static GlobalPtr<ModulesMap> modules;
 static GlobalPtr<FullPooledMap<CharSetCollationName, ExternalInfo>> charSetCollations;
@@ -619,7 +619,7 @@ bool IntlManager::charSetInstalled(const QualifiedMetaString& charSetName)
 }
 
 
-bool IntlManager::collationInstalled(const string& collationName, const QualifiedMetaString& charSetName)
+bool IntlManager::collationInstalled(const MetaString& collationName, const QualifiedMetaString& charSetName)
 {
 	return charSetCollations->exist({charSetName, collationName});
 }
@@ -654,7 +654,7 @@ bool IntlManager::lookupCharSet(const QualifiedMetaString& charSetName, charset*
 }
 
 
-void IntlManager::lookupCollation(const string& collationName,
+void IntlManager::lookupCollation(const MetaString& collationName,
 								  const CharsetVariants& charsetVariants,
 								  USHORT attributes, const UCHAR* specificAttributes,
 								  ULONG specificAttributesLen, bool ignoreAttributes,
@@ -730,7 +730,7 @@ void IntlManager::lookupCollation(const string& collationName,
 
 
 bool IntlManager::setupCollationAttributes(
-	const string& collationName, const QualifiedMetaString& charSetName,
+	const MetaString& collationName, const QualifiedMetaString& charSetName,
 	const string& specificAttributes, string& newSpecificAttributes)
 {
 	ExternalInfo charSetExternalInfo;

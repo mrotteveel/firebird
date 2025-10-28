@@ -963,10 +963,11 @@ void RelationPages::free(RelationPages*& nextFree)
 	fatal_exception::raise("Index is gone unexpectedly");
 }
 
-const QualifiedName& IndexPermanent::getName() const
+const QualifiedName& IndexPermanent::getName()
 {
 	static QualifiedName empty("");
-	auto* v = idp_relation->lookup_index(JRD_get_thread_data(), getId(), CacheFlag::AUTOCREATE);
+	Cached::Index* element = static_cast<Cached::Index*>(this);
+	auto* v = element->getVersioned(JRD_get_thread_data(), CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 	return v ? v->getName() : empty;
 }
 

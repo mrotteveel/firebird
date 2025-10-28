@@ -74,7 +74,7 @@ namespace Jrd
 
 		CharsetVariants charsetName;
 		QualifiedName collationName;
-		Firebird::string baseCollationName;
+		MetaName baseCollationName;
 		USHORT attributes;
 		bool ignoreAttributes;
 		Firebird::UCharBuffer specificAttributes;

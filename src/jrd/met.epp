@@ -1058,10 +1058,7 @@ bool MET_get_char_coll_subtype_info(thread_db* tdbb, USHORT id, SubtypeInfo* inf
 		if (CL.RDB$BASE_COLLATION_NAME.NULL)
 			info->baseCollationName = info->collationName.object.c_str();
 		else
-		{
 			info->baseCollationName = CL.RDB$BASE_COLLATION_NAME;
-			info->baseCollationName.rtrim();
-		}
 
 		if (CL.RDB$SPECIFIC_ATTRIBUTES.NULL)
 			info->specificAttributes.clear();

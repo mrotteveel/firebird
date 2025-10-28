@@ -4308,10 +4308,7 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 		if (X.RDB$BASE_COLLATION_NAME.NULL)
 			info.baseCollationName = info.collationName.object.c_str();
 		else
-		{
 			info.baseCollationName = X.RDB$BASE_COLLATION_NAME;
-			info.baseCollationName.rtrim();
-		}
 
 		info.ignoreAttributes = false;
 

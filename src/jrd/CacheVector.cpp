@@ -82,22 +82,22 @@ MdcVersion VersionSupport::next(thread_db* tdbb)
 
 // class ElementBase
 
-[[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* family, const QualifiedName& name)
+[[noreturn]] void ElementBase::busyError(thread_db* tdbb, MetaId id, const char* family)
 {
-	fatal_exception::raiseFmt("%s %s%sid=%d busy in another thread - operation failed\n",
-		family, name.toQuotedString().c_str(), name.hasData() ? " " : "", id);
+	fatal_exception::raiseFmt("%s id=%d busy in another thread - operation failed\n",
+		family, id);
 }
 
-[[noreturn]] void ElementBase::newVersionBusy(const char* family, const QualifiedName& name, TraNumber traNum)
+[[noreturn]] void ElementBase::newVersionBusy(thread_db* tdbb, MetaId id, const char* family, TraNumber traNum)
 {
-	Firebird::fatal_exception::raiseFmt("newVersion: %s %s is used by transaction %d\n",
-		family, name.toQuotedString().c_str(), traNum);
+	Firebird::fatal_exception::raiseFmt("newVersion: %s %d is used by transaction %d\n",
+		family, id, traNum);
 }
 
-[[noreturn]] void ElementBase::newVersionScan(const char* family, const QualifiedName& name)
+[[noreturn]] void ElementBase::newVersionScan(thread_db* tdbb, MetaId id, const char* family)
 {
-	Firebird::fatal_exception::raiseFmt("newVersion: %s %s is scanned by us\n",
-		family, name.toQuotedString().c_str());
+	Firebird::fatal_exception::raiseFmt("newVersion: %s %d is scanned by us\n",
+		family, id);
 }
 
 void ElementBase::commitErase(thread_db* tdbb)
@@ -142,26 +142,26 @@ Lock* ElementBase::makeLock(thread_db* tdbb, MemoryPool& p, SINT64 key, enum lck
 	return lck;
 }
 
-void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, const char* family, const QualifiedName& name)
+void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, const char* family)
 {
 	if (!LCK_lock(tdbb, lock, flags & CacheFlag::ERASED ? LCK_EX : LCK_PW, LCK_WAIT))
 	{
-		Firebird::fatal_exception::raiseFmt("Unable to obtain WRITE rescan lock for %s %s",
-			family, name.toQuotedString().c_str());
+		Firebird::fatal_exception::raiseFmt("Unable to obtain WRITE rescan lock for %s %d",
+			family, id);
 	}
 
 	LCK_convert(tdbb, lock, LCK_PR, LCK_WAIT);	// never fails
 }
 
-void ElementBase::setLock(thread_db* tdbb, const char* family, const QualifiedName& name)
+void ElementBase::setLock(thread_db* tdbb, MetaId id, const char* family)
 {
 	fb_assert(lock);
 	if (lock)
 	{
 		if (!LCK_lock(tdbb, lock, LCK_PR, LCK_WAIT))
 		{
-			Firebird::fatal_exception::raiseFmt("Unable to obtain READ rescan lock for %s %s",
-				family, name.toQuotedString().c_str());
+			Firebird::fatal_exception::raiseFmt("Unable to obtain READ rescan lock for %s %d",
+				family, id);
 		}
 	}
 }

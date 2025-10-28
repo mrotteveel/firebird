@@ -46,19 +46,19 @@ public:
 
 	static bool charSetInstalled(const Firebird::QualifiedMetaString& charSetName);
 
-	static bool collationInstalled(const Firebird::string& collationName,
+	static bool collationInstalled(const Firebird::MetaString& collationName,
 								   const Firebird::QualifiedMetaString& charSetName);
 
 	static bool lookupCharSet(const Firebird::QualifiedMetaString& charSetName, charset* cs);
 
-	static void lookupCollation(const Firebird::string& collationName,
+	static void lookupCollation(const Firebird::MetaString& collationName,
 								const CharsetVariants& charsetVariants,
 								USHORT attributes, const UCHAR* specificAttributes,
 								ULONG specificAttributesLen, bool ignoreAttributes,
 								texttype* tt);
 
 	static bool setupCollationAttributes(
-		const Firebird::string& collationName, const Firebird::QualifiedMetaString& charSetName,
+		const Firebird::MetaString& collationName, const Firebird::QualifiedMetaString& charSetName,
 		const Firebird::string& specificAttributes, Firebird::string& newSpecificAttributes);
 
 public:

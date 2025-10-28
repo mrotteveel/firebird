@@ -623,13 +623,26 @@ namespace
 
 		void make(thread_db* tdbb)
 		{
+			// This code looks a little overcomplicated but very careful upgrade of format
+			// is required at least for RDB$SYSTEM_SCHEMA cause HASH plan used for it
+			// tries to upgrade format version to the freshmost one which may cause
+			// assert or segfault in MET_get_format() without this precautions.
+
 			for (auto relName : *this)
 			{
 				QualifiedName name(relName, SYSTEM_SCHEMA);
+				auto* oldRel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+				fb_assert(oldRel);
+
 				RelationNode::makeVersion(tdbb, tdbb->getTransaction(), name);
-				auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
+				auto* rel = oldRel->getPermanent();
 				fb_assert(rel);
-				rel->makeObject(tdbb, CacheFlag::AUTOCREATE);
+
+				auto* newRel = jrd_rel::create(tdbb, rel->getPool(), rel);
+				newRel->rel_current_fmt = oldRel->rel_current_fmt;
+				newRel->rel_current_format = oldRel->rel_current_format;
+
+				rel->storeObject(tdbb, newRel, 0);
 			}
 		}
 	};

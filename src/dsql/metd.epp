@@ -625,22 +625,19 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 
 	// now see if it is in the metadata cache
 
-	for (;;)
+	auto* jproc = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
+	if (jproc)
 	{
-		auto* jproc = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
-		if (jproc)
+		procedure = FB_NEW_POOL(dsqlScratch->getPool()) dsql_prc(dsqlScratch->getPool(), jproc);
+
+		if (procedure->prc_private && name.getSchemaAndPackage() != dsqlScratch->package)
 		{
-			procedure = FB_NEW_POOL(dsqlScratch->getPool()) dsql_prc(dsqlScratch->getPool(), jproc);
-
-			if (procedure->prc_private && name.getSchemaAndPackage() != dsqlScratch->package)
-			{
-				status_exception::raise(Arg::Gds(isc_private_procedure) <<
-					Arg::Str(name.object) << Arg::Str(name.package));
-			}
-
-			dsqlScratch->procedures.put(procedure->prc_name, procedure);
-			return procedure;
+			status_exception::raise(Arg::Gds(isc_private_procedure) <<
+				Arg::Str(name.object) << Arg::Str(name.package));
 		}
+
+		dsqlScratch->procedures.put(procedure->prc_name, procedure);
+		return procedure;
 	}
 
 	return nullptr;
