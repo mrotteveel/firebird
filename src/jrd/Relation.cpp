@@ -582,8 +582,7 @@ PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
 
 Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const QualifiedName& name)
 {
-	auto* relation = MetadataCache::lookupRelation(tdbb, name,
-		CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT | CacheFlag::MINISCAN);
+	auto* relation = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE | CacheFlag::TAG_FOR_UPDATE);
 	fb_assert(relation);
 
 	if (relation && relation->getId())
