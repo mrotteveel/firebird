@@ -1154,7 +1154,6 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 	ObjectsArray<MetaName>* inArgNames = nullptr;
 	USHORT inArgCount = 0;
 	QualifiedName name;
-	Cached::Procedure* proc = nullptr;
 	SubRoutine<jrd_prc> nodeProc;
 
 	const auto node = FB_NEW_POOL(pool) ProcedureSourceNode(pool);
@@ -1212,7 +1211,9 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 						else if (!node->procedure)
 						{
 							csb->qualifyExistingName(tdbb, name, obj_procedure);
-							proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+							auto* proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+							if (proc)
+								node->procedure = csb->csb_resources->procedures.registerResource(proc);
 						}
 
 						break;
@@ -1289,8 +1290,14 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			if (blrOp == blr_pid2)
 				blrReader.getString(node->alias);
 
-			proc = MetadataCache::lookupProcedure(tdbb, procId, CacheFlag::AUTOCREATE);
-			name.object.printf("id %d", procId);
+			auto* proc = MetadataCache::lookupProcedure(tdbb, procId, CacheFlag::AUTOCREATE);
+			if (proc)
+			{
+				fb_assert(!node->procedure);
+				node->procedure = csb->csb_resources->procedures.registerResource(proc);
+			}
+			else
+				name.object.printf("id %d", procId);
 
 			break;
 		}
@@ -1319,7 +1326,12 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			else
 			{
 				csb->qualifyExistingName(tdbb, name, obj_procedure);
-				proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+				auto* proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+				if (proc)
+				{
+					fb_assert(!node->procedure);
+					node->procedure = csb->csb_resources->procedures.registerResource(proc);
+				}
 			}
 
 			break;
@@ -1334,12 +1346,6 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 		PAR_error(csb,
 			Arg::Gds(isc_random) <<
 			"blr_invsel_procedure_in_arg_names count cannot be greater than blr_invsel_procedure_in_args");
-	}
-
-	if (proc)
-	{
-		fb_assert(!node->procedure);
-		node->procedure = csb->csb_resources->procedures.registerResource(proc);
 	}
 
 	fb_assert(node->procedure);
