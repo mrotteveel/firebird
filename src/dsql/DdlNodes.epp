@@ -11552,7 +11552,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES CROSS
-		REL IN RDB$RELATIONS OVER RDB$RELATION_NAME
+		REL IN RDB$RELATIONS OVER RDB$SCHEMA_NAME, RDB$RELATION_NAME
 			WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
 				 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
@@ -11836,7 +11836,6 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	MOVE_CLEAR(&idx, sizeof(index_desc));
 	idx.idx_flags = 0;
 	idx.idx_count = 0;
-	int key_count = 0;
 	CompilerScratch* csb = nullptr;
 
 	const auto dbb = tdbb->getDatabase();
@@ -11850,8 +11849,8 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 		IDX IN RDB$INDICES
 		CROSS REL IN RDB$RELATIONS OVER RDB$SCHEMA_NAME, RDB$RELATION_NAME
 		WITH IDX.RDB$EXPRESSION_BLR NOT MISSING AND
-			 IDX.RDB$SCHEMA_NAME EQ rel->getName().schema.c_str() AND
-			 IDX.RDB$INDEX_NAME EQ rel->getName().object.c_str()
+			 IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
