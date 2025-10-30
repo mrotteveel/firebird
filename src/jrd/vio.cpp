@@ -3638,12 +3638,12 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 		case rel_triggers:
 			{
-				dsc schemaName, rname, tname;
+				dsc rname, tname;
 
 				bool onRelation = EVL_field(0, new_rpb->rpb_record, f_trg_rname, &rname);
 				MOV_get_metaname(tdbb, &rname, object_name.object);
 				EVL_field(0, new_rpb->rpb_record, f_trg_schema, &schemaDesc);
-				MOV_get_metaname(tdbb, &schemaName, object_name.schema);
+				MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 
 				if (!check_nullify_source(tdbb, org_rpb, new_rpb, f_trg_source))
 					protect_system_table_delupd(tdbb, relation, "UPDATE");
