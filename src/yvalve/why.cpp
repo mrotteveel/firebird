@@ -84,6 +84,7 @@ static void badHandle(ISC_STATUS code);
 static bool isNetworkError(const IStatus* status);
 static void nullCheck(const FB_API_HANDLE* ptr, ISC_STATUS code);
 static void badSqldaVersion(const short version);
+static int sqldaTruncateString(char* buffer, FB_SIZE_T size, const char* s);
 static void sqldaDescribeParameters(XSQLDA* sqlda, IMessageMetadata* parameters);
 static ISC_STATUS openOrCreateBlob(ISC_STATUS* userStatus, FB_API_HANDLE* dbHandle,
 	FB_API_HANDLE* traHandle, FB_API_HANDLE* blobHandle, ISC_QUAD* blobId,
@@ -1361,6 +1362,12 @@ static void setTextType(XSQLVAR* var, unsigned charSet)
 	}
 }
 
+static int sqldaTruncateString(char* buffer, FB_SIZE_T size, const char* s)
+{
+	int ret = fb_utils::snprintf(buffer, size, "%s", s);
+	return MIN(ret, size - 1);
+}
+
 // Describe parameters metadata in an sqlda.
 static void sqldaDescribeParameters(XSQLDA* sqlda, IMessageMetadata* parameters)
 {
@@ -1407,19 +1414,19 @@ static void sqldaDescribeParameters(XSQLDA* sqlda, IMessageMetadata* parameters)
 
 		s = parameters->getField(&statusWrapper, i);
 		status.check();
-		var->sqlname_length = fb_utils::snprintf(var->sqlname, sizeof(var->sqlname), "%s", s);
+		var->sqlname_length = sqldaTruncateString(var->sqlname, sizeof(var->sqlname), s);
 
 		s = parameters->getRelation(&statusWrapper, i);
 		status.check();
-		var->relname_length = fb_utils::snprintf(var->relname, sizeof(var->relname), "%s", s);
+		var->relname_length = sqldaTruncateString(var->relname, sizeof(var->relname), s);
 
 		s = parameters->getOwner(&statusWrapper, i);
 		status.check();
-		var->ownname_length = fb_utils::snprintf(var->ownname, sizeof(var->ownname), "%s", s);
+		var->ownname_length = sqldaTruncateString(var->ownname, sizeof(var->ownname), s);
 
 		s = parameters->getAlias(&statusWrapper, i);
 		status.check();
-		var->aliasname_length = fb_utils::snprintf(var->aliasname, sizeof(var->aliasname), "%s", s);
+		var->aliasname_length = sqldaTruncateString(var->aliasname, sizeof(var->aliasname), s);
 	}
 }
 
