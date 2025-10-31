@@ -1129,80 +1129,6 @@ void INI_init_sys_relations(thread_db* tdbb)
 
 void INI_init_dsql(thread_db* tdbb, dsql_dbb* database)
 {
-	const auto dbb = tdbb->getDatabase();
-
-	const auto majorVersion = dbb->dbb_ods_version;
-	const auto minorVersion = dbb->dbb_minor_version;
-/*
-	// Load relation and fields.
-
-	const int* fld;
-	for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
-	{
-		if (relfld[RFLD_R_ODS] > ENCODE_ODS(majorVersion, minorVersion))
-		{
-			for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
-				;
-
-			continue;
-		}
-
-		dsql_rel* relation = FB_NEW_POOL(database->dbb_pool) dsql_rel(database->dbb_pool);
-
-		relation->rel_id = relfld[RFLD_R_ID];
-		relation->rel_name = QualifiedName(names[relfld[RFLD_R_NAME]], SYSTEM_SCHEMA);
-		relation->rel_owner = DBA_USER_NAME;
-		relation->rel_dbkey_length = 8;
-
-		dsql_fld** ptr = &relation->rel_fields;
-		int n = 0;
-
-		for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
-		{
-			if (fld[RFLD_F_ODS] > ENCODE_ODS(majorVersion, minorVersion))
-				continue;
-
-			dsql_fld* field = FB_NEW_POOL(database->dbb_pool) dsql_fld(database->dbb_pool);
-			field->fld_id = n++;
-
-			*ptr = field;
-			ptr = &field->fld_next;
-
-			// get field information
-
-			const gfld* gfield = &gfields[fld[RFLD_F_ID]];
-
-			field->fld_name = names[fld[RFLD_F_NAME]];
-			field->fieldSource = QualifiedName(names[gfield->gfld_name], SYSTEM_SCHEMA);
-			field->length = gfield->gfld_length;
-			field->scale = 0;
-			field->subType = gfield->gfld_sub_type;
-			field->fld_relation = relation;
-
-			field->dtype = gfield->gfld_dtype;
-
-			if (field->dtype == dtype_varying)
-				field->length += sizeof(USHORT);
-			else if (field->dtype == dtype_blob)
-			{
-				field->segLength = 80;
-				if (gfield->gfld_sub_type == isc_blob_text)
-					field->charSetId = CS_METADATA;
-			}
-
-			if (DTYPE_IS_TEXT(gfield->gfld_dtype))
-				getCharsetByTextType(field->charSetId, gfield->gfld_sub_type);
-
-			if (gfield->gfld_nullable)
-				field->flags |= FLD_nullable;
-
-			field->flags |= FLD_system;
-		}
-
-		database->dbb_relations.put(relation->rel_name, relation);
-		MetadataCache::dsql_cache_use(tdbb, SYM_relation, relation->rel_name);
-	}
-*/
 	// Load internal character sets and collations, necessary for engine operation.
 
 	for (const IntlManager::CharSetDefinition* csDef = IntlManager::defaultCharSets;
@@ -1921,10 +1847,25 @@ static void store_intlnames(thread_db* tdbb, NonRelationSecurity& security)
 
 			X.RDB$COLLATION_ATTRIBUTES = collation->attributes;
 
-			if (collation->specificAttributes)
+			QualifiedMetaString charSetName;
+			string modAttributes;
+			for (const auto* charSet = IntlManager::defaultCharSets;
+				charSet->name; ++charSet)
 			{
-				attachment->storeMetaDataBlob(tdbb, transaction,
-					&X.RDB$SPECIFIC_ATTRIBUTES, collation->specificAttributes);
+				if (charSet->id == collation->charSetId)
+				{
+					charSetName = QualifiedMetaString(charSet->name, SYSTEM_SCHEMA);
+					break;
+				}
+			}
+
+			fb_assert(charSetName.hasData());
+			IntlManager::setupCollationAttributes(collation->baseName ? collation->baseName : collation->name,
+				charSetName, collation->specificAttributes ? collation->specificAttributes : "", modAttributes);
+
+			if (modAttributes.hasData())
+			{
+				attachment->storeMetaDataBlob(tdbb, transaction, &X.RDB$SPECIFIC_ATTRIBUTES, modAttributes);
 				X.RDB$SPECIFIC_ATTRIBUTES.NULL = FALSE;
 			}
 			else
@@ -1933,6 +1874,12 @@ static void store_intlnames(thread_db* tdbb, NonRelationSecurity& security)
 		END_STORE
 
 		security.storePrivileges(tdbb, collation->name, obj_collation);
+	}
+
+	for (const IntlManager::CharSetDefinition* charSet = IntlManager::defaultCharSets;
+		 charSet->name; ++charSet)
+	{
+		MetadataCache::lookup_charset(tdbb, charSet->id, CacheFlag::UPGRADE | CacheFlag::NOCOMMIT);
 	}
 }
 
