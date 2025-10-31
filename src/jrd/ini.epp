@@ -621,28 +621,36 @@ namespace
 				push(relName);
 		}
 
-		void make(thread_db* tdbb)
+		static void makeRelation(thread_db* tdbb, jrd_rel* oldRel)
 		{
 			// This code looks a little overcomplicated but very careful upgrade of format
-			// is required at least for RDB$SYSTEM_SCHEMA cause HASH plan used for it
-			// tries to upgrade format version to the freshmost one which may cause
-			// assert or segfault in MET_get_format() without this precautions.
+			// is required for system relations, at least for RDB$SYSTEM_SCHEMA & RDB$RELATIONS,
+			// cause HASH plan used for it tries to upgrade format version to the freshmost one
+			// which causes segfault (or assert) in MET_get_format() without this precautions.
 
+			fb_assert(oldRel);
+
+			auto* rel = oldRel->getPermanent();
+			fb_assert(rel);
+
+			auto* trans = tdbb->getTransaction();
+			if (trans)
+				RelationNode::makeVersion(tdbb, trans, rel->getName());
+
+			auto* newRel = jrd_rel::create(tdbb, rel->getPool(), rel);
+			newRel->rel_current_fmt = oldRel->rel_current_fmt;
+			newRel->rel_current_format = oldRel->rel_current_format;
+
+			rel->storeObject(tdbb, newRel, 0);
+		}
+
+		void make(thread_db* tdbb)
+		{
 			for (auto relName : *this)
 			{
 				QualifiedName name(relName, SYSTEM_SCHEMA);
 				auto* oldRel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
-				fb_assert(oldRel);
-
-				RelationNode::makeVersion(tdbb, tdbb->getTransaction(), name);
-				auto* rel = oldRel->getPermanent();
-				fb_assert(rel);
-
-				auto* newRel = jrd_rel::create(tdbb, rel->getPool(), rel);
-				newRel->rel_current_fmt = oldRel->rel_current_fmt;
-				newRel->rel_current_format = oldRel->rel_current_format;
-
-				rel->storeObject(tdbb, newRel, 0);
+				makeRelation(tdbb, oldRel);
 			}
 		}
 	};
@@ -1097,8 +1105,9 @@ void INI_init_sys_relations(thread_db* tdbb)
 	for (const int* relfld = relfields; relfld[RFLD_R_NAME]; relfld = fld + 1)
 	{
 		auto relId = relfld[RFLD_R_ID];
-		auto relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE);
 		bool needsRdbRuntime = false;
+		auto relation = MetadataCache::lookup_relation_id(tdbb, relId, 0);
+		fb_assert(relation);
 
 		for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
 		{
@@ -1109,7 +1118,7 @@ void INI_init_sys_relations(thread_db* tdbb)
 		}
 
 		if (needsRdbRuntime)
-			relation->makeObject(tdbb, 0);
+			UpdateFormats::makeRelation(tdbb, relation);
 	}
 }
 

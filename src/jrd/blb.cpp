@@ -1750,9 +1750,16 @@ void blb::put_slice(thread_db*	tdbb,
 	if (SDL_info(tdbb->tdbb_status_vector, sdl, &info, 0))
 		ERR_punt();
 
-	jrd_rel* relation = info.sdl_info_relation.hasData() ?
-		MetadataCache::lookup_relation(tdbb, info.sdl_info_relation, CacheFlag::AUTOCREATE) :
-		MetadataCache::lookup_relation_id(tdbb, info.sdl_info_rid, CacheFlag::AUTOCREATE);
+	jrd_rel* relation;
+	if (info.sdl_info_relation.object.hasData())
+	{
+		QualifiedName infoRelationName(info.sdl_info_relation);
+		tdbb->getAttachment()->qualifyExistingName(tdbb, infoRelationName, {obj_relation});
+		relation = MetadataCache::lookup_relation(tdbb, infoRelationName, CacheFlag::AUTOCREATE);
+	}
+	else
+		relation = MetadataCache::lookup_relation_id(tdbb, info.sdl_info_rid, CacheFlag::AUTOCREATE);
+
 	if (!relation)
 		IBERROR(196);			// msg 196 relation for array not known
 
