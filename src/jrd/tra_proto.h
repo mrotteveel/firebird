@@ -34,40 +34,7 @@ class Request;
 class Resources;
 class thread_db;
 class jrd_tra;
-/*
-// System transaction is always transaction 0.
-const TraNumber TRA_system_transaction = 0;
 
-// Flag definitions for tra_flags.
-
-const ULONG TRA_system				= 0x1L;			// system transaction
-const ULONG TRA_prepared			= 0x2L;			// transaction is in limbo
-const ULONG TRA_reconnected			= 0x4L;			// reconnect in progress
-const ULONG TRA_degree3				= 0x8L;			// serializeable transaction
-const ULONG TRA_write				= 0x10L;		// transaction has written
-const ULONG TRA_readonly			= 0x20L;		// transaction is readonly
-const ULONG TRA_prepare2			= 0x40L;		// transaction has updated RDB$TRANSACTIONS
-const ULONG TRA_ignore_limbo		= 0x80L;		// ignore transactions in limbo
-const ULONG TRA_invalidated 		= 0x100L;		// transaction invalidated by failed write
-const ULONG TRA_deferred_meta 		= 0x200L;		// deferred meta work posted
-const ULONG TRA_read_committed		= 0x400L;		// can see latest committed records
-const ULONG TRA_autocommit			= 0x800L;		// autocommits all updates
-const ULONG TRA_perform_autocommit	= 0x1000L;		// indicates autocommit is necessary
-const ULONG TRA_rec_version			= 0x2000L;		// don't wait for uncommitted versions
-const ULONG TRA_restart_requests	= 0x4000L;		// restart all requests in attachment
-const ULONG TRA_no_auto_undo		= 0x8000L;		// don't start a savepoint in TRA_start
-const ULONG TRA_precommitted		= 0x10000L;		// transaction committed at startup
-const ULONG TRA_own_interface		= 0x20000L;		// tra_interface was created for internal needs
-const ULONG TRA_read_consistency	= 0x40000L; 	// ensure read consistency in this transaction
-const ULONG TRA_ex_restart			= 0x80000L; 	// Exception was raised to restart request
-const ULONG TRA_replicating			= 0x100000L;	// transaction is allowed to be replicated
-const ULONG TRA_no_blob_check		= 0x200000L;	// disable blob access checking
-const ULONG TRA_auto_release_temp_blobid	= 0x400000L;	// remove temp ids of materialized user blobs from tra_blobs
-
-// flags derived from TPB, see also transaction_options() at tra.cpp
-const ULONG TRA_OPTIONS_MASK = (TRA_degree3 | TRA_readonly | TRA_ignore_limbo | TRA_read_committed |
-	TRA_autocommit | TRA_rec_version | TRA_read_consistency | TRA_no_auto_undo | TRA_restart_requests | TRA_auto_release_temp_blobid);
-*/
 enum tra_wait_t {
 	tra_no_wait,
 	tra_probe,
