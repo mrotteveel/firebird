@@ -12236,7 +12236,7 @@ static void validateExpressions(thread_db* tdbb, const Array<ValidateInfo>& vali
 				{
 					auto& rel_name = relation->getName();
 					if (!rel_name.isEmpty())
-						name.printf("\"%s\".\"%s\"", rel_name.toQuotedString().c_str(), field->fld_name.c_str());
+						name.printf("%s.\"%s\"", rel_name.toQuotedString().c_str(), field->fld_name.c_str());
 					else
 						name = field->fld_name.toQuotedString();
 				}
