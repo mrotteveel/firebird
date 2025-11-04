@@ -164,7 +164,7 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, const bid* blob_id
 
 	Statement* statement = getStatement();
 	flReload = false;
-	PAR_blr(tdbb, &name.schema, nullptr, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
+	PAR_blr(tdbb, &getName().schema, nullptr, tmp.begin(), (ULONG) tmp.getCount(), NULL, &csb, &statement, false, 0);
 	setStatement(statement);
 
 	if (csb->csb_g_flags & csb_reload)
@@ -180,7 +180,7 @@ void Routine::parseMessages(thread_db* tdbb, CompilerScratch* csb, BlrReader blr
 	if (blrReader.getLength() < 2)
 		status_exception::raise(Arg::Gds(isc_metadata_corrupt));
 
-	csb->csb_schema = name.schema;
+	csb->csb_schema = getName().schema;
 	csb->csb_blr_reader = blrReader;
 
 	PAR_getBlrVersionAndFlags(csb);

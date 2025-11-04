@@ -172,9 +172,7 @@ namespace Jrd
 
 	private:
 		USHORT id;							// routine ID
-		QualifiedName name;				// routine name
-		QualifiedName securityName;		// security class name
-		Statement* statement;			// compiled routine statement
+		Statement* statement;				// compiled routine statement
 		bool implemented;					// Is the packaged routine missing the body/entrypoint?
 		bool defined;						// UDF has its implementation module available
 		USHORT defaultCount;				// default input arguments
