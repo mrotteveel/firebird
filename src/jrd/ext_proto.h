@@ -51,6 +51,7 @@ private:
 	{ }
 
 	void open(Database* dbb);
+	void checkOpened();
 
 public:
 	static ExternalFile* create(MemoryPool& pool, const char* name)

@@ -179,6 +179,8 @@ double ExternalFile::getCardinality(thread_db* tdbb, jrd_rel* relation) noexcept
 		traAttach(tdbb);
 		{ // scope
 			Cleanup clean([this]() { traDetach(); });
+
+			checkOpened();
 #ifdef WIN_NT
 			struct __stat64 statistics;
 			if (!_fstat64(_fileno(ext_ifi), &statistics))
@@ -317,12 +319,7 @@ bool ExternalFile::get(thread_db* tdbb, record_param* rpb, FB_UINT64& position)
 	{ //scope
 		MutexLockGuard g(ext_sync, FB_FUNCTION);
 
-		if (ext_ifi == NULL)
-		{
-			ERR_post(Arg::Gds(isc_io_error) << "fseek" << Arg::Str(ext_filename) <<
-					 Arg::Gds(isc_io_open_err) << Arg::Unix(EBADF) <<
-					 Arg::Gds(isc_random) << "File not opened");
-		}
+		checkOpened();
 
 		// hvlad: fseek will flush file buffer and degrade performance, so don't
 		// call it if it is not necessary. Note that we must flush file buffer if we
@@ -433,7 +430,7 @@ void ExternalFile::store(thread_db* tdbb, record_param* rpb)
 	Record* record = rpb->rpb_record;
 	const Format* const format = record->getFormat();
 
-	fb_assert(ext_ifi);
+	checkOpened();
 
 	// Loop thru fields setting missing fields to either blanks/zeros or the missing value
 
@@ -489,8 +486,7 @@ void ExternalFile::store(thread_db* tdbb, record_param* rpb)
 	// call it if it is not necessary.	Note that we must flush file buffer if we
 	// do write after read
 	ext_flags &= ~EXT_last_read;
-	if (ext_ifi == NULL ||
-		(!(ext_flags & EXT_last_write) && FSEEK64(ext_ifi, (SINT64) 0, SEEK_END) != 0) )
+	if ( (!(ext_flags & EXT_last_write) && FSEEK64(ext_ifi, (SINT64) 0, SEEK_END) != 0) )
 	{
 		ext_flags &= ~EXT_last_write;
 		ERR_post(Arg::Gds(isc_io_error) << Arg::Str("fseek") << Arg::Str(ext_filename) <<
@@ -550,7 +546,6 @@ void ExternalFile::traDetach() noexcept
 
 	if (--ext_tra_cnt == 0)
 	{
-		fb_assert(ext_ifi);
 		if (ext_ifi)
 			fclose(ext_ifi);
 		ext_ifi = NULL;
@@ -565,4 +560,10 @@ void ExternalFile::release()
 		fclose(ext_ifi);
 		ext_ifi = NULL;
 	}
+}
+
+void ExternalFile::checkOpened()
+{
+	if (!ext_ifi)
+		ERR_post(Arg::Gds(isc_random) << "Error accessing external table's file");
 }
