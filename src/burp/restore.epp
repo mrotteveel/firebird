@@ -8575,9 +8575,8 @@ bool get_schema(BurpGlobals* tdgbl)
 
 	QualifiedMetaString name;
 	bool securityClass = false;
-	ITransaction* local_trans = tdgbl->global_trans ? tdgbl->global_trans : gds_trans;
 
-	STORE (TRANSACTION_HANDLE local_trans REQUEST_HANDLE tdgbl->handles_get_schema_req_handle1)
+	STORE (REQUEST_HANDLE tdgbl->handles_get_schema_req_handle1)
 		X IN RDB$SCHEMAS
 	{
 		X.RDB$SCHEMA_NAME.NULL = TRUE;
