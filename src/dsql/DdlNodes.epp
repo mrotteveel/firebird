@@ -8516,10 +8516,12 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 
 	Attachment* attachment = tdbb->getAttachment();
 
-	// system triggers
+	AutoCacheRequest request_fmtx;
 
 #ifdef DEV_BUILD
-	AutoCacheRequest request_fmtx(tdbb, irq_format4, IRQ_REQUESTS);
+	// system triggers
+
+	request_fmtx.reset(tdbb, irq_format4, IRQ_REQUESTS);
 
 	FOR (REQUEST_HANDLE request_fmtx)
 		TRG IN RDB$TRIGGERS
@@ -8528,7 +8530,7 @@ blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_v
 			 TRG.RDB$SYSTEM_FLAG EQ fb_sysflag_system
 		SORTED BY TRG.RDB$TRIGGER_SEQUENCE
 	{
-		fb_assert(false);		// should have no more system triggers in database
+		fb_assert(false);	// should not have any system triggers in the database
 	}
 	END_FOR
 #endif
