@@ -495,7 +495,6 @@ public:
 					throw;
 				}
 
-
 			case SCANNING:		// other thread is already scanning object
 				cond.wait(g, [this]{ return state != SCANNING; });
 				continue;		// repeat check of FLG value
