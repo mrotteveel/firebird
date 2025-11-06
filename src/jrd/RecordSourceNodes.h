@@ -470,7 +470,7 @@ public:
 	{
 	}
 
-	virtual bool deterministic() const
+	bool deterministic(thread_db* /*tdbb*/) const override
 	{
 		return false;
 	}
