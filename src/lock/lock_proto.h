@@ -53,7 +53,7 @@ typedef SINT64 LOCK_DATA_T;
 
 // Maximum lock series for gathering statistics and querying data
 
-inline constexpr int LCK_MAX_SERIES	= 7;
+inline constexpr unsigned LCK_MAX_SERIES = 6; // LCK_attachment + 1
 
 // Lock query data aggregates
 
