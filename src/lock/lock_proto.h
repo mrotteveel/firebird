@@ -93,7 +93,7 @@ inline constexpr UCHAR type_lpr		= 7;
 
 // Version number of the lock table.
 // Must be increased every time the shmem layout is changed.
-inline constexpr USHORT BASE_LHB_VERSION = 19;
+inline constexpr USHORT BASE_LHB_VERSION = 20;
 inline constexpr USHORT PLATFORM_LHB_VERSION = 128;	// 64-bit target
 
 #if SIZEOF_VOID_P == 8
