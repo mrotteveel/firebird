@@ -2584,6 +2584,7 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 		case tra_committed:	// switch to drop state
 			CCH_MARK(tdbb, window);
 			irt_desc->setDrop(TransactionNumber::next(tdbb));
+			DropIndexNode::clearName(tdbb, relation->getId(), indexId);
 			return ModifyIrtRepeatValue::Modified;
 
 		case tra_dead:		// switch to normal state
@@ -2654,39 +2655,101 @@ bool BTR_next_index(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transa
 			return false;
 	}
 
-	for (; id < root->irt_count; ++id)
+	try
 	{
-		bool needWrite = false;
-		bool rls = true;
-
-		const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
-
-		if (checkIrtRepeat(tdbb, irt_desc, relation, window, id))
+		for (; id < root->irt_count; ++id)
 		{
-			auto* root_write = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, window);
-			auto* irt_write = root_write->irt_rpt + id;
+			const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
 
-			auto modValue = modifyIrtRepeat(tdbb, irt_write, relation, window, id);
-			switch (modValue)
+			if (checkIrtRepeat(tdbb, irt_desc, relation, window, id))
 			{
-			case ModifyIrtRepeatValue::Skip:
-			case ModifyIrtRepeatValue::Modified:
-				CCH_RELEASE(tdbb, window);
-				break;
+				auto* root_write = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, window);
+				auto* irt_write = root_write->irt_rpt + id;
+
+				auto modValue = modifyIrtRepeat(tdbb, irt_write, relation, window, id);
+				switch (modValue)
+				{
+				case ModifyIrtRepeatValue::Skip:
+				case ModifyIrtRepeatValue::Modified:
+					CCH_RELEASE(tdbb, window);
+					break;
+				}
+
+				root = BTR_fetch_root(FB_FUNCTION, tdbb, window);
+				if (modValue == ModifyIrtRepeatValue::Deleted)
+					continue;
 			}
 
-			root = BTR_fetch_root(FB_FUNCTION, tdbb, window);
-			if (modValue == ModifyIrtRepeatValue::Deleted)
-				continue;
+			if (BTR_description(tdbb, relation, root, idx, id))
+				return true;
 		}
 
-		if (BTR_description(tdbb, relation, root, idx, id))
-			return true;
+		CCH_RELEASE(tdbb, window);
+		return false;
+	}
+	catch (const Exception&)
+	{
+		if (window->win_bdb)
+			CCH_RELEASE(tdbb, window);
+		throw;
+	}
+}
+
+
+bool BTR_cleanup_index(thread_db* tdbb, const QualifiedName& relName, jrd_tra* transaction, MetaId id)
+{
+/**************************************
+ *
+ *	B T R _ c l e a n u p _ i n d e x
+ *
+ **************************************
+ *
+ * Functional description
+ *	Finally delete index from index
+ *  root page if possible.
+ *
+ **************************************/
+	SET_TDBB(tdbb);
+
+	auto* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::RET_ERASED);
+	if (!relation)
+		return false;
+
+	RelationPages* const relPages = transaction ?
+		relation->getPages(tdbb, transaction->tra_number) : relation->getPages(tdbb);
+
+	WIN window(relPages->rel_pg_space_id, -1);
+	const index_root_page* root = fetch_root(tdbb, &window, relation, relPages);
+	if (!root)
+		return false;
+
+	const index_root_page::irt_repeat* irt_desc = root->irt_rpt + id;
+	bool rc = false;
+	if (checkIrtRepeat(tdbb, irt_desc, relation, &window, id))
+	{
+		auto* root_write = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+		auto* irt_write = root_write->irt_rpt + id;
+
+		auto modValue = modifyIrtRepeat(tdbb, irt_write, relation, &window, id);
+		switch (modValue)
+		{
+		case ModifyIrtRepeatValue::Skip:
+		case ModifyIrtRepeatValue::Modified:
+			if (irt_write->getState() == irt_drop)
+				rc = true;
+			CCH_RELEASE(tdbb, &window);
+			break;
+
+		case ModifyIrtRepeatValue::Deleted:
+			rc = true;
+			break;
+
+		default:
+			break;
+		}
 	}
 
-	CCH_RELEASE(tdbb, window);
-
-	return false;
+	return rc;
 }
 
 

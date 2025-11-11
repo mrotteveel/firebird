@@ -603,6 +603,10 @@ inline void index_root_page::irt_repeat::setDrop(TraNumber traNumber)
 	fb_assert(irt_page_num);
 	irt_transaction = traNumber;
 	setState(irt_drop);
+
+	// This index should not affect any constraints any more,
+	// ensure appropriate checkPartners() is called in DropIndexNode::clearName().
+	irt_flags &= ~(irt_unique | irt_foreign | irt_primary);
 }
 
 inline UCHAR index_root_page::irt_repeat::getState() const

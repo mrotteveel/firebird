@@ -12781,6 +12781,110 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 }
 
 
+static MetaName makeTempDependName(MetaId relId, MetaId indexId)
+{
+	MetaName name;
+	name.printf("%s_%u_%u", TEMP_DEPEND, relId, indexId);
+	return name;
+}
+
+
+//
+// clearName()
+// First part of index deletion.
+//
+// This function is invoked when index enters irt_drop state due to being dropped
+// (not inactivated). That means it should be never seen in database by new requests
+// (but may be used by started earlier requests). It also should not prevent
+// creation of new index with same name and affect FK constraints.
+//
+
+void DropIndexNode::clearName(thread_db* tdbb, MetaId relId, MetaId indexId)
+{
+	SET_TDBB(tdbb);
+	Attachment* attachment = tdbb->getAttachment();
+	Database* dbb = tdbb->getDatabase();
+	QualifiedName indexName, partnerIdxName;
+	bool processPartners = false;
+
+	auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
+	MetaName tempName;
+
+	// cleanup is not related to current transaction
+	auto* transaction = attachment->getSysTransaction();
+	AutoSetRestore2<jrd_tra*, thread_db> autoTrans(tdbb, &thread_db::getTransaction, &thread_db::setTransaction,
+		transaction);
+
+	AUTO_HANDLE(handle);
+	FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
+		IND IN RDB$INDICES
+		CROSS REL IN RDB$RELATIONS
+			OVER RDB$RELATION_NAME, RDB$SCHEMA_NAME
+		WITH IND.RDB$INDEX_ID EQ indexId + 1
+			AND REL.RDB$RELATION_ID EQ relId
+			AND IND.RDB$INDEX_INACTIVE NOT MISSING
+			AND IND.RDB$INDEX_INACTIVE EQ MET_index_deferred_drop
+	{
+		indexName = QualifiedName(IND.RDB$INDEX_NAME, IND.RDB$SCHEMA_NAME);
+		tempName = makeTempDependName(relId, indexId);
+
+		if (!IND.RDB$FOREIGN_KEY.NULL)
+			partnerIdxName = QualifiedName(IND.RDB$FOREIGN_KEY, IND.RDB$FOREIGN_KEY_SCHEMA_NAME);
+
+		deleteSegmentRecords(tdbb, transaction, indexName);
+		MODIFY IND USING
+		{
+			strcpy(IND.RDB$INDEX_NAME, tempName.c_str());
+			IND.RDB$FOREIGN_KEY.NULL = TRUE;
+			IND.RDB$FOREIGN_KEY_SCHEMA_NAME.NULL = TRUE;
+		}
+		END_MODIFY
+	}
+	END_FOR
+
+	if (indexName.hasData())
+	{
+		AUTO_HANDLE(handle2);
+		FOR(REQUEST_HANDLE handle2 TRANSACTION_HANDLE transaction)
+			DEP IN RDB$DEPENDENCIES
+			WITH DEP.RDB$DEPENDENT_SCHEMA_NAME EQUIV NULLIF(indexName.schema.c_str(), '') AND
+				 DEP.RDB$DEPENDENT_NAME EQ indexName.object.c_str() AND
+				 (DEP.RDB$DEPENDENT_TYPE EQ obj_index_expression OR
+				  DEP.RDB$DEPENDENT_TYPE EQ obj_index_condition)
+		{
+			MODIFY DEP USING
+			{
+				strcpy(DEP.RDB$DEPENDENT_NAME, tempName.c_str());
+			}
+			END_MODIFY
+		}
+		END_FOR
+	}
+
+	if (partnerIdxName.hasData())
+	{
+		auto partner = getRelByIndex(tdbb, partnerIdxName, transaction);
+
+		if (rel && partner)
+		{
+			rel->checkPartners(tdbb);
+
+			if (rel != partner)
+				partner->checkPartners(tdbb);
+		}
+	}
+}
+
+
+//
+// clearId()
+// Second part of index deletion.
+//
+// This function is invoked when index is removed from irt page.
+// In some cases (failed DB creation) cleanup, done by clearName, 
+// also should take place.
+//
+
 void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 {
 	SET_TDBB(tdbb);
@@ -12805,29 +12909,34 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 			AND REL.RDB$RELATION_ID EQ relId
 	{
 		indexName = QualifiedName(IND.RDB$INDEX_NAME, IND.RDB$SCHEMA_NAME);
+		fb_assert (!indexName.isEmpty());
 
 		if (!IND.RDB$FOREIGN_KEY.NULL)
 			partnerIdxName = QualifiedName(IND.RDB$FOREIGN_KEY, IND.RDB$FOREIGN_KEY_SCHEMA_NAME);
 
-		if (MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE) == MET_index_deferred_drop)
+		switch (MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE))
 		{
+		case MET_index_deferred_drop:		// drop index
+		case MET_index_active:				// handle table creation error
 			ERASE IND;
-
 			if (rel)
 			{
 				auto idx = rel->eraseIndex(tdbb, indexId);
 				if (idx)
 					idx->commit(tdbb);
 			}
-
 			deleteSegmentRecords(tdbb, transaction, indexName);
-		}
-		else
-		{
+			break;
+
+		case MET_index_inactive:			// alter index inactive
 			MODIFY IND
 				IND.RDB$INDEX_ID = 0;
 				IND.RDB$INDEX_ID.NULL = TRUE;
 			END_MODIFY
+			break;
+
+		default:
+			fb_assert(false);
 		}
 	}
 	END_FOR

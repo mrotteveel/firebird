@@ -506,4 +506,7 @@ inline constexpr int WITH_ADMIN_OPTION = 2;
 // Max length of the string returned by ERROR_TEXT context variable
 inline constexpr USHORT MAX_ERROR_MSG_LENGTH = 1024 * METADATA_BYTES_PER_CHAR; // 1024 UTF-8 characters
 
+// Prefix of index that's getting dropped
+inline constexpr const char* TEMP_DEPEND = "RDB$TEMP_DEPEND";
+
 #endif // JRD_CONSTANTS_H

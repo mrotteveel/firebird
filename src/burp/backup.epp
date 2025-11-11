@@ -1647,7 +1647,8 @@ void put_index( burp_rel* relation)
 		FOR (REQUEST_HANDLE tdgbl->handles_put_index_req_handle1)
 			X IN RDB$INDICES WITH
 			X.RDB$SCHEMA_NAME EQUIV NULLIF(relation->rel_name.schema.c_str(), '') AND
-			X.RDB$RELATION_NAME EQ relation->rel_name.object.c_str()
+			X.RDB$RELATION_NAME EQ relation->rel_name.object.c_str() AND
+			X.RDB$INDEX_NAME NOT STARTING TEMP_DEPEND
 		{
 			count = 0;
 			FOR (REQUEST_HANDLE tdgbl->handles_put_index_req_handle2)

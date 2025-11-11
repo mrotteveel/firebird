@@ -165,6 +165,10 @@ namespace Jrd
 		Request* request;
 	};
 
+#define TOKENPASTE(x, y) x ## y
+#define TOKENPASTE2(x, y) TOKENPASTE(x, y)
+#define AUTO_HANDLE(rq) static CachedRequestId TOKENPASTE2(cachedRq, __LINE__); AutoCacheRequest rq(tdbb, TOKENPASTE2(cachedRq, __LINE__))
+
 	class AutoRequest
 	{
 	public:

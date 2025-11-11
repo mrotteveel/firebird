@@ -28,9 +28,11 @@
 #include "../jrd/ods.h"
 #include "../jrd/req.h"
 #include "../jrd/exe.h"
+#include "../jrd/QualifiedName.h"
 
 void	BTR_all(Jrd::thread_db*, Jrd::Cached::Relation*, Jrd::IndexDescList&, Jrd::RelationPages*);
 void	BTR_activate_index(Jrd::thread_db*, Jrd::Cached::Relation*, MetaId);
+bool	BTR_cleanup_index(Jrd::thread_db*, const Jrd::QualifiedName&, Jrd::jrd_tra*, MetaId);
 void	BTR_complement_key(Jrd::temporary_key*);
 void	BTR_create(Jrd::thread_db*, Jrd::IndexCreation&, Jrd::SelectivityList&);
 bool	BTR_delete_index(Jrd::thread_db*, Jrd::win*, MetaId);

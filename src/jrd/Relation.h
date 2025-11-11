@@ -773,11 +773,9 @@ public:
 		fb_assert(chk);
 	}
 
-	Cached::Index* eraseIndex(thread_db* tdbb, MetaId id)		// oldIndex to be called before
+	Cached::Index* eraseIndex(thread_db* tdbb, MetaId id)
 	{
-		auto idp = rel_indices.erase(tdbb, id);
-		fb_assert(idp);
-		return idp;
+		return rel_indices.erase(tdbb, id);
 	}
 
 	Lock*		rel_partners_lock;		// partners lock

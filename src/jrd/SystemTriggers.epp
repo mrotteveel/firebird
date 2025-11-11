@@ -322,7 +322,7 @@ void afterUpdateIndex(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 	if (EVL_field(nullptr, orgRecord, f_idx_inactive, &desc) &&
 		MOV_get_long(tdbb, &desc, 0) == MET_index_deferred_active &&
 		(!EVL_field(nullptr, newRecord, f_idx_inactive, &desc) ||
-			MOV_get_long(tdbb, &desc, 0) == 0))
+			MOV_get_long(tdbb, &desc, 0) == MET_index_active))
 	{
 		MetaName iName, rName, schemaName;
 		if (EVL_field(nullptr, newRecord, f_idx_name, &desc))
