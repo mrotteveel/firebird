@@ -1192,6 +1192,7 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* rel, MetaId id
 			switch (irt_desc->getState())
 			{
 			case irt_unused:
+			case irt_drop:	// index alredy in process of deletion
 				break;
 
 			case irt_commit:
@@ -1200,7 +1201,6 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* rel, MetaId id
 				[[fallthrough]];
 
 			case irt_in_progress:
-			case irt_drop:
 			case irt_kill:
 				badState(irt_desc, "not irt_rollback/irt_normal", msg);
 
