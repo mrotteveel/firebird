@@ -12552,6 +12552,11 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 			MODIFY IDX
 				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
 				IDX.RDB$INDEX_INACTIVE = create ? FALSE : TRUE;
+				if (create)
+				{
+					IDX.RDB$STATISTICS.NULL = FALSE;
+					IDX.RDB$STATISTICS = -1.0;
+				}
 			END_MODIFY
 		}
 	}
