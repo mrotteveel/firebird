@@ -12712,6 +12712,17 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 
+	AUTO_HANDLE(req1);
+
+	FOR (REQUEST_HANDLE req1 TRANSACTION_HANDLE transaction)
+		RLC IN RDB$RELATION_CONSTRAINTS
+		WITH RLC.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+			 RLC.RDB$INDEX_NAME EQ indexName.object.c_str()
+	{
+		ERR_post(Arg::Gds(isc_integ_index_del));
+	}
+	END_FOR
+
 	AutoCacheRequest request(tdbb, drq_e_indices, DYN_REQUESTS);
 	Cached::Relation* rel = nullptr;
 

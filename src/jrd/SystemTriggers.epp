@@ -173,32 +173,6 @@ void beforeUpdateCheckConstraint(thread_db* tdbb, Record* orgRecord, Record* new
 	END_FOR
 }
 
-void beforeDeleteIndex(thread_db* tdbb, Record* record)
-{
-	const auto transaction = tdbb->getTransaction();
-	dsc desc;
-
-	MetaName schemaName;
-	if (EVL_field(nullptr, record, f_idx_schema, &desc))
-		MOV_get_metaname(tdbb, &desc, schemaName);
-
-	MetaName indexName;
-	if (EVL_field(nullptr, record, f_idx_name, &desc))
-		MOV_get_metaname(tdbb, &desc, indexName);
-
-	static const CachedRequestId requestCacheId;
-	AutoCacheRequest request(tdbb, requestCacheId);
-
-	FOR (REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-		RLC IN RDB$RELATION_CONSTRAINTS
-		WITH RLC.RDB$SCHEMA_NAME EQ schemaName.c_str() AND
-			 RLC.RDB$INDEX_NAME EQ indexName.c_str()
-	{
-		ERR_post(Arg::Gds(isc_integ_index_del));
-	}
-	END_FOR
-}
-
 void beforeUpdateIndex(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 {
 	const auto transaction = tdbb->getTransaction();
@@ -1684,10 +1658,6 @@ void SystemTriggers::executeBeforeDeleteTriggers(thread_db* tdbb, jrd_rel* relat
 	{
 		case rel_ccon:
 			beforeDeleteCheckConstraint(tdbb, record);
-			break;
-
-		case rel_indices:
-			beforeDeleteIndex(tdbb, record);
 			break;
 
 		case rel_priv:
