@@ -6814,6 +6814,8 @@ bool RelationNode::deleteLocalField(thread_db* tdbb, jrd_tra* transaction,
 			 IDX.RDB$SCHEMA_NAME EQ relationName.schema.c_str() AND
 			 IDX.RDB$RELATION_NAME EQ relationName.object.c_str() AND
 			 IDX_SEG.RDB$FIELD_NAME EQ fieldName.c_str() AND
+			 (IDX.RDB$INDEX_INACTIVE MISSING OR
+			 	IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop) AND
 			 NOT ANY REL_CONST IN RDB$RELATION_CONSTRAINTS
 				WITH REL_CONST.RDB$SCHEMA_NAME EQ IDX.RDB$SCHEMA_NAME AND
 					 REL_CONST.RDB$RELATION_NAME EQ IDX.RDB$RELATION_NAME AND
