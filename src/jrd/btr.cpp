@@ -315,7 +315,7 @@ void dumpIndexRoot(...) { }
 static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* irt_desc,
 	Cached::Relation* relation, WIN* window, MetaId indexId);
 static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::irt_repeat* irt_desc,
-	Cached::Relation* relation, WIN* window, MetaId indexId, bool deletable = true);
+	Cached::Relation* relation, WIN* window, MetaId indexId);
 
 index_root_page* BTR_fetch_root_for_update(const char* from, thread_db* tdbb, WIN* window)
 {
@@ -1224,7 +1224,7 @@ void BTR_mark_index_for_delete(thread_db* tdbb, Cached::Relation* rel, MetaId id
 }
 
 
-void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
+bool BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 {
 /**************************************
  *
@@ -1234,6 +1234,7 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
  *
  * Functional description
  *	Undo delete for an index.
+ *	Returns false if that's impossible.
  *
  **************************************/
 	SET_TDBB(tdbb);
@@ -1242,6 +1243,7 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 
 	WIN window(relation->getIndexRootPage(tdbb));
 	index_root_page* root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
+	bool rc = false;
 
 	// Get index descriptor.  If index doesn't exist, just leave.
 	if (id < root->irt_count)
@@ -1258,7 +1260,7 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 		{
 			bool marked = false;
 
-			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id, false))
+			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id))
 			{
 			case ModifyIrtRepeatValue::Skip:
 				break;
@@ -1268,13 +1270,9 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 				break;
 
 			case ModifyIrtRepeatValue::Relock:
+			case ModifyIrtRepeatValue::Deleted:
 				root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 				irt_desc = root->irt_rpt + id;
-				break;
-
-			case ModifyIrtRepeatValue::Deleted:
-				fb_assert(false);	// This should not happen
-				fatal_exception::raise("Index is gone unexpectedly");
 				break;
 			}
 
@@ -1282,20 +1280,22 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 
 			switch (irt_desc->getState())
 			{
-			case irt_in_progress:
 			case irt_unused:
+			case irt_drop:
+				rc = false;
+				break;
+
+			case irt_in_progress:
 			case irt_rollback:
 			case irt_normal:
 				badState(irt_desc, "irt_in_progress/irt_rollback/irt_normal", msg);
 
 			case irt_commit:		// removed not long ago
 				checkTransactionNumber(irt_desc, tra, msg);
-				// fall down...
-
-			case irt_drop:			// removed a little more time ago - but still valid
 				if (!marked)
 					CCH_MARK(tdbb, &window);
 				irt_desc->setNormal();
+				rc = true;
 				break;
 
 			case irt_kill:
@@ -1303,12 +1303,14 @@ void BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 				if (!marked)
 					CCH_MARK(tdbb, &window);
 				irt_desc->setRollback(tra->tra_number);
+				rc = true;
 				break;
 			}
 		}
 	}
 
 	CCH_RELEASE(tdbb, &window);
+	return rc;
 }
 
 
@@ -2526,7 +2528,7 @@ static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* i
 // if yes - modifies it up to index deletion
 
 static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::irt_repeat* irt_desc,
-	Cached::Relation* relation, WIN* window, MetaId indexId, bool deletable)
+	Cached::Relation* relation, WIN* window, MetaId indexId)
 {
 	const TraNumber irtTrans = irt_desc->getTransaction();
 	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
@@ -2610,12 +2612,8 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 	}
 
 	// drop index
-	if (deletable)
-	{
-		BTR_delete_index(tdbb, window, indexId);
-		return ModifyIrtRepeatValue::Deleted;
-	}
-	return ModifyIrtRepeatValue::Skip;
+	BTR_delete_index(tdbb, window, indexId);
+	return ModifyIrtRepeatValue::Deleted;
 }
 
 

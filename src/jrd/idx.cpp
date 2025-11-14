@@ -969,12 +969,9 @@ void IDX_create_index(thread_db* tdbb,
 }
 
 
-void IDX_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
+bool IDX_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 {
-	// loop through pagespaces and activate %%%%%%
-	// if ((relation->rel_flags & REL_temp_conn) && (relPages->rel_instance_id != 0))
-
-	BTR_activate_index(tdbb, relation, id);
+	return BTR_activate_index(tdbb, relation, id);
 }
 
 

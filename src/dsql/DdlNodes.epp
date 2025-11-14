@@ -11490,22 +11490,32 @@ Cached::Relation* ModifyIndexNode::getRelByIndex(thread_db* tdbb, const Qualifie
 //----------------------
 
 
-void ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
+bool ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
 	fb_assert(rel);
 	if (!rel)
-		return;
+		return false;
 
 	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
+	bool rc = true;
 
 	for (auto* node : nodes)
 	{
 		if (node)
 		{
 			auto newIndex = node->modify(tdbb, transaction);
-			rel->newIndexVersion(tdbb, newIndex.id, CacheFlag::MINISCAN);
+			if (newIndex.id == MAX_META_ID)
+			{
+				fb_assert(nodes.getCount() == 1);
+				rc = false;
+			}
+			else
+				rel->newIndexVersion(tdbb, newIndex.id, CacheFlag::MINISCAN);
 		}
 	}
+
+	nodes.clear();
+	return rc;
 }
 
 
@@ -12553,7 +12563,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 
 			MODIFY IDX
 				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
-				IDX.RDB$INDEX_INACTIVE = create ? FALSE : TRUE;
+				IDX.RDB$INDEX_INACTIVE = create ? MET_index_active : MET_index_inactive;
 				if (create)
 				{
 					IDX.RDB$STATISTICS.NULL = FALSE;
@@ -12573,26 +12583,55 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 	if (active == create)
 		return;
 
-	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_INDEX, indexName, {});
-
-	savePoint.release();	// system table modified OK
-
 	if (!deferred)
 	{
 		MemoryPool& pool = *MemoryPool::getContextPool();
 		ModifyIndexList oneItemList(pool);
-		if (!idxId.has_value())
-			oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(relName, indexName, expressionIndex));
-		else
+		if (idxId.has_value())
+		{
 			oneItemList.push(this);
-		oneItemList.exec(tdbb, relation, transaction);
+			if (!oneItemList.exec(tdbb, relation, transaction))
+			{
+				fb_assert(create);
+
+				idxId.reset();
+
+				AUTO_HANDLE(rq1);
+				FOR(REQUEST_HANDLE rq1 TRANSACTION_HANDLE transaction)
+					IDX IN RDB$INDICES
+					WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
+						 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
+				{
+					MODIFY IDX
+						IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
+						IDX.RDB$INDEX_INACTIVE = MET_index_active;
+						IDX.RDB$STATISTICS.NULL = FALSE;
+						IDX.RDB$STATISTICS = 0.0;
+						IDX.RDB$INDEX_ID.NULL = TRUE;
+					END_MODIFY
+				}
+				END_FOR
+			}
+		}
+		if (!idxId.has_value())
+		{
+			oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(relName, indexName, expressionIndex));
+			oneItemList.exec(tdbb, relation, transaction);
+		}
 	}
+
+	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_INDEX, indexName, {});
+
+	savePoint.release();	// system table modified OK
 }
 
 MetaId AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
 	if (create)
-		IDX_activate_index(tdbb, rel, idxId.value());
+	{
+		if (! IDX_activate_index(tdbb, rel, idxId.value()))
+			return MAX_META_ID;
+	}
 	else
 		IDX_mark_index(tdbb, rel, idxId.value());
 

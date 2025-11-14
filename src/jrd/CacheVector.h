@@ -1262,7 +1262,7 @@ public:
 		}
 
 		const CacheVector* data;
-		FB_SIZE_T index;		// should be able to store MAX_METAID + 1 value
+		FB_SIZE_T index;		// should be able to store MAX_META_ID + 1 value
 	};
 
 	Iterator begin() const

@@ -479,7 +479,6 @@ states for existing index:
 		alter index active					=> irt_normal
 	irt_drop
 		OAT > irt_transaction				delete index
-		alter index active					=> irt_normal
 
 access in SELECTs:
 	irt_normal		- all

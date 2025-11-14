@@ -1308,7 +1308,7 @@ public:
 		nodes.push(node);
 	}
 
-	void exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+	bool exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
 
 	MemoryPool& getPool()
 	{
