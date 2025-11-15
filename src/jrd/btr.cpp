@@ -315,7 +315,7 @@ void dumpIndexRoot(...) { }
 static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* irt_desc,
 	Cached::Relation* relation, WIN* window, MetaId indexId);
 static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::irt_repeat* irt_desc,
-	Cached::Relation* relation, WIN* window, MetaId indexId);
+	Cached::Relation* relation, WIN* window, MetaId indexId, bool fromActivate = false);
 
 index_root_page* BTR_fetch_root_for_update(const char* from, thread_db* tdbb, WIN* window)
 {
@@ -524,25 +524,24 @@ IndexCondition::~IndexCondition()
 	}
 }
 
-bool IndexCondition::evaluate(Record* record) const
+TriState IndexCondition::evaluate(Record* record) const
 {
 	if (!m_request || !m_condition)
-		return true;
+		return TriState(true);
 
 	const auto orgRequest = m_tdbb->getRequest();
 	m_tdbb->setRequest(m_request);
 
 	m_request->req_rpb[0].rpb_record = record;
-	m_request->req_flags &= ~req_null;
 
 	FbLocalStatus status;
-	bool result = false;
+	TriState result(false);
 
 	try
 	{
 		Jrd::ContextPoolHolder context(m_tdbb, m_request->req_pool);
 
-		result = m_condition->execute(m_tdbb, m_request);
+		result = m_condition->execute(m_tdbb, m_request).asBool();
 	}
 	catch (const Exception& ex)
 	{
@@ -638,7 +637,6 @@ dsc* IndexExpression::evaluate(Record* record) const
 	m_tdbb->setRequest(m_request);
 
 	m_request->req_rpb[0].rpb_record = record;
-	m_request->req_flags &= ~req_null;
 
 	FbLocalStatus status;
 	dsc* result = nullptr;
@@ -1074,7 +1072,7 @@ void BTR_create(thread_db* tdbb,
 }
 
 
-bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id)
+bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id, bool duringActivate)
 {
 /**************************************
  *
@@ -1113,7 +1111,8 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id)
 		delete_tree(tdbb, relation_id, id, next, prior);
 
 		// clear RDB$INDEX_ID and related stuff
-		DropIndexNode::clearId(tdbb, relation_id, id);
+		if (!duringActivate)
+			DropIndexNode::clearId(tdbb, relation_id, id);
 
 		return tree_exists;
 	}
@@ -1260,7 +1259,7 @@ bool BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 		{
 			bool marked = false;
 
-			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id))
+			switch(modifyIrtRepeat(tdbb, irt_desc, relation, &window, id, true))
 			{
 			case ModifyIrtRepeatValue::Skip:
 				break;
@@ -2528,7 +2527,7 @@ static bool checkIrtRepeat(thread_db* tdbb, const index_root_page::irt_repeat* i
 // if yes - modifies it up to index deletion
 
 static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::irt_repeat* irt_desc,
-	Cached::Relation* relation, WIN* window, MetaId indexId)
+	Cached::Relation* relation, WIN* window, MetaId indexId, bool fromActivate)
 {
 	const TraNumber irtTrans = irt_desc->getTransaction();
 	const TraNumber oldestActive = tdbb->getDatabase()->dbb_oldest_active;
@@ -2612,7 +2611,7 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 	}
 
 	// drop index
-	BTR_delete_index(tdbb, window, indexId);
+	BTR_delete_index(tdbb, window, indexId, fromActivate);
 	return ModifyIrtRepeatValue::Deleted;
 }
 

@@ -95,8 +95,8 @@ private:
 class ListAggNode final : public AggNode
 {
 public:
-	explicit ListAggNode(MemoryPool& pool, bool aDistinct, ValueExprNode* aArg = NULL,
-		ValueExprNode* aDelimiter = NULL);
+	explicit ListAggNode(MemoryPool& pool, bool aDistinct, ValueExprNode* aArg = nullptr,
+			ValueExprNode* aDelimiter = nullptr, ValueListNode* aOrderClause = nullptr);
 
 	static DmlNode* parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* csb, const UCHAR blrOp);
 
@@ -111,8 +111,12 @@ public:
 		holder.add(delimiter);
 	}
 
+	bool dsqlMatch(DsqlCompilerScratch* dsqlScratch, const ExprNode* other, bool ignoreMapCast) const override;
+
 	Firebird::string internalPrint(NodePrinter& printer) const override;
 	void make(DsqlCompilerScratch* dsqlScratch, dsc* desc) override;
+	void genBlr(DsqlCompilerScratch* dsqlScratch) override;
+
 	bool setParameterType(DsqlCompilerScratch* dsqlScratch,
 		std::function<void (dsc*)> makeDesc, bool forceVarChar) override;
 	void getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc) override;
@@ -127,6 +131,7 @@ protected:
 
 private:
 	NestConst<ValueExprNode> delimiter;
+	NestConst<ValueListNode> dsqlOrderClause;
 };
 
 class CountAggNode final : public AggNode
@@ -217,6 +222,42 @@ protected:
 
 public:
 	const MaxMinType type;
+};
+
+class BinAggNode final : public AggNode
+{
+public:
+    enum BinType : UCHAR
+	{
+        TYPE_BIN_AND,
+		TYPE_BIN_OR,
+		TYPE_BIN_XOR,
+		TYPE_BIN_XOR_DISTINCT
+	};
+
+	explicit BinAggNode(MemoryPool& pool, BinType aType, ValueExprNode* aArg = nullptr);
+
+	void parseArgs(thread_db* tdbb, CompilerScratch* csb, unsigned count) override;
+
+	unsigned getCapabilities() const override
+	{
+		return CAP_RESPECTS_WINDOW_FRAME | CAP_WANTS_AGG_CALLS;
+	}
+
+	Firebird::string internalPrint(NodePrinter& printer) const override;
+	void make(DsqlCompilerScratch* dsqlScratch, dsc* desc) override;
+	void getDesc(thread_db* tdbb, CompilerScratch* csb, dsc* desc) override;
+	ValueExprNode* copy(thread_db* tdbb, NodeCopier& copier) const override;
+
+	void aggInit(thread_db* tdbb, Request* request) const override;
+	void aggPass(thread_db* tdbb, Request* request, dsc* desc) const override;
+	dsc* aggExecute(thread_db* tdbb, Request* request) const override;
+
+protected:
+	AggNode* dsqlCopy(DsqlCompilerScratch* dsqlScratch) /*const*/ override;
+
+public:
+	const BinType type;
 };
 
 class StdDevAggNode final : public AggNode

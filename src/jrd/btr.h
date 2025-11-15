@@ -141,12 +141,12 @@ inline constexpr int idx_offset_intl_range	= (0x7FFF + idx_first_intl_string);
 
 // these flags match the irt_flags in ods.h
 
-inline constexpr USHORT idx_unique			= 1;
-inline constexpr USHORT idx_descending		= 2;
-inline constexpr USHORT idx_foreign			= 4;
-inline constexpr USHORT idx_primary			= 8;
-inline constexpr USHORT idx_expression		= 16;
-inline constexpr USHORT idx_condition		= 32;
+inline constexpr int idx_unique			= 1;
+inline constexpr int idx_descending		= 2;
+inline constexpr int idx_foreign		= 4;
+inline constexpr int idx_primary		= 8;
+inline constexpr int idx_expression		= 16;
+inline constexpr int idx_condition		= 32;
 
 // these flags are for idx_runtime_flags
 
@@ -419,7 +419,7 @@ private:
 	BoolExprNode* m_condition = nullptr;
 	Request* m_request = nullptr;
 
-	bool evaluate(Record* record) const;
+	Firebird::TriState evaluate(Record* record) const;
 };
 
 class IndexExpression

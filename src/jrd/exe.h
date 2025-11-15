@@ -135,7 +135,8 @@ class AggregateSort : protected Firebird::PermanentStorage, public Printable
 public:
 	explicit AggregateSort(Firebird::MemoryPool& p)
 		: PermanentStorage(p),
-		  keyItems(p)
+		  keyItems(p),
+		  descOrder(p)
 	{
 	}
 
@@ -151,6 +152,7 @@ public:
 	bool intl = false;
 	ULONG impure = 0;
 	Firebird::HalfStaticArray<sort_key_def, 2> keyItems;
+	Firebird::HalfStaticArray<dsc, 2> descOrder;
 };
 
 // Inversion (i.e. nod_index) impure area

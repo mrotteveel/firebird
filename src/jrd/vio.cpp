@@ -1719,14 +1719,6 @@ void VIO_copy_record(thread_db* tdbb, jrd_rel* relation, Record* orgRecord, Reco
  *	Copy the given record to a new destination,
  *	taking care about possible format differences.
  **************************************/
-	// dimitr:	Clear the req_null flag that may stay active after the last
-	//			boolean evaluation. Here we use only EVL_field() calls that
-	//			do not touch this flag and data copying is done only for
-	//			non-NULL fields, so req_null should never be seen inside blb::move().
-	//			See CORE-6090 for details.
-
-	const auto request = tdbb->getRequest();
-	request->req_flags &= ~req_null;
 
 	const auto orgFormat = orgRecord->getFormat();
 	const auto newFormat = newRecord->getFormat();
@@ -4164,7 +4156,10 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			}},
 		};
 
-		ObjectsArray<MetaString> schemaSearchPath({SYSTEM_SCHEMA, PUBLIC_SCHEMA});
+		static const GlobalPtr<ObjectsArray<MetaString>> schemaSearchPath([](MemoryPool& pool)
+		{
+			return FB_NEW_POOL(pool) ObjectsArray<MetaString>(pool, {SYSTEM_SCHEMA, PUBLIC_SCHEMA});
+		});
 
 		if (const auto relSchemaFields = schemaFields.find(relation->getId()); relSchemaFields != schemaFields.end())
 		{
@@ -4183,7 +4178,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 					{
 						MOV_get_metaname(tdbb, &desc, depName.object);
 
-						if (MET_qualify_existing_name(tdbb, depName, {dependency->objType}, &schemaSearchPath))
+						if (MET_qualify_existing_name(tdbb, depName, {dependency->objType}, schemaSearchPath.get()))
 							schemaName = depName.schema.c_str();
 					}
 
@@ -4449,6 +4444,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			break;
 
 		case rel_fields:
+			protect_system_table_insert(tdbb, request, relation);
 			EVL_field(0, rpb->rpb_record, f_fld_schema, &schemaDesc);
 			MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 			EVL_field(0, rpb->rpb_record, f_fld_name, &desc);
@@ -4500,6 +4496,10 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			break;
 
 		case rel_triggers:
+			protect_system_table_insert(tdbb, request, relation);
+
+			// check if this  request go through without checking permissions
+			if (!(request->getStatement()->flags & (Statement::FLAG_IGNORE_PERM | Statement::FLAG_INTERNAL)))
 			{
 				EVL_field(0, rpb->rpb_record, f_trg_schema, &schemaDesc);
 				bool onRelation = EVL_field(0, rpb->rpb_record, f_trg_rname, &desc);

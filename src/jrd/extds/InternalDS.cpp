@@ -229,8 +229,6 @@ bool InternalConnection::cancelExecution(bool /*forced*/)
 
 bool InternalConnection::resetSession(thread_db* tdbb)
 {
-	fb_assert(isCurrent());
-
 	if (isCurrent())
 		return true;
 

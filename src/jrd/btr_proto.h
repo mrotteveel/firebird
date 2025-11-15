@@ -35,7 +35,7 @@ bool	BTR_activate_index(Jrd::thread_db*, Jrd::Cached::Relation*, MetaId);
 bool	BTR_cleanup_index(Jrd::thread_db*, const Jrd::QualifiedName&, Jrd::jrd_tra*, MetaId);
 void	BTR_complement_key(Jrd::temporary_key*);
 void	BTR_create(Jrd::thread_db*, Jrd::IndexCreation&, Jrd::SelectivityList&);
-bool	BTR_delete_index(Jrd::thread_db*, Jrd::win*, MetaId);
+bool	BTR_delete_index(Jrd::thread_db*, Jrd::win*, MetaId, bool);
 bool	BTR_description(Jrd::thread_db*, Jrd::Cached::Relation*, const Ods::index_root_page*, Jrd::index_desc*, MetaId);
 DSC*	BTR_eval_expression(Jrd::thread_db*, Jrd::index_desc*, Jrd::Record*);
 void	BTR_evaluate(Jrd::thread_db*, const Jrd::IndexRetrieval*, Jrd::RecordBitmap**, Jrd::RecordBitmap*);

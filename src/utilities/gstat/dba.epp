@@ -53,6 +53,7 @@
 #include "../jrd/constants.h"
 #include "../jrd/ods_proto.h"
 #include "../common/classes/MsgPrint.h"
+#include "../common/classes/QualifiedMetaString.h"
 #include "../common/classes/UserBlob.h"
 #include "../common/os/os_utils.h"
 #include "../common/StatusHolder.h"
@@ -177,6 +178,7 @@ struct dba_rel
 	USHORT rel_used_formats;
 	SSHORT rel_id;
 	SCHAR rel_name[MAX_SQL_IDENTIFIER_SIZE];
+	SCHAR rel_schema[MAX_SQL_IDENTIFIER_SIZE];
 };
 
 // kidnapped from jrd/pio.h and abused
@@ -813,10 +815,11 @@ int gstat(Firebird::UtilSvc* uSvc)
 	isc_req_handle request4 = 0;
 
 	FOR(TRANSACTION_HANDLE transact1 REQUEST_HANDLE request1)
-		X IN RDB$RELATIONS SORTED BY DESC X.RDB$RELATION_NAME
-
+		X IN RDB$RELATIONS
+		SORTED BY DESC X.RDB$SCHEMA_NAME, X.RDB$RELATION_NAME
+	{
 		if (!sw_system && X.RDB$SYSTEM_FLAG) {
-		  continue;
+			continue;
 		}
 		if (!X.RDB$VIEW_BLR.NULL || !X.RDB$EXTERNAL_FILE.NULL) {
 			continue;
@@ -828,15 +831,15 @@ int gstat(Firebird::UtilSvc* uSvc)
 			continue;
 		}
 
+		fb_utils::exact_name(X.RDB$SCHEMA_NAME);
+
 		if (sw_schema)
 		{
-			fb_utils::exact_name(X.RDB$SCHEMA_NAME);
-
 			dba_schema* schema = nullptr;
 
 			for (schema = tddba->schemas; schema; schema = schema->next)
 			{
-				if (!(strcmp(schema->name, X.RDB$SCHEMA_NAME)))
+				if (strcmp(schema->name, X.RDB$SCHEMA_NAME) == 0)
 					break;
 			}
 
@@ -844,22 +847,32 @@ int gstat(Firebird::UtilSvc* uSvc)
 				continue;
 		}
 
-		dba_rel* relation;
+		dba_rel* relation = nullptr;
+		bool shouldIncludeRelation = !sw_relation;
+
 		if (sw_relation)
 		{
 			fb_utils::exact_name(X.RDB$RELATION_NAME);
+
 			for (relation = tddba->relations; relation; relation = relation->rel_next)
 			{
-                if (!(strcmp(relation->rel_name, X.RDB$RELATION_NAME)))
-                {
-					relation->rel_id = X.RDB$RELATION_ID;
-					break;
-                }
+				if (strcmp(relation->rel_name, X.RDB$RELATION_NAME) == 0)
+				{
+					shouldIncludeRelation = true;
+
+					if (relation->rel_id == -1)
+					{
+						relation->rel_id = X.RDB$RELATION_ID;
+						break;
+					}
+				}
 			}
-			if (!relation)
+
+			if (!shouldIncludeRelation)
 				continue;
 		}
-		else
+
+		if (!relation)
 		{
 			relation = (dba_rel*) alloc(sizeof(struct dba_rel));
 			relation->rel_next = tddba->relations;
@@ -869,17 +882,20 @@ int gstat(Firebird::UtilSvc* uSvc)
 			fb_utils::exact_name(relation->rel_name);
 		}
 
+		strcpy(relation->rel_schema, X.RDB$SCHEMA_NAME);
+
 		FOR(TRANSACTION_HANDLE transact1 REQUEST_HANDLE request2)
 			Y IN RDB$PAGES WITH Y.RDB$RELATION_ID EQ relation->rel_id AND
 				Y.RDB$PAGE_SEQUENCE EQ 0
-
+		{
 			if (Y.RDB$PAGE_TYPE == pag_pointer) {
 				relation->rel_pointer_page = Y.RDB$PAGE_NUMBER;
 			}
-            if (Y.RDB$PAGE_TYPE == pag_root) {
+			if (Y.RDB$PAGE_TYPE == pag_root) {
 				relation->rel_index_root = Y.RDB$PAGE_NUMBER;
 			}
-		END_FOR;
+		}
+		END_FOR
 		ON_ERROR
 			dba_exit(FINI_ERROR, tddba);
 		END_ERROR
@@ -887,9 +903,12 @@ int gstat(Firebird::UtilSvc* uSvc)
 		if (sw_index)
 		{
 			FOR(TRANSACTION_HANDLE transact1 REQUEST_HANDLE request3)
-				Y IN RDB$INDICES WITH Y.RDB$RELATION_NAME EQ relation->rel_name
-					SORTED BY DESC Y.RDB$INDEX_NAME
-	            if (Y.RDB$INDEX_INACTIVE)
+				Y IN RDB$INDICES
+				WITH Y.RDB$RELATION_NAME EQ X.RDB$RELATION_NAME AND
+					 Y.RDB$SCHEMA_NAME EQUIV NULLIF(X.RDB$SCHEMA_NAME, '')
+				SORTED BY DESC Y.RDB$INDEX_NAME
+			{
+				if (Y.RDB$INDEX_INACTIVE)
 					  continue;
 				dba_idx* index = (dba_idx*) alloc(sizeof(struct dba_idx));
 				index->idx_next = relation->rel_indexes;
@@ -897,7 +916,8 @@ int gstat(Firebird::UtilSvc* uSvc)
 				strcpy(index->idx_name, Y.RDB$INDEX_NAME);
 				fb_utils::exact_name(index->idx_name);
 				index->idx_id = Y.RDB$INDEX_ID - 1;
-	        END_FOR;
+			}
+			END_FOR
 			ON_ERROR
 				dba_exit(FINI_ERROR, tddba);
 			END_ERROR
@@ -908,6 +928,7 @@ int gstat(Firebird::UtilSvc* uSvc)
 			FOR(TRANSACTION_HANDLE transact1 REQUEST_HANDLE request4)
 				Y IN RDB$FORMATS WITH Y.RDB$RELATION_ID EQ X.RDB$RELATION_ID
 					SORTED BY Y.RDB$FORMAT
+			{
 				dba_fmt* format = (dba_fmt*) alloc(sizeof(struct dba_fmt));
 				format->fmt_next = relation->rel_formats;
 				relation->rel_formats = format;
@@ -919,12 +940,14 @@ int gstat(Firebird::UtilSvc* uSvc)
 				}
 				format->fmt_used = false;
 				++relation->rel_total_formats;
-			END_FOR;
+			}
+			END_FOR
 			ON_ERROR
 				dba_exit(FINI_ERROR, tddba);
 			END_ERROR
 		}
-	END_FOR;
+	}
+	END_FOR
 	ON_ERROR
 		dba_exit(FINI_ERROR, tddba);
 	END_ERROR
@@ -969,12 +992,12 @@ int gstat(Firebird::UtilSvc* uSvc)
 			checkForShutdown(tddba);
 			if (relation->rel_id == -1)
 			{
-				dba_error(44, SafeArg() << relation->rel_name);
-				// msg 44: table "@1" not found
+				dba_error(44, SafeArg() <<
+					QualifiedMetaString(relation->rel_name, relation->rel_schema).toQuotedString().c_str());
+				// msg 44: table @1 not found
 			}
 		}
 	}
-
 
 	dba_print(false, 10);
 	// msg 10: \nAnalyzing database pages ...\n
@@ -1008,7 +1031,9 @@ int gstat(Firebird::UtilSvc* uSvc)
 			continue;
 		}
 
-		uSvc->printf(false, "%s (%d)\n", relation->rel_name, relation->rel_id);
+		uSvc->printf(false, "%s (%d)\n",
+			QualifiedMetaString(relation->rel_name, relation->rel_schema).toQuotedString().c_str(),
+			relation->rel_id);
 
 		if (sw_data)
 		{
@@ -1100,7 +1125,6 @@ int gstat(Firebird::UtilSvc* uSvc)
 					}
 				}
 
-
 				const FB_UINT64 tableSize = tddba->page_size * (
 					relation->rel_pointer_pages +
 					relation->rel_data_pages +
@@ -1116,7 +1140,9 @@ int gstat(Firebird::UtilSvc* uSvc)
 
 		for (const dba_idx* index = relation->rel_indexes; index; index = index->idx_next)
 		{
-			dba_print(false, 14, SafeArg() << index->idx_name << index->idx_id);
+			dba_print(false, 14, SafeArg() <<
+				QualifiedMetaString(index->idx_name, relation->rel_schema).toQuotedString().c_str() <<
+				index->idx_id);
 			// msg 14: "    Index %s (%d)"
 
 			uSvc->printf(false, "\tRoot page: %d, depth: %d, leaf buckets: %ld, nodes: %" UQUADFORMAT "\n",
@@ -2124,7 +2150,7 @@ static void dba_print(bool err, USHORT number, const SafeArg& arg)
  *      Retrieve a message from the error file, format it, and print it.
  *
  **************************************/
-	TEXT buffer[256];
+	TEXT buffer[BUFFER_LARGE];
 	tdba* tddba = tdba::getSpecific();
 
 	fb_msg_format(NULL, GSTAT_MSG_FAC, number, sizeof(buffer), buffer, arg);

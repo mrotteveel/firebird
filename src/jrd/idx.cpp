@@ -1024,7 +1024,7 @@ void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPa
 
 	for (USHORT i = 0; i < root->irt_count; i++)
 	{
-		const bool tree_exists = BTR_delete_index(tdbb, &window, i);
+		const bool tree_exists = BTR_delete_index(tdbb, &window, i, false);
 		root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 	}
 
