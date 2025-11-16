@@ -124,7 +124,7 @@ inline const BYTE ASCII_SPACE			= 32;			// ASCII code for space
 
 #define INTERNAL_TTYPE(d)	(((USHORT)((d)->getTextType())) <= ttype_last_internal)
 
-#define IS_INTL_DATA(d)		((d)->getTextType() <= dtype_any_text &&    \
+#define IS_INTL_DATA(d)		((d)->dsc_dtype <= dtype_any_text &&    \
 				 (((USHORT)((d)->getTextType())) > ttype_last_internal))
 
 #define INTL_DYNAMIC_CHARSET(desc)	(INTL_GET_CHARSET(desc) == CS_dynamic)
