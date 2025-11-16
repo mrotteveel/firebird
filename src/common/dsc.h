@@ -106,9 +106,10 @@ typedef struct dsc
 	UCHAR*	dsc_address = nullptr; // Used either as offset in a message or as a pointer
 
 #ifdef __cplusplus
-	SSHORT dsc_blob_ttype() const noexcept { return dsc_scale | (dsc_flags & 0xFF00);}
-	SSHORT& dsc_ttype() noexcept { return dsc_sub_type;}
-	SSHORT dsc_ttype() const noexcept { return dsc_sub_type;}
+	TTypeId dsc_blob_ttype() const noexcept
+	{
+		return TTypeId(dsc_scale | (dsc_flags & 0xFF00));
+	}
 
 	bool isNullable() const noexcept
 	{

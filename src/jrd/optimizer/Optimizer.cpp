@@ -1508,7 +1508,7 @@ void Optimizer::generateAggregateSort(AggNode* aggNode)
 
 		if (sortKey->skd_dtype == SKD_varying || sortKey->skd_dtype == SKD_cstring)
 		{
-			if (desc->dsc_ttype() == ttype_binary)
+			if (desc->getTextType() == ttype_binary)
 				sortKey->skd_flags |= SKD_binary;
 		}
 

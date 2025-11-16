@@ -891,11 +891,19 @@ TriState ComparativeBoolNode::stringBoolean(thread_db* tdbb, Request* request,
 {
 	SET_TDBB(tdbb);
 
-	TTypeId type1 = desc1->getTextType();
+	TTypeId type1;
 
-	// No MATCHES support for blob
-	if (desc1->isBlob() && (blrOp == blr_matching))
-		return TriState(false);
+	if (!desc1->isBlob())
+		type1 = desc1->getTextType();
+	else
+	{
+		// No MATCHES support for blob
+		if (blrOp == blr_matching)
+			return TriState(false);
+
+		// Non-text blob is treated here as NONE, not OCTETS
+		type1 = desc1->dsc_sub_type == isc_blob_text ? desc1->dsc_blob_ttype() : ttype_none;
+	}
 
 	Collation* obj = INTL_texttype_lookup(tdbb, type1);
 	CharSet* charset = obj->getCharSet();
