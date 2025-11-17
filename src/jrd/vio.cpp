@@ -5640,6 +5640,8 @@ static int prepare_update(	thread_db*		tdbb,
 	UCHAR differences[MAX_DIFFERENCES];
 	if (new_rpb)
 	{
+		new_rpb->rpb_flags &= ~rpb_delta;
+
 		// If both descriptors share the same record, there cannot be any difference.
 		// This trick is used by VIO_writelock(), but can be a regular practice as well.
 		if (new_rpb->rpb_address == temp->rpb_address)
