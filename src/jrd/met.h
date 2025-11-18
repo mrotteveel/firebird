@@ -102,6 +102,10 @@ inline constexpr int TFB_array				= 2;
 
 namespace Jrd {
 
+// Forward decl
+
+class VersionIncr;
+
 // Procedure block
 
 class jrd_prc : public Routine
@@ -233,7 +237,6 @@ public:
 		  mdc_procedures(getPool()),
 		  mdc_functions(getPool()),
 		  mdc_charsets(getPool()),
-		  mdc_version(0),
 		  mdc_cleanup_queue(pool)
 	{
 		memset(mdc_triggers, 0, sizeof(mdc_triggers));
@@ -336,15 +339,46 @@ public:
 	static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction);
 	static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number);
 
-	MdcVersion getVersion()
+	// Is used to check for comleted changes in metadata cache since some previous moment
+	MdcVersion getBackVersion()
 	{
-		return mdc_version.load(std::memory_order_relaxed);
+		return mdc_back.load(std::memory_order_relaxed);
 	}
 
-	MdcVersion nextVersion()
+	// Checks for version's drift during resources load for request(s)
+	friend class StableVersion;
+	class StableVersion
 	{
-		return ++mdc_version;
-	}
+	public:
+		StableVersion(MetadataCache* mdc)
+			: mdc(mdc), back(mdc->mdc_back), front(back + 1)
+		{ }
+
+		operator bool()
+		{
+			if (front == back)
+				return false;
+			back = mdc->mdc_back;
+			return true;
+		}
+
+		void next()
+		{
+			front = mdc->mdc_front;
+		}
+
+		MdcVersion getBackVersion()
+		{
+			return back;
+		}
+
+	private:
+		MetadataCache* mdc;
+		MdcVersion back, front;
+	};
+
+	// In CacheVector.h
+	friend class VersionIncr;
 
 	SLONG lookupSequence(thread_db*, const QualifiedName& genName)
 	{
@@ -541,8 +575,11 @@ private:
 	CacheVector<Cached::Function>		mdc_functions;	// User defined functions
 	CacheVector<Cached::CharSet>		mdc_charsets;	// intl character set descriptions
 	TriggersSet							mdc_triggers[DB_TRIGGERS_COUNT];
-
-	std::atomic<MdcVersion>				mdc_version;	// Current version of metadata cache (should have 2 nums !!!!!!!!!!!!!!!)
+	// Two numbers are required because commit into cache is not atomic event.
+	// Front value is incremented before commit, back - after commit.
+	// To ensure cache remained in stable state compare
+	// back before action to protect and front after it.
+	std::atomic<MdcVersion>				mdc_front = 0, mdc_back = 0;
 	CleanupQueue						mdc_cleanup_queue;
 };
 

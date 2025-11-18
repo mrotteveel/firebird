@@ -205,8 +205,9 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 
 void Statement::loadResources(thread_db* tdbb, Request* req, bool withLock)
 {
-	const MdcVersion currentMdcVersion = MetadataCache::get(tdbb)->getVersion();
-	if ((!latestVer) || (latestVer->version != currentMdcVersion))
+	auto* mdc = MetadataCache::get(tdbb);
+	const MdcVersion backVersion = mdc->getBackVersion();
+	if ((!latestVer) || (latestVer->version != backVersion))
 	{
 		MutexEnsureUnlock guard(lvMutex, FB_FUNCTION);
 
@@ -216,8 +217,10 @@ void Statement::loadResources(thread_db* tdbb, Request* req, bool withLock)
 			guard.enter();
 		}
 
-		if ((!withLock) || (latestVer->version != currentMdcVersion))
+		if ((!latestVer) || (latestVer->version != backVersion))
 		{
+		  for(MetadataCache::StableVersion sv(mdc); sv; sv.next())
+		  {
 			// Also check for changed streams from known sources
 			if (withLock && !streamsFormatCompare(tdbb))
 				ERR_post(Arg::Gds(isc_random) << "Statement format outdated, need to be reprepared");
@@ -227,8 +230,9 @@ void Statement::loadResources(thread_db* tdbb, Request* req, bool withLock)
 				resources->charSets.getCount() + resources->relations.getCount() + resources->procedures.getCount() +
 				resources->functions.getCount() + resources->triggers.getCount();
 
-			latestVer = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, currentMdcVersion);
+			latestVer = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, sv.getBackVersion());
 			resources->transfer(tdbb, latestVer, flags & FLAG_INTERNAL);
+		  }
 		}
 	}
 

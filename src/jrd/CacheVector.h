@@ -44,6 +44,7 @@ namespace Jrd {
 
 class thread_db;
 class Lock;
+class MetadataCache;
 enum lck_t : UCHAR;
 
 class ObjectBase
@@ -120,10 +121,18 @@ namespace CacheFlag
 }
 
 
-class VersionSupport
+// Controls growth of from & back values in metadata cache
+
+class VersionIncr
 {
 public:
-	static MdcVersion next(thread_db* tdbb);
+	VersionIncr(thread_db* tdbb);
+	~VersionIncr();
+	MdcVersion getVersion();
+
+private:
+	MetadataCache* mdc;
+	MdcVersion current;
 };
 
 
@@ -344,18 +353,25 @@ public:
 
 			// RETIRED is set here to avoid illegal gc until traNumber correction
 			auto newFlags = flags | CacheFlag::COMMITTED | CacheFlag::RETIRED;
+
 			// NOCOMMIT cleared to avoid extra ASTs
 			newFlags &= ~CacheFlag::NOCOMMIT;
+
+			// Handle front & back of MDC
+			VersionIncr incr(tdbb);
+
+			// And finally try to make object version world-visible
 			if (cacheFlags.compare_exchange_weak(flags, newFlags,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{
+				traNumber = nextTrans;
+				version = incr.getVersion();
+				cacheFlags &= ~CacheFlag::RETIRED;		// Enable GC
+
 				break;
 			}
 		}
 
-		traNumber = nextTrans;
-		version = VersionSupport::next(tdbb);
-		cacheFlags &= ~CacheFlag::RETIRED;		// Enable GC
 
 		return flags;
 	}

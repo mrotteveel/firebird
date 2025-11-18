@@ -72,11 +72,22 @@ ULONG* TransactionNumber::getFlags(thread_db* tdbb)
 }
 
 
-// class VersionSupport
+// class VersionIncr
 
-MdcVersion VersionSupport::next(thread_db* tdbb)
+VersionIncr::VersionIncr(thread_db* tdbb)
+	: mdc(MetadataCache::get(tdbb))
 {
-	return MetadataCache::get(tdbb)->nextVersion();
+	current = ++(mdc->mdc_front);
+}
+
+VersionIncr::~VersionIncr()
+{
+	++(mdc->mdc_back);
+}
+
+MdcVersion VersionIncr::getVersion()
+{
+	return current;
 }
 
 
