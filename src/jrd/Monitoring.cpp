@@ -1608,8 +1608,10 @@ void Monitoring::dumpAttachment(thread_db* tdbb, Attachment* attachment, ULONG g
 	{
 		// Statement information, must be put into dump before requests
 
-		for (const auto statement : attachment->att_statements)
+		for (const auto request : attachment->att_requests)
 		{
+			const auto* statement = request->getStatement();
+
 			if (!(statement->flags & (Statement::FLAG_INTERNAL | Statement::FLAG_SYS_TRIGGER)))
 			{
 				const string plan = Optimizer::getPlan(tdbb, statement, true);

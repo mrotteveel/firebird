@@ -524,7 +524,6 @@ private:
 	StableAttachmentPart* att_stable;
 
 public:
-	Firebird::SortedArray<Statement*> att_statements;	// Statements belonging to attachment
 	Firebird::SortedArray<Request*> att_requests;		// Requests belonging to attachment
 
 	Lock*		att_id_lock;				// Attachment lock (if any)

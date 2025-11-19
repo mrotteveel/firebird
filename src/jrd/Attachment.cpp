@@ -198,7 +198,6 @@ Jrd::Attachment::Attachment(MemoryPool* pool, Database* dbb, JProvider* provider
 	  att_user(nullptr),
 	  att_ss_user(nullptr),
 	  att_active_snapshots(*pool),
-	  att_statements(*pool),
 	  att_requests(*pool),
 	  att_lock_owner_id(Database::getLockOwnerId()),
 	  att_backup_state_counter(0),

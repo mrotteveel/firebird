@@ -379,8 +379,6 @@ found:
 	else
 		statement->charSetId = attachment->att_charset;
 
-	attachment->att_statements.add(statement);
-
 	return statement;
 }
 
@@ -749,14 +747,6 @@ void Statement::release(thread_db* tdbb)
 			MemoryPool::deletePool((*instance)->req_pool);
 			*instance = nullptr;
 		}
-	}
-
-	const auto attachment = tdbb->getAttachment();
-
-	if (attachment)
-	{
-		if (!attachment->att_statements.findAndRemove(this))
-			fb_assert(false);
 	}
 
 	sqlText = NULL;
