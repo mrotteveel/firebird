@@ -2254,7 +2254,7 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 
 	jrd_prc* procedure = nullptr;
 
-	AutoCacheRequest request(tdbb, irq_l_procedure, IRQ_REQUESTS);
+	AUTO_HANDLE(request);
 
 	FOR(REQUEST_HANDLE request)
 		P IN RDB$PROCEDURES
@@ -4743,7 +4743,7 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const Qualifi
 		return rc;
 
 	// We need to look up the procedure name in RDB$PROCEDURES
-	AutoCacheRequest request(tdbb, irq_l_procedure, IRQ_REQUESTS);
+	AUTO_HANDLE(request);
 
 	FOR(REQUEST_HANDLE request)
 		P IN RDB$PROCEDURES

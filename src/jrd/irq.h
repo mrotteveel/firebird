@@ -86,7 +86,6 @@ enum irq_type_t
 	irq_l_cond_index,		// lookup condition index
 
 	irq_l_rel_id,			// lookup relation id
-	irq_l_procedure,		// lookup procedure name
 	irq_l_proc_id,			// lookup procedure id
 	irq_r_params,			// scan procedure parameters
 
