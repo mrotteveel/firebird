@@ -730,7 +730,7 @@ RecordBuffer* SnapshotData::allocBuffer(thread_db* tdbb, MemoryPool& pool, int r
 	fb_assert(relation);
 	fb_assert(relation->isVirtual());
 
-	const Format* const format = relation->currentFormat();
+	const Format* const format = relation->currentFormat(tdbb);
 	fb_assert(format);
 
 	RecordBuffer* const buffer = FB_NEW_POOL(pool) RecordBuffer(pool, format);

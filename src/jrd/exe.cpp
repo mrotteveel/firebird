@@ -1439,7 +1439,7 @@ void EXE_execute_triggers(thread_db* tdbb,
 		fb_assert(rpb && rpb->rpb_relation);
 		// copy the record
 		MemoryPool& pool = *tdbb->getDefaultPool();
-		null_rec = FB_NEW_POOL(pool) Record(pool, rpb->rpb_relation->currentFormat());
+		null_rec = FB_NEW_POOL(pool) Record(pool, rpb->rpb_relation->currentFormat(tdbb));
 		// initialize all fields to missing
 		null_rec->nullify();
 	}

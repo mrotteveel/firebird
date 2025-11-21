@@ -8835,8 +8835,10 @@ Format* RelationNode::makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::
 	{
 		// Find and return the format matching new number of fields
 
-		fb_assert(relation->rel_formats);
-		for (const auto format : *relation->rel_formats)
+		fb_assert(relation->rel_formats.hasData());
+
+		auto formats = relation->rel_formats.readAccessor();
+		for (const auto format : *(formats.getPointer()))
 		{
 			if (format->fmt_count == count + 1)
 			{
@@ -8933,10 +8935,12 @@ Format* RelationNode::makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::
 	}
 
 	// Link the format block into the world
+	{
+		MutexLockGuard g(relation->rel_formats_grow, FB_FUNCTION);
 
-	vec<Format*>* vector = relation->rel_formats =
-		vec<Format*>::newVector(relation->getPool(), relation->rel_formats, format->fmt_version + 1);
-	(*vector)[format->fmt_version] = format;
+		relation->rel_formats.grow(format->fmt_version + 1, true);
+		relation->rel_formats.writeAccessor()->value(format->fmt_version) = format;
+	}
 
 	// Store format in system relation
 

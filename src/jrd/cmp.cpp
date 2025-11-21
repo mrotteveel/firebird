@@ -268,7 +268,7 @@ const Format* CMP_format(thread_db* tdbb, CompilerScratch* csb, StreamType strea
 	if (!tail->csb_format)
 	{
 		if (tail->csb_relation)
-			tail->csb_format = tail->csb_relation(tdbb)->currentFormat();
+			tail->csb_format = tail->csb_relation(tdbb)->currentFormat(tdbb);
 		else if (tail->csb_procedure)
 			tail->csb_format = tail->csb_procedure(tdbb)->prc_record_format;
 		else if (tail->csb_table_value_fun)

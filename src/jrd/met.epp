@@ -916,8 +916,8 @@ Format* MET_format(thread_db* tdbb, RelationPermanent* relation, USHORT number)
 	Database* dbb = tdbb->getDatabase();
 
 	Format* format;
-	vec<Format*>* formats = relation->rel_formats;
-	if (formats && (number < formats->count()) && (format = (*formats)[number]))
+	auto formats = relation->rel_formats.readAccessor();
+	if ((number < formats->getCount()) && (format = formats->value(number)))
 	{
 		return format;
 	}
@@ -988,9 +988,10 @@ Format* MET_format(thread_db* tdbb, RelationPermanent* relation, USHORT number)
 
 	// Link the format block into the world
 
-	formats = relation->rel_formats =
-		vec<Format*>::newVector(relation->getPool(), relation->rel_formats, number + 1);
-	(*formats)[number] = format;
+	MutexLockGuard g(relation->rel_formats_grow, FB_FUNCTION);
+
+	relation->rel_formats.grow(number + 1, true);
+	relation->rel_formats.writeAccessor()->value(number) = format;
 
 	return format;
 }
@@ -2948,6 +2949,8 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 				rel_perm->rel_flags |= get_rel_flags_from_FLAGS(REL.RDB$FLAGS);
 				if (!REL.RDB$RELATION_TYPE.NULL)
 					rel_perm->rel_flags |= MET_get_rel_flags_from_TYPE(REL.RDB$RELATION_TYPE);
+
+				rel_current_fmt = REL.RDB$FORMAT;
 			}
 			END_FOR
 		}

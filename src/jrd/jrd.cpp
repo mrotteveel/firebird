@@ -3075,7 +3075,7 @@ JAttachment* JProvider::createDatabase(CheckStatusWrapper* user_status, const ch
 
 			// Initialize the global objects
 			dbb->initGlobalObjects();
-			if (attachment->isGbak())		// isRWGbak???????????????
+			if (attachment->isGbak())
 				dbb->setRestoring(true);
 
 			// Initialize locks

@@ -266,7 +266,7 @@ namespace
 
 	Record* upgradeRecord(thread_db* tdbb, jrd_rel* relation, Record* record)
 	{
-		const auto format = relation->currentFormat();
+		const auto format = relation->currentFormat(tdbb);
 
 		if (record->getFormat()->fmt_version == format->fmt_version)
 			return record;

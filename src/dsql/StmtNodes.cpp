@@ -2675,7 +2675,7 @@ const StmtNode* EraseNode::erase(thread_db* tdbb, Request* request, WhichTrigger
 			if (!statement)
 				break;
 
-			const Format* format = rpb->rpb_relation->currentFormat();
+			const Format* format = rpb->rpb_relation->currentFormat(tdbb);
 			Record* record = VIO_record(tdbb, rpb, format, tdbb->getDefaultPool());
 
 			rpb->rpb_address = record->getData();
@@ -8394,7 +8394,7 @@ const StmtNode* ModifyNode::modify(thread_db* tdbb, Request* request, WhichTrigg
 	// exists for the stream and is big enough, and copying fields from the
 	// original record to the new record.
 
-	const Format* const newFormat = newRpb->rpb_relation->currentFormat();
+	const Format* const newFormat = newRpb->rpb_relation->currentFormat(tdbb);
 	Record* newRecord = VIO_record(tdbb, newRpb, newFormat, tdbb->getDefaultPool());
 	newRpb->rpb_address = newRecord->getData();
 	newRpb->rpb_length = newFormat->fmt_length;
@@ -9412,7 +9412,7 @@ const StmtNode* StoreNode::store(thread_db* tdbb, Request* request, WhichTrigger
 
 	const Format* format = localTableSource ?
 		request->getStatement()->localTables[localTableSource->tableNumber]->format :
-		relation->currentFormat();
+		relation->currentFormat(tdbb);
 
 	Record* record;
 

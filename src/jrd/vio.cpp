@@ -4874,7 +4874,7 @@ WriteLockResult VIO_writelock(thread_db* tdbb, record_param* org_rpb, jrd_tra* t
 	new_rpb.rpb_transaction_nr = transaction->tra_number;
 
 	AutoPtr<Record> new_record;
-	const Format* const new_format = relation->currentFormat();
+	const Format* const new_format = relation->currentFormat(tdbb);
 
 	// If the fetched record is not in the latest format, upgrade it.
 	// To do that, allocate new record buffer and make the new record

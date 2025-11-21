@@ -340,7 +340,7 @@ double DPM_cardinality(thread_db* tdbb, jrd_rel* relation, const Format* format)
 	// Estimate total number of records for this relation
 
 	if (!format)
-		format = relation->currentFormat();
+		format = relation->currentFormat(tdbb);
 
 	static const double DEFAULT_COMPRESSION_RATIO = 0.5;
 

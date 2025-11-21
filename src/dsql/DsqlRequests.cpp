@@ -974,7 +974,7 @@ void DsqlDdlRequest::execute(thread_db* tdbb, jrd_tra** traHandle,
 			AutoSetRestoreFlag<ULONG> execDdl(&tdbb->tdbb_flags, TDBB_repl_in_progress, true);
 
 			//// Doing it in DFW_perform_work to avoid problems with DDL+DML in the same transaction.
-			///req_dbb->dbb_attachment->att_dsql_instance->dbb_statement_cache->purgeAllAttachments(tdbb);
+			/// req_dbb->dbb_attachment->att_dsql_instance->dbb_statement_cache->purgeAllAttachments(tdbb);
 
 			node->executeDdl(tdbb, internalScratch, req_transaction);
 

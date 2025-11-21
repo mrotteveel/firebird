@@ -56,7 +56,7 @@ void ExternalTableScan::internalOpen(thread_db* tdbb) const
 	record_param* const rpb = &request->req_rpb[m_stream];
 	rpb->getWindow(tdbb).win_flags = 0;
 
-	VIO_record(tdbb, rpb, m_relation(request->getResources())->currentFormat(), request->req_pool);
+	VIO_record(tdbb, rpb, m_relation(request->getResources())->currentFormat(tdbb), request->req_pool);
 
 	impure->irsb_position = 0;
 	rpb->rpb_number.setValue(BOF_NUMBER);

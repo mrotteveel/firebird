@@ -121,7 +121,7 @@ RelationPermanent::RelationPermanent(thread_db* tdbb, MemoryPool& p, MetaId id, 
 	  rel_gc_lock(this),
 	  rel_gc_records(p),
 	  rel_scan_count(0),
-	  rel_formats(nullptr),
+	  rel_formats(/*p*/),
 	  rel_indices(p, this),
 	  rel_name(p),
 	  rel_id(id),
@@ -995,7 +995,7 @@ int jrd_rel::objectType()
 	return obj_relation;
 }
 
-const Format* jrd_rel::currentFormat() const
+const Format* jrd_rel::currentFormat(thread_db* tdbb)
 {
 /**************************************
  *
@@ -1009,9 +1009,25 @@ const Format* jrd_rel::currentFormat() const
  *
  **************************************/
 
-	// AP:		no reasons for rel_current_format to be wrong with versioned cache
-	//			but better check it carefully
-	fb_assert(rel_current_format && (rel_current_format->fmt_version == rel_current_fmt));
+	// dimitr:	rel_current_format may sometimes get out of sync,
+	//			e.g. after DFW error raised during ALTER TABLE command.
+	//			Thus it makes sense to validate it before usage and
+	//			fetch the proper one if something is suspicious.
+
+	if (rel_current_format && rel_current_format->fmt_version == rel_current_fmt)
+		return rel_current_format;
+
+	// Usually, format numbers start with one and they are present in RDB$FORMATS.
+	// However, system tables have zero as their initial format and they don't have
+	// any related records in RDB$FORMATS, instead their rel_formats[0] is initialized
+	// directly (see ini.epp). Every other case of zero format number found for an already
+	// scanned table must be catched here and investigated.
+	fb_assert(rel_current_fmt || isSystem());
+
+	if (!tdbb)
+		tdbb = JRD_get_thread_data();
+
+	rel_current_format = MET_format(tdbb, getPermanent(), rel_current_fmt);
 
 	return rel_current_format;
 }

@@ -415,7 +415,7 @@ bool EVL_field(jrd_rel* relation, Record* record, USHORT id, dsc* desc)
 		{
 			thread_db* tdbb = JRD_get_thread_data();
 
-			const Format* const currentFormat = relation->currentFormat();
+			const Format* const currentFormat = relation->currentFormat(tdbb);
 
 			while (id >= format->fmt_defaults.getCount() ||
 				 format->fmt_defaults[id].vlu_desc.isUnknown())

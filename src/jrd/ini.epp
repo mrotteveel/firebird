@@ -84,14 +84,14 @@ namespace
 
 	unsigned getLatestFormat(thread_db* tdbb, int relId, int maxFieldId)
 	{
-		const auto* relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
-		fb_assert(relation && relation->rel_formats);
-		fb_assert(relation->rel_formats->count());
+		auto* const relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		fb_assert(relation && relation->rel_formats.hasData());
+		auto formats = relation->rel_formats.readAccessor();
 
-		const auto formatNumber = relation->rel_formats->count() - 1;
+		const auto formatNumber = formats->getCount() - 1;
 		fb_assert(formatNumber < MAX_TABLE_VERSIONS);
 
-		const auto format = (*relation->rel_formats)[formatNumber];
+		const auto format = formats->value(formatNumber);
 		fb_assert(format->fmt_count == maxFieldId);
 		fb_assert(format->fmt_version == formatNumber);
 
@@ -1011,8 +1011,6 @@ void INI_init(thread_db* tdbb)
 			++fieldPos;
 		}
 
-		relation->rel_formats = vec<Format*>::newVector(*pool, 1);
-
 		constexpr auto majorVersion = ODS_VERSION;
 		const auto dbMinorVersion = dbb->dbb_ods_version ? dbb->dbb_minor_version : ODS_CURRENT;
 		// We need only the latest format for virtual tables
@@ -1045,8 +1043,9 @@ void INI_init(thread_db* tdbb)
 			format->fmt_version = formatNumber;
 			format->fmt_length = FLAG_BYTES(format->fmt_count);
 
-			relation->rel_formats->resize(formatNumber + 1);
-			(*relation->rel_formats)[formatNumber] = format;
+			// no need in any locking inside ini.epp - we have exclusive access
+			relation->rel_formats.grow(format->fmt_version + 1, true);
+			relation->rel_formats.writeAccessor()->value(format->fmt_version) = format;
 
 			auto desc = format->fmt_desc.begin();
 
@@ -1090,9 +1089,10 @@ void INI_init(thread_db* tdbb)
 			formatNumber++;
 		}
 
-		fb_assert(currentFormat < relation->rel_formats->count());
+		const auto* formats = relation->rel_formats.writeAccessor();
+		fb_assert(currentFormat < formats->getCount());
 		relVers->rel_current_fmt = currentFormat;
-		relVers->rel_current_format = (*relation->rel_formats)[currentFormat];
+		relVers->rel_current_format = formats->value(currentFormat);
 	}
 }
 

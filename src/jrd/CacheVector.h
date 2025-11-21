@@ -223,7 +223,7 @@ public:
 				switch (listEntry->scan(tdbb, fl, permanent))
 				{
 				case ScanResult::COMPLETE:
-				case ScanResult::REPEAT:		// scan complete but reload was requested - 
+				case ScanResult::REPEAT:		// scan semi-complete but reload was requested
 				case ScanResult::SKIP:			// scan skipped due to NOSCAN flag
 					break;
 

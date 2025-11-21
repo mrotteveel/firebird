@@ -612,7 +612,7 @@ public:
 public:
 	void releaseTriggers(thread_db* tdbb, bool destroy);
 	const Trigger* findTrigger(const QualifiedName& trig_name) const;
-	const Format* currentFormat() const;
+	const Format* currentFormat(thread_db* tdbb);
 
 	decltype(rel_perm) getPermanent() const
 	{
@@ -882,7 +882,8 @@ public:
 	//			... will be removed
 	void removeDepends(thread_db* tdbb);
 
-	vec<Format*>*	rel_formats;		// Known record formats
+	SharedReadVector<Format*, 16> rel_formats;	// Known record formats
+	Firebird::Mutex rel_formats_grow;	// Mutex to grow rel_formats
 	Indices			rel_indices;		// Active indices
 	QualifiedName	rel_name;			// ascii relation name
 	MetaId			rel_id;
@@ -997,7 +998,7 @@ inline bool jrd_rel::isReplicating(thread_db* tdbb)
 
 inline Record* jrd_rel::getGCRecord(thread_db* tdbb)
 {
-	return rel_perm->getGCRecord(tdbb, currentFormat());
+	return rel_perm->getGCRecord(tdbb, currentFormat(tdbb));
 }
 
 

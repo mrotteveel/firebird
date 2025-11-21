@@ -1345,7 +1345,7 @@ static UCHAR* var_info(const dsql_msg* message,
 	return info;
 }
 
-dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
+dsql_rel::dsql_rel(MemoryPool& p, jrd_rel* jrel)
 	: rel_fields(nullptr),
 	  rel_name(p, jrel->getName()),
 	  rel_owner(p, jrel->getOwnerName()),
@@ -1356,7 +1356,7 @@ dsql_rel::dsql_rel(MemoryPool& p, const jrd_rel* jrel)
 	if (!(jrel->rel_fields))
 		return;
 
-	auto* format = jrel->currentFormat();
+	auto* format = jrel->currentFormat(nullptr);
 	fb_assert(format->fmt_count == jrel->rel_fields->count());
 
 	for (MetaId id = 0; id < format->fmt_count; ++id)

@@ -1978,7 +1978,7 @@ USHORT BTR_key_length(thread_db* tdbb, jrd_rel* relation, index_desc* idx)
 	//		  one byte value. See comments in compress
 	const SLONG prefix = (idx->idx_flags & idx_descending) ? 1 : 0;
 
-	const Format* format = relation->currentFormat();
+	const Format* format = relation->currentFormat(tdbb);
 	index_desc::idx_repeat* tail = idx->idx_rpt;
 
 	SLONG length;

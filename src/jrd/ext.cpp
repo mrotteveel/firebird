@@ -193,7 +193,7 @@ double ExternalFile::getCardinality(thread_db* tdbb, jrd_rel* relation) noexcept
 			}
 		}
 
-		const Format* const format = relation->currentFormat();
+		const Format* const format = relation->currentFormat(tdbb);
 		fb_assert(format && format->fmt_length);
 		const USHORT offset = (USHORT)(IPTR) format->fmt_desc[0].dsc_address;
 		const ULONG record_length = format->fmt_length - offset;

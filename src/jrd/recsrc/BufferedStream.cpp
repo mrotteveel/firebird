@@ -256,7 +256,7 @@ bool BufferedStream::internalGetRecord(thread_db* tdbb) const
 				// to upgrade the record format
 
 				if (relation && !rpb->rpb_number.isValid())
-					VIO_record(tdbb, rpb, relation->currentFormat(), tdbb->getDefaultPool());
+					VIO_record(tdbb, rpb, relation->currentFormat(tdbb), tdbb->getDefaultPool());
 			}
 
 			const bool isNull = !EVL_field(relation, buffer_record, (USHORT) i, &from);
