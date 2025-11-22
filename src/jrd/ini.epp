@@ -85,8 +85,8 @@ namespace
 	unsigned getLatestFormat(thread_db* tdbb, int relId, int maxFieldId)
 	{
 		auto* const relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
-		fb_assert(relation && relation->rel_formats.hasData());
-		auto formats = relation->rel_formats.readAccessor();
+		fb_assert(relation);
+		auto formats = relation->getFormats();
 
 		const auto formatNumber = formats->getCount() - 1;
 		fb_assert(formatNumber < MAX_TABLE_VERSIONS);
@@ -1043,9 +1043,7 @@ void INI_init(thread_db* tdbb)
 			format->fmt_version = formatNumber;
 			format->fmt_length = FLAG_BYTES(format->fmt_count);
 
-			// no need in any locking inside ini.epp - we have exclusive access
-			relation->rel_formats.grow(format->fmt_version + 1, true);
-			relation->rel_formats.writeAccessor()->value(format->fmt_version) = format;
+			relation->addFormat(format);
 
 			auto desc = format->fmt_desc.begin();
 
@@ -1089,7 +1087,7 @@ void INI_init(thread_db* tdbb)
 			formatNumber++;
 		}
 
-		const auto* formats = relation->rel_formats.writeAccessor();
+		const auto formats = relation->getFormats();
 		fb_assert(currentFormat < formats->getCount());
 		relVers->rel_current_fmt = currentFormat;
 		relVers->rel_current_format = formats->value(currentFormat);

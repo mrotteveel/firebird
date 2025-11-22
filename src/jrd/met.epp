@@ -916,7 +916,7 @@ Format* MET_format(thread_db* tdbb, RelationPermanent* relation, USHORT number)
 	Database* dbb = tdbb->getDatabase();
 
 	Format* format;
-	auto formats = relation->rel_formats.readAccessor();
+	auto formats = relation->getFormats();
 	if ((number < formats->getCount()) && (format = formats->value(number)))
 	{
 		return format;
@@ -987,11 +987,7 @@ Format* MET_format(thread_db* tdbb, RelationPermanent* relation, USHORT number)
 	format->fmt_version = number;
 
 	// Link the format block into the world
-
-	MutexLockGuard g(relation->rel_formats_grow, FB_FUNCTION);
-
-	relation->rel_formats.grow(number + 1, true);
-	relation->rel_formats.writeAccessor()->value(number) = format;
+	relation->addFormat(format);
 
 	return format;
 }

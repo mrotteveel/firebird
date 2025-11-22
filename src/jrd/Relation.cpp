@@ -687,6 +687,14 @@ Lock* RelationPermanent::createLock(thread_db* tdbb, MemoryPool& pool, lck_t lck
 	return lock;
 }
 
+void RelationPermanent::addFormat(Format* fmt)
+{
+	MutexLockGuard g(rel_formats_grow, FB_FUNCTION);
+
+	rel_formats.grow(fmt->fmt_version + 1, true);
+	rel_formats.writeAccessor()->value(fmt->fmt_version) = fmt;
+}
+
 
 void GCLock::blockingAst()
 {

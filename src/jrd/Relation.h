@@ -882,8 +882,20 @@ public:
 	//			... will be removed
 	void removeDepends(thread_db* tdbb);
 
+	typedef SharedReadVector<Format*, 16> Formats;
+
+private:
 	SharedReadVector<Format*, 16> rel_formats;	// Known record formats
 	Firebird::Mutex rel_formats_grow;	// Mutex to grow rel_formats
+
+public:
+	HazardPtr<Formats::Generation> getFormats()
+	{
+		return rel_formats.readAccessor();
+	}
+
+	void addFormat(Format* fmt);
+
 	Indices			rel_indices;		// Active indices
 	QualifiedName	rel_name;			// ascii relation name
 	MetaId			rel_id;
