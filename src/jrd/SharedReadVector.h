@@ -146,10 +146,12 @@ public:
 
 		void grow(const FB_SIZE_T newCount)
 		{
-			fb_assert(newCount >= count);
 			fb_assert(newCount <= capacity);
-			memset(data + count, 0, sizeof(T) * (newCount - count));
-			count = newCount;
+			if (newCount > count)
+			{
+				memset(data + count, 0, sizeof(T) * (newCount - count));
+				count = newCount;
+			}
 		}
 
 		static void destroy(Generation* gen)
