@@ -126,7 +126,7 @@ int ElementBase::blockingAst(void* ast_object)
 	try
 	{
 		fb_assert(cacheElement->lock);
-		if (cacheElement->lock)
+		if (cacheElement->locked)
 		{
 			Database* const dbb = cacheElement->lock->lck_dbb;
 
@@ -138,6 +138,7 @@ int ElementBase::blockingAst(void* ast_object)
 				LCK_release(tdbb, cacheElement->lock);
 
 			cacheElement->reset(tdbb, erase);
+			cacheElement->locked = false;
 		}
 	}
 	catch (const Exception&)
@@ -167,25 +168,25 @@ void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, c
 void ElementBase::setLock(thread_db* tdbb, MetaId id, const char* family)
 {
 	fb_assert(lock);
-	if (lock)
+	if (lock && !locked)
 	{
 		if (!LCK_lock(tdbb, lock, LCK_PR, LCK_WAIT))
 		{
 			Firebird::fatal_exception::raiseFmt("Unable to obtain READ rescan lock for %s %d",
 				family, id);
 		}
+		locked = true;
 	}
 }
 
 void ElementBase::releaseLock(thread_db* tdbb)
 {
 	fb_assert(lock);
-	LCK_release(tdbb, lock);
-
-#ifdef DEV_BUILD
-	// avoid calling releaseLock() twice
-	lock = nullptr;
-#endif
+	if (locked)
+	{
+		LCK_release(tdbb, lock);
+		locked = false;
+	}
 }
 
 

@@ -93,11 +93,12 @@ public:
 
 	bool hasLock() const
 	{
-		return lock != nullptr;
+		return locked;
 	}
 
 private:
 	Lock* lock;
+	bool locked = false;
 };
 
 
@@ -437,9 +438,10 @@ public:
 		if ((thd == Thread::getId()) && (state == SCANNING))
 			return ScanResult::COMPLETE;
 
+		std::unique_lock<std::mutex> g(mtx);
+
 		permanent->setLock(tdbb, permanent->getId(), Versioned::objectFamily(permanent));
 
-		std::unique_lock<std::mutex> g(mtx);
 		for(;;)
 		{
 			bool reason = true;
@@ -570,15 +572,12 @@ public:
 	template <typename EXTEND>
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, EXTEND extend) :
 		ElementBase(makeLock(tdbb, p, id, Versioned::LOCKTYPE)),
-		Permanent(tdbb, p, id, extend),
-		list(nullptr),
-		resetAt(0),
-		ptrToClean(nullptr)
+		Permanent(tdbb, p, id, extend)
 	{ }
 
 	CacheElement(MemoryPool& p) :
 		ElementBase(nullptr),
-		Permanent(p), list(nullptr), resetAt(0), ptrToClean(nullptr)
+		Permanent(p)
 	{ }
 
 	static void cleanup(thread_db* tdbb, CacheElement* element)
@@ -926,9 +925,9 @@ private:
 	}
 
 private:
-	atomics::atomic<ListEntry<Versioned>*> list;
-	atomics::atomic<TraNumber> resetAt;
-	AtomicElementPointer* ptrToClean;
+	atomics::atomic<ListEntry<Versioned>*> list = nullptr;
+	atomics::atomic<TraNumber> resetAt = 0;
+	AtomicElementPointer* ptrToClean = nullptr;
 };
 
 
