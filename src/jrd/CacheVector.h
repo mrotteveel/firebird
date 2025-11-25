@@ -104,12 +104,13 @@ private:
 
 namespace CacheFlag
 {
+
 	static constexpr ObjectBase::Flag COMMITTED =	0x001;		// version already committed
-	static constexpr ObjectBase::Flag ERASED =		0x002;		// object erased
+	static constexpr ObjectBase::Flag ERASED =		0x002;		// object erased / return erased objects
 	static constexpr ObjectBase::Flag NOSCAN =		0x004;		// do not call Versioned::scan()
 	static constexpr ObjectBase::Flag AUTOCREATE =	0x008;		// create initial version automatically
 	static constexpr ObjectBase::Flag NOCOMMIT =	0x010;		// do not commit created version
-	static constexpr ObjectBase::Flag RET_ERASED =	0x020;		// return erased objects
+	static constexpr ObjectBase::Flag NOERASED =	0x020;		// never return erased version, skip till older object
 	static constexpr ObjectBase::Flag RETIRED = 	0x040;		// object is in a process of GC
 	static constexpr ObjectBase::Flag UPGRADE =		0x080;		// create new versions for already existing in a cache objects
 	static constexpr ObjectBase::Flag MINISCAN =	0x100;		// perform minimum scan and set cache entry to reload state
@@ -117,7 +118,7 @@ namespace CacheFlag
 
 	// Useful combinations
 	static constexpr ObjectBase::Flag TAG_FOR_UPDATE = NOCOMMIT | MINISCAN | DB_VERSION;
-	static constexpr ObjectBase::Flag OLD_DROP = NOSCAN | AUTOCREATE;
+	static constexpr ObjectBase::Flag OLD_DROP = MINISCAN | AUTOCREATE;
 	static constexpr ObjectBase::Flag OLD_ALTER = MINISCAN | AUTOCREATE;
 }
 
@@ -214,8 +215,11 @@ public:
 					// object does not exist
 					fb_assert(!listEntry->object);
 
+					if (fl & CacheFlag::NOERASED)
+						continue;	// to the next entry
+
 					if (fl & CacheFlag::ERASED)
-						return listEntry;
+						return listEntry;	// return empty erased entry
 
 					return HazardPtr<ListEntry>(nullptr);		// object dropped
 				}

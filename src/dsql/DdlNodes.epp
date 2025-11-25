@@ -10301,8 +10301,10 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
 			 IDX.RDB$RELATION_NAME EQ name.object.c_str()
 	{
-		DropIndexNode::deleteSegmentRecords(tdbb, transaction, QualifiedName(IDX.RDB$INDEX_NAME, name.schema));
-		ERASE IDX;
+		MemoryPool& p = *MemoryPool::getContextPool();
+		auto* node = FB_NEW_POOL(p) DropIndexNode(p, QualifiedName(IDX.RDB$INDEX_NAME, name.schema));
+		node->execute(tdbb, dsqlScratch, transaction);
+		delete node;
 	}
 	END_FOR
 
@@ -12802,6 +12804,8 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	ModifyIndexList oneItemList(*MemoryPool::getContextPool());
 	oneItemList.push(this);
 	oneItemList.exec(tdbb, rel, transaction);
+
+	rel->eraseIndex(tdbb, idxId);
 }
 
 
@@ -12971,15 +12975,9 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 
 		switch (MetadataCache::getIndexStatus(IND.RDB$INDEX_INACTIVE.NULL, IND.RDB$INDEX_INACTIVE))
 		{
-		case MET_index_deferred_drop:		// drop index
 		case MET_index_active:				// handle table creation error
+		case MET_index_deferred_drop:		// drop index
 			ERASE IND;
-			if (rel)
-			{
-				auto idx = rel->eraseIndex(tdbb, indexId);
-				if (idx)
-					idx->commit(tdbb);
-			}
 			deleteSegmentRecords(tdbb, transaction, indexName);
 			break;
 

@@ -783,7 +783,7 @@ namespace
 
 				case 4:
 				{
-					routine = lookupById(tdbb, work->dfw_id, CacheFlag::RET_ERASED | CacheFlag::NOSCAN);
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::ERASED | CacheFlag::NOSCAN);
 					if (!routine)
 						return false;
 
@@ -800,7 +800,7 @@ namespace
 					return true;
 
 				case 7:
-					routine = lookupById(tdbb, work->dfw_id, CacheFlag::RET_ERASED | CacheFlag::NOSCAN);
+					routine = lookupById(tdbb, work->dfw_id, CacheFlag::ERASED | CacheFlag::NOSCAN);
 					fb_assert(routine);
 					if (routine)
 						routine->commit(tdbb);
@@ -2830,17 +2830,10 @@ static bool find_depend_in_dfw(thread_db*	tdbb,
 			}
 		}
 
-		if (work->dfw_type == dfw_type && dfw_type == dfw_delete_index)
+		if (work->dfw_type == dfw_type && dfw_type == dfw_delete_index &&
+			QualifiedName(work->dfw_name, work->dfw_schema) == object_name)
 		{
-			for (FB_SIZE_T i = 0; i < work->dfw_args.getCount(); ++i)
-			{
-				const DeferredWork* arg = work->dfw_args[i];
-				if (arg->dfw_type == dfw_arg_index_name &&
-					QualifiedName(arg->dfw_name, work->dfw_schema) == object_name)
-				{
-					return true;
-				}
-			}
+			return true;
 		}
 	}
 
@@ -3335,7 +3328,8 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
 			if (relation)
 			{
-				auto* index = relation->lookupIndex(tdbb, work->getQualifiedName(), 0);
+				fb_assert(work->dfw_ids.getCount() == 1);
+				auto* index = relation->lookupIndex(tdbb, work->dfw_ids[0], 0);
 				if (index)
 					index->commit(tdbb);
 			}
@@ -3458,7 +3452,9 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			if (isTempIndex)
 				return true;
 
-			auto* index = relation->lookup_index(tdbb, work->getQualifiedName(), CacheFlag::ERASED);
+			fb_assert(work->dfw_ids.getCount() == 1);
+			auto* index = relation->lookup_index(tdbb, work->dfw_ids[0], CacheFlag::NOERASED);
+			fb_assert(index);
 			if (!index)
 				break;
 
@@ -3476,7 +3472,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 					{
 						if (dep.dep_reference_id == index->getId())
 						{
-							partner = MetadataCache::lookupRelation(tdbb, dep.dep_relation, CacheFlag::AUTOCREATE);
+							partner = MetadataCache::lookupRelation(tdbb, dep.dep_relation, CacheFlag::ERASED | CacheFlag::AUTOCREATE);
 							break;
 						}
 					}
@@ -3509,7 +3505,8 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 			{
-				auto* index = relation->lookupIndex(tdbb, work->getQualifiedName(), CacheFlag::ERASED);
+				fb_assert(work->dfw_ids.getCount() == 1);
+				auto* index = relation->lookupIndex(tdbb, work->dfw_ids[0], CacheFlag::ERASED);
 				if (index)
 					index->commit(tdbb);
 			}

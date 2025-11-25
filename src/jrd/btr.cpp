@@ -2702,13 +2702,13 @@ bool BTR_cleanup_index(thread_db* tdbb, const QualifiedName& relName, jrd_tra* t
  **************************************
  *
  * Functional description
- *	Finally delete index from index
- *  root page if possible.
+ *	Finally delete index from
+ *	index root page if possible.
  *
  **************************************/
 	SET_TDBB(tdbb);
 
-	auto* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::RET_ERASED);
+	auto* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::ERASED);
 	if (!relation)
 		return false;
 

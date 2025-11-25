@@ -1785,8 +1785,7 @@ static idx_e check_foreign_key(thread_db* tdbb,
 	{
 		const auto& frgn = idx->idx_foreign_dep;
 
-		partner_relation = MetadataCache::lookup_relation_id(tdbb, frgn.dep_relation,
-			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		partner_relation = MetadataCache::lookup_relation_id(tdbb, frgn.dep_relation, CacheFlag::AUTOCREATE);
 		index_id = frgn.dep_index;
 
 		if ((getPermanent(relation)->rel_flags & REL_temp_conn) &&

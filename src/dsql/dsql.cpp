@@ -459,6 +459,10 @@ static DsqlRequest* safePrepareRequest(thread_db* tdbb, dsql_dbb* database, jrd_
 	if (isInternalRequest)
 		return prepareRequest(tdbb, database, transaction, textLength, text, clientDialect, prepareFlags, true);
 
+#ifdef SQL_LOGPRINT		// for debugging
+	fprintf(stderr, "%*.*s;\n", textLength, textLength, text);
+#endif
+
 #ifdef WIN_NT
 	START_CHECK_FOR_EXCEPTIONS(NULL);
 #endif

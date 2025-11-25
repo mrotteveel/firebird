@@ -3242,6 +3242,20 @@ void VIO_init(thread_db* tdbb)
 	}
 }
 
+static void indexDfw(jrd_tra* transaction, enum dfw_t task, dsc& nameDsc, dsc& schemaDesc, int relId, int idxId)
+{
+	// AP:	In index-related DFW dfw_id is relation id,
+	//		dfw_name is index name, dfw_ids[0] is index id
+
+	if (idxId-- == 0)
+		return;
+	auto* work = DFW_post_work(transaction, task, &nameDsc, &schemaDesc, relId);
+	auto& ids = DFW_get_ids(work);
+	fb_assert((ids.getCount() == 0) || ((ids.getCount() == 1) && (ids[0] == idxId)));
+	if (ids.getCount() == 0)
+		ids.push(idxId);
+}
+
 bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, jrd_tra* transaction)
 {
 /**************************************
@@ -3592,26 +3606,25 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 			if (dfw_should_know(tdbb, org_rpb, new_rpb, f_idx_desc, true))
 			{
+				dsc dscId;
 				EVL_field(0, new_rpb->rpb_record, f_idx_schema, &schemaDesc);
 				EVL_field(0, new_rpb->rpb_record, f_idx_name, &desc1);
 				EVL_field(0, new_rpb->rpb_record, f_idx_relation, &desc2);
+				EVL_field(0, new_rpb->rpb_record, f_idx_id, &dscId);
 
 				MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 				MOV_get_metaname(tdbb, &desc2, object_name.object);
 				auto* irel = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE);
 				fb_assert(irel);
+				int idxId = MOV_get_long(tdbb, &dscId, 0);
 
 				if (EVL_field(0, new_rpb->rpb_record, f_idx_statistics, &desc2) &&
 					MOV_get_double(tdbb, &desc2) < 0)
 				{
-					// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
-					DFW_post_work(transaction, dfw_set_statistics, &desc1, &schemaDesc, irel->getId());
+					indexDfw(transaction, dfw_set_statistics, desc1, schemaDesc, irel->getId(), idxId);
 				}
 				else
 				{
-					// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
-					DFW_post_work(transaction, dfw_create_index, &desc1, &schemaDesc, irel->getId());
-
 					bool nullFl = !EVL_field(0, new_rpb->rpb_record, f_idx_inactive, &desc2);
 					auto newStat = nullFl ? 0 : MOV_get_long(tdbb, &desc2, 0);
 					if (newStat == MET_index_deferred_drop)
@@ -3619,11 +3632,10 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 						nullFl = !EVL_field(0, org_rpb->rpb_record, f_idx_inactive, &desc2);
 						auto oldStat = nullFl ? 0 : MOV_get_long(tdbb, &desc2, 0);
 						if (newStat != oldStat)
-						{
-							// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
-							DFW_post_work(transaction, dfw_delete_index, &desc1, &schemaDesc, irel->getId());
-						}
+							indexDfw(transaction, dfw_delete_index, desc1, schemaDesc, irel->getId(), idxId);
 					}
+					else
+						indexDfw(transaction, dfw_create_index, desc1, schemaDesc, irel->getId(), idxId);
 				}
 			}
 			break;
@@ -4413,10 +4425,10 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				auto* irel = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE);
 				fb_assert(irel);
 
+				EVL_field(0, rpb->rpb_record, f_idx_id, &desc);
+				int idxId = MOV_get_long(tdbb, &desc, 0);
 				EVL_field(0, rpb->rpb_record, f_idx_name, &desc);
-
-				// AP: In index-related DFW dfw_id is relation id, dfw_name is index name
-				DFW_post_work(transaction, dfw_create_index, &desc, &schemaDesc, irel->getId());
+				indexDfw(transaction, dfw_create_index, desc, schemaDesc, irel->getId(), idxId);
 			}
 
 			set_system_flag(tdbb, rpb->rpb_record, f_idx_sys_flag);
