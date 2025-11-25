@@ -2745,6 +2745,8 @@ bool BTR_cleanup_index(thread_db* tdbb, const QualifiedName& relName, jrd_tra* t
 			break;
 		}
 	}
+	else
+		CCH_RELEASE(tdbb, &window);
 
 	return rc;
 }
