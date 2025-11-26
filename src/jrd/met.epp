@@ -1375,6 +1375,7 @@ void MetadataCache::loadDbTriggers(thread_db* tdbb, unsigned int type)
 		if (!mdc_triggers[type].compare_exchange_strong(cacheElement, newCacheElement,
 			atomics::memory_order_release, atomics::memory_order_relaxed))
 		{
+			newCacheElement->releaseLocks(tdbb);
 			newCacheElement->cleanup(tdbb);
 			return;
 		}

@@ -1867,8 +1867,8 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				check_single_maintenance(tdbb);
 				jAtt->getStable()->manualAsyncUnlock(attachment->att_flags);
 
-				INI_init(tdbb);
-				PAG_header(tdbb, true);
+				//INI_init(tdbb);
+				//PAG_header(tdbb, true);
 				dbb->dbb_crypto_manager->attach(tdbb, attachment);
 			}
 
@@ -1877,9 +1877,6 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				if (!options.dpb_gbak_attach && !options.dpb_map_attach && !options.dpb_worker_attach)
 					ERR_post(Arg::Gds(isc_no_user_att_while_restore));
 			}
-
-			// Basic DBB initialization complete
-			initGuard.leave();
 
 			// Attachments to a ReadOnly database need NOT do garbage collection
 			if (dbb->readOnly())
@@ -1902,7 +1899,11 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 
 			PAG_attachment_id(tdbb);
 
-			INI_init_sys_relations(tdbb);
+			if (newDb)
+				INI_init_sys_relations(tdbb);
+
+			// Basic DBB initialization complete
+			initGuard.leave();
 
 			bool cleanupTransactions = false;
 
