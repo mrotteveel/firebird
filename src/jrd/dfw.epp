@@ -3463,8 +3463,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				if (relation->rel_flags & REL_check_partners)
 					relation->scanPartners(tdbb);
 
-				fb_assert(relation->rel_foreign_refs);
-				if (relation->rel_foreign_refs)
+				if (relation->rel_foreign_refs)		// may be missing in a case of self-reference
 				{
 					const auto& foreign(*relation->rel_foreign_refs);
 					Cached::Relation* partner = nullptr;
