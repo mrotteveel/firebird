@@ -2181,7 +2181,6 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			if (fb_utils::implicit_domain(object_name.object.c_str()))
 				DFW_post_work(transaction, dfw_delete_global, &desc2, &schemaDesc, 0);
 
-			r2->newVersion(tdbb);
 			break;
 
 		case rel_prc_prms:
