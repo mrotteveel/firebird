@@ -4046,14 +4046,22 @@ void ExecProcedureNode::executeProcedure(thread_db* tdbb, Request* request) cons
 	EXE_unwind(tdbb, procRequest);
 	procRequest->req_flags &= ~req_proc_fetch;
 
-	if (outputSources)
+	try
 	{
-		const NestConst<ValueExprNode>* const sourceEnd = outputSources->items.end();
-		const NestConst<ValueExprNode>* sourcePtr = outputSources->items.begin();
-		const NestConst<ValueExprNode>* targetPtr = outputTargets->items.begin();
+		if (outputSources)
+		{
+			const NestConst<ValueExprNode>* const sourceEnd = outputSources->items.end();
+			const NestConst<ValueExprNode>* sourcePtr = outputSources->items.begin();
+			const NestConst<ValueExprNode>* targetPtr = outputTargets->items.begin();
 
-		for (; sourcePtr != sourceEnd; ++sourcePtr, ++targetPtr)
-			EXE_assignment(tdbb, *sourcePtr, *targetPtr);
+			for (; sourcePtr != sourceEnd; ++sourcePtr, ++targetPtr)
+				EXE_assignment(tdbb, *sourcePtr, *targetPtr);
+		}
+	}
+	catch(const Exception&)
+	{
+		procRequest->setUnused();
+		throw;
 	}
 
 	procRequest->setUnused();
