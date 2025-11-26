@@ -685,30 +685,30 @@ void afterDeleteRelationConstraint(thread_db* tdbb, Record* record)
 	{
 		static const CachedRequestId request3CacheId;
 		AutoCacheRequest request3(tdbb, request3CacheId);
-		MetaId idxId = MAX_META_ID;
+		auto* rel = MetadataCache::lookupRelation(tdbb, QualifiedName(relationName, schemaName), 0);
 
 		FOR (REQUEST_HANDLE request3 TRANSACTION_HANDLE transaction)
 			IND IN RDB$INDICES
 			WITH IND.RDB$SCHEMA_NAME = schemaName.c_str() AND
 				 IND.RDB$INDEX_NAME = indexName.c_str()
 		{
-			idxId = IND.RDB$INDEX_ID - 1;
+			fb_assert(rel);
+			MetaId idxId = IND.RDB$INDEX_ID - 1;
+			if (rel)
+				rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
+
 			MODIFY IND
 				IND.RDB$INDEX_INACTIVE.NULL = FALSE;
 				IND.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
 			END_MODIFY
-		}
-		END_FOR
 
-		if (idxId != MAX_META_ID)
-		{
-			auto* rel = MetadataCache::lookupRelation(tdbb, QualifiedName(relationName, schemaName), 0);
 			if (rel)
 			{
 				IDX_mark_index(tdbb, rel, idxId);
-				rel->newIndexVersion(tdbb, idxId, CacheFlag::NOSCAN);
+				rel->eraseIndex(tdbb, idxId);
 			}
 		}
+		END_FOR
 	}
 
 	if (constraintType == NOT_NULL_CNSTRT)
