@@ -1000,7 +1000,7 @@ void IDX_mark_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 }
 
 
-void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPages* relPages)
+void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPages* relPages, bool withCleanup)
 {
 /**************************************
  *
@@ -1024,7 +1024,7 @@ void IDX_delete_indices(thread_db* tdbb, RelationPermanent* relation, RelationPa
 
 	for (USHORT i = 0; i < root->irt_count; i++)
 	{
-		const bool tree_exists = BTR_delete_index(tdbb, &window, i, false);
+		const bool tree_exists = BTR_delete_index(tdbb, &window, i, withCleanup);
 		root = BTR_fetch_root_for_update(FB_FUNCTION, tdbb, &window);
 	}
 

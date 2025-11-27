@@ -419,7 +419,7 @@ bool RelationPermanent::delPages(thread_db* tdbb, TraNumber tran, RelationPages*
 	rel_pages_inst->remove(pos);
 
 	if (pages->rel_index_root)
-		IDX_delete_indices(tdbb, this, pages);
+		IDX_delete_indices(tdbb, this, pages, false);
 
 	if (pages->rel_pages)
 		DPM_delete_relation_pages(tdbb, this, pages);

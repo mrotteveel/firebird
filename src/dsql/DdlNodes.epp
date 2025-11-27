@@ -9187,7 +9187,7 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 					RelationPages* const relPages = relation->getBasePages();
 
 					if (relPages->rel_index_root)
-						IDX_delete_indices(tdbb, relation, relPages);
+						IDX_delete_indices(tdbb, relation, relPages, true);
 
 					if (relPages->rel_pages)
 						DPM_delete_relation(tdbb, relation);
@@ -12767,7 +12767,8 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
 		WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
-			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
+			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str() AND
+			 IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop
 	{
 		fb_assert(IDX.RDB$INDEX_ID);
 		idxId = IDX.RDB$INDEX_ID - 1;

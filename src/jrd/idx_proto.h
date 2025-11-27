@@ -44,7 +44,7 @@ bool IDX_check_master_types (Jrd::thread_db*, Jrd::index_desc&, Jrd::Cached::Rel
 void IDX_create_index(Jrd::thread_db*, Jrd::IdxCreate createMethod, Jrd::jrd_rel*, Jrd::index_desc*, const Jrd::QualifiedName&,
 					  USHORT*, Jrd::jrd_tra*, Jrd::SelectivityList&);
 void IDX_mark_index(Jrd::thread_db*, Jrd::Cached::Relation*, MetaId);
-void IDX_delete_indices(Jrd::thread_db*, Jrd::RelationPermanent*, Jrd::RelationPages*);
+void IDX_delete_indices(Jrd::thread_db*, Jrd::RelationPermanent*, Jrd::RelationPages*, bool);
 void IDX_mark_indices(Jrd::thread_db*, Jrd::Cached::Relation*);
 void IDX_erase(Jrd::thread_db*, Jrd::record_param*, Jrd::jrd_tra*);
 void IDX_garbage_collect(Jrd::thread_db*, Jrd::record_param*, Jrd::RecordStack&, Jrd::RecordStack&);

@@ -1072,7 +1072,7 @@ void BTR_create(thread_db* tdbb,
 }
 
 
-bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id, bool duringActivate)
+bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id, bool withCleanup)
 {
 /**************************************
  *
@@ -1111,7 +1111,7 @@ bool BTR_delete_index(thread_db* tdbb, WIN* window, MetaId id, bool duringActiva
 		delete_tree(tdbb, relation_id, id, next, prior);
 
 		// clear RDB$INDEX_ID and related stuff
-		if (!duringActivate)
+		if (withCleanup)
 			DropIndexNode::clearId(tdbb, relation_id, id);
 
 		return tree_exists;
@@ -2611,7 +2611,7 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 	}
 
 	// drop index
-	BTR_delete_index(tdbb, window, indexId, fromActivate);
+	BTR_delete_index(tdbb, window, indexId, !fromActivate);
 	return ModifyIrtRepeatValue::Deleted;
 }
 
