@@ -3959,7 +3959,6 @@ static void triggerCommitRollback(thread_db* tdbb, USHORT id, bool doCommit)
 	case TRIGGER_TYPE_DDL:
 		{
 			auto* triggersSet = MetadataCache::get(tdbb)->getTriggersSet(tdbb, id);
-			fb_assert(triggersSet);
 			if (triggersSet)
 			{
 				if (doCommit)
