@@ -1867,8 +1867,6 @@ JAttachment* JProvider::internalAttach(CheckStatusWrapper* user_status, const ch
 				check_single_maintenance(tdbb);
 				jAtt->getStable()->manualAsyncUnlock(attachment->att_flags);
 
-				//INI_init(tdbb);
-				//PAG_header(tdbb, true);
 				dbb->dbb_crypto_manager->attach(tdbb, attachment);
 			}
 
@@ -8395,11 +8393,7 @@ void Attachment::purgeTransactions(thread_db* tdbb, const bool force_flag)
 		TRA_commit(tdbb, trans_dbk, false);
 	}
 
-	if (trans_meta)
-	{
-		att_meta_transaction = nullptr;
-		TRA_rollback(tdbb, trans_meta, false, true);
-	}
+	rollbackMetaTransaction(tdbb);
 }
 
 
@@ -8879,6 +8873,9 @@ static void unwindAttach(thread_db* tdbb, const char* filename, const Exception&
 				RefPtr<StableAttachmentPart> sAtt(attachment->getStable());
 				// Will release addRef() addedin  create_attachment()
 				RefPtr<JAttachment> jAtt(REF_NO_INCR, sAtt->getInterface());
+
+				// rollback metadata access transaction
+				attachment->rollbackMetaTransaction(tdbb);
 
 				// This unlocking/locking order guarantees stable release of attachment
 				sAtt->manualUnlock(attachment->att_flags);

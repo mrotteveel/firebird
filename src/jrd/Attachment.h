@@ -631,6 +631,7 @@ public:
 	void setSysTransaction(jrd_tra* trans) noexcept;		// used only by TRA_init
 	jrd_tra* getMetaTransaction(thread_db* tdbb);			// RORC to read metadata
 	void createMetaTransaction(thread_db* tdbb);
+	void rollbackMetaTransaction(thread_db* tdbb);
 
 	inline bool isSystem() const noexcept
 	{

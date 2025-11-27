@@ -956,6 +956,15 @@ jrd_tra* Attachment::getMetaTransaction(thread_db* tdbb)
     return att_meta_transaction;
 }
 
+void Attachment::rollbackMetaTransaction(thread_db* tdbb)
+{
+	if (auto trans_meta = att_meta_transaction)
+	{
+		att_meta_transaction = nullptr;
+		TRA_rollback(tdbb, trans_meta, false, true);
+	}
+}
+
 bool Attachment::qualifyNewName(thread_db* tdbb, QualifiedName& name, const ObjectsArray<MetaString>* schemaSearchPath)
 {
 	if (!schemaSearchPath)
