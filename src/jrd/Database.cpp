@@ -184,9 +184,15 @@ namespace Jrd
 		}
 	}
 
-	MemoryPool* Database::createPool(ALLOC_PARAMS0)
+	MemoryPool* Database::createPool(ALLOC_PARAMS1 bool separateStats)
 	{
 		MemoryPool* const pool = MemoryPool::createPool(ALLOC_PASS_ARGS1 dbb_permanent, dbb_memory_stats);
+
+		if (separateStats)
+		{
+			auto stats = FB_NEW_POOL(*pool) MemoryStats(&dbb_memory_stats);
+			pool->setStatsGroup(*stats);
+		}
 
 		Firebird::SyncLockGuard guard(&dbb_pools_sync, Firebird::SYNC_EXCLUSIVE, "Database::createPool");
 		dbb_pools.add(pool);

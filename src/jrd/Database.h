@@ -476,7 +476,7 @@ public:
 	}
 #endif
 
-	MemoryPool* createPool(ALLOC_PARAMS0);
+	MemoryPool* createPool(ALLOC_PARAMS1 bool separateStats = true);
 	void deletePool(MemoryPool* pool);
 
 	void registerModule(Module&);

@@ -5165,7 +5165,7 @@ void requeueRecentlyUsed(BufferControl* bcb)
 
 BufferControl* BufferControl::create(Database* dbb)
 {
-	MemoryPool* const pool = dbb->createPool(ALLOC_ARGS0);
+	MemoryPool* const pool = dbb->createPool(ALLOC_ARGS1 false);
 	BufferControl* const bcb = FB_NEW_POOL(*pool) BufferControl(*pool, dbb->dbb_memory_stats);
 	pool->setStatsGroup(bcb->bcb_memory_stats);
 	return bcb;
