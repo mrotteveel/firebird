@@ -26,6 +26,7 @@
 
 #include "fb_blk.h"
 #include "../jrd/CacheVector.h"
+#include "../common/sha2/sha2.h"
 #include <functional>
 
 namespace Jrd {
@@ -72,8 +73,8 @@ class VersionedObjects : public pool_alloc_rpt<VersionedPartPtr>,
 {
 
 public:
-	VersionedObjects(FB_SIZE_T cnt, MdcVersion ver) :
-		version(ver),
+	VersionedObjects(FB_SIZE_T cnt) :
+		version(0),
 		capacity(cnt)
 	{ }
 
@@ -97,7 +98,7 @@ public:
 		return capacity;
 	}
 
-	const MdcVersion version;		// version when created
+	MdcVersion version;		// version when filled
 
 private:
 	FB_SIZE_T capacity;
@@ -221,13 +222,21 @@ public:
 			return this->getElement(pos);
 		}
 
-		void transfer(thread_db* tdbb, VersionedObjects* to, bool internal)
+		int transfer(thread_db* tdbb, VersionedObjects* to, bool internal, Firebird::sha512& digest)
 		{
 			for (auto& resource : *this)
 			{
-				to->put(resource.getOffset(), resource()->getVersioned(tdbb,
-					internal ? CacheFlag::NOSCAN : CacheFlag::AUTOCREATE));
+				auto* ver = resource()->getVersioned(tdbb, internal ? CacheFlag::NOSCAN : CacheFlag::AUTOCREATE);
+				if (ver)
+				{
+					if (!ver->hash(tdbb, digest))
+						return 0;
+					to->put(resource.getOffset(), ver);
+				}
+				else
+					Resources::outdated();
 			}
+			return 1;
 		}
 
 	private:
@@ -244,6 +253,7 @@ public:
 
 	void transfer(thread_db* tdbb, VersionedObjects* to, bool internal);
 	void release(thread_db* tdbb);
+	[[noreturn]] static void outdated();
 
 #ifdef DEV_BUILD
 	MemoryPool* getPool() const
@@ -254,6 +264,9 @@ public:
 
 private:
 	FB_SIZE_T versionCurrentPosition;
+	typedef unsigned char HashValue[SHA512_DIGEST_SIZE];
+	HashValue hashValue;
+	bool hasHash = false;
 
 public:
 	template <class OBJ, class PERM> const RscArray<OBJ, PERM>& objects() const;

@@ -37,6 +37,7 @@
 #include "../jrd/RecordNumber.h"
 #include "../common/dsc.h"
 #include "../jrd/align.h"
+#include "../common/sha2/sha2.h"
 
 #define FLAG_BYTES(n)	(((n + BITS_PER_LONG) & ~((ULONG)BITS_PER_LONG - 1)) >> 3)
 
@@ -312,6 +313,8 @@ public:
 
 		return fmt_desc == v.fmt_desc;
 	}
+
+	void hash(Firebird::sha512& digest) const;
 
 	ULONG fmt_length;
 	USHORT fmt_count;

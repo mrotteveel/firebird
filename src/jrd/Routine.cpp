@@ -234,6 +234,25 @@ void Routine::parseMessages(thread_db* tdbb, CompilerScratch* csb, BlrReader blr
 	}
 }
 
+bool Routine::hash(thread_db* tdbb, Firebird::sha512& digest)
+{
+	if (inputFields.hasData())
+	{
+		if (!inputFormat)
+			return false;
+		inputFormat->hash(digest);
+	}
+
+	if (outputFields.hasData())
+	{
+		if (!outputFormat)
+			return false;
+		outputFormat->hash(digest);
+	}
+
+	return true;
+}
+
 void Routine::releaseStatement(thread_db* tdbb)
 {
 	if (getStatement())

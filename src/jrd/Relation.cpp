@@ -1040,6 +1040,15 @@ const Format* jrd_rel::currentFormat(thread_db* tdbb)
 	return rel_current_format;
 }
 
+bool jrd_rel::hash(thread_db* tdbb, sha512& digest)
+{
+	if (!(rel_current_fmt || isSystem()))
+		return false;
+
+	currentFormat(tdbb)->hash(digest);
+	return true;
+}
+
 const Trigger* jrd_rel::findTrigger(const QualifiedName& trig_name) const
 {
 	for (int n = TRIGGER_PRE_STORE; n <= TRIGGER_POST_ERASE; ++n)
@@ -1055,6 +1064,8 @@ const Trigger* jrd_rel::findTrigger(const QualifiedName& trig_name) const
 }
 
 
+// class Triggers
+
 void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 {
 	for (auto t : trigs->triggers)
@@ -1064,6 +1075,9 @@ void Triggers::destroy(thread_db* tdbb, Triggers* trigs)
 	}
 	trigs->triggers.clear();
 }
+
+
+// class Trigger
 
 void Trigger::free(thread_db* tdbb)
 {

@@ -33,6 +33,7 @@
 #include "../jrd/met_proto.h"
 #include "../common/classes/alloc.h"
 #include "../jrd/lck.h"
+#include "../common/sha2/sha2.h"
 
 
 namespace Firebird {
@@ -130,6 +131,11 @@ public:
 	}
 
 	static int objectType();
+
+	bool hash(thread_db*, Firebird::sha512&)
+	{
+		return true;
+	}
 
 private:
 	Cached::CharSet* perm;

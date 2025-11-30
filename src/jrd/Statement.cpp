@@ -38,6 +38,7 @@
 #include "../jrd/Collation.h"
 #include "../jrd/met.h"
 #include "../jrd/recsrc/Cursor.h"
+#include "../common/classes/auto.h"
 
 using namespace Firebird;
 using namespace Jrd;
@@ -206,58 +207,64 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 void Statement::loadResources(thread_db* tdbb, Request* req, bool withLock)
 {
 	auto* mdc = MetadataCache::get(tdbb);
-	const MdcVersion backVersion = mdc->getBackVersion();
-	if ((!latestVer) || (latestVer->version != backVersion))
+	const MdcVersion frontVersion = mdc->getFrontVersion();
+	auto* tra = tdbb->getTransaction();
+	bool ddl = tra && tra->isDdl();
+	if (ddl)
+		withLock = false;
+
+	if (ddl || (!latestVer) || (latestVer->version != frontVersion))
 	{
 		MutexEnsureUnlock guard(lvMutex, FB_FUNCTION);
 
 		if (withLock)
 		{
-			fb_assert(req && latestVer);
+			fb_assert(req);
 			guard.enter();
 		}
 
-		if ((!latestVer) || (latestVer->version != backVersion))
+		if (ddl || (!latestVer) || (latestVer->version != frontVersion))
 		{
-		  for(MetadataCache::StableVersion sv(mdc); sv; sv.next())
-		  {
-			// Also check for changed streams from known sources
-			if (withLock && !streamsFormatCompare(tdbb))
-				ERR_post(Arg::Gds(isc_random) << "Statement format outdated, need to be reprepared");
-
-			// OK, format of data sources remained the same, we can update version of cached objects in current stmt
 			const FB_SIZE_T resourceCount = latestVer ? latestVer->getCapacity() :
 				resources->charSets.getCount() + resources->relations.getCount() + resources->procedures.getCount() +
 				resources->functions.getCount() + resources->triggers.getCount();
+			AutoPtr<VersionedObjects> newVer = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount);
 
-			latestVer = FB_NEW_RPT(*pool, resourceCount) VersionedObjects(resourceCount, sv.getBackVersion());
-			resources->transfer(tdbb, latestVer, flags & FLAG_INTERNAL);
-		  }
+			MetadataCache::Version ver(mdc);
+			do
+			{
+				resources->transfer(tdbb, newVer, flags & FLAG_INTERNAL);
+			} while (!ver.isStable());
+			newVer->version = ver.get();
+
+			if (ddl)
+			{
+				if (req)
+					req->setResources(newVer.release(), rpbsSetup);
+				return;
+			}
+			latestVer = newVer.release();
 		}
 	}
 
 	if (req && req->getResources() != latestVer)
-	{
-		req->setResources(latestVer);
+		req->setResources(latestVer, rpbsSetup);
+}
 
-		// setup correct jrd_rel pointers in rpbs
-		req->req_rpb.grow(rpbsSetup.getCount());
-		fb_assert(req->req_rpb.getCount() == rpbsSetup.getCount());
-		for (FB_SIZE_T n = 0; n < rpbsSetup.getCount(); ++n)
-		{
-			req->req_rpb[n] = rpbsSetup[n];
-			req->req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(latestVer);
-		}
+void Request::setResources(VersionedObjects* r, RecordParameters& rpbsSetup)
+{
+	req_resources = r;
+
+	// setup correct jrd_rel pointers in rpbs
+	req_rpb.grow(rpbsSetup.getCount());
+	fb_assert(req_rpb.getCount() == rpbsSetup.getCount());
+	for (FB_SIZE_T n = 0; n < rpbsSetup.getCount(); ++n)
+	{
+		req_rpb[n] = rpbsSetup[n];
+		req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(r);
 	}
 }
 
-bool Statement::streamsFormatCompare(thread_db* tdbb)
-{
-	// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	// check whether all streams used by statement remain unchanged
-
-	return true;
-}
 
 // Turn a parsed scratch into a statement.
 Statement* Statement::makeStatement(thread_db* tdbb, CompilerScratch* csb, bool internalFlag,

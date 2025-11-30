@@ -463,10 +463,8 @@ public:
 		return req_resources;
 	}
 
-	void setResources(Firebird::RefPtr<VersionedObjects>& r)
-	{
-		req_resources = r;
-	}
+	typedef Firebird::Array<RecordParameter> RecordParameters;
+	void setResources(VersionedObjects* r, RecordParameters& rpbsSetup);
 
 	enum req_s {
 		req_evaluate,

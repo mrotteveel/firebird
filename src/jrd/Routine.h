@@ -32,6 +32,7 @@
 #include "../common/MsgMetadata.h"
 #include "../common/classes/auto.h"
 #include "../common/ThreadStart.h"
+#include "../common/sha2/sha2.h"
 
 namespace Jrd
 {
@@ -136,6 +137,8 @@ namespace Jrd
 
 		const Format* getOutputFormat() const noexcept { return outputFormat; }
 		void setOutputFormat(const Format* value) noexcept { outputFormat = value; }
+
+		bool hash(thread_db* tdbb, Firebird::sha512& digest);
 
 		const Firebird::Array<NestConst<Parameter> >& getInputFields() const noexcept
 		{

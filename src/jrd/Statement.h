@@ -28,6 +28,7 @@
 #include "../jrd/SharedReadVector.h"
 #include "../jrd/intl.h"
 #include <functional>
+#include "../common/sha2/sha2.h"
 
 namespace Jrd {
 
@@ -120,7 +121,6 @@ private:
 	void buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, const MetaName& user);
 
 	void loadResources(thread_db* tdbb, Request* req, bool withLock);
-	bool streamsFormatCompare(thread_db* tdbb);
 
 public:
 	MemoryPool* pool;
@@ -129,7 +129,7 @@ public:
 	ULONG impureSize;					// Size of impure area
 	mutable StmtNumber id;				// statement identifier
 	CSetId charSetId;					// client character set (CS_METADATA for internal statements)
-	Firebird::Array<RecordParameter> rpbsSetup;
+	Request::RecordParameters rpbsSetup;
 
 private:
 	Requests requests;					// vector of requests

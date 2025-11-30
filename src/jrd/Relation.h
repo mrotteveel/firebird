@@ -34,6 +34,7 @@
 #include "../jrd/met_proto.h"
 #include "../jrd/Resources.h"
 #include "../common/classes/TriState.h"
+#include "../common/sha2/sha2.h"
 
 namespace Jrd
 {
@@ -236,6 +237,11 @@ public:
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
+	}
+
+	bool hash(thread_db*, Firebird::sha512&)
+	{
+		return true;
 	}
 
 	static const char* objectFamily(void*)
@@ -527,6 +533,14 @@ public:
 		return idv_active;
 	}
 
+	bool hash(thread_db*, Firebird::sha512& digest)
+	{
+		digest.process(sizeof(QualifiedName), &idv_foreignKey);
+		digest.process(sizeof(idv_active), &idv_active);
+		// to be done - take segments, expression & condition into an account
+		return true;
+	}
+
 	static const enum lck_t LOCKTYPE = LCK_idx_rescan;
 
 private:
@@ -606,10 +620,11 @@ public:
 		return scan(tdbb, flags);
 	}
 
+	bool hash(thread_db* tdbb, Firebird::sha512& digest);
+
 	static const char* objectFamily(RelationPermanent* perm);
 	static int objectType();
 
-public:
 	void releaseTriggers(thread_db* tdbb, bool destroy);
 	const Trigger* findTrigger(const QualifiedName& trig_name) const;
 	const Format* currentFormat(thread_db* tdbb);

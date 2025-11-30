@@ -562,7 +562,8 @@ static RefPtr<DsqlStatement> prepareStatement(thread_db* tdbb, dsql_dbb* databas
 	}
 
 	string textStr(text, textLength);
-	const bool isStatementCacheActive = database->dbb_statement_cache->isActive();
+	const bool isStatementCacheActive = database->dbb_statement_cache->isActive() &&
+		(transaction ? (!transaction->isDdl()) : true);
 
 	RefPtr<DsqlStatement> dsqlStatement;
 

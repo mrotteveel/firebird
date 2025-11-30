@@ -345,36 +345,36 @@ public:
 		return mdc_back.load(std::memory_order_relaxed);
 	}
 
+	MdcVersion getFrontVersion()
+	{
+		return mdc_front.load(std::memory_order_relaxed);
+	}
+
 	// Checks for version's drift during resources load for request(s)
-	friend class StableVersion;
-	class StableVersion
+	// use in 'do {something;} while (isStable())' loop
+	class Version
 	{
 	public:
-		StableVersion(MetadataCache* mdc)
-			: mdc(mdc), back(mdc->mdc_back), front(back + 1)
+		Version(MetadataCache* mdc)
+			: mdc(mdc), back(mdc->getBackVersion())
 		{ }
 
-		operator bool()
+		bool isStable()
 		{
-			if (front == back)
-				return false;
-			back = mdc->mdc_back;
-			return true;
+			if (mdc->getFrontVersion() == back)
+				return true;
+			back = mdc->getBackVersion();
+			return false;
 		}
 
-		void next()
-		{
-			front = mdc->mdc_front;
-		}
-
-		MdcVersion getBackVersion()
+		MdcVersion get()
 		{
 			return back;
 		}
 
 	private:
 		MetadataCache* mdc;
-		MdcVersion back, front;
+		MdcVersion back;
 	};
 
 	// In CacheVector.h

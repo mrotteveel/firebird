@@ -393,6 +393,8 @@ public:
 	void releaseSavepoint(thread_db* tdbb);
 	DbCreatorsList* getDbCreatorsList();
 	void checkBlob(thread_db* tdbb, const bid* blob_id, jrd_fld* fld, bool punt);
+	void postResources(thread_db* tdbb, const Resources* resources);
+	bool isDdl() const;
 
 	GenIdCache* getGenIdCache()
 	{
@@ -401,8 +403,6 @@ public:
 
 		return tra_gen_ids;
 	}
-
-	void postResources(thread_db* tdbb, const Resources* resources);
 };
 
 // System transaction is always transaction 0.
@@ -462,6 +462,11 @@ inline constexpr int tra_dead			= 2;
 inline constexpr int tra_committed		= 3;
 inline constexpr int tra_us				= 4;	// Transaction is us
 inline constexpr int tra_precommitted	= 5;	// Transaction is precommitted
+
+inline bool jrd_tra::isDdl() const
+{
+	return tra_flags & TRA_deferred_meta;
+}
 
 // Deferred work blocks are used by the meta data handler to keep track
 // of work deferred to commit time.  This are usually used to perform
