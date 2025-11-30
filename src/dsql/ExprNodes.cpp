@@ -291,10 +291,13 @@ TriState LookupValueList::find(thread_db* tdbb, Request* request, const ValueExp
 	const auto sortedList = init(tdbb, request);
 	fb_assert(sortedList && sortedList->hasData());
 
-	if (!sortedList->front().desc)
-		return TriState::empty();
+	const bool hasNull = !sortedList->front().desc;
+	const bool found = sortedList->exist(SortValueItem(value, desc));
 
-	return TriState(sortedList->exist(SortValueItem(value, desc)));
+	if (found)
+		return TriState(true);
+
+	return hasNull ? TriState::empty() : TriState(false);
 }
 
 //--------------------
