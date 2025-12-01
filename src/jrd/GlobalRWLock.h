@@ -52,7 +52,7 @@ DEFINE_TRACE_ROUTINE(cos_trace);
 
 namespace Jrd {
 
-enum lck_t;
+enum lck_t : UCHAR;
 
 class GlobalRWLock : public Firebird::PermanentStorage
 {
