@@ -2117,7 +2117,7 @@ MemoryPool* MemoryPool::createPool(ALLOC_PARAMS1 MemoryPool* parentPool, MemoryS
 		parentPool = getDefaultMemoryPool();
 
 	MemPool* p = new(*parentPool ALLOC_PASS_ARGS) MemPool(*(parentPool->pool), stats, &defaultExtentsCache);
-	return FB_NEW_POOL(*parentPool) MemoryPool(p);
+	return new(*parentPool ALLOC_PASS_ARGS) MemoryPool(p);
 }
 
 void MemPool::setStatsGroup(MemoryStats& newStats) noexcept
