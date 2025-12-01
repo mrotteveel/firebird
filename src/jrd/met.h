@@ -223,7 +223,7 @@ public:
 struct index_desc;
 struct DSqlCacheItem;
 
-typedef atomics::atomic<Cached::Triggers*> TriggersSet;
+typedef std::atomic<Cached::Triggers*> TriggersSet;
 
 class MetadataCache : public Firebird::PermanentStorage
 {

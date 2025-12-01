@@ -98,7 +98,7 @@ public:
 
 private:
 	Lock* lock;
-	bool locked = false;
+	std::atomic<bool> locked = false;
 };
 
 
@@ -263,7 +263,7 @@ public:
 	}
 
 	// add new entry to the list
-	static bool add(thread_db* tdbb, atomics::atomic<ListEntry*>& list, ListEntry* newVal)
+	static bool add(thread_db* tdbb, std::atomic<ListEntry*>& list, ListEntry* newVal)
 	{
 		HazardPtr<ListEntry> oldVal(list);
 
@@ -288,7 +288,7 @@ public:
 	}
 
 	// insert newVal in the beginning of a list provided there is still oldVal at the top of the list
-	static bool insert(atomics::atomic<ListEntry*>& list, ListEntry* newVal, ListEntry* oldVal) noexcept
+	static bool insert(std::atomic<ListEntry*>& list, ListEntry* newVal, ListEntry* oldVal) noexcept
 	{
 		if (oldVal && oldVal->isBusy(newVal->traNumber))	// modified in other transaction
 			return false;
@@ -298,7 +298,7 @@ public:
 	}
 
 	// remove too old objects - they are anyway can't be in use
-	static TraNumber gc(thread_db* tdbb, atomics::atomic<ListEntry*>* list, const TraNumber oldest)
+	static TraNumber gc(thread_db* tdbb, std::atomic<ListEntry*>* list, const TraNumber oldest)
 	{
 		TraNumber rc = 0;
 		for (HazardPtr<ListEntry> entry(*list); entry; list = &entry->next, entry.set(*list))
@@ -382,7 +382,7 @@ public:
 	}
 
 	// created earlier object is bad and should be destroyed
-	static void rollback(thread_db* tdbb, atomics::atomic<ListEntry*>& list, const TraNumber currentTran)
+	static void rollback(thread_db* tdbb, std::atomic<ListEntry*>& list, const TraNumber currentTran)
 	{
 		HazardPtr<ListEntry> entry(list);
 		while (entry)
@@ -442,9 +442,9 @@ public:
 		if ((thd == Thread::getId()) && (state == SCANNING))
 			return ScanResult::COMPLETE;
 
-		std::unique_lock<std::mutex> g(mtx);
-
 		permanent->setLock(tdbb, permanent->getId(), Versioned::objectFamily(permanent));
+
+		std::unique_lock<std::mutex> g(mtx);
 
 		for(;;)
 		{
@@ -550,14 +550,14 @@ private:
 	std::condition_variable cond;
 	std::mutex mtx;
 	Versioned* object;
-	atomics::atomic<ListEntry*> next = nullptr;
+	std::atomic<ListEntry*> next = nullptr;
 	TraNumber traNumber;		// when COMMITTED not set - stores transaction that created this list element
 								// when COMMITTED is set - stores transaction after which older elements are not needed
 								// traNumber to be changed BEFORE setting COMMITTED
 
 	MdcVersion version = 0;		// version of metadata cache when object was added
 	ThreadId thd = 0;			// thread that performs object scan()
-	atomics::atomic<ObjectBase::Flag> cacheFlags;
+	std::atomic<ObjectBase::Flag> cacheFlags;
 	State state;				// current entry state
 };
 
@@ -571,7 +571,7 @@ public:
 	typedef V Versioned;
 	typedef P Permanent;
 
-	typedef atomics::atomic<CacheElement*> AtomicElementPointer;
+	typedef std::atomic<CacheElement*> AtomicElementPointer;
 
 	template <typename EXTEND>
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, EXTEND extend) :
@@ -935,8 +935,8 @@ private:
 	}
 
 private:
-	atomics::atomic<ListEntry<Versioned>*> list = nullptr;
-	atomics::atomic<TraNumber> resetAt = 0;
+	std::atomic<ListEntry<Versioned>*> list = nullptr;
+	std::atomic<TraNumber> resetAt = 0;
 	AtomicElementPointer* ptrToClean = nullptr;
 };
 
@@ -956,7 +956,7 @@ public:
 	typedef typename StoredElement::Versioned Versioned;
 	typedef typename StoredElement::Permanent Permanent;
 	typedef typename StoredElement::AtomicElementPointer SubArrayData;
-	typedef atomics::atomic<SubArrayData*> ArrayData;
+	typedef std::atomic<SubArrayData*> ArrayData;
 	typedef SharedReadVector<ArrayData, 4> Storage;
 
 	explicit CacheVector(MemoryPool& pool, EXTEND extend = NoData())
@@ -1109,7 +1109,10 @@ private:
 				data = newData;
 			}
 			else
+			{
+				newData->releaseLocks(tdbb);
 				StoredElement::cleanup(tdbb, newData);
+			}
 		}
 
 		return data;
@@ -1201,20 +1204,6 @@ public:
 		}
 
 		m_objects.clear();
-	}
-
-	bool clear(MetaId id)
-	{
-		if (id >= getCount())
-			return false;
-
-		auto a = m_objects.readAccessor();
-		SubArrayData* sub = a->value(id >> SUBARRAY_SHIFT).load(atomics::memory_order_acquire);
-		fb_assert(sub);
-		sub = &sub[id & SUBARRAY_MASK];
-
-		sub->store(nullptr, atomics::memory_order_release);
-		return true;
 	}
 
 	HazardPtr<typename Storage::Generation> readAccessor() const

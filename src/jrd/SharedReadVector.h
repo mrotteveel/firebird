@@ -228,7 +228,7 @@ public:
 	}
 
 private:
-	atomics::atomic<Generation*> currentData;
+	std::atomic<Generation*> currentData;
 };
 
 } // namespace Jrd

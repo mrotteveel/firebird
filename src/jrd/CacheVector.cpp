@@ -166,26 +166,22 @@ void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, c
 
 void ElementBase::setLock(thread_db* tdbb, MetaId id, const char* family)
 {
-	fb_assert(lock);
-	if (lock && !locked)
+	bool f = false;
+	if (locked.compare_exchange_strong(f,true))
 	{
 		if (!LCK_lock(tdbb, lock, LCK_PR, LCK_WAIT))
 		{
 			Firebird::fatal_exception::raiseFmt("Unable to obtain READ rescan lock for %s %d",
 				family, id);
 		}
-		locked = true;
 	}
 }
 
 void ElementBase::releaseLock(thread_db* tdbb)
 {
-	fb_assert(lock);
-	if (locked)
-	{
+	bool t = true;
+	if (locked.compare_exchange_strong(t,false))
 		LCK_release(tdbb, lock);
-		locked = false;
-	}
 }
 
 

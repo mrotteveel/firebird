@@ -71,7 +71,7 @@ public:
 	HazardPtr()
 	{ }
 
-	HazardPtr(const atomics::atomic<T*>& from)
+	HazardPtr(const std::atomic<T*>& from)
 	{
 		protect(from);
 	}
@@ -113,7 +113,7 @@ private:
 		inherited::copy(copyFrom);
 	}
 
-    T* protect(const atomics::atomic<T*>& from)
+    T* protect(const std::atomic<T*>& from)
     {
     	localPtr = inherited::protect(from);
     	return localPtr;
@@ -155,14 +155,14 @@ public:
 		return rc;
 	}
 
-	void set(const atomics::atomic<T*>& from)
+	void set(const std::atomic<T*>& from)
 	{
 		protect(from);
 	}
 
 	// atomically replaces 'where' with 'newVal', using *this as old value for comparison
 	// sets *this to actual data from 'where' if replace failed
-	bool replace(atomics::atomic<T*>& where, T* newVal)
+	bool replace(std::atomic<T*>& where, T* newVal)
 	{
 		T* val = getPointer();
 		bool rc = where.compare_exchange_strong(val, newVal,

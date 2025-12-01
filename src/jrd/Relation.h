@@ -803,7 +803,7 @@ private:
 	Firebird::Mutex	rel_gc_records_mutex;
 
 public:
-	atomics::atomic<SSHORT>	rel_scan_count;		// concurrent sequential scan count
+	std::atomic<SSHORT>	rel_scan_count;		// concurrent sequential scan count
 
 	class RelPagesSnapshot : public Firebird::Array<RelationPages*>
 	{
