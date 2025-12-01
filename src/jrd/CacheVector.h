@@ -575,7 +575,7 @@ public:
 
 	template <typename EXTEND>
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, EXTEND extend) :
-		ElementBase(makeLock(tdbb, p, id, Versioned::LOCKTYPE)),
+		ElementBase(makeLock(tdbb, p, makeId(id, extend), Versioned::LOCKTYPE)),
 		Permanent(tdbb, p, id, extend)
 	{ }
 
@@ -583,6 +583,12 @@ public:
 		ElementBase(nullptr),
 		Permanent(p)
 	{ }
+
+	template <typename EXTEND>
+	FB_UINT64 makeId(MetaId id, EXTEND extend)
+	{
+		return id;
+	}
 
 	static void cleanup(thread_db* tdbb, CacheElement* element)
 	{

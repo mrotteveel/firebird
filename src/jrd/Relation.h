@@ -946,16 +946,13 @@ private:
 };
 
 
-// constructor specialization
-
-template <> template <> inline CacheElement<IndexVersion, IndexPermanent>::CacheElement<RelationPermanent*>
-		(thread_db* tdbb, MemoryPool& p, MetaId id, RelationPermanent* rel)
-	: ElementBase(makeLock(tdbb, p, (FB_UINT64(rel->getId()) << REL_ID_KEY_OFFSET) + id, IndexVersion::LOCKTYPE)),
-	  IndexPermanent(tdbb, p, id, rel),
-	  list(nullptr),
-	  resetAt(0),
-	  ptrToClean(nullptr)
-{ }
+// specialization
+template <> template <>
+inline FB_UINT64 CacheElement<IndexVersion, IndexPermanent>::makeId<RelationPermanent*>(MetaId id,
+	RelationPermanent* rel)
+{
+	return (FB_UINT64(rel->getId()) << REL_ID_KEY_OFFSET) + id;
+}
 
 
 inline bool jrd_rel::hasData() const
