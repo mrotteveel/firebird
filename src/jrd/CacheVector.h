@@ -64,8 +64,9 @@ public:
 class ElementBase
 {
 public:
-	ElementBase(Lock* lock) :
-		lock(lock)
+	ElementBase(thread_db* tdbb, MemoryPool& p, lck_t locktype, SINT64 key);
+	ElementBase()
+		: lock(nullptr)
 	{ }
 
 private:
@@ -73,11 +74,10 @@ private:
 	static int blockingAst(void* ast_object);
 
 public:
-	Lock* makeLock(thread_db* tdbb, MemoryPool& p, SINT64 key, lck_t locktype);
 	void pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, const char* family);
 	void setLock(thread_db* tdbb, MetaId id, const char* family);
-	virtual void releaseLocks(thread_db* tdbb) = 0;
 	void releaseLock(thread_db* tdbb);
+	virtual void releaseLocks(thread_db* tdbb) = 0;
 
 public:
 	typedef SLONG ReturnedId;	// enable '-1' as not found
@@ -575,12 +575,12 @@ public:
 
 	template <typename EXTEND>
 	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id, EXTEND extend) :
-		ElementBase(makeLock(tdbb, p, makeId(id, extend), Versioned::LOCKTYPE)),
+		ElementBase(tdbb, p, Versioned::LOCKTYPE, makeId(id, extend)),
 		Permanent(tdbb, p, id, extend)
 	{ }
 
 	CacheElement(MemoryPool& p) :
-		ElementBase(nullptr),
+		ElementBase(),
 		Permanent(p)
 	{ }
 

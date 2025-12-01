@@ -147,11 +147,10 @@ int ElementBase::blockingAst(void* ast_object)
 	return 0;
 }
 
-Lock* ElementBase::makeLock(thread_db* tdbb, MemoryPool& p, SINT64 key, enum lck_t locktype)
+ElementBase::ElementBase(thread_db* tdbb, MemoryPool& p, lck_t locktype, SINT64 key)
+	: lock(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), locktype, this, blockingAst))
 {
-	Lock* lck = FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), locktype, this, blockingAst);
-	lck->setKey(key);
-	return lck;
+	lock->setKey(key);
 }
 
 void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, const char* family)
