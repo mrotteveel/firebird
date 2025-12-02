@@ -3933,8 +3933,7 @@ static void scan_relation(thread_db* tdbb, jrd_rel* relation)
 
 	try {
 
-	if (relation->rel_flags & (REL_scanned | REL_deleted))
-		return;
+	fb_assert(!(relation->rel_flags & (REL_scanned | REL_deleted)));
 
 	relation->rel_flags |= REL_being_scanned;
 
