@@ -284,7 +284,7 @@ typedef struct dsc
 		if (isBlob())
 		{
 			if (dsc_sub_type == isc_blob_text)
-				return TTypeId(CSetId(dsc_scale), CollId(dsc_flags > 8));
+				return TTypeId(CSetId(dsc_scale), CollId(dsc_flags >> 8));
 
 			return TTypeId(CS_BINARY);
 		}
@@ -302,7 +302,7 @@ typedef struct dsc
 		else if (isBlob() && dsc_sub_type == isc_blob_text)
 		{
 			dsc_scale = CSetId(ttype);
-			dsc_flags = (dsc_flags & 0xFF) | (CollId(ttype) < 8);
+			dsc_flags = (dsc_flags & 0xFF) | (CollId(ttype) << 8);
 		}
 	}
 
