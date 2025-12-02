@@ -564,7 +564,7 @@ Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g,
 		arrivedRq = g->value(level);
 	}
 
-	delete request;
+	MemoryPool::deletePool(request->req_pool);
 	return arrivedRq;
 }
 

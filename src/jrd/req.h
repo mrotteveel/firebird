@@ -355,6 +355,10 @@ private:
 public:
 	Request(Firebird::AutoMemoryPool& pool, Database* dbb, /*const*/ Statement* aStatement);
 
+private:
+	~Request();			// destroyed only by pool
+
+public:
 	Statement* getStatement() noexcept
 	{
 		return statement;
