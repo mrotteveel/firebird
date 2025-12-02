@@ -1671,7 +1671,13 @@ private:
 	};
 #endif // VALIDATE_POOL
 
-	MemBlock* allocateInternal(size_t from, size_t& length, bool flagRedirect);
+	MemBlock* allocateInternal2(size_t from, size_t& length, bool flagRedirect);
+	MemBlock* allocateInternal(size_t from, size_t& length, bool flagRedirect)
+	{
+		auto* block = allocateInternal2(from, length, flagRedirect);
+		block->pool = this;
+		return block;
+	}
 	void releaseBlock(MemBlock *block, bool flagDecr) noexcept;
 
 public:
@@ -2163,9 +2169,9 @@ void MemoryPool::setStatsGroup(MemoryStats& newStats) noexcept
 	pool->setStatsGroup(newStats);
 }
 
-MemBlock* MemPool::allocateInternal(size_t from, size_t& length, bool flagRedirect)
+MemBlock* MemPool::allocateInternal2(size_t from, size_t& length, bool flagRedirect)
 {
-	MutexEnsureUnlock guard(mutex, "MemPool::allocateInternal");
+	MutexEnsureUnlock guard(mutex, "MemPool::allocateInternal2");
 	guard.enter();
 
 	++blocksAllocated;
@@ -2228,7 +2234,6 @@ MemBlock* MemPool::allocateRange(size_t from, size_t& size ALLOC_PARAMS)
 	size_t length = from ? size : ROUNDUP(size + VALGRIND_REDZONE, roundingSize) + GUARD_BYTES;
 	MemBlock* memory = allocateInternal(from, length, true);
 	size = length - (VALGRIND_REDZONE + GUARD_BYTES);
-	memory->pool = this;
 
 #ifdef USE_VALGRIND
 	VALGRIND_MEMPOOL_ALLOC(this, &memory->body, size);
