@@ -506,9 +506,16 @@ Request* Statement::findRequest(thread_db* tdbb, bool unique)
 	clone->req_stats.reset();
 	clone->req_base_stats.reset();
 
-	loadResources(tdbb, clone, true);
-
-	return clone;
+	try
+	{
+		loadResources(tdbb, clone, true);
+		return clone;
+	}
+	catch(const Exception&)
+	{
+		clone->setUnused();
+		throw;
+	}
 }
 
 Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g, USHORT level)
@@ -525,10 +532,19 @@ Request* Statement::getRequest(thread_db* tdbb, const Requests::ReadAccessor& g,
 	AutoMemoryPool reqPool(MemoryPool::createPool(ALLOC_ARGS1 pool));
 #ifdef DEBUG_LOST_POOLS
 	fprintf(stderr, "%p %s %s\n", reqPool->mp(), sqlText ? sqlText->c_str() : "<nullptr>",
-		procedure ? procedure->c_name() : "<not_prc>");
+		procedure ? procedure->getName().toQuotedString().c_str() :
+		function ? function->getName().toQuotedString().c_str() : "<not>");
 #endif
 	auto request = FB_NEW_POOL(*reqPool) Request(reqPool, dbb, this);
-	loadResources(tdbb, request, true);
+	try
+	{
+		loadResources(tdbb, request, true);
+	}
+	catch(const Exception&)
+	{
+		MemoryPool::deletePool(request->req_pool);
+		throw;
+	}
 
 	Request* arrivedRq;
 	{ // mutex scope

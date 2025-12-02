@@ -1812,9 +1812,16 @@ public:
 private:
 	MemPool* next;
 	MemPool* child;
-#endif
 
-friend class MemoryPool;
+#ifdef DEBUG_LOST_POOLS
+	const char* fileName;
+	int lineNum;
+
+	int seq = -1;
+#endif
+#endif // MEM_DEBUG
+
+	friend class MemoryPool;
 };
 
 
@@ -2117,6 +2124,16 @@ MemoryPool* MemoryPool::createPool(ALLOC_PARAMS1 MemoryPool* parentPool, MemoryS
 		parentPool = getDefaultMemoryPool();
 
 	MemPool* p = new(*parentPool ALLOC_PASS_ARGS) MemPool(*(parentPool->pool), stats, &defaultExtentsCache);
+#ifdef MEM_DEBUG
+#ifdef DEBUG_LOST_POOLS
+	p->fileName = file;
+	p->lineNum = line;
+
+	static std::atomic<int> seqGen = 0;
+	p->seq = ++seqGen;
+#endif
+#endif
+
 	return new(*parentPool ALLOC_PASS_ARGS) MemoryPool(p);
 }
 
