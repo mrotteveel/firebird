@@ -1678,7 +1678,10 @@ private:
 		block->pool = this;
 		return block;
 	}
-	void releaseBlock(MemBlock *block, bool flagDecr) noexcept;
+
+	void releaseBlock(MemBlock *block, int flag) noexcept;
+	static constexpr int RELEASE_DECR = 0x1;	// Decrement memory usage
+	static constexpr int RELEASE_RED = 0x2;		// Perform red zone checks (MEM_DEBUG only)
 
 public:
 	void* allocate(size_t size ALLOC_PARAMS);
@@ -2062,7 +2065,7 @@ MemPool::~MemPool(void)
 
 			block->resetExtent();
 #endif
-			parent->releaseBlock(block, false);
+			parent->releaseBlock(block, RELEASE_RED);
 		}
 	}
 
@@ -2206,7 +2209,7 @@ MemBlock* MemPool::allocateInternal2(size_t from, size_t& length, bool flagRedir
 			else					// worst case - very low possibility
 			{
 				guard.leave();
-				parent->releaseBlock(block, false);
+				parent->releaseBlock(block, 0);
 				guard.enter();
 			}
 		}
@@ -2338,11 +2341,11 @@ void MemPool::releaseMemory(void* object, bool flagExtent) noexcept
 
 		// Finally delete it
 		block->resetExtent();
-		pool->releaseBlock(block, !flagExtent);
+		pool->releaseBlock(block, RELEASE_RED | (flagExtent ? 0 : RELEASE_DECR));
 	}
 }
 
-void MemPool::releaseBlock(MemBlock* block, bool decrUsage) noexcept
+void MemPool::releaseBlock(MemBlock* block, int flags) noexcept
 {
 #ifdef DELAYED_FREE
 	fb_assert(!block->isActive());
@@ -2355,10 +2358,13 @@ void MemPool::releaseBlock(MemBlock* block, bool decrUsage) noexcept
 	}
 
 #ifdef MEM_DEBUG
-	for (const UCHAR* end = (UCHAR*) block + block->getSize(), *p = end - GUARD_BYTES; p < end;)
+	if (flags & RELEASE_RED)
 	{
-		if (*p++ != GUARD_BYTE)
-			corrupt("guard bytes overwritten");
+		for (const UCHAR* end = (UCHAR*) block + block->getSize(), *p = end - GUARD_BYTES; p < end;)
+		{
+			if (*p++ != GUARD_BYTE)
+				corrupt("guard bytes overwritten");
+		}
 	}
 #endif
 
@@ -2369,9 +2375,9 @@ void MemPool::releaseBlock(MemBlock* block, bool decrUsage) noexcept
 
 	--blocksActive;
 
-	const Validator vld(decrUsage ? this : NULL);
+	const Validator vld(flags & RELEASE_DECR ? this : NULL);
 
-	if (decrUsage)
+	if (flags & RELEASE_DECR)
 		decrement_usage(length);
 
 	// If length is less than threshold, this is a small block
@@ -2390,7 +2396,7 @@ void MemPool::releaseBlock(MemBlock* block, bool decrUsage) noexcept
 		MutexLockGuard guard(parent->mutex, "MemPool::releaseBlock /parent");
 #endif
 		block->resetRedirect(parent);
-		parent->releaseBlock(block, false);
+		parent->releaseBlock(block, RELEASE_RED);
 		return;
 	}
 
