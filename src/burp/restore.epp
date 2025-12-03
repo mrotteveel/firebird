@@ -280,7 +280,6 @@ static inline void collect_missing_privs(BurpGlobals* tdgbl, USHORT type, const 
 
 } // namespace
 
-
 void activateIndex(BurpGlobals* tdgbl, const QualifiedMetaString& indexName)
 {
 	BURP_verbose(285, indexName.toQuotedString());

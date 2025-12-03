@@ -832,7 +832,6 @@ static void saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	dsqlScratch->relation = relation;
 }
 
-
 // Update RDB$FIELDS received by reference.
 static void updateRdbFields(const TypeClause* type,
 	SSHORT& fieldType,
@@ -2714,7 +2713,8 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	bool found = false;
 	MetaId id;
 
-	//MetadataCache::oldVersion<Cached::Function>(tdbb, id);	-- missing ID in the node
+	// missing ID in the node - therefore use lookup_function() with appropriate flags
+	// instead: MetadataCache::oldVersion<Cached::Function>(tdbb, id);
 	MetadataCache::lookup_function(tdbb, name, CacheFlag::OLD_DROP);
 
 	dropArguments(tdbb, transaction, name);
@@ -3578,8 +3578,8 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	AutoSavePoint savePoint(tdbb, transaction);
 	bool found = false;
 
-	// missing ID in the node - use lookup_procedure() instead
-	// MetadataCache::oldVersion<Cached::Procedure>(tdbb, id);
+	// missing ID in the node - therefore use lookup_procedure() with appropriate flags
+	// instead: MetadataCache::oldVersion<Cached::Function>(tdbb, id);
 	MetadataCache::lookup_procedure(tdbb, name, CacheFlag::OLD_DROP);
 
 	dropParameters(tdbb, transaction, name);
@@ -6409,6 +6409,7 @@ MetaId RelationNode::generateRelId(thread_db* tdbb, MetaName name)
 // !!!!!! printf(" %d\n", relId); fflush(stdout);
 				return relId;
 			}
+			fb_assert(found == MISS);
 
 			if (startId == MIN_RELATION_ID)
 				break;
@@ -8095,9 +8096,6 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 				if (REL.RDB$FORMAT == MAX_VIEW_VERSIONS)
 					raiseTooManyVersionsError(obj_view, relName);
 			}
-
-			if (REL.RDB$FORMAT == MAX_TABLE_VERSIONS)
-				raiseTooManyVersionsError(REL.RDB$VIEW_BLR.NULL ? obj_relation : obj_view, relName);
 
 			MODIFY REL USING
 				blb* blob = blb::create(tdbb, transaction, &REL.RDB$RUNTIME);

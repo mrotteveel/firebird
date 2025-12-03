@@ -28,8 +28,8 @@
 #include "../common/StatusArg.h"
 #include "../jrd/constants.h"
 
-
 namespace Firebird {
+
 
 class BlrReader
 {
@@ -232,6 +232,7 @@ private:
 	const UCHAR* end;
 	const UCHAR* pos;
 };
+
 
 }	// namespace
 
