@@ -10489,6 +10489,8 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		if (relPages->rel_pages)
 			DPM_mark_relation(tdbb, relation);
 
+		AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, TDBB_dont_post_dfw, true);
+
 		// if this is a view (or even if we don't know), delete dependency lists
 
 		if (relation->isView() || !relation->isReady(tdbb))
