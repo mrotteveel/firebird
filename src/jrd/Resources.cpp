@@ -23,6 +23,7 @@ using namespace Jrd;
 void Resources::transfer(thread_db* tdbb, VersionedObjects* to, bool internal)
 {
 	sha512 digest;
+	to->clear();
 
 	int gotHash = 0;
 	gotHash += charSets.transfer(tdbb, to, internal, digest);

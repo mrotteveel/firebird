@@ -78,6 +78,11 @@ public:
 		capacity(cnt)
 	{ }
 
+	void clear()
+	{
+		memset(data, 0, sizeof(data[0]) * capacity);
+	}
+
 	template <class C>
 	void put(FB_SIZE_T n, C* obj)
 	{
