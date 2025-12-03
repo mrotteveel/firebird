@@ -330,7 +330,6 @@ public:
 		  rel_pri_data_space(0), rel_sec_data_space(0),
 		  rel_last_free_pri_dp(0), rel_last_free_blb_dp(0),
 		  rel_pg_space_id(DB_PAGE_SPACE), rel_next_free(NULL),
-		  useCount(0),
 		  dpMap(pool),
 		  dpMapMark(0)
 	{}
@@ -349,6 +348,8 @@ public:
 
 	ULONG getDPNumber(ULONG dpSequence)
 	{
+		Firebird::MutexLockGuard g(dpMutex, FB_FUNCTION);
+
 		FB_SIZE_T pos;
 		if (dpMap.find(dpSequence, pos))
 		{
@@ -362,6 +363,8 @@ public:
 
 	void setDPNumber(ULONG dpSequence, ULONG dpNumber)
 	{
+		Firebird::MutexLockGuard g(dpMutex, FB_FUNCTION);
+
 		FB_SIZE_T pos;
 		if (dpMap.find(dpSequence, pos))
 		{
@@ -384,6 +387,8 @@ public:
 
 	void freeOldestMapItems() noexcept
 	{
+		Firebird::MutexLockGuard g(dpMutex, FB_FUNCTION);
+
 		ULONG minMark = MAX_ULONG;
 		FB_SIZE_T i;
 
@@ -408,8 +413,8 @@ public:
 	}
 
 private:
-	RelationPages*	rel_next_free;
-	SLONG			useCount;
+	RelationPages*		rel_next_free;
+	std::atomic<SLONG>	useCount = 0;
 
 	static constexpr ULONG MAX_DPMAP_ITEMS = 64;
 
@@ -426,7 +431,8 @@ private:
 	};
 
 	Firebird::SortedArray<DPItem, Firebird::InlineStorage<DPItem, MAX_DPMAP_ITEMS>, ULONG, DPItem> dpMap;
-	ULONG dpMapMark;
+	ULONG				dpMapMark;
+	Firebird::Mutex		dpMutex;
 
 friend class RelationPermanent;
 };
