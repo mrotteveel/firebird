@@ -278,10 +278,13 @@ Statement* Statement::makeStatement(thread_db* tdbb, CompilerScratch* csb, bool 
 
 #ifdef DEV_BUILD
 	MemoryPool* defPool = tdbb->getDefaultPool();
-	for (FB_SIZE_T i = 1; i < dbb->dbb_pools.getCount(); ++i)
-	{
-		if (dbb->dbb_pools[i] == defPool)
-			goto found;
+	{ // scope
+		Firebird::SyncLockGuard guard(&dbb->dbb_pools_sync, Firebird::SYNC_SHARED, "Statement::makeStatement");
+		for (FB_SIZE_T i = 1; i < dbb->dbb_pools.getCount(); ++i)
+		{
+			if (dbb->dbb_pools[i] == defPool)
+				goto found;
+		}
 	}
 	fb_assert(!"wrong pool in makeStatement");
 found:
