@@ -2906,7 +2906,7 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 {
 /**************************************
  *
- *      M E T _ s c a n _ r e l a t i o n
+ *      s c a n _ r e l a t i o n
  *
  **************************************
  *
