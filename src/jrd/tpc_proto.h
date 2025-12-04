@@ -162,7 +162,11 @@ public:
 
 	static int cacheState(thread_db* tdbb, TraNumber number)
 	{
-		CommitNumber stateCn = tdbb->getDatabase()->dbb_tip_cache->cacheState(number);
+		auto* tipCache = tdbb->getDatabase()->dbb_tip_cache;
+		if (!tipCache)
+			return tra_unknown;
+
+		CommitNumber stateCn = tipCache->cacheState(number);
 
 		switch (stateCn)
 		{

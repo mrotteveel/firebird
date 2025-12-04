@@ -978,6 +978,7 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 		case irt_rollback:		// to be removed when irt_transaction dead
 			switch (indexCacheState(tdbb, descTrans, relation, id, true))
 			{
+			case tra_unknown:	// skip - index in unknown state
 			case tra_dead:		// skip - index failed creation
 				continue;
 			}
@@ -986,6 +987,7 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 		case irt_commit:		// change state on irt_transaction completion
 			switch (indexCacheState(tdbb, descTrans, relation, id, false))
 			{
+			case tra_unknown:	// skip - index in unknown state
 			case tra_committed:	// skip - index to be dropped
 				continue;
 			}
@@ -2585,8 +2587,9 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 		case tra_committed:	// switch to drop state
 			CCH_MARK(tdbb, window);
 			irt_desc->setDrop(TransactionNumber::next(tdbb));
+			CCH_RELEASE(tdbb, window);  // next call may try to lock irt page again
 			DropIndexNode::clearName(tdbb, relation->getId(), indexId);
-			return ModifyIrtRepeatValue::Modified;
+			return ModifyIrtRepeatValue::Relock;
 
 		case tra_dead:		// switch to normal state
 			CCH_MARK(tdbb, window);

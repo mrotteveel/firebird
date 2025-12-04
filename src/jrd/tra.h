@@ -453,7 +453,7 @@ inline constexpr int TRA_SHIFT				= 2;
 inline constexpr int TRA_ACTIVE_CLEANUP = 100;
 
 // Transaction states.  The first four are states found
-// in the transaction inventory page; the last two are
+// in the transaction inventory page; the last three are
 // returned internally
 
 inline constexpr int tra_active			= 0;	// Transaction is active
@@ -462,6 +462,7 @@ inline constexpr int tra_dead			= 2;
 inline constexpr int tra_committed		= 3;
 inline constexpr int tra_us				= 4;	// Transaction is us
 inline constexpr int tra_precommitted	= 5;	// Transaction is precommitted
+inline constexpr int tra_unknown		= 6;	// TIP cache not loaded yet
 
 inline bool jrd_tra::isDdl() const
 {
