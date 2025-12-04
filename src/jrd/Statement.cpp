@@ -125,8 +125,6 @@ Statement::Statement(thread_db* tdbb, MemoryPool* p, CompilerScratch* csb)
 		auto tail = csb->csb_rpt.begin();
 		const auto* const streams_end = tail + csb->csb_n_stream;
 
-		// Add more streams info (format, procedure) to rpbsSetup
-		// in order to check format match when mdc version grows !!!!!!!!!!!!!!!!!!!!!!!!
 		for (auto rpb = rpbsSetup.begin(); tail < streams_end; ++rpb, ++tail)
 		{
 			// fetch input stream for update if all booleans matched against indices

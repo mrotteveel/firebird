@@ -1021,8 +1021,6 @@ bool MET_get_char_coll_subtype_info(thread_db* tdbb, USHORT id, SubtypeInfo* inf
  *
  **************************************
  *
-	TODO - lookup in MDC first !!!!!!!!!!!!!!!!!
-
  * Functional description
  *      Get charset and collation informations
  *      for a subtype ID.
