@@ -2207,6 +2207,8 @@ bool CreateAlterFunctionNode::executeAlterIndividualParameters(thread_db* tdbb, 
 		if (!secondPass && runTriggers && name.package.isEmpty())
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_FUNCTION, name, {});
 
+		id = FUN.RDB$FUNCTION_ID;
+
 		MODIFY FUN
 			if (deterministic.isAssigned())
 			{
@@ -3236,6 +3238,8 @@ bool CreateAlterProcedureNode::executeAlterIndividualParameters(thread_db* tdbb,
 
 		if (!secondPass && runTriggers && name.package.isEmpty())
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_PROCEDURE, name, {});
+
+		id = P.RDB$PROCEDURE_ID;
 
 		MODIFY P
 			if (ssDefiner.has_value())
