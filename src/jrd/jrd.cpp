@@ -8115,9 +8115,6 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 		return false;
 	}
 
-	// Release the system requests
-	dbb->releaseSystemRequests(tdbb);
-
 	// Reset provider unload delay if needed
 	dbb->dbb_linger_end = 0;
 	setEngineReleaseDelay(dbb);
@@ -8156,6 +8153,9 @@ bool JRD_shutdown_database(Database* dbb, const unsigned flags)
 	// Shutdown file and/or remote connection
 
 	VIO_fini(tdbb);
+
+	// Release the system requests
+	dbb->releaseSystemRequests(tdbb);
 
 	CCH_shutdown(tdbb);
 
