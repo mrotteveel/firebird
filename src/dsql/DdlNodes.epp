@@ -9643,6 +9643,14 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 						 RC.RDB$RELATION_NAME EQ name.object.c_str()
 				{
 					found = true;
+
+					if (!RC.RDB$INDEX_NAME.NULL)
+					{
+						// if constraint+index was created in current statement
+						// abort creation exec job
+						indexList.erase(tdbb, RC.RDB$INDEX_NAME);
+					}
+
 					ERASE RC;
 				}
 				END_FOR
@@ -11515,6 +11523,18 @@ bool ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 	return rc;
 }
 
+void ModifyIndexList::erase(thread_db* tdbb, MetaName name)
+{
+	for (FB_SIZE_T n = 0; n < nodes.getCount(); ++n)
+	{
+		if (nodes[n]->check(tdbb, name))
+		{
+			nodes.remove(n);
+			return;
+		}
+	}
+}
+
 
 //----------------------
 
@@ -12556,7 +12576,10 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 				idxId = IDX.RDB$INDEX_ID - 1;
 			}
 			if (relation && idxId.has_value())
-				relation->oldIndexVersion(tdbb, idxId.value(), CacheFlag::OLD_ALTER);
+			{
+				auto ret = relation->oldIndexVersion(tdbb, idxId.value(), CacheFlag::OLD_ALTER);
+				fb_assert(ret);
+			}
 
 			MODIFY IDX
 				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
@@ -12780,7 +12803,10 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
 
 		if (rel)
-			rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
+		{
+			auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
+			fb_assert(ret);
+		}
 
 		MODIFY IDX
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;

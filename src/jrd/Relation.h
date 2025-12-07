@@ -788,10 +788,9 @@ public:
 		fb_assert(chk);
 	}
 
-	void oldIndexVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
+	IndexVersion* oldIndexVersion(thread_db* tdbb, MetaId id, ObjectBase::Flag scanType)
 	{
-		auto chk = rel_indices.getVersioned(tdbb, id, CacheFlag::AUTOCREATE | scanType);
-		fb_assert(chk);
+		return rel_indices.getVersioned(tdbb, id, CacheFlag::AUTOCREATE | scanType);
 	}
 
 	Cached::Index* eraseIndex(thread_db* tdbb, MetaId id)

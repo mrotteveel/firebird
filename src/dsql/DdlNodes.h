@@ -1309,6 +1309,7 @@ public:
 	}
 
 	bool exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
+	void erase(thread_db* tdbb, MetaName indexName);
 
 	MemoryPool& getPool()
 	{
@@ -1941,6 +1942,11 @@ public:
 
 	ModifyValue modify(thread_db* tdbb, jrd_tra* transaction);
 
+	bool check(thread_db*, MetaName iName)
+	{
+		return create && (indexName.object == iName);
+	}
+
 	virtual MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
 
 protected:
@@ -1948,7 +1954,7 @@ protected:
 	static Cached::Relation* getRelByIndex(thread_db* tdbb, const QualifiedName& index, jrd_tra* transaction);
 
 public:
-	QualifiedName indexName;
+	QualifiedName indexName;		// may be change back to MetaName's (+ schema name)
 	QualifiedName relName;
 	bool create;
 };

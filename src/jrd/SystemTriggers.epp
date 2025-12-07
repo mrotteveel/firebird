@@ -694,16 +694,13 @@ void afterDeleteRelationConstraint(thread_db* tdbb, Record* record)
 		{
 			fb_assert(rel);
 			MetaId idxId = IND.RDB$INDEX_ID - 1;
-			if (rel)
-				rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
-
-			MODIFY IND
-				IND.RDB$INDEX_INACTIVE.NULL = FALSE;
-				IND.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
-			END_MODIFY
-
-			if (rel)
+			if (rel && rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP))
 			{
+				MODIFY IND
+					IND.RDB$INDEX_INACTIVE.NULL = FALSE;
+					IND.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
+				END_MODIFY
+
 				IDX_mark_index(tdbb, rel, idxId);
 				rel->eraseIndex(tdbb, idxId);
 			}
