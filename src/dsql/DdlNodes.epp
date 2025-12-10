@@ -11490,7 +11490,7 @@ Cached::Relation* ModifyIndexNode::getRelByIndex(thread_db* tdbb, const Qualifie
 	}
 	END_FOR
 
-	if (relation->rel_flags & REL_check_partners)
+	if (relation && (relation->rel_flags & REL_check_partners))
 		relation->scanPartners(tdbb);
 	return relation;
 }
@@ -11594,10 +11594,12 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
 		if (!IDX.RDB$INDEX_ID.NULL)
+		{
 			idxId = IDX.RDB$INDEX_ID - 1;
 
-		// Reject here request to 'alter index inactive'
-		fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
+			// Reject here request to 'alter index inactive'
+			fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
+		}
 
 		idx.idx_count = IDX.RDB$SEGMENT_COUNT;
 		if (!idx.idx_count || idx.idx_count > MAX_INDEX_SEGMENTS)
@@ -11890,10 +11892,12 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
 		if (!IDX.RDB$INDEX_ID.NULL)
+		{
 			idxId = IDX.RDB$INDEX_ID - 1;
 
-		// Reject here request to 'alter index inactive'
-		fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
+			// Reject here request to 'alter index inactive'
+			fb_assert(IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE);
+		}
 
 		if (IDX.RDB$SEGMENT_COUNT)
 		{
