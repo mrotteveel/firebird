@@ -3814,7 +3814,7 @@ void RseNode::planSet(thread_db* tdbb, CompilerScratch* csb, PlanNode* plan)
 			viewRelation = tail->csb_relation();
 			viewProcedure = tail->csb_procedure();
 
-			// If the plan references  the view itself, make sure that
+			// If the plan references the view itself, make sure that
 			// the view is on a single table. If it is, fix up the plan
 			// to point to the base relation.
 

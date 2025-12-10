@@ -495,8 +495,6 @@ namespace Jrd
 	{
 		fb_assert(which == IRQ_REQUESTS || which == DYN_REQUESTS || which == CACHED_REQUESTS);
 
-		//Database::CheckoutLockGuard guard(this, dbb_cmp_clone_mutex);
-
 		auto* stPtr = &(which == IRQ_REQUESTS ? dbb_internal : dbb_dyn_req)[id];
 		if (which == CACHED_REQUESTS)
 		{
