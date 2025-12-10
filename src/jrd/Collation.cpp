@@ -1128,8 +1128,6 @@ Collation* Collation::createInstance(MemoryPool& pool, TTypeId id, texttype* tt,
 
 void Collation::destroy(thread_db* tdbb)
 {
-	fprintf(stderr, "Collation::destroy(%p) tt=%p\n", this, tt);
-
 	if (tt->texttype_fn_destroy)
 		tt->texttype_fn_destroy(tt);
 
