@@ -1134,7 +1134,7 @@ static void checkTransactionNumber(const index_root_page::irt_repeat* irt_desc, 
 }
 
 
-static void badState [[noreturn]] (const index_root_page::irt_repeat* irt_desc, const char* set, const char* msg)
+[[noreturn]] static void badState (const index_root_page::irt_repeat* irt_desc, const char* set, const char* msg)
 {
 	fb_assert(false);
 	fatal_exception::raiseFmt("Invalid index state %s (%d, %s) when %s", Flags::state(*irt_desc), irt_desc->getState(), set, msg);
