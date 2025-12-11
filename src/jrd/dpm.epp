@@ -2277,7 +2277,7 @@ void DPM_scan_marker(thread_db* tdbb, MetaId relId)
 		{
 		case MRK_commit:
 			switch (transactionState(tdbb, transactionFromMarker(X.RDB$PAGE_SEQUENCE, X.RDB$PAGE_NUMBER),
-				relation, true))
+				relation, false))
 			{
 			case tra_dead:
 				ERASE X;

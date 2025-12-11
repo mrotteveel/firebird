@@ -10304,6 +10304,9 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	}
 	END_FOR
 
+	MemoryPool& p = *MemoryPool::getContextPool();
+	ModifyIndexList indexList(p);
+
 	request.reset(tdbb, drq_e_rel_idxs, DYN_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
@@ -10312,12 +10315,12 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 			 IDX.RDB$RELATION_NAME EQ name.object.c_str() AND
 			 IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop
 	{
-		MemoryPool& p = *MemoryPool::getContextPool();
 		auto* node = FB_NEW_POOL(p) DropIndexNode(p, QualifiedName(IDX.RDB$INDEX_NAME, name.schema));
-		node->execute(tdbb, dsqlScratch, transaction);
-		delete node;
+		node->drop(tdbb, dsqlScratch, transaction, indexList, false);
 	}
 	END_FOR
+
+	indexList.exec(tdbb, relation, transaction);
 
 	request.reset(tdbb, drq_e_trg_msgs2, DYN_REQUESTS);
 
@@ -10516,6 +10519,19 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 			X.RDB$RELATION_ID EQ rel->getId()
 		{
 			ERASE X;
+		}
+		END_FOR
+
+		// Here we may drop index records - they can't get cleaned out without relation record
+
+		request2.reset();
+
+		FOR(REQUEST_HANDLE request2 TRANSACTION_HANDLE transaction)
+			IDX IN RDB$INDICES
+			WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 IDX.RDB$RELATION_NAME EQ name.object.c_str()
+		{
+			ERASE IDX;
 		}
 		END_FOR
 
@@ -11396,7 +11412,7 @@ void CreateAlterViewNode::createCheckTrigger(thread_db* tdbb, DsqlCompilerScratc
 
 //----------------------
 
-ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* transaction)
+bool ModifyIndexNode::modify(thread_db* tdbb, Cached::Relation* relation, jrd_tra* transaction)
 {
 /**************************************
  *
@@ -11414,33 +11430,12 @@ ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* t
 
 	SET_TDBB(tdbb);
 	Attachment* attachment = transaction->getAttachment();
-	MetaId rc;
 
-	if (!relName.hasData())
-	{
-		AutoCacheRequest request;
-
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-			IDX IN RDB$INDICES
-				WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
-					 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
-		{
-			relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
-		}
-		END_FOR
-
-		if (!relName.hasData())
-			fatal_exception::raiseFmt("Relation for index %s not known", indexName.toQuotedString().c_str());
-	}
-
-	Cached::Relation* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
 	fb_assert(relation);
 	if (!relation)
-	{
-		fatal_exception::raiseFmt("Relation %s for creation of index %s not found",
-			relName.toQuotedString().c_str(), indexName.toQuotedString().c_str());
-	}
+		fatal_exception::raiseFmt("Relation for creation of index %s not found", indexName.toQuotedString().c_str());
 
+	bool rc = true;
 	if (create)
 		rc = exec(tdbb, relation, transaction);
 
@@ -11453,15 +11448,14 @@ ModifyIndexNode::ModifyValue ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* t
 	}
 
 	if (!create)
-		rc = exec(tdbb, relation, transaction);
+		exec(tdbb, relation, transaction);
 
-	return ModifyValue(create, rc);
+	return rc;
 }
 
 string ModifyIndexNode::print(Jrd::NodePrinter& printer) const
 {
 	NODE_PRINT(printer, indexName);
-	NODE_PRINT(printer, relName);
 	NODE_PRINT(printer, create);
 
 	return "ModifyIndexNode";
@@ -11512,14 +11506,11 @@ bool ModifyIndexList::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 	{
 		if (node)
 		{
-			auto newIndex = node->modify(tdbb, transaction);
-			if (newIndex.id == MAX_META_ID)
+			if (!node->modify(tdbb, rel, transaction))
 			{
 				fb_assert(nodes.getCount() == 1);
 				rc = false;
 			}
-			else
-				rel->newIndexVersion(tdbb, newIndex.id, CacheFlag::MINISCAN);
 		}
 	}
 
@@ -11543,9 +11534,11 @@ void ModifyIndexList::erase(thread_db* tdbb, MetaName name)
 //----------------------
 
 
-MetaId StoreIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
+bool StoreIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
-	return expressionIndex ? createExpression(tdbb, rel, transaction) : create(tdbb, rel, transaction);
+	auto id = expressionIndex ? createExpression(tdbb, rel, transaction) : create(tdbb, rel, transaction);
+	rel->newIndexVersion(tdbb, id, CacheFlag::MINISCAN);
+	return true;
 }
 
 
@@ -12404,7 +12397,7 @@ ModifyIndexNode* CreateIndexNode::store(thread_db* tdbb, MemoryPool& p, jrd_tra*
 		END_FOR
 	}
 
-	return FB_NEW_POOL(p) StoreIndexNode(definition.relation, definition.index, definition.expressionBlr.hasData());
+	return FB_NEW_POOL(p) StoreIndexNode(definition.index, definition.expressionBlr.hasData());
 }
 
 
@@ -12573,7 +12566,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 		{
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_INDEX, indexName, {});
 
-			relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
+			auto relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 			relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
 			fb_assert(relation);
 
@@ -12643,7 +12636,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 		}
 		if (!idxId.has_value())
 		{
-			oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(relName, indexName, expressionIndex));
+			oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(indexName, expressionIndex));
 			oneItemList.exec(tdbb, relation, transaction);
 		}
 	}
@@ -12653,17 +12646,18 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 	savePoint.release();	// system table modified OK
 }
 
-MetaId AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
+bool AlterIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
 	if (create)
 	{
 		if (! IDX_activate_index(tdbb, rel, idxId.value()))
-			return MAX_META_ID;
+			return false;
 	}
 	else
 		IDX_mark_index(tdbb, rel, idxId.value());
 
-	return idxId.value();
+	rel->newIndexVersion(tdbb, idxId.value(), CacheFlag::MINISCAN);
+	return true;
 }
 
 
@@ -12781,6 +12775,17 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	// run all statements under savepoint control
 	AutoSavePoint savePoint(tdbb, transaction);
 
+	ModifyIndexList oneItemList(*MemoryPool::getContextPool());
+	Cached::Relation* rel = drop(tdbb, dsqlScratch, transaction, oneItemList, true);
+	oneItemList.exec(tdbb, rel, transaction);
+
+	savePoint.release();	// everything is ok
+}
+
+
+Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction,
+	ModifyIndexList& list, bool runTriggers)
+{
 	AUTO_HANDLE(req1);
 
 	FOR (REQUEST_HANDLE req1 TRANSACTION_HANDLE transaction)
@@ -12803,12 +12808,13 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	{
 		fb_assert(IDX.RDB$INDEX_ID);
 		idxId = IDX.RDB$INDEX_ID - 1;
-		relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 
+		auto relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 		rel = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
 		fb_assert(rel);
 
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
+		if (runTriggers)
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
 
 		if (rel)
 		{
@@ -12824,24 +12830,22 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 	END_FOR
 
 	if (rel)
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_INDEX, indexName, {});
+	{
+		if (runTriggers)
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_INDEX, indexName, {});
+	}
 	else if (!silent)
 	{
 		// msg 48: "Index not found"
 		status_exception::raise(Arg::PrivateDyn(48));
 	}
 
-	savePoint.release();	// everything is ok
-
-	ModifyIndexList oneItemList(*MemoryPool::getContextPool());
-	oneItemList.push(this);
-	oneItemList.exec(tdbb, rel, transaction);
-
-	rel->eraseIndex(tdbb, idxId);
+	list.push(this);
+	return rel;
 }
 
 
-MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
+bool DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
 /**************************************
  *
@@ -12863,12 +12867,13 @@ MetaId DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* tran
 	fb_assert(idxId >= 0 && idxId < dbb->dbb_max_idx);
 
 	RelationPages* relPages = rel->getPages(tdbb, MAX_TRA_NUMBER, false);
-	if (!relPages)
-		return MAX_META_ID;
+	if (relPages)
+	{
+		IDX_mark_index(tdbb, rel, idxId);
+		rel->eraseIndex(tdbb, idxId);
+	}
 
-	IDX_mark_index(tdbb, rel, idxId);
-
-	return idxId;
+	return true;
 }
 
 

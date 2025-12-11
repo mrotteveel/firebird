@@ -1912,24 +1912,6 @@ public:
 class ModifyIndexNode
 {
 public:
-	struct ModifyValue
-	{
-		ModifyValue(bool create, MetaId id)
-			: create(create), id(id)
-		{
-		}
-
-		bool create;
-		MetaId id;
-	};
-
-	ModifyIndexNode(const QualifiedName& relName, const QualifiedName& indexName, bool create)
-		: indexName(indexName),
-		  relName(relName),
-		  create(create)
-	{
-	}
-
 	ModifyIndexNode(const QualifiedName& indexName, bool create)
 		: indexName(indexName),
 		  create(create)
@@ -1940,22 +1922,21 @@ public:
 	{
 	}
 
-	ModifyValue modify(thread_db* tdbb, jrd_tra* transaction);
+	bool modify(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
 
 	bool check(thread_db*, MetaName iName)
 	{
 		return create && (indexName.object == iName);
 	}
 
-	virtual MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
+	virtual bool exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) = 0;
 
 protected:
 	Firebird::string print(NodePrinter& printer) const;
 	static Cached::Relation* getRelByIndex(thread_db* tdbb, const QualifiedName& index, jrd_tra* transaction);
 
 public:
-	QualifiedName indexName;		// may be change back to MetaName's (+ schema name)
-	QualifiedName relName;
+	QualifiedName indexName;
 	bool create;
 };
 
@@ -2028,13 +2009,13 @@ public:
 class StoreIndexNode final : public ModifyIndexNode
 {
 public:
-	StoreIndexNode(const QualifiedName& relName, const QualifiedName& indexName, bool expressionIndex)
-		: ModifyIndexNode(relName, indexName, true),
+	StoreIndexNode(const QualifiedName& indexName, bool expressionIndex)
+		: ModifyIndexNode(indexName, true),
 		  expressionIndex(expressionIndex)
 	{ }
 
 public:
-	MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+	bool exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
 
 private:
 	MetaId create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction);
@@ -2066,7 +2047,7 @@ public:
 		return DdlNode::dsqlPass(dsqlScratch);
 	}
 
-	MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+	bool exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
 
 protected:
 	void putErrorPrefix(Firebird::Arg::StatusVector& statusVector) override
@@ -2126,6 +2107,8 @@ public:
 	Firebird::string internalPrint(NodePrinter& printer) const override;
 	void checkPermission(thread_db* tdbb, jrd_tra* transaction) override;
 	void execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction) override;
+	Cached::Relation* drop(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction,
+	    ModifyIndexList& list, bool runTriggers);
 
 	DdlNode* dsqlPass(DsqlCompilerScratch* dsqlScratch) override
 	{
@@ -2135,7 +2118,7 @@ public:
 		return DdlNode::dsqlPass(dsqlScratch);
 	}
 
-	MetaId exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
+	bool exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction) override;
 
 protected:
 	void putErrorPrefix(Firebird::Arg::StatusVector& statusVector) override
