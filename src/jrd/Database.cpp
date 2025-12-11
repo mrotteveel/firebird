@@ -156,6 +156,65 @@ namespace Jrd
 		return dbb_file_id;
 	}
 
+	MemoryPool* Database::createPool(ALLOC_PARAMS1 bool separateStats)
+	{
+		MemoryPool* const pool = MemoryPool::createPool(ALLOC_PASS_ARGS1 dbb_permanent, dbb_memory_stats);
+
+		if (separateStats)
+		{
+			auto stats = FB_NEW_POOL(*pool) MemoryStats(&dbb_memory_stats);
+			pool->setStatsGroup(*stats);
+		}
+
+		Firebird::SyncLockGuard guard(&dbb_pools_sync, Firebird::SYNC_EXCLUSIVE, "Database::createPool");
+		dbb_pools.add(pool);
+
+#ifdef DEBUG_LOST_POOLS
+		fprintf(stderr, "+ D: %p\n", pool);
+#endif
+
+		return pool;
+	}
+
+	void Database::deletePool(MemoryPool* pool)
+	{
+		if (pool)
+		{
+			{
+				SyncLockGuard guard(&dbb_pools_sync, SYNC_EXCLUSIVE, "Database::deletePool");
+				FB_SIZE_T pos;
+
+				if (dbb_pools.find(pool, pos))
+					dbb_pools.remove(pos);
+			}
+
+#ifdef DEBUG_LOST_POOLS
+			fprintf(stderr, "- D: %p\n", pool);
+#endif
+
+			MemoryPool::deletePool(pool);
+		}
+	}
+
+#ifdef DEBUG_LOST_POOLS
+	static Database* toCheck = nullptr;
+
+	void checkPool(MemoryPool* pool)
+	{
+		if (toCheck)
+			toCheck->checkPool(pool);
+	}
+
+	void Database::checkPool(MemoryPool* pool)
+	{
+		SyncLockGuard guard(&dbb_pools_sync, SYNC_EXCLUSIVE, "Database::checkPool");
+		FB_SIZE_T pos;
+
+		if (dbb_pools.find(pool, pos))
+			abort();
+	}
+#endif
+
 	Database::~Database()
 	{
 		if (dbb_linger_timer)
@@ -182,37 +241,11 @@ namespace Jrd
 		{
 			MemoryPool::deletePool(dbb_pools[i]);
 		}
-	}
 
-	MemoryPool* Database::createPool(ALLOC_PARAMS1 bool separateStats)
-	{
-		MemoryPool* const pool = MemoryPool::createPool(ALLOC_PASS_ARGS1 dbb_permanent, dbb_memory_stats);
-
-		if (separateStats)
-		{
-			auto stats = FB_NEW_POOL(*pool) MemoryStats(&dbb_memory_stats);
-			pool->setStatsGroup(*stats);
-		}
-
-		Firebird::SyncLockGuard guard(&dbb_pools_sync, Firebird::SYNC_EXCLUSIVE, "Database::createPool");
-		dbb_pools.add(pool);
-		return pool;
-	}
-
-	void Database::deletePool(MemoryPool* pool)
-	{
-		if (pool)
-		{
-			{
-				SyncLockGuard guard(&dbb_pools_sync, SYNC_EXCLUSIVE, "Database::deletePool");
-				FB_SIZE_T pos;
-
-				if (dbb_pools.find(pool, pos))
-					dbb_pools.remove(pos);
-			}
-
-			MemoryPool::deletePool(pool);
-		}
+#ifdef DEBUG_LOST_POOLS
+		if (toCheck == this)
+			toCheck = nullptr;
+#endif
 	}
 
 	int Database::blocking_ast_sweep(void* ast_object)
@@ -821,6 +854,10 @@ namespace Jrd
 
 		dbb_internal.grow(irq_MAX);
 		dbb_dyn_req.grow(drq_MAX);
+
+#ifdef DEBUG_LOST_POOLS
+		toCheck = this;
+#endif
 	}
 
 	bool Database::GlobalObjectHolder::incTempCacheUsage(FB_SIZE_T size)

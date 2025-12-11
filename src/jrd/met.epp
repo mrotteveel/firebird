@@ -4932,28 +4932,40 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 	if (expression.hasData())
 	{
-		AutoMemoryPool stmtPool(dbb->createPool(ALLOC_ARGS0));
-		Jrd::ContextPoolHolder context(tdbb, stmtPool);
+		MemoryPool* stmtPool = dbb->createPool(ALLOC_ARGS0);
+		try
+		{
+			Jrd::ContextPoolHolder context(tdbb, stmtPool);
 
-		CompilerScratch* csb = nullptr;
-		Cleanup cc([csb]() {delete csb;});
-		MET_parse_blob(tdbb, &relation->getName().schema, relation, &expression, &csb, nullptr, false, false);
-		idv_expression_statement = Statement::makeValueExpression(tdbb, idv_expression, idv_expression_desc, csb, false);
-
-		stmtPool.release();
+			CompilerScratch* csb = nullptr;
+			Cleanup cc([csb]() {delete csb;});
+			MET_parse_blob(tdbb, &relation->getName().schema, relation, &expression, &csb, nullptr, false, false);
+			idv_expression_statement = Statement::makeValueExpression(tdbb, idv_expression, idv_expression_desc, csb, false);
+		}
+		catch (const Exception&)
+		{
+			dbb->deletePool(stmtPool);
+			throw;
+		}
 	}
 
 	if (condition.hasData())
 	{
-		AutoMemoryPool stmtPool(dbb->createPool(ALLOC_ARGS0));
-		Jrd::ContextPoolHolder context(tdbb, stmtPool);
+		MemoryPool* stmtPool = dbb->createPool(ALLOC_ARGS0);
+		try
+		{
+			Jrd::ContextPoolHolder context(tdbb, stmtPool);
 
-		CompilerScratch* csb = nullptr;
-		Cleanup cc([csb]() {delete csb;});
-		MET_parse_blob(tdbb, &relation->getName().schema, relation, &condition, &csb, nullptr, false, false);
-		idv_condition_statement = Statement::makeBoolExpression(tdbb, idv_condition, csb, false);
-
-		stmtPool.release();
+			CompilerScratch* csb = nullptr;
+			Cleanup cc([csb]() {delete csb;});
+			MET_parse_blob(tdbb, &relation->getName().schema, relation, &condition, &csb, nullptr, false, false);
+			idv_condition_statement = Statement::makeBoolExpression(tdbb, idv_condition, csb, false);
+		}
+		catch (const Exception&)
+		{
+			dbb->deletePool(stmtPool);
+			throw;
+		}
 	}
 
 	return found ? ScanResult::COMPLETE : ScanResult::MISS;
