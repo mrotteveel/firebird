@@ -1551,8 +1551,7 @@ void beforeInsertRelation(thread_db* tdbb, Record* record)
 
 	dsc desc2;
 	bool nameSet = EVL_field(nullptr, record, f_rel_name, &desc2);
-	fb_assert(nameSet);
-	if (!nameSet)		// How can it be?
+	if (!nameSet)
 		return;
 	MetaName name;
 	MOV_get_metaname(tdbb, &desc2, name);
@@ -1620,18 +1619,6 @@ void afterInsertFunction(thread_db* tdbb, Record* record)
 void afterUpdateFunction(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 {
 	afterInsertFunction(tdbb, newRecord);
-}
-
-void beforeInsertCollation(thread_db* tdbb, Record* record)
-{
-	dsc desc;
-	bool idSet = EVL_field(nullptr, record, f_coll_cs_id, &desc);
-	fb_assert(idSet);
-	if (!idSet)
-		return;
-
-	CSetId csId = CSetId(MOV_get_long(tdbb, &desc, 0));
-	MetadataCache::oldVersion<Cached::CharSet>(tdbb, csId, CacheFlag::OLD_ALTER);
 }
 
 void afterInsertCollation(thread_db* tdbb, Record* record)
@@ -1715,10 +1702,6 @@ void SystemTriggers::executeBeforeInsertTriggers(thread_db* tdbb, jrd_rel* relat
 
 		case rel_refc:
 			beforeInsertRefConstraint(tdbb, record);
-			break;
-
-		case rel_collations:
-			beforeInsertCollation(tdbb, record);
 			break;
 
 		case rel_schemas:
