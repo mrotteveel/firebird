@@ -10531,6 +10531,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 			WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
 				 IDX.RDB$RELATION_NAME EQ name.object.c_str()
 		{
+			DropIndexNode::deleteSegmentRecords(tdbb, transaction, name);
 			ERASE IDX;
 		}
 		END_FOR
@@ -12799,6 +12800,7 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 
 	AutoCacheRequest request(tdbb, drq_e_indices, DYN_REQUESTS);
 	Cached::Relation* rel = nullptr;
+	bool addToTheList = false;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
@@ -12806,8 +12808,6 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str() AND
 			 IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop
 	{
-		fb_assert(IDX.RDB$INDEX_ID);
-		idxId = IDX.RDB$INDEX_ID - 1;
 
 		auto relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
 		rel = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
@@ -12816,10 +12816,13 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 		if (runTriggers)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
 
-		if (rel)
+		if (rel && !IDX.RDB$INDEX_ID.NULL)
 		{
+			fb_assert(IDX.RDB$INDEX_ID);
+			idxId = IDX.RDB$INDEX_ID - 1;
 			auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
 			fb_assert(ret);
+			addToTheList = true;
 		}
 
 		MODIFY IDX
@@ -12840,7 +12843,9 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 		status_exception::raise(Arg::PrivateDyn(48));
 	}
 
-	list.push(this);
+	if (addToTheList)
+		list.push(this);
+
 	return rel;
 }
 
