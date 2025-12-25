@@ -1284,7 +1284,7 @@ void CommentOnNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 	Attachment* const attachment = transaction->tra_attachment;
 
 	Arg::StatusVector status;
-	string objNameStr = objName.toString();
+	const string objNameStr = objName.toString();
 
 	if (objType == obj_parameter)
 	{
@@ -1357,11 +1357,6 @@ void CommentOnNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 			SCL_check_view(tdbb, &dscName, SCL_alter);
 			break;
 
-		case obj_procedure:
-			dscName.makeText(objNameStr.length(), CS_METADATA, (UCHAR*) objName.identifier.c_str());
-			SCL_check_procedure(tdbb, &dscName, SCL_alter);
-			break;
-
 		case obj_trigger:
 			relationName = getTriggerRelationName(tdbb, transaction, objName.identifier);
 			if (relationName.isEmpty())
@@ -1374,8 +1369,20 @@ void CommentOnNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 			break;
 
 		case obj_udf:
-			dscName.makeText(objName.identifier.length(), CS_METADATA, (UCHAR*) objName.identifier.c_str());
-			SCL_check_function(tdbb, &dscName, SCL_alter);
+		case obj_procedure:
+			if (objName.package.hasData())
+			{
+				dscName.makeText(objName.package.length(), CS_METADATA, (UCHAR*) objName.package.c_str());
+				SCL_check_package(tdbb, &dscName, SCL_alter);
+			}
+			else
+			{
+				dscName.makeText(objName.identifier.length(), CS_METADATA, (UCHAR*) objName.identifier.c_str());
+				if (objType == obj_udf)
+					SCL_check_function(tdbb, &dscName, SCL_alter);
+				else
+					SCL_check_procedure(tdbb, &dscName, SCL_alter);
+			}
 			break;
 
 		case obj_blob_filter:
