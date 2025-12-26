@@ -186,7 +186,7 @@ void MET_get_domain(thread_db* tdbb, MemoryPool& csbPool, const QualifiedName& n
 }
 
 
-MetaName MET_get_relation_field(thread_db* tdbb, MemoryPool& csbPool, const QualifiedName& relationName,
+void MET_get_relation_field(thread_db* tdbb, MemoryPool& csbPool, const QualifiedName& relationName,
 	const MetaName& fieldName, dsc* desc, FieldInfo* fieldInfo)
 {
 /**************************************
@@ -263,8 +263,6 @@ MetaName MET_get_relation_field(thread_db* tdbb, MemoryPool& csbPool, const Qual
 			fieldName.toQuotedString() <<
 			relationName.toQuotedString());
 	}
-
-	return sourceName;
 }
 
 

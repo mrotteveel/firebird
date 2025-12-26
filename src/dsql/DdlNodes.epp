@@ -1472,10 +1472,6 @@ void CommentOnNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 			SCL_check_view(tdbb, name, SCL_alter);
 			break;
 
-		case obj_procedure:
-			SCL_check_procedure(tdbb, name, SCL_alter);
-			break;
-
 		case obj_trigger:
 		{
 			const auto relationName = getTriggerRelationName(tdbb, transaction, name);
@@ -1487,7 +1483,19 @@ void CommentOnNode::checkPermission(thread_db* tdbb, jrd_tra* transaction)
 		}
 
 		case obj_udf:
-			SCL_check_function(tdbb, name, SCL_alter);
+		case obj_procedure:
+			if (name.package.hasData())
+			{
+				const auto package = name.getSchemaAndPackage();
+				SCL_check_package(tdbb, package, SCL_alter);
+			}
+			else
+			{
+				if (objType == obj_udf)
+					SCL_check_function(tdbb, name, SCL_alter);
+				else
+					SCL_check_procedure(tdbb, name, SCL_alter);
+			}
 			break;
 
 		case obj_blob_filter:

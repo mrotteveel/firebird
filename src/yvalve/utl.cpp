@@ -3211,6 +3211,10 @@ void setLogin(ClumpletWriter& dpb, bool spbFlag)
 	const UCHAR utf8Tag = spbFlag ? isc_spb_utf8_filename : isc_dpb_utf8_filename;
 	// username and password tags match for both SPB and DPB
 
+	// We should not use environment variables when user explicitly requested
+	// trusted authentication (trusted_auth), on network server (address_path)
+	// and when authentication block is present (auth_block). The latter
+	// typically happens only on network server but extra protection won't hurt.
 	if (!(dpb.find(trusted_auth) || dpb.find(address_path) || dpb.find(auth_block)))
 	{
 		bool utf8 = dpb.find(utf8Tag);
