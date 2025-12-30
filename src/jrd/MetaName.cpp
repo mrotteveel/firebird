@@ -62,6 +62,7 @@ void MetaName::adjustLength(const char* const s, FB_SIZE_T& len) noexcept
 	if (len > MAX_SQL_IDENTIFIER_LEN)
 	{
 #ifdef DEV_BUILD
+//		Assert fails in QA !!!!!!!
 //		for (FB_SIZE_T i = MAX_SQL_IDENTIFIER_LEN; i < len; ++i)
 //			fb_assert(s[i] == '\0' || s[i] == ' ');
 #endif
