@@ -12833,24 +12833,22 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 		if (runTriggers)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
 
-		if (rel)
+		if (rel && !IDX.RDB$INDEX_ID.NULL)
 		{
+			fb_assert(IDX.RDB$INDEX_ID);
+			idxId = IDX.RDB$INDEX_ID - 1;
+			auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
+			fb_assert(ret);
+			addToTheList = true;
+
 			tempName = makeTempDependName(rel->getId(), idxId);
-			if (!IDX.RDB$INDEX_ID.NULL)
-			{
-				fb_assert(IDX.RDB$INDEX_ID);
-				idxId = IDX.RDB$INDEX_ID - 1;
-				auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
-				fb_assert(ret);
-				addToTheList = true;
-			}
 		}
 
 		MODIFY IDX
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
 			IDX.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
 
-			if (rel)
+			if (tempName.hasData())
 				strcpy(IDX.RDB$INDEX_NAME, tempName.c_str());
 		END_MODIFY
 
