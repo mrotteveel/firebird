@@ -3357,6 +3357,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 		case rel_ccon:
 		case rel_pub_tables:
 		case rel_priv:
+		case rel_dpds:
 			protect_system_table_delupd(tdbb, relation, "UPDATE");
 			break;
 
@@ -3376,7 +3377,6 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 		case rel_formats:
 		case rel_msgs:
 		case rel_log:
-		case rel_dpds:
 		case rel_rcon:
 		case rel_refc:
 		case rel_backup_history:

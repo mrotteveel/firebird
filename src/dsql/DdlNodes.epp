@@ -12792,6 +12792,14 @@ void DropIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, j
 }
 
 
+static MetaName makeTempDependName(MetaId relId, MetaId indexId)
+{
+	MetaName name;
+	name.printf("%s_%u_%u", TEMP_DEPEND, relId, indexId);
+	return name;
+}
+
+
 Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_tra* transaction,
 	ModifyIndexList& list, bool runTriggers)
 {
@@ -12809,6 +12817,7 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 	AutoCacheRequest request(tdbb, drq_e_indices, DYN_REQUESTS);
 	Cached::Relation* rel = nullptr;
 	bool addToTheList = false;
+	MetaName tempName;
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
@@ -12824,19 +12833,28 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 		if (runTriggers)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
 
-		if (rel && !IDX.RDB$INDEX_ID.NULL)
+		if (rel)
 		{
-			fb_assert(IDX.RDB$INDEX_ID);
-			idxId = IDX.RDB$INDEX_ID - 1;
-			auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
-			fb_assert(ret);
-			addToTheList = true;
+			tempName = makeTempDependName(rel->getId(), idxId);
+			if (!IDX.RDB$INDEX_ID.NULL)
+			{
+				fb_assert(IDX.RDB$INDEX_ID);
+				idxId = IDX.RDB$INDEX_ID - 1;
+				auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
+				fb_assert(ret);
+				addToTheList = true;
+			}
 		}
 
 		MODIFY IDX
 			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
 			IDX.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
+
+			if (rel)
+				strcpy(IDX.RDB$INDEX_NAME, tempName.c_str());
 		END_MODIFY
+
+		deleteSegmentRecords(tdbb, transaction, indexName);
 	}
 	END_FOR
 
@@ -12844,15 +12862,30 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 	{
 		if (runTriggers)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_DROP_INDEX, indexName, {});
+		if (addToTheList)
+			list.push(this);
+
+		AUTO_HANDLE(handle2);
+		FOR(REQUEST_HANDLE handle2 TRANSACTION_HANDLE transaction)
+			DEP IN RDB$DEPENDENCIES
+			WITH DEP.RDB$DEPENDENT_SCHEMA_NAME EQUIV NULLIF(indexName.schema.c_str(), '') AND
+				 DEP.RDB$DEPENDENT_NAME EQ indexName.object.c_str() AND
+				 (DEP.RDB$DEPENDENT_TYPE EQ obj_index_expression OR
+				  DEP.RDB$DEPENDENT_TYPE EQ obj_index_condition)
+		{
+			MODIFY DEP USING
+			{
+				strcpy(DEP.RDB$DEPENDENT_NAME, tempName.c_str());
+			}
+			END_MODIFY
+		}
+		END_FOR
 	}
 	else if (!silent)
 	{
 		// msg 48: "Index not found"
 		status_exception::raise(Arg::PrivateDyn(48));
 	}
-
-	if (addToTheList)
-		list.push(this);
 
 	return rel;
 }
@@ -12890,36 +12923,26 @@ bool DropIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transa
 }
 
 
-static MetaName makeTempDependName(MetaId relId, MetaId indexId)
-{
-	MetaName name;
-	name.printf("%s_%u_%u", TEMP_DEPEND, relId, indexId);
-	return name;
-}
-
-
 //
-// clearName()
-// First part of index deletion.
+// clearFrgn()
+// First part of index deletion post-processing.
 //
 // This function is invoked when index enters irt_drop state due to being dropped
 // (not inactivated). That means it should be never seen in database by new requests
-// (but may be used by started earlier requests). It also should not prevent
-// creation of new index with same name and affect FK constraints.
+// (but may be used by started earlier requests). It also should not affect FK constraints.
 //
 
-void DropIndexNode::clearName(thread_db* tdbb, MetaId relId, MetaId indexId)
+void DropIndexNode::clearFrgn(thread_db* tdbb, MetaId relId, MetaId indexId)
 {
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
-	QualifiedName indexName, partnerIdxName;
+	QualifiedName partnerIdxName;
 	bool processPartners = false;
 
 	auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
-	MetaName tempName;
 
-	// cleanup is not related to current transaction
+	// FK cleanup is not related to current transaction
 	auto* transaction = attachment->getSysTransaction();
 	AutoSetRestore2<jrd_tra*, thread_db> autoTrans(tdbb, &thread_db::getTransaction, &thread_db::setTransaction,
 		transaction);
@@ -12934,41 +12957,19 @@ void DropIndexNode::clearName(thread_db* tdbb, MetaId relId, MetaId indexId)
 			AND IND.RDB$INDEX_INACTIVE NOT MISSING
 			AND IND.RDB$INDEX_INACTIVE EQ MET_index_deferred_drop
 	{
-		indexName = QualifiedName(IND.RDB$INDEX_NAME, IND.RDB$SCHEMA_NAME);
-		tempName = makeTempDependName(relId, indexId);
-
 		if (!IND.RDB$FOREIGN_KEY.NULL)
+		{
 			partnerIdxName = QualifiedName(IND.RDB$FOREIGN_KEY, IND.RDB$FOREIGN_KEY_SCHEMA_NAME);
 
-		deleteSegmentRecords(tdbb, transaction, indexName);
-		MODIFY IND USING
-		{
-			strcpy(IND.RDB$INDEX_NAME, tempName.c_str());
-			IND.RDB$FOREIGN_KEY.NULL = TRUE;
-			IND.RDB$FOREIGN_KEY_SCHEMA_NAME.NULL = TRUE;
-		}
-		END_MODIFY
-	}
-	END_FOR
-
-	if (indexName.hasData())
-	{
-		AUTO_HANDLE(handle2);
-		FOR(REQUEST_HANDLE handle2 TRANSACTION_HANDLE transaction)
-			DEP IN RDB$DEPENDENCIES
-			WITH DEP.RDB$DEPENDENT_SCHEMA_NAME EQUIV NULLIF(indexName.schema.c_str(), '') AND
-				 DEP.RDB$DEPENDENT_NAME EQ indexName.object.c_str() AND
-				 (DEP.RDB$DEPENDENT_TYPE EQ obj_index_expression OR
-				  DEP.RDB$DEPENDENT_TYPE EQ obj_index_condition)
-		{
-			MODIFY DEP USING
+			MODIFY IND USING
 			{
-				strcpy(DEP.RDB$DEPENDENT_NAME, tempName.c_str());
+				IND.RDB$FOREIGN_KEY.NULL = TRUE;
+				IND.RDB$FOREIGN_KEY_SCHEMA_NAME.NULL = TRUE;
 			}
 			END_MODIFY
 		}
-		END_FOR
 	}
+	END_FOR
 
 	if (partnerIdxName.hasData())
 	{
@@ -12987,7 +12988,7 @@ void DropIndexNode::clearName(thread_db* tdbb, MetaId relId, MetaId indexId)
 
 //
 // clearId()
-// Second part of index deletion.
+// Second part of index deletion post-processing.
 //
 // This function is invoked when index is removed from irt page.
 // In some cases (failed DB creation) cleanup, done by clearName, 

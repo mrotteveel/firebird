@@ -2100,7 +2100,7 @@ public:
 	DropIndexNode(MemoryPool& p, const QualifiedName& aName);
 
 	static bool deleteSegmentRecords(thread_db* tdbb, jrd_tra* transaction, const QualifiedName& name);
-	static void clearName(thread_db* tdbb, MetaId relId, MetaId indexId);
+	static void clearFrgn(thread_db* tdbb, MetaId relId, MetaId indexId);
 	static void clearId(thread_db* tdbb, MetaId relId, MetaId indexId);
 
 public:

@@ -2588,7 +2588,7 @@ static ModifyIrtRepeatValue modifyIrtRepeat(thread_db* tdbb, index_root_page::ir
 			CCH_MARK(tdbb, window);
 			irt_desc->setDrop(TransactionNumber::next(tdbb));
 			CCH_RELEASE(tdbb, window);  // next call may try to lock irt page again
-			DropIndexNode::clearName(tdbb, relation->getId(), indexId);
+			DropIndexNode::clearFrgn(tdbb, relation->getId(), indexId);
 			return ModifyIrtRepeatValue::Relock;
 
 		case tra_dead:		// switch to normal state

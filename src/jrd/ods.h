@@ -604,7 +604,7 @@ inline void index_root_page::irt_repeat::setDrop(TraNumber traNumber)
 	setState(irt_drop);
 
 	// This index should not affect any constraints any more,
-	// ensure appropriate checkPartners() is called in DropIndexNode::clearName().
+	// ensure appropriate checkPartners() is called in DropIndexNode::clearFrgn().
 	irt_flags &= ~(irt_unique | irt_foreign | irt_primary);
 }
 
