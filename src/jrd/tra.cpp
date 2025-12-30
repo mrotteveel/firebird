@@ -1413,9 +1413,12 @@ void TRA_rollback(thread_db* tdbb, jrd_tra* transaction, const bool retaining_fl
 		state = tra_committed;
 	}
 
-	const jrd_tra* const sysTran = tdbb->getAttachment()->getSysTransaction();
-	if (sysTran->tra_flags & TRA_write)
-		transaction_flush(tdbb, FLUSH_SYSTEM, 0);
+	if (!(tdbb->getDatabase()->dbb_flags & DBB_dropping))
+	{
+		const jrd_tra* const sysTran = tdbb->getAttachment()->getSysTransaction();
+		if (sysTran->tra_flags & TRA_write)
+			transaction_flush(tdbb, FLUSH_SYSTEM, 0);
+	}
 
 	// If this is a rollback retain abort this transaction and start a new one.
 

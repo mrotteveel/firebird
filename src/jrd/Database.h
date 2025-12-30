@@ -130,6 +130,7 @@ inline constexpr ULONG DBB_creating					= 0x80000L;		// Database creation is in 
 inline constexpr ULONG DBB_shared					= 0x100000L;	// Database object is shared among connections
 inline constexpr ULONG DBB_restoring				= 0x200000L;	// Database restore is in progress
 inline constexpr ULONG DBB_rescan_pages				= 0x400000L;	// Rescan pages after TIP cache creation
+inline constexpr ULONG DBB_dropping					= 0x800000L;	// Drop database is in progress
 
 //
 // dbb_ast_flags

@@ -3508,6 +3508,7 @@ void JAttachment::internalDropDatabase(CheckStatusWrapper* user_status)
 				// To be reviewed by Adriano - it will be anyway called in release_attachment
 
 				// Forced release of all transactions
+				dbb->dbb_flags |= DBB_dropping;
 				attachment->purgeTransactions(tdbb, true);
 
 				tdbb->tdbb_flags |= TDBB_detaching;
