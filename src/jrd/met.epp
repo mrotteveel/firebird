@@ -4725,6 +4725,12 @@ Cached::Relation* MetadataCache::lookupRelationNoChecks(MetaId id)
 	return mdc_relations.getDataNoChecks(id);
 }
 
+Cached::Relation* MetadataCache::ensureRelation(thread_db* tdbb, MetaId id)
+{
+	MetadataCache* mdc = get(tdbb);
+	return mdc->mdc_relations.ensurePermanent(tdbb, id);
+}
+
 Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);

@@ -2189,8 +2189,7 @@ void DPM_scan_pages( thread_db* tdbb)
 
 	FOR(REQUEST_HANDLE request) X IN RDB$PAGES
 	{
-		relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID,
-			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		relation = MetadataCache::ensureRelation(tdbb, X.RDB$RELATION_ID);
 		relPages = relation->getBasePages();
 		sequence = X.RDB$PAGE_SEQUENCE;
 

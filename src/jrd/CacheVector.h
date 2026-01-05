@@ -162,7 +162,10 @@ public:
 
 	ListEntry(Versioned* object, TraNumber traNumber, ObjectBase::Flag fl)
 		: object(object), traNumber(traNumber), cacheFlags(fl), state(INITIAL)
-	{ }
+	{
+		if (fl & CacheFlag::ERASED)
+			fb_assert(!object);
+	}
 
 	~ListEntry()
 	{
@@ -715,7 +718,7 @@ public:
 			ListEntry<Versioned>* newEntry = nullptr;
 			try
 			{
-				newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, traNum, fl);
+				newEntry = FB_NEW_POOL(*getDefaultMemoryPool()) ListEntry<Versioned>(obj, traNum, fl & ~CacheFlag::ERASED);
 			}
 			catch (const Firebird::Exception&)
 			{
@@ -1088,7 +1091,6 @@ public:
 		return nullptr;
 	}
 
-private:
 	StoredElement* ensurePermanent(thread_db* tdbb, MetaId id)
 	{
 		if (id >= getCount())
@@ -1118,7 +1120,6 @@ private:
 		return data;
 	}
 
-public:
 	Versioned* makeObject(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 		StoredElement* data = ensurePermanent(tdbb, id);

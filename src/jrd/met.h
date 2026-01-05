@@ -303,6 +303,7 @@ public:
 	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id);
 	Cached::Relation* lookupRelationNoChecks(MetaId id);
+	static Cached::Relation* ensureRelation(thread_db* tdbb, MetaId id);
 	static ElementBase::ReturnedId lookup_index_name(thread_db* tdbb, const QualifiedName& index_name, IndexStatus* status);
 	static jrd_prc* findProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static IndexStatus getIndexStatus(bool nullFlag, int inactive);
