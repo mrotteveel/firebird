@@ -7594,6 +7594,6 @@ void IndexCreateLock::makeLock(MetaId indexId)
 {
 	fb_assert(!lck);
 	lck = FB_NEW_RPT(getPool(), 0) Lock(tdbb, 0, LCK_idx_create);
-	lck->setKey((FB_UINT64(relId) << IndexPermanent::REL_ID_KEY_OFFSET) + indexId);
+	lck->setKey(IndexPermanent::makeLockId(relId, indexId));
 }
 
