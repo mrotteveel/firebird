@@ -303,6 +303,35 @@ private:
 	T oldValue;
 };
 
+template <typename T, typename T2>
+class AutoSave2
+{
+private:
+	typedef T (T2::*Getter)();
+	typedef void (T2::*Setter)(T);
+
+public:
+	AutoSave2(T2* aPointer, Getter aGetter, Setter aSetter)
+		: pointer(aPointer),
+		  setter(aSetter),
+		  oldValue((aPointer->*aGetter)())
+	{ }
+
+	~AutoSave2()
+	{
+		(pointer->*setter)(oldValue);
+	}
+
+	// copying is prohibited
+	AutoSave2(const AutoSave2&) = delete;
+	AutoSave2& operator =(const AutoSave2&) = delete;
+
+private:
+	T2* pointer;
+	Setter setter;
+	T oldValue;
+};
+
 template <typename F>
 class Cleanup
 {

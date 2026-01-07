@@ -11546,7 +11546,9 @@ void ModifyIndexList::erase(thread_db* tdbb, MetaName name)
 bool StoreIndexNode::exec(thread_db* tdbb, Cached::Relation* rel, jrd_tra* transaction)
 {
 	auto id = expressionIndex ? createExpression(tdbb, rel, transaction) : create(tdbb, rel, transaction);
-	rel->newIndexVersion(tdbb, id, CacheFlag::MINISCAN);
+	if (id < tdbb->getDatabase()->dbb_max_idx)
+		rel->newIndexVersion(tdbb, id, CacheFlag::MINISCAN);
+
 	return true;
 }
 
@@ -11580,6 +11582,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	MetaId idxId = dbb->dbb_max_idx;
+	bool active = false;
 	const bool tempConn = !(tdbb->tdbb_flags & TDBB_use_db_page_space);
 
 	idx.idx_flags = 0;
@@ -11593,6 +11596,8 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 			WITH IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
 				 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
+		active = IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE;
+
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
 		if (!IDX.RDB$INDEX_ID.NULL)
@@ -11822,17 +11827,24 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 		***/
 	}
 
-	protectRelations.lock();
+	if (active)
+	{
+		// Actually create the index
+		protectRelations.lock();
 
-	fb_assert(idxId <= dbb->dbb_max_idx);
-	idx.idx_id = idxId;
-	SelectivityList selectivity(*tdbb->getDefaultPool());
-	IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName,
-					&idxId, transaction, selectivity);
-	fb_assert(idxId == idx.idx_id);
-	if (!tempConn)
-		DFW_update_index(indexName, idxId, selectivity, transaction);
+		fb_assert(idxId <= dbb->dbb_max_idx);
+		idx.idx_id = idxId;
+		SelectivityList selectivity(*tdbb->getDefaultPool());
+		IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName,
+			&idxId, transaction, selectivity);
+		fb_assert(idxId == idx.idx_id);
+		if (!tempConn)
+			DFW_update_index(indexName, idxId, selectivity, transaction);
+	}
+	else
+		fb_assert(idxId == dbb->dbb_max_idx);
 
+	// Memleak when IDX_create_index() throws ????????????
 	if (idx.idx_condition_statement)
 		idx.idx_condition_statement->release(tdbb);
 
@@ -11880,6 +11892,7 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 	const auto dbb = tdbb->getDatabase();
 	const auto attachment = tdbb->getAttachment();
 	MetaId idxId = dbb->dbb_max_idx;
+	bool active = false;
 	const bool tempConn = !(tdbb->tdbb_flags & TDBB_use_db_page_space);
 
 	AutoCacheRequest request(tdbb, irq_c_exp_index, IRQ_REQUESTS);
@@ -11891,6 +11904,8 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 			 IDX.RDB$SCHEMA_NAME EQ indexName.schema.c_str() AND
 			 IDX.RDB$INDEX_NAME EQ indexName.object.c_str()
 	{
+		active = IDX.RDB$INDEX_INACTIVE.NULL || !IDX.RDB$INDEX_INACTIVE;
+
 		// Decide upon ID
 		fb_assert(tempConn != bool(IDX.RDB$INDEX_ID.NULL));
 		if (!IDX.RDB$INDEX_ID.NULL)
@@ -11981,44 +11996,43 @@ MetaId StoreIndexNode::createExpression(thread_db* tdbb, Cached::Relation* rel, 
 
 	delete csb;
 
-	// Actually create the index
-
-	// Protect relation from modification to create consistent index
-	ProtectRelations protectRelation(tdbb, transaction);
-	protectRelation.addRelation(rel);
-
-	SelectivityList selectivity(*tdbb->getDefaultPool());
-
-	jrd_tra* const current_transaction = tdbb->getTransaction();
-	Request* const current_request = tdbb->getRequest();
-
-	try
+	if (active)
 	{
-		fb_assert(idxId <= dbb->dbb_max_idx);
-		idx.idx_id = idxId;
-		IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName, &idxId,
-			transaction, selectivity);
+		// Actually create the index
 
-		fb_assert(idxId == idx.idx_id);
+		// Protect relation from modification to create consistent index
+		ProtectRelations protectRelation(tdbb, transaction);
+		protectRelation.addRelation(rel);
+
+		SelectivityList selectivity(*tdbb->getDefaultPool());
+
+		AutoSave2<jrd_tra*, thread_db> currentTransaction(tdbb, &thread_db::getTransaction, &thread_db::setTransaction);
+		AutoSave2<Request*, thread_db> currentRequest(tdbb, &thread_db::getRequest, &thread_db::setRequest);
+
+		try
+		{
+			fb_assert(idxId <= dbb->dbb_max_idx);
+			idx.idx_id = idxId;
+			IDX_create_index(tdbb, IdxCreate::ForRollback, relation, &idx, indexName, &idxId,
+				transaction, selectivity);
+
+			fb_assert(idxId == idx.idx_id);
+		}
+		catch (const Exception&)
+		{
+			// Get rid of the expression/condition statements
+			idx.idx_expression_statement->release(tdbb);
+			if (idx.idx_condition_statement)
+				idx.idx_condition_statement->release(tdbb);
+
+			throw;
+		}
+
+		if (!tempConn)
+			DFW_update_index(indexName, idx.idx_id, selectivity, transaction);
 	}
-	catch (const Exception&)
-	{
-		tdbb->setTransaction(current_transaction);
-		tdbb->setRequest(current_request);
-
-		// Get rid of the expression/condition statements
-		idx.idx_expression_statement->release(tdbb);
-		if (idx.idx_condition_statement)
-			idx.idx_condition_statement->release(tdbb);
-
-		throw;
-	}
-
-	tdbb->setTransaction(current_transaction);
-	tdbb->setRequest(current_request);
-
-	if (!tempConn)
-		DFW_update_index(indexName, idx.idx_id, selectivity, transaction);
+	else
+		fb_assert(idxId == dbb->dbb_max_idx);
 
 	// Get rid of the expression/condition statements
 	idx.idx_expression_statement->release(tdbb);
