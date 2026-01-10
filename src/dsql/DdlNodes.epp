@@ -10539,6 +10539,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 			WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
 				 IDX.RDB$RELATION_NAME EQ name.object.c_str()
 		{
+			name.object = IDX.RDB$INDEX_NAME;
 			DropIndexNode::deleteSegmentRecords(tdbb, transaction, name);
 			ERASE IDX;
 		}
@@ -12847,24 +12848,30 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 		if (runTriggers)
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_DROP_INDEX, indexName, {});
 
-		if (rel && !IDX.RDB$INDEX_ID.NULL)
+		if (rel &&
+			MetadataCache::getIndexStatus(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) == MET_index_active)
 		{
 			fb_assert(IDX.RDB$INDEX_ID);
 			idxId = IDX.RDB$INDEX_ID - 1;
+
 			auto ret = rel->oldIndexVersion(tdbb, idxId, CacheFlag::OLD_DROP);
 			fb_assert(ret);
+
 			addToTheList = true;
-
 			tempName = makeTempDependName(rel->getId(), idxId);
+
+			MODIFY IDX
+				IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
+				IDX.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
+
+				if (tempName.hasData())
+					strcpy(IDX.RDB$INDEX_NAME, tempName.c_str());
+			END_MODIFY
 		}
-
-		MODIFY IDX
-			IDX.RDB$INDEX_INACTIVE.NULL = FALSE;
-			IDX.RDB$INDEX_INACTIVE = MET_index_deferred_drop;
-
-			if (tempName.hasData())
-				strcpy(IDX.RDB$INDEX_NAME, tempName.c_str());
-		END_MODIFY
+		else
+		{
+			ERASE IDX;
+		}
 
 		deleteSegmentRecords(tdbb, transaction, indexName);
 	}
@@ -12885,11 +12892,18 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 				 (DEP.RDB$DEPENDENT_TYPE EQ obj_index_expression OR
 				  DEP.RDB$DEPENDENT_TYPE EQ obj_index_condition)
 		{
-			MODIFY DEP USING
+			if (addToTheList)
 			{
-				strcpy(DEP.RDB$DEPENDENT_NAME, tempName.c_str());
+				MODIFY DEP USING
+				{
+					strcpy(DEP.RDB$DEPENDENT_NAME, tempName.c_str());
+				}
+				END_MODIFY
 			}
-			END_MODIFY
+			else
+			{
+				ERASE DEP;
+			}
 		}
 		END_FOR
 	}

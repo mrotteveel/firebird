@@ -998,7 +998,7 @@ void BTR_all(thread_db* tdbb, Cached::Relation* relation, IndexDescList& idxList
 			continue;
 
 		index_desc idx;
-		if (BTR_description(tdbb, relation, root, &idx, id))
+		if (BTR_description(tdbb, relation, root, &idx, id, false))
 			idxList.add(idx);
 	}
 }
@@ -1316,7 +1316,7 @@ bool BTR_activate_index(thread_db* tdbb, Cached::Relation* relation, MetaId id)
 
 
 bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_root_page* root, index_desc* idx,
-					 MetaId id)
+					 MetaId id, bool raise)
 {
 /**************************************
  *
@@ -1392,6 +1392,9 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_ro
 
 	if (error)
 	{
+		if (!raise)
+			return false;
+
 		QualifiedName indexName;
 		auto* idv = relation->lookup_index(tdbb, idx->idx_id, CacheFlag::AUTOCREATE);
 		if (idv)
