@@ -72,7 +72,9 @@ protected:
 template <typename T, typename Storage = EmptyStorage<T> >
 class Array : public Storage
 {
+#ifndef _MSC_VER
 	static_assert(std::is_trivially_copyable<T>(), "Only simple (trivially copyable) types supported in array");
+#endif
 
 public:
 	typedef FB_SIZE_T size_type;
