@@ -2977,10 +2977,20 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 	rel_perm->rel_flags &= ~REL_get_dependencies;
 
 	// Do we need new format version?
+	bool triggersLoaded = false;
 	if (flags & CacheFlag::DB_VERSION)
 	{
 		RelationNode::makeVersion(tdbb, tdbb->getTransaction(), getName());
 		flags &= ~CacheFlag::DB_VERSION;
+
+		for (int n = 1; n < TRIGGER_MAX; ++n)
+		{
+			if (rel_triggers[n].hasData())
+			{
+				triggersLoaded = true;
+				break;
+			}
+		}
 	}
 
 	// Since this can be called recursively, find an inactive clone of the request
@@ -3245,8 +3255,11 @@ ScanResult jrd_rel::scan(thread_db* tdbb, ObjectBase::Flag& flags)
 				break;
 
 			case RSR_trigger_name:
-				MET_load_trigger(tdbb, this, QualifiedName((const TEXT*) p, REL.RDB$SCHEMA_NAME),
-					[&](int t)->Triggers& {return rel_triggers[t];});
+				if (!triggersLoaded)
+				{
+					MET_load_trigger(tdbb, this, QualifiedName((const TEXT*) p, REL.RDB$SCHEMA_NAME),
+						[&](int t)->Triggers& {return rel_triggers[t];});
+				}
 				break;
 
 			case RSR_dimensions:
