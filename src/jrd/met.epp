@@ -2011,7 +2011,7 @@ bool MetadataCache::getIndexActive(bool nullFlag, int state)
 
 
 ElementBase::ReturnedId MetadataCache::lookup_index_name(thread_db* tdbb, const QualifiedName& index_name,
-	IndexStatus* status)
+	MetaId* relationId, IndexStatus* status)
 {
 /**************************************
  *
@@ -2023,7 +2023,7 @@ ElementBase::ReturnedId MetadataCache::lookup_index_name(thread_db* tdbb, const 
  *      Lookup index id from index name.
  *
  **************************************/
-	SLONG id = -1;
+	ElementBase::ReturnedId id = -1;
 
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
@@ -2041,6 +2041,16 @@ ElementBase::ReturnedId MetadataCache::lookup_index_name(thread_db* tdbb, const 
 
 		if ((!X.RDB$INDEX_ID.NULL) && X.RDB$INDEX_ID)
 			id = X.RDB$INDEX_ID - 1;
+
+		if (relationId)
+		{
+			auto* relation = MetadataCache::lookupRelation(tdbb,
+				QualifiedName(X.RDB$RELATION_NAME, X.RDB$SCHEMA_NAME), CacheFlag::AUTOCREATE);
+			if (relation)
+				*relationId = relation->getId();
+			else
+				id = -1; 		// signal error state
+		}
 	}
 	END_FOR
 

@@ -1168,8 +1168,9 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				name.schema = relation->rel_name.schema;
 
 				IndexStatus idx_status;
+				MetaId foundRelationId;
 				const ElementBase::ReturnedId index_id =
-					MetadataCache::lookup_index_name(tdbb, name, &idx_status);
+					MetadataCache::lookup_index_name(tdbb, name, &foundRelationId, &idx_status);
 				checkIndexStatus(csb, isGbak, idx_status, name, relation);
 
 				// save both the relation id and the index id, since
@@ -1177,7 +1178,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 				// save the index name also, for convenience
 
 				PlanNode::AccessItem& item = plan->accessType->items.add();
-				item.relationId = relation->getId();
+				item.relationId = foundRelationId;
 				item.indexId = index_id;
 				item.indexName = name;
 
@@ -1219,8 +1220,9 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					name.schema = relation->rel_name.schema;
 
 					IndexStatus idx_status;
+					MetaId foundRelationId;
 					const ElementBase::ReturnedId index_id =
-						MetadataCache::lookup_index_name(tdbb, name, &idx_status);
+						MetadataCache::lookup_index_name(tdbb, name, &foundRelationId, &idx_status);
 					checkIndexStatus(csb, isGbak, idx_status, name, relation);
 
 					// save both the relation id and the index id, since
@@ -1228,7 +1230,7 @@ static PlanNode* par_plan(thread_db* tdbb, CompilerScratch* csb)
 					// save the index name also, for convenience
 
 					PlanNode::AccessItem& item = plan->accessType->items.add();
-					item.relationId = relation->getId();
+					item.relationId = foundRelationId;
 					item.indexId = index_id;
 					item.indexName = name;
 
