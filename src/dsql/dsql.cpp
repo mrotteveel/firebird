@@ -1387,6 +1387,8 @@ dsql_rel::dsql_rel(MemoryPool& p, jrd_rel* jrel)
 		fld->setExactPrecision();
 		fld->flags |= (jfld->fld_computation ? FLD_computed : 0) |
 					  (jfld->fld_not_null ? 0 : FLD_nullable);
+		if (rel_flags & REL_view)
+			fld->flags |= FLD_nullable;
 
 		if (auto* array = jfld->fld_array)
 		{
