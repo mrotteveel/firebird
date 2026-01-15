@@ -753,6 +753,7 @@ public:
 			fb_assert(list.load());
 			listEntry = list;
 		}
+		fl &= ~CacheFlag::AUTOCREATE;
 		return ListEntry<Versioned>::getEntry(tdbb, listEntry, traNum, fl, this);
 	}
 

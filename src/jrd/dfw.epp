@@ -3757,7 +3757,8 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		// now check if there are any dependencies generated through the blr
 		// that defines the relation
 
-		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
+		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
+			CacheFlag::NOERASED | CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 		if (relation)
 		{
 			check_dependencies(tdbb, relation->getName(), work->dfw_name.c_str(),
