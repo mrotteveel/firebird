@@ -1853,7 +1853,15 @@ void CreateAlterFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsql
 	else if (!executeCreate(tdbb, dsqlScratch, transaction))
 		return;
 
-	compile(tdbb, dsqlScratch);
+	fb_assert(id);
+	auto* permanent = MetadataCache::newVersion<Cached::Function>(tdbb, id);
+	auto* prc = permanent ? permanent->getVersioned(tdbb, CacheFlag::NOCOMMIT | CacheFlag::MINISCAN) : nullptr;
+	{
+		bool dummy = false;
+		AutoSetRestore compiling(prc ? &(prc->compiling) : &dummy, true);
+
+		compile(tdbb, dsqlScratch);
+	}
 
 	{ // scope
 		// avoid modify routine dfw during second pass on CREATE
@@ -1865,9 +1873,6 @@ void CreateAlterFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsql
 		else
 			executeAlter(tdbb, dsqlScratch, transaction, true, false);
 	}
-
-	fb_assert(id);
-	MetadataCache::newVersion<Cached::Function>(tdbb, id);
 
 	if (name.package.isEmpty())
 	{
@@ -2911,7 +2916,15 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 	else if (!executeCreate(tdbb, dsqlScratch, transaction))
 		return;
 
-	compile(tdbb, dsqlScratch);
+	fb_assert(id);
+	auto* permanent = MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
+	auto* prc = permanent ? permanent->getVersioned(tdbb, CacheFlag::NOCOMMIT | CacheFlag::MINISCAN) : nullptr;
+	{
+		bool dummy = false;
+		AutoSetRestore compiling(prc ? &(prc->compiling) : &dummy, true);
+
+		compile(tdbb, dsqlScratch);
+	}
 
 	{ // scope
 		// avoid modify routine dfw during second pass on CREATE
@@ -2923,9 +2936,6 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 		else
 			executeAlter(tdbb, dsqlScratch, transaction, true, false);
 	}
-
-	fb_assert(id);
-	MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
 
 	if (name.package.isEmpty())
 	{

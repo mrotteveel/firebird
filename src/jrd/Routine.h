@@ -174,18 +174,19 @@ namespace Jrd
 		virtual SLONG getSclType() const noexcept = 0;
 
 	private:
-		USHORT id;							// routine ID
-		Statement* statement;				// compiled routine statement
-		bool implemented;					// Is the packaged routine missing the body/entrypoint?
-		bool defined;						// UDF has its implementation module available
-		USHORT defaultCount;				// default input arguments
-		const Format* inputFormat;			// input format
-		const Format* outputFormat;			// output format
+		USHORT id;					// routine ID
+		Statement* statement;		// compiled routine statement
+		bool implemented;			// Is the packaged routine missing the body/entrypoint?
+		bool defined;				// UDF has its implementation module available
+		USHORT defaultCount;		// default input arguments
+		const Format* inputFormat;	// input format
+		const Format* outputFormat;	// output format
 		Firebird::Array<NestConst<Parameter> > inputFields;		// array of field blocks
 		Firebird::Array<NestConst<Parameter> > outputFields;	// array of field blocks
 
 	public:
 		bool flReload;
+		bool compiling = false;		// Do not try to load routine's BLR in scan/reload during compile
 
 	public:
 		Jrd::UserId* invoker;		// Invoker ID

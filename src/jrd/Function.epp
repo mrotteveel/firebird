@@ -79,7 +79,7 @@ Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, ObjectBas
 	return MetadataCache::lookup_function(tdbb, name, flags);
 }
 
-ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
+ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	Attachment* attachment = tdbb->getAttachment();
 	jrd_tra* metaTransaction = attachment->getMetaTransaction(tdbb);
@@ -335,23 +335,28 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					}
 					else if (!X.RDB$FUNCTION_BLR.NULL)
 					{
-						const string name = getName().toQuotedString();
-
-						try
+						if (compiling || (flags & CacheFlag::MINISCAN))
+							flReload = true;
+						else
 						{
-							TraceFuncCompile trace(tdbb, name);
+							const string name = getName().toQuotedString();
 
-							parseBlr(tdbb, csb, &X.RDB$FUNCTION_BLR,
-								X.RDB$DEBUG_INFO.NULL ? nullptr : &X.RDB$DEBUG_INFO);
+							try
+							{
+								TraceFuncCompile trace(tdbb, name);
 
-							trace.finish(getStatement(), ITracePlugin::RESULT_SUCCESS);
-						}
-						catch (const Exception& ex)
-						{
-							StaticStatusVector temp_status;
-							ex.stuffException(temp_status);
-							(Arg::Gds(isc_bad_fun_BLR) << Arg::Str(name)
-								<< Arg::StatusVector(temp_status.begin())).raise();
+								parseBlr(tdbb, csb, &X.RDB$FUNCTION_BLR,
+									X.RDB$DEBUG_INFO.NULL ? nullptr : &X.RDB$DEBUG_INFO);
+
+								trace.finish(getStatement(), ITracePlugin::RESULT_SUCCESS);
+							}
+							catch (const Exception& ex)
+							{
+								StaticStatusVector temp_status;
+								ex.stuffException(temp_status);
+								(Arg::Gds(isc_bad_fun_BLR) << Arg::Str(name)
+									<< Arg::StatusVector(temp_status.begin())).raise();
+							}
 						}
 					}
 				}
@@ -361,7 +366,7 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 					throw;
 				}
 
-				fb_assert(!isDefined() || this == getStatement()->function);
+				fb_assert(!isDefined() || flReload || this == getStatement()->function);
 			}
 			else
 			{
@@ -371,7 +376,10 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag)
 				RefPtr<MsgMetadata> outputMetadata(REF_NO_INCR, createMetadata(getOutputFields(), false));
 				setOutputFormat(createFormat(pool, outputMetadata, true));
 
-				setImplemented(false);
+				if (compiling)
+					flReload = true;
+				else
+					setImplemented(false);
 			}
 
 			if (!dbb->readOnly() &&

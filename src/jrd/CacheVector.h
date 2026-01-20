@@ -368,7 +368,7 @@ public:
 			// Handle front & back of MDC
 			VersionIncr incr(tdbb);
 
-			// And finally try to make object version world-visible
+			// And finally make object version world-visible
 			if (cacheFlags.compare_exchange_weak(flags, newFlags,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{
@@ -535,6 +535,11 @@ public:
 		return (state == READY) || ((thd == Thread::getId()) && (state == SCANNING));
 	}
 
+	bool isAvailable()
+	{
+		return isReady() || !(getFlags() & CacheFlag::NOCOMMIT);
+	}
+
 	bool scanInProgress() const
 	{
 		return state == READY ? false : (thd == Thread::getId()) && (state == SCANNING);
@@ -685,7 +690,7 @@ public:
 				return OCCUPIED;
 			}
 
-			return entry->isReady() ? READY : MODIFIED;
+			return entry->isAvailable() ? READY : MODIFIED;
 		}
 	}
 

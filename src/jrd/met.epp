@@ -2725,7 +2725,9 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 						if (!getExternal())
 							setDefined(false);
 					}
-					else if (!(flags & CacheFlag::MINISCAN))
+					else if (compiling || (flags & CacheFlag::MINISCAN))
+						flReload = true;
+					else
 					{
 						const string name = getName().toQuotedString();
 
@@ -2746,8 +2748,6 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 								Arg::StatusVector(temp_status.begin())).raise();
 						}
 					}
-					else
-						flReload = true;
 				}
 				catch (const Exception&)
 				{
@@ -2773,7 +2773,10 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				setOutputFormat(
 					Routine::createFormat(getPermanent()->getPool(), outputMetadata, true));
 
-				setImplemented(false);
+				if (compiling)
+					flReload = true;
+				else
+					setImplemented(false);
 			}
 
 			if (!dbb->readOnly() &&
@@ -2819,6 +2822,10 @@ ScanResult jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 		P IN RDB$PROCEDURES
 		WITH P.RDB$PROCEDURE_ID EQ this->getId()
 	{
+		// sanity check
+		if (compiling || P.RDB$PROCEDURE_BLR.NULL)
+			return ScanResult::REPEAT;
+
 		MemoryPool* const csb_pool = tdbb->getDatabase()->createPool(ALLOC_ARGS0);
 		Jrd::ContextPoolHolder context(tdbb, csb_pool);
 

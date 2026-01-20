@@ -1725,6 +1725,10 @@ void SystemTriggers::executeAfterInsertTriggers(thread_db* tdbb, jrd_rel* relati
 		case rel_procedures:
 			afterInsertProcedure(tdbb, record);
 			break;
+
+		case rel_funs:
+			afterInsertFunction(tdbb, record);
+			break;
 	}
 }
 
