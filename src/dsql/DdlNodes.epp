@@ -121,7 +121,7 @@ static void modifyLocalFieldPosition(thread_db* tdbb, jrd_tra* transaction,
 	const QualifiedName& relationName, const MetaName& fieldName, USHORT newPosition);
 static rel_t relationType(SSHORT relationTypeNull, SSHORT relationType) noexcept;
 static void saveField(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, const MetaName& fieldName);
-static void saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
+static dsql_rel* saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	const QualifiedName& relationName, bool view, bool creating);
 static void updateRdbFields(const TypeClause* type,
 	SSHORT& fieldType,
@@ -808,11 +808,11 @@ static void saveField(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, const M
 
 // Save the name of the relation or view currently being defined. This is done to support definition
 // of triggers which will depend on the metadata created in this statement.
-static void saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
+static dsql_rel* saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 	const QualifiedName& relationName, bool view, bool creating)
 {
 	if (dsqlScratch->flags & DsqlCompilerScratch::FLAG_METADATA_SAVED)
-		return;
+		return dsqlScratch->relation;
 
 	dsqlScratch->flags |= DsqlCompilerScratch::FLAG_METADATA_SAVED;
 
@@ -829,7 +829,9 @@ static void saveRelation(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 			relation->rel_flags = REL_creating;
 	}
 
+	fb_assert(relation);
 	dsqlScratch->relation = relation;
+	return relation;
 }
 
 // Update RDB$FIELDS received by reference.
@@ -9264,12 +9266,10 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 {
 	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
 
-	saveRelation(tdbb, dsqlScratch, name, false, false);
-
-	// also ensures oldVersion is present in cache
+	// ensures oldVersion is present in cache
 	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::OLD_ALTER);
 
-	dsql_rel* relation = METD_get_relation(dsqlScratch->getTransaction(), dsqlScratch, name);
+	dsql_rel* relation = saveRelation(tdbb, dsqlScratch, name, false, false);
 
 	if (!relation || (relation->rel_flags & REL_view))
 	{

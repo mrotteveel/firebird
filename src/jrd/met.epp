@@ -1707,7 +1707,7 @@ bool MET_load_exception(thread_db* tdbb, ExceptionItem& item)
 }
 
 
-int MET_lookup_field(thread_db* tdbb, jrd_rel* relation, const MetaName& name)
+ElementBase::ReturnedId MET_lookup_field(thread_db* tdbb, jrd_rel* relation, const MetaName& name)
 {
 /**************************************
  *
@@ -1748,7 +1748,7 @@ int MET_lookup_field(thread_db* tdbb, jrd_rel* relation, const MetaName& name)
 
 	// Not found.  Next, try system relations directly
 
-	int id = -1;
+	ElementBase::ReturnedId id = -1;
 
 	AutoCacheRequest request(tdbb, irq_l_field, IRQ_REQUESTS);
 

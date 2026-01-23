@@ -147,6 +147,7 @@ public:
 	}
 
 	dsql_rel(MemoryPool& p, class jrd_rel* jrel);
+	dsql_rel(MemoryPool& p, const dsql_rel* rel);
 
 	dsql_rel(const dsql_rel&) = delete;
 	dsql_rel(dsql_rel&&) = delete;

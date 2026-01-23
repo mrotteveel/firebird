@@ -1406,6 +1406,30 @@ dsql_rel::dsql_rel(MemoryPool& p, jrd_rel* jrel)
 	}
 }
 
+dsql_rel::dsql_rel(MemoryPool& p, const dsql_rel* rel)
+	: rel_fields(nullptr),
+	  rel_name(p, rel->rel_name),
+	  rel_owner(p, rel->rel_owner),
+	  rel_id(rel->rel_id),
+	  rel_dbkey_length(rel->rel_dbkey_length),
+	  rel_flags(rel->rel_flags)
+{
+	auto* from = rel->rel_fields;
+	auto** to = &rel_fields;
+
+	for (auto* from = rel->rel_fields; from; from = from->fld_next)
+	{
+		auto* fld = FB_NEW_POOL(p) dsql_fld(p);
+		*fld = *from;
+
+		fld->fld_relation = this;
+		fld->fld_next = nullptr;
+
+		*to = fld;
+		to = &(fld->fld_next);
+	}
+}
+
 dsql_prc::dsql_prc(MemoryPool& p, const jrd_prc* jproc)
 	: prc_inputs(cpFields(p, jproc->getInputFields())),
 	  prc_outputs(cpFields(p, jproc->getOutputFields())),

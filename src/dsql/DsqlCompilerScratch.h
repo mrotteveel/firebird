@@ -351,7 +351,7 @@ private:
 	Firebird::LeftPooledMap<MetaName, DeclareSubProcNode*> subProcedures;
 
 public:
-	Firebird::LeftPooledMap<QualifiedName, class dsql_rel*> rels;			// known relations
+	Firebird::LeftPooledMap<QualifiedName, class dsql_rel*> rels;		// known relations
 	Firebird::LeftPooledMap<QualifiedName, class dsql_prc*>	procedures;	// known procedures
 	Firebird::LeftPooledMap<QualifiedName, class dsql_udf*>	functions;	// known functions
 };

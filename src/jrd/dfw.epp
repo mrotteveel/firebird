@@ -1117,6 +1117,7 @@ static inline constexpr deferred_task task_table[] =
 {
 	{ dfw_add_shadow, add_shadow },
 	{ dfw_delete_index, delete_index },
+	{ dfw_commit_relation, commit_relation },
 	{ dfw_delete_rfr, delete_rfr },
 	{ dfw_delete_shadow, delete_shadow },
 	{ dfw_delete_shadow_nodelete, delete_shadow },
@@ -1158,7 +1159,6 @@ static inline constexpr deferred_task task_table[] =
 	{ dfw_set_linger, set_linger },
 	{ dfw_clear_cache, clear_cache },
 	{ dfw_change_repl_state, change_repl_state },
-	{ dfw_commit_relation, commit_relation },
 	{ dfw_set_statistics, set_statistics },
 	{ dfw_null, NULL }
 };
@@ -3122,7 +3122,7 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 	case 3:
 		return true;
 
-	case 4:
+	case 4:	// after scan_relation (phase 3)
 		check_computed_dependencies(tdbb, transaction, work->getQualifiedName());
 		break;
 	}
@@ -3667,11 +3667,12 @@ static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 		return true;
 
 	case 3:
-		{
+		MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+/*		{
 			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
 			if (relation)
 				relation->removeDepends(tdbb);
-		}
+		} */
 		return true;
 
 	case 4:
@@ -3719,8 +3720,16 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 	switch (phase)
 	{
 	case 1:
-		// first check if there are any fields used explicitly by the view
+		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
+			CacheFlag::NOERASED | CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
 
+		// check - may be relation currently contains deleted field once again
+		if (relation && (MET_lookup_field(tdbb, relation, work->dfw_name) >= 0))
+		{
+			break;
+		}
+
+		// first check if there are any fields used explicitly by the view
 		handle.reset();
 		field_count = 0;
 		FOR(REQUEST_HANDLE handle TRANSACTION_HANDLE transaction)
@@ -3757,8 +3766,6 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		// now check if there are any dependencies generated through the blr
 		// that defines the relation
 
-		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
-			CacheFlag::NOERASED | CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 		if (relation)
 		{
 			check_dependencies(tdbb, relation->getName(), work->dfw_name.c_str(),

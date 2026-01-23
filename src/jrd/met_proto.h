@@ -30,6 +30,7 @@
 #include "../jrd/Resources.h"
 #include "../jrd/QualifiedName.h"
 #include "../jrd/obj.h"
+#include "../jrd/CacheVector.h"
 
 #include <functional>
 #include <initializer_list>
@@ -103,7 +104,7 @@ void		MET_lookup_index_for_cnstrt(Jrd::thread_db*, Jrd::QualifiedName& index_nam
 void		MET_lookup_cnstrt_for_index(Jrd::thread_db*, Jrd::MetaName& constraint, const Jrd::QualifiedName& index_name);
 void		MET_lookup_cnstrt_for_trigger(Jrd::thread_db*, Jrd::MetaName&, Jrd::QualifiedName&, const Jrd::QualifiedName&);
 void		MET_lookup_exception(Jrd::thread_db*, SLONG, /* OUT */ Jrd::QualifiedName&, /* OUT */ Firebird::string*);
-int			MET_lookup_field(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&);
+Jrd::ElementBase::ReturnedId	MET_lookup_field(Jrd::thread_db*, Jrd::jrd_rel*, const Jrd::MetaName&);
 Jrd::BlobFilter*	MET_lookup_filter(Jrd::thread_db*, SSHORT, SSHORT);
 bool		MET_load_generator(Jrd::thread_db*, Jrd::GeneratorItem&, bool* sysGen = 0, SLONG* step = 0);
 SLONG		MET_lookup_generator(Jrd::thread_db*, const Jrd::QualifiedName&, bool* sysGen = 0, SLONG* step = 0);
