@@ -3715,18 +3715,29 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 	MetaName f;
 
 	SET_TDBB(tdbb);
-	Jrd::Attachment* attachment = tdbb->getAttachment();
+	Attachment* attachment = tdbb->getAttachment();
 
 	switch (phase)
 	{
 	case 1:
-		auto* relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
-			CacheFlag::NOERASED | CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
-
-		// check - may be relation currently contains deleted field once again
-		if (relation && (MET_lookup_field(tdbb, relation, work->dfw_name) >= 0))
+		jrd_rel* relation = nullptr;
+		try
 		{
-			break;
+			relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
+				CacheFlag::NOERASED | CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
+
+			// check - may be relation currently contains deleted field once again
+			if (relation && (MET_lookup_field(tdbb, relation, work->dfw_name) >= 0))
+				break;
+		}
+		catch(const Exception& ex)
+		{
+			LocalStatus x;
+			ex.stuffException(&x);
+			if (!fb_utils::containsErrorCode(x.getErrors(), isc_invalid_blr))
+				throw;
+
+			tdbb->tdbb_status_vector->init();
 		}
 
 		// first check if there are any fields used explicitly by the view
@@ -3765,6 +3776,12 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 
 		// now check if there are any dependencies generated through the blr
 		// that defines the relation
+
+		if (!relation)
+		{
+			relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
+				CacheFlag::NOERASED | CacheFlag::MINISCAN | CacheFlag::NOCOMMIT);
+		}
 
 		if (relation)
 		{
