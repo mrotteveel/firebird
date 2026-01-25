@@ -40,8 +40,6 @@
 using namespace Jrd;
 using namespace Firebird;
 
-constexpr SSHORT SHUT_WAIT_TIME	= 5;
-
 // Shutdown lock data
 union shutdown_data
 {

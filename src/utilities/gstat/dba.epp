@@ -641,7 +641,7 @@ int gstat(Firebird::UtilSvc* uSvc)
 	expandDatabaseName(fileName, tempStr, NULL);
 	fileName = tempStr;
 
-	const dba_fil* file = db_open(fileName.c_str(), fileName.length());
+	db_open(fileName.c_str(), fileName.length());
 
 	alignas(DIRECT_IO_BLOCK_SIZE) SCHAR temp[MAX(RAW_HEADER_SIZE, DIRECT_IO_BLOCK_SIZE)];
 	tddba->page_size = MAX(RAW_HEADER_SIZE, DIRECT_IO_BLOCK_SIZE);

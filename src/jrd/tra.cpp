@@ -81,8 +81,6 @@
 #include "firebird/impl/msg_helper.h"
 
 
-constexpr int DYN_MSG_FAC = FB_IMPL_MSG_FACILITY_DYN;
-
 using namespace Jrd;
 using namespace Ods;
 using namespace Firebird;
@@ -4289,7 +4287,6 @@ void TraceSweepEvent::report(ntrace_process_state_t state)
 	if (!m_need_trace)
 		return;
 
-	const Database* dbb = m_tdbb->getDatabase();
 	TraceManager* trace_mgr = att->att_trace_manager;
 
 	TraceConnectionImpl conn(att);
@@ -4297,8 +4294,6 @@ void TraceSweepEvent::report(ntrace_process_state_t state)
 	// we need to compare stats against zero base
 	if (state != ITracePlugin::SWEEP_STATE_PROGRESS)
 		m_base_stats.reset();
-
-	const jrd_tra* tran = m_tdbb->getTransaction();
 
 	TraceRuntimeStats stats(att, &m_base_stats, &att->att_stats, finiTime, 0);
 

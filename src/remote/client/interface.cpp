@@ -5027,8 +5027,6 @@ bool ResultSet::fetch(CheckStatusWrapper* status, void* buffer, P_FETCH operatio
 
 		if (relative && adjustment)
 		{
-			const bool isAhead = (statement->rsr_fetch_operation == fetch_next);
-
 			PACKET* packet = &rdb->rdb_packet;
 			packet->p_operation = op_fetch_scroll;
 			P_SQLDATA* sqldata = &packet->p_sqldata;

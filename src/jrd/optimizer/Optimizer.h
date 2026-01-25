@@ -366,12 +366,19 @@ public:
 	{
 		auto factor = REDUCE_SELECTIVITY_FACTOR_OTHER;
 
-		if (const auto binaryNode = nodeAs<BinaryBoolNode>(node))
+		if (const auto notNode = nodeAs<NotBoolNode>(node))
 		{
+			factor = MAXIMUM_SELECTIVITY - getSelectivity(notNode->arg);
+		}
+		else if (const auto binaryNode = nodeAs<BinaryBoolNode>(node))
+		{
+			const auto selectivity1 = getSelectivity(binaryNode->arg1);
+			const auto selectivity2 = getSelectivity(binaryNode->arg2);
+
 			if (binaryNode->blrOp == blr_and)
-				factor = getSelectivity(binaryNode->arg1) * getSelectivity(binaryNode->arg2);
+				factor = selectivity1 * selectivity2;
 			else if (binaryNode->blrOp == blr_or)
-				factor = getSelectivity(binaryNode->arg1) + getSelectivity(binaryNode->arg2);
+				factor = selectivity1 + selectivity2 - selectivity1 * selectivity2;
 			else
 				fb_assert(false);
 		}
@@ -428,32 +435,31 @@ public:
 		return MIN(selectivity, MAXIMUM_SELECTIVITY / 2);
 	}
 
-	static void adjustSelectivity(double& selectivity, double factor, double cardinality) noexcept
+	static void adjustSelectivity(double& selectivity, double factor) noexcept
 	{
-		if (!cardinality)
-			cardinality = DEFAULT_CARDINALITY;
-
-		const auto minSelectivity = MAXIMUM_SELECTIVITY / cardinality;
-		const auto diffSelectivity = selectivity > minSelectivity ?
-			selectivity - minSelectivity : 0;
-		selectivity = minSelectivity + diffSelectivity * factor;
+		selectivity = MIN(selectivity * factor, MAXIMUM_SELECTIVITY);
 	}
 
-	bool deliverJoinConjuncts(const BoolExprNodeStack& conjuncts) const
+	double getDependentSelectivity();
+
+	bool deliverJoinConjuncts(RseNode* subRse, const BoolExprNodeStack& stack) const
 	{
-		fb_assert(conjuncts.hasData());
+		// Determine whether the join conjunct(s) should be delivered to the inner RSE being joined.
+		// The decision is based on the parent (outer) cardinality and selectivity of the conjunct(s).
 
-		// Look at cardinality of the priorly joined streams. If it's known to be
-		// not very small, give up a possible nested loop join in favor of a hash join.
-		// Here we assume every equi-join condition having a default selectivity (0.1).
-		// TODO: replace with a proper cost-based decision in the future.
+		fb_assert(stack.hasData());
 
-		double subSelectivity = MAXIMUM_SELECTIVITY;
-		for (auto count = conjuncts.getCount(); count; count--)
-			subSelectivity *= DEFAULT_SELECTIVITY;
-		const auto thresholdCardinality = MINIMUM_CARDINALITY / subSelectivity;
+		const auto selectivity = Optimizer(tdbb, csb, subRse, stack).getDependentSelectivity();
 
-		return (cardinality && cardinality <= thresholdCardinality);
+		if (selectivity < MAXIMUM_SELECTIVITY)
+		{
+			if (cardinality)
+				return (cardinality * selectivity < MINIMUM_CARDINALITY);
+
+			return true;
+		}
+
+		return false;
 	}
 
 	static RecordSource* compile(thread_db* tdbb, CompilerScratch* csb, RseNode* rse)
@@ -557,6 +563,8 @@ public:
 private:
 	Optimizer(thread_db* aTdbb, CompilerScratch* aCsb, RseNode* aRse,
 			  bool parentFirstRows);
+	Optimizer(thread_db* aTdbb, CompilerScratch* aCsb, RseNode* aRse,
+			  const BoolExprNodeStack& stack);
 
 	RecordSource* compile(BoolExprNodeStack* parentStack);
 
@@ -685,6 +693,7 @@ struct InversionCandidate
 	{}
 
 	double selectivity = MAXIMUM_SELECTIVITY;
+	double matchSelectivity = MAXIMUM_SELECTIVITY;
 	double cost = 0;
 	unsigned nonFullMatchedSegments = MAX_INDEX_SEGMENTS + 1;
 	unsigned matchedSegments = 0;
@@ -724,10 +733,11 @@ public:
 	}
 
 	InversionCandidate* getInversion();
-	IndexTableScan* getNavigation(const InversionCandidate* candidate);
+	IndexTableScan* getNavigation();
 
 protected:
 	void analyzeNavigation(const InversionCandidateList& inversions);
+	void applyNavigation(InversionCandidate* candidate);
 	bool betterInversion(const InversionCandidate* inv1, const InversionCandidate* inv2,
 						 bool navigation) const;
 	bool checkIndexCondition(index_desc& idx, BooleanList& matches) const;

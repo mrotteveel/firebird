@@ -2489,7 +2489,6 @@ bool CCH_write_all_shadows(thread_db* tdbb, Shadow* shadow, BufferDesc* bdb, Ods
 		if (bdb->bdb_page == HEADER_PAGE_NUMBER)
 		{
 			// fixup header for shadow file
-			jrd_file* shadow_file = sdw->sdw_file;
 			header_page* header = (header_page*) page;
 
 			PageSpace* pageSpaceID = dbb->dbb_page_manager.findPageSpace(DB_PAGE_SPACE);
@@ -2722,7 +2721,6 @@ static void flushAll(thread_db* tdbb, USHORT flush_flag)
 	const bool all_flag = (flush_flag & FLUSH_ALL) != 0;
 	const bool sweep_flag = (flush_flag & FLUSH_SWEEP) != 0;
 	const bool release_flag = (flush_flag & FLUSH_RLSE) != 0;
-	const bool write_thru = release_flag;
 
 	{
 		Sync bcbSync(&bcb->bcb_syncObject, FB_FUNCTION);

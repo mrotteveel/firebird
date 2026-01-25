@@ -1043,8 +1043,6 @@ void Monitoring::putAttachment(SnapshotData::DumpRecord& record, const Jrd::Atta
 	if (!attachment->att_user)
 		return;
 
-	const auto* dbb = attachment->att_database;
-
 	record.reset(rel_mon_attachments);
 
 	PathName attName(attachment->att_filename);

@@ -1078,8 +1078,6 @@ private:
     class CryptKeyType;
 
 public:
-	static const unsigned BITS64 = sizeof(FB_UINT64) * 8u;
-
 	class SpecificPlugins
 	{
 	public:

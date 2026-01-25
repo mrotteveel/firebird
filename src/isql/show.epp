@@ -4303,7 +4303,6 @@ static processing_state show_func(const QualifiedMetaString& name)
 		}
 
 		bool first_param = true;
-		const SSHORT default_charset = ISQL_get_default_char_set_id();
 
 		FOR ARG IN RDB$FUNCTION_ARGUMENTS CROSS
 			FLD IN RDB$FIELDS

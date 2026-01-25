@@ -1043,7 +1043,6 @@ static bool check_for_file(thread_db* tdbb, const SCHAR* name, USHORT length)
  **************************************/
 
 	SET_TDBB(tdbb);
-	const Database* dbb = tdbb->getDatabase();
 	const Firebird::PathName path(name, length);
 
 	try {

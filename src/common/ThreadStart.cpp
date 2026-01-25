@@ -119,7 +119,6 @@ Thread Thread::start(ThreadEntryPoint* routine, void* arg, int priority_arg, Han
  **************************************/
 	pthread_t thread;
 	pthread_t* p_thread = p_handle ? p_handle : &thread;
-	pthread_attr_t pattr;
 	int state;
 
 #if defined (LINUX) || defined (FREEBSD)
@@ -132,6 +131,7 @@ Thread Thread::start(ThreadEntryPoint* routine, void* arg, int priority_arg, Han
 			Firebird::system_call_failed::raise("pthread_detach", state);
 	}
 #else
+	pthread_attr_t pattr;
 	state = pthread_attr_init(&pattr);
 	if (state)
 		Firebird::system_call_failed::raise("pthread_attr_init", state);

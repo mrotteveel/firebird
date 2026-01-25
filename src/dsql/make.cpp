@@ -516,8 +516,6 @@ dsql_par* MAKE_parameter(dsql_msg* message, bool sqlda_flag, bool null_flag,
 		}
 	}
 
-	thread_db* tdbb = JRD_get_thread_data();
-
 	if (message->msg_parameter == MAX_USHORT)
 	{
 		string msg;

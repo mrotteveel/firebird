@@ -99,9 +99,6 @@ static ISC_STATUS openOrCreateBlob(ISC_STATUS* userStatus, isc_db_handle* dbHand
 //-------------------------------------
 
 
-static constexpr USHORT PREPARE_BUFFER_SIZE = 32768;	// size of buffer used in isc_dsql_prepare call
-static constexpr USHORT DESCRIBE_BUFFER_SIZE = 1024;	// size of buffer used in isc_dsql_describe_xxx call
-
 namespace Why {
 	class StatusVector;
 	extern UtilInterface utilInterface;

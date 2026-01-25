@@ -284,7 +284,7 @@ const Attachment* JAttachment::getHandle() const noexcept
 
 void JAttachment::addRef()
 {
-	const int v = ++refCounter;
+	[[maybe_unused]] const int v = ++refCounter;
 #ifdef DEBUG_ATT_COUNTERS
 	ReferenceCounterDebugger* my = ReferenceCounterDebugger::get(DEB_AR_JATT);
 	const char* point = my ? my->rcd_point : " <Unknown> ";

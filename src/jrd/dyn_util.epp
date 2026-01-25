@@ -295,8 +295,8 @@ bool DYN_UTIL_check_unique_name_nothrow(thread_db* tdbb, jrd_tra* transaction,
 		{
 			fb_assert(object_name.schema.isEmpty());
 
-			static const CachedRequestId schemaHandleId;
-			requestHandle.reset(tdbb, schemaHandleId);
+			static const CachedRequestId filterHandleId;
+			requestHandle.reset(tdbb, filterHandleId);
 
 			FOR(REQUEST_HANDLE requestHandle TRANSACTION_HANDLE transaction)
 				FIL IN RDB$FILTERS

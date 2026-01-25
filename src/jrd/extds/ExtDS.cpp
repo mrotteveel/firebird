@@ -394,7 +394,6 @@ Connection* Provider::getBoundConnection(Jrd::thread_db* tdbb,
 	const Firebird::PathName& dbName, Firebird::ClumpletReader& dpb,
 	TraScope tra_scope, bool isCurrentAtt)
 {
-	Database* dbb = tdbb->getDatabase();
 	Attachment* att = tdbb->getAttachment();
 	CryptHash ch;
 	if (!isCurrentAtt)

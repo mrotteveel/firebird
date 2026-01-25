@@ -437,7 +437,6 @@ void RelationPermanent::retainPages(thread_db* tdbb, TraNumber oldNumber, TraNum
 	if (!rel_pages_inst)
 		return;
 
-	const SINT64 inst_id = oldNumber;
 	FB_SIZE_T pos;
 	if (!rel_pages_inst->find(oldNumber, pos))
 		return;

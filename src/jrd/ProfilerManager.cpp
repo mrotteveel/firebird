@@ -259,7 +259,6 @@ IExternalResultSet* ProfilerPackage::cancelSessionProcedure(ThrowStatusException
 		return nullptr;
 	}
 
-	const auto* transaction = tdbb->getTransaction();
 	const auto profilerManager = attachment->getProfilerManager(tdbb);
 
 	profilerManager->cancelSession();

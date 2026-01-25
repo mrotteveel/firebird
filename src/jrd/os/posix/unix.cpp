@@ -419,8 +419,6 @@ void PIO_force_write(jrd_file* file, const bool forceWrite)
 
 	if (forceWrite != oldForce)
 	{
-		const int control = forceWrite ? SYNC : 0;
-
 #ifdef FCNTL_SYNC_BROKEN
 
 		maybeCloseFile(file->fil_desc);

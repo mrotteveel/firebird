@@ -158,7 +158,6 @@ constexpr int INT64_LEN			= 21;	// NUMERIC(18,2) = -92233720368547758.08
 //constexpr int QUAD_LEN		= 19;
 constexpr int FLOAT_LEN			= 14;	// -1.2345678E+38
 constexpr int DOUBLE_LEN		= 23;	// -1.234567890123456E+300
-constexpr int DATE_LEN			= 11;	// 11 for date only
 constexpr int DATETIME_LEN		= 25;	// 25 for date-time
 constexpr int DATETIME_TZ_LEN	= DATETIME_LEN - 1 + 1 + TimeZoneUtil::MAX_LEN;	// DATETIME_LEN should be 24
 constexpr int TIME_ONLY_LEN		= 13;	// 13 for time only
@@ -166,8 +165,6 @@ constexpr int TIME_TZ_ONLY_LEN	= TIME_ONLY_LEN + 1 + TimeZoneUtil::MAX_LEN;
 constexpr int DATE_ONLY_LEN		= 11;
 constexpr int BOOLEAN_LEN		= 7;	// <false>
 constexpr int UNKNOWN_LEN		= 20;	// Unknown type: %d
-
-constexpr int MAX_TERMS		= 10;	// max # of terms in an interactive cmd
 
 constexpr const char* ISQL_COUNTERS_SET = "CurrentMemory, MaxMemory, RealTime, UserTime, Buffers, Reads, Writes, Fetches";
 constexpr int ISQL_COUNTERS = 8;
@@ -177,7 +174,7 @@ constexpr const char* UNKNOWN = "*unknown*";
 namespace IcuUtil
 {
 	// Duplicate from ICU to not need to link ISQL with it. It's used by U8_NEXT_UNSAFE.
-	static constexpr uint8_t utf8_countTrailBytes[256] = {
+	[[maybe_unused]] static constexpr uint8_t utf8_countTrailBytes[256] = {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2428,7 +2425,6 @@ static processing_state add_row(const QualifiedMetaString& tabname)
 			unsigned type = msg->getType(fbStatus, i);
 			if (ISQL_errmsg(fbStatus))
 				return (SKIP);
-			const bool nullable = msg->isNullable(fbStatus, i);
 			if (ISQL_errmsg(fbStatus))
 				return (SKIP);
 			unsigned varLength;
@@ -3141,7 +3137,7 @@ static processing_state bulk_insert_hack(const char* command)
 		const char* lastPos = insert;
 		Extender extender; // Used only for multi-line tuples.
 
-		for (unsigned i = 0, textFieldIter = 0; i < n_cols && !done; ++i)
+		for (unsigned i = 0; i < n_cols && !done; ++i)
 		{
 			unsigned offset = message->getNullOffset(fbStatus, i);
 			if (ISQL_errmsg(fbStatus))
@@ -3156,7 +3152,6 @@ static processing_state bulk_insert_hack(const char* command)
 			unsigned type = message->getType(fbStatus, i);
 			if (ISQL_errmsg(fbStatus))
 				return (SKIP);
-			const bool nullable = message->isNullable(fbStatus, i);
 			if (ISQL_errmsg(fbStatus))
 				return (SKIP);
 

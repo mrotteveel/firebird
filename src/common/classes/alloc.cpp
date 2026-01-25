@@ -171,7 +171,6 @@ void corrupt(const char* text) noexcept
 }
 
 Firebird::Mutex* cache_mutex = NULL;
-int dev_zero_fd = 0;
 
 #if defined(WIN_NT)
 size_t get_page_size()

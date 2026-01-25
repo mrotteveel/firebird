@@ -2815,7 +2815,6 @@ dsc* ArithmeticNode::addSqlTime(thread_db* tdbb, const dsc* desc, impure_value* 
 	fb_assert(blrOp == blr_add || blrOp == blr_subtract);
 
 	dsc* result = &value->vlu_desc;
-	Attachment* const attachment = tdbb->getAttachment();
 
 	fb_assert(value->vlu_desc.isTime() || desc->isTime());
 
@@ -8199,7 +8198,6 @@ void LiteralNode::fixMinSInt64(MemoryPool& pool)
 {
 	// MIN_SINT64 should be stored as BIGINT, not 128-bit integer
 
-	const UCHAR* s = litDesc.dsc_address;
 	const char* minSInt64 = "9223372036854775808";
 	bool hasDot = false;
 	int scale = 0;
@@ -8237,7 +8235,6 @@ void LiteralNode::fixMinSInt128(MemoryPool& pool)
 {
 	// MIN_SINT128 should be stored as INT128, not decfloat
 
-	const UCHAR* s = litDesc.dsc_address;
 	const char* const minSInt128 = "170141183460469231731687303715884105728";
 	const char* minPtr = minSInt128;
 	bool hasDot = false;
@@ -10128,7 +10125,6 @@ string RecordKeyNode::internalPrint(NodePrinter& printer) const
 // Resolve a dbkey to an available context.
 ValueExprNode* RecordKeyNode::dsqlPass(DsqlCompilerScratch* dsqlScratch)
 {
-	thread_db* tdbb = JRD_get_thread_data();
 	DsqlContextStack contexts;
 	ValueExprNode* node = nullptr;
 
@@ -13620,7 +13616,6 @@ dsc* UdfCallNode::execute(thread_db* tdbb, Request* request) const
 	{
 		func->checkReload(tdbb);
 
-		Jrd::Attachment* attachment = tdbb->getAttachment();
 		const ULONG inMsgLength = func->getInputFormat() ? func->getInputFormat()->fmt_length : 0;
 		const ULONG outMsgLength = func->getOutputFormat()->fmt_length;
 		UCHAR* const inMsg = FB_ALIGN(impure + sizeof(impure_value), FB_ALIGNMENT);

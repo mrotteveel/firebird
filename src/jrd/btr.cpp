@@ -3402,7 +3402,6 @@ static void compress(thread_db* tdbb,
 	constexpr UCHAR desc_end_value_prefix = 0x01; // ~0xFE
 	constexpr UCHAR desc_end_value_check = 0x00; // ~0xFF;
 
-	const Database* dbb = tdbb->getDatabase();
 	bool first_key = true;
 	VaryStr<MAX_KEY * 4> buffer;
 	size_t multiKeyLength;
@@ -6261,7 +6260,6 @@ static void generate_jump_nodes(thread_db* tdbb, btree_page* page,
 	const UCHAR* const startpoint = page->btr_nodes + page->btr_jump_size;
 	const UCHAR* const endpoint = (UCHAR*) page + page->btr_length;
 	const UCHAR* halfpoint = (UCHAR*) page + (BTR_SIZE + page->btr_jump_size + page->btr_length) / 2;
-	const UCHAR* const excludePointer = (UCHAR*) page + excludeOffset;
 	IndexJumpNode jumpNode;
 	IndexNode node;
 

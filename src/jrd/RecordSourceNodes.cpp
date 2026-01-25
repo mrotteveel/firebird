@@ -2865,8 +2865,6 @@ void WindowSourceNode::collectStreams(SortedStreamList& streamList) const
 
 RecordSource* WindowSourceNode::compile(thread_db* tdbb, Optimizer* opt, bool /*innerSubStream*/)
 {
-	const auto csb = opt->getCompilerScratch();
-
 	return FB_NEW_POOL(*tdbb->getDefaultPool()) WindowedStream(tdbb, opt,
 		windows, opt->compile(rse, NULL));
 }
@@ -3586,8 +3584,11 @@ RecordSource* RseNode::compile(thread_db* tdbb, Optimizer* opt, bool innerSubStr
 				conjunctStack.push(iter);
 		}
 
-		if (opt->isSpecialJoin() && !opt->deliverJoinConjuncts(conjunctStack))
+		if (opt->isSpecialJoin() && !opt->deliverJoinConjuncts(this, conjunctStack))
+		{
 			conjunctStack.clear();
+			firstRows = false;
+		}
 	}
 	else
 	{
@@ -4335,8 +4336,6 @@ void TableValueFunctionSourceNode::setDefaultNameField(DsqlCompilerScratch* /*ds
 	if (const auto tableValueFunctionContext = dsqlContext->ctx_table_value_fun)
 	{
 		const auto nameFunc = tableValueFunctionContext->funName;
-
-		auto i = 0U;
 
 		if ((nameFunc == UnlistFunctionSourceNode::FUNC_NAME) ||
 			(nameFunc == GenSeriesFunctionSourceNode::FUNC_NAME))

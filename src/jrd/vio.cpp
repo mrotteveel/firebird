@@ -430,7 +430,6 @@ bool SweepTask::handler(WorkItem& _item)
 		RelInfo* relInfo = item->m_relInfo;
 
 		Database* dbb = tdbb->getDatabase();
-		Attachment* att = tdbb->getAttachment();
 
 		relation = MetadataCache::lookup_relation_id(tdbb, relInfo->rel_id, CacheFlag::AUTOCREATE);
 

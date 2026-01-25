@@ -2396,12 +2396,6 @@ sql_security_clause
 	| SQL SECURITY INVOKER		{ $$ = false; }
 	;
 
-%type <triState> sql_security_clause_opt
-sql_security_clause_opt
-	: /* nothing */				{ $$ = TriState::empty(); }
-	| sql_security_clause		{ $$ = $1; }
-	;
-
 %type <boolVal> publication_state
 publication_state
 	: ENABLE PUBLICATION		{ $$ = true; }
@@ -2415,7 +2409,7 @@ gtt_table_clause
 				$<createRelationNode>$ = newNode<CreateRelationNode>($1);
 				$<createRelationNode>$->relationType = std::nullopt;
 			}
-		'(' table_elements($2) ')' gtt_ops($2)
+		'(' table_elements($2) ')' gtt_subclauses_opt($2)
 			{
 				$$ = $2;
 				if (!$$->relationType.has_value())
@@ -2423,16 +2417,21 @@ gtt_table_clause
 			}
 	;
 
-%type gtt_ops(<createRelationNode>)
-gtt_ops($createRelationNode)
-	: gtt_op($createRelationNode)
-	| gtt_ops ',' gtt_op($createRelationNode)
+%type gtt_subclauses_opt(<createRelationNode>)
+gtt_subclauses_opt($createRelationNode)
+	: // nothing by default. Will be set "on commit delete rows" in dsqlPass
+	| gtt_subclauses($createRelationNode)
 	;
 
-%type gtt_op(<createRelationNode>)
-gtt_op($createRelationNode)
-	: // nothing by default. Will be set "on commit delete rows" in dsqlPass
-	| sql_security_clause_opt
+%type gtt_subclauses(<createRelationNode>)
+gtt_subclauses($createRelationNode)
+	: gtt_subclause($createRelationNode)
+	| gtt_subclauses ',' gtt_subclause($createRelationNode)
+	;
+
+%type gtt_subclause(<createRelationNode>)
+gtt_subclause($createRelationNode)
+	: sql_security_clause
 		{ setClause($createRelationNode->ssDefiner, "SQL SECURITY", $1); }
 	| ON COMMIT DELETE ROWS
 		{ setClause($createRelationNode->relationType, "ON COMMIT DELETE ROWS", rel_global_temp_delete); }
@@ -8685,7 +8684,7 @@ listagg_count_indication
 
 %type <valueListNode> within_group_specification_opt
 within_group_specification_opt
-	: /* nothing */					{ $$ = newNode<ValueListNode>(0); }
+	: /* nothing */					{ $$ = nullptr; }
 	| within_group_specification	{ $$ = $1; }
 	;
 

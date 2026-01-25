@@ -1338,7 +1338,7 @@ SLONG get_compressed(BurpGlobals* tdgbl, UCHAR* buffer, SLONG length)
 				// msg 202: adjusting a decompression length error: invalid length %d was adjusted to %d
 				count = -length;
 			}
-			const UCHAR c = *p = get(tdgbl);
+			*p = get(tdgbl);
 			++p;
 			length -= -count;
 		}

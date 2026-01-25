@@ -602,8 +602,6 @@ YAttachment* UtilInterface::executeCreateDatabase2(
 			return NULL;
 		}
 
-		bool v3Error = false;
-
 		if (!stmtEaten)
 		{
 			att->execute(status, crdbTrans, statement.length(), statement.c_str(), dialect, NULL, NULL, NULL, NULL);
