@@ -4624,7 +4624,7 @@ static processing_state show_generators(const std::optional<QualifiedMetaString>
 	{
 		const QualifiedMetaString genName(GEN.RDB$GENERATOR_NAME, GEN.RDB$SCHEMA_NAME);
 
-		if ((!name && (GEN.RDB$SYSTEM_FLAG.NULL || GEN.RDB$SYSTEM_FLAG == 0)) ||
+		if (!name ? (GEN.RDB$SYSTEM_FLAG.NULL || GEN.RDB$SYSTEM_FLAG == 0) :
 			name == genName ||
 			(name->schema.isEmpty() && name->object == genName.object))
 		{
