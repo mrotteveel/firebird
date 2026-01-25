@@ -4479,7 +4479,7 @@ static bool check_not_null(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 					{
 						hasError = true;
 						errs << Arg::Gds(isc_cannot_make_not_null) <<
-								(*relation->rel_fields)[fields[i]]->fld_name <<
+								(*relation->rel_fields)[fields[i]]->fld_name.toQuotedString() <<
 								relation->getName().toQuotedString();
 					}
 				}
