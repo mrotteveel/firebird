@@ -409,7 +409,6 @@ static bool set_linger(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool clear_cache(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool change_repl_state(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
 static bool set_statistics(thread_db*, SSHORT, DeferredWork*, jrd_tra*);
-static string remove_icu_info_from_attributes(const QualifiedName&, const string&);
 
 // ----------------------------------------------------------------
 
@@ -2363,7 +2362,7 @@ public:
 } // namespace DbgRebuildIntl
 
 
-static string remove_icu_info_from_attributes(const QualifiedName& charsetName, const string& specificAttributes)
+string DFW_remove_icu_info_from_attributes(const QualifiedName& charsetName, const string& specificAttributes)
 {
 	DbgRebuildIntl::Lvl debLevel;
 
@@ -2438,7 +2437,7 @@ static void setupSpecificCollationAttributes(thread_db* tdbb, jrd_tra* transacti
 
 		QualifiedName charsetName(CS.RDB$CHARACTER_SET_NAME, CS.RDB$SCHEMA_NAME);
 		string icuLessAttributes = dropIcuInfo ?
-			remove_icu_info_from_attributes(charsetName, specificAttributes) : specificAttributes;
+			DFW_remove_icu_info_from_attributes(charsetName, specificAttributes) : specificAttributes;
 		DbgRebuildIntl::out("dropIcuInfo %d icuLessAttributes %s\n", dropIcuInfo, icuLessAttributes.c_str());
 		string newSpecificAttributes;
 
@@ -2555,7 +2554,7 @@ void DFW_reset_icu(thread_db* tdbb)
 				const QualifiedName charsetName(rs->getMetaName(tdbb, 6), rs->getMetaName(tdbb, 5));
 				const string specificAttributes(rs->getString(tdbb, 7));
 
-				string icuLessAttributes = remove_icu_info_from_attributes(charsetName, specificAttributes);
+				string icuLessAttributes = DFW_remove_icu_info_from_attributes(charsetName, specificAttributes);
 				string newSpecificAttributes;
 
 				DbgRebuildIntl::out("check index %s SA:'%s' ILA:'%s'\n",

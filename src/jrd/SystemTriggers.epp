@@ -37,8 +37,10 @@
 #include "../jrd/met_proto.h"
 #include "../jrd/mov_proto.h"
 #include "../jrd/idx_proto.h"
+#include "../jrd/dfw_proto.h"
 #include "../dsql/DdlNodes.h"
 #include "../jrd/met.h"
+#include "../jrd/IntlManager.h"
 
 
 DATABASE DB = FILENAME "ODS.RDB";
@@ -1621,6 +1623,67 @@ void afterUpdateFunction(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 	afterInsertFunction(tdbb, newRecord);
 }
 
+void beforeInsertCollation(thread_db* tdbb, Record* record, jrd_rel* relation)
+{
+	if (tdbb->getAttachment()->isRWGbak())
+	{
+		// fix ICU information
+		dsc desc1, desc2;
+
+		// charset ID
+		bool idSet = EVL_field(nullptr, record, f_coll_cs_id, &desc1);
+		fb_assert(idSet);
+		if (!idSet)
+			return;
+		CSetId csId = CSetId(MOV_get_long(tdbb, &desc1, 0));
+
+		// charset name
+		QualifiedName charsetName;
+		AUTO_HANDLE(request);
+		FOR (REQUEST_HANDLE request TRANSACTION_HANDLE tdbb->getTransaction())
+			CS IN RDB$CHARACTER_SETS
+			WITH CS.RDB$CHARACTER_SET_ID EQ csId
+		{
+			charsetName = QualifiedName(CS.RDB$CHARACTER_SET_NAME, CS.RDB$SCHEMA_NAME);
+		}
+		END_FOR
+
+		// attributes
+		SLONG length = 0;
+		HalfStaticArray<UCHAR, BUFFER_SMALL> buffer;
+		if (EVL_field(nullptr, record, f_coll_specific_attr, &desc2))
+		{
+			blb* blob = blb::open(tdbb, tdbb->getTransaction(), (bid*) desc2.dsc_address);
+			length = blob->blb_length + 10;
+			length = blob->BLB_get_data(tdbb, buffer.getBuffer(length), length);
+		}
+		const string specificAttributes((const char*) buffer.begin(), length);
+		string icuLessAttributes = DFW_remove_icu_info_from_attributes(charsetName, specificAttributes);
+
+		// collation name
+		if (!EVL_field(nullptr, record, f_coll_base_collation_name, &desc1))
+			EVL_field(nullptr, record, f_coll_name, &desc1);
+		MetaName collName;
+		MOV_get_metaname(tdbb, &desc1, collName);
+
+		// new attributes
+		string newSpecificAttributes;
+		if (IntlManager::setupCollationAttributes(collName, charsetName, icuLessAttributes,
+				newSpecificAttributes) &&
+			newSpecificAttributes != specificAttributes) // if nothing changed, we do nothing
+		{
+			if (newSpecificAttributes.isEmpty())
+				record->setNull(f_coll_specific_attr);
+			else
+			{
+				desc1.makeText(newSpecificAttributes.length(), ttype_metadata,
+					(UCHAR*)(newSpecificAttributes.c_str()));
+				blb::move(tdbb, &desc1, &desc2, relation, record, f_coll_specific_attr);
+			}
+		}
+	}
+}
+
 void afterInsertCollation(thread_db* tdbb, Record* record)
 {
 	dsc desc;
@@ -1706,6 +1769,10 @@ void SystemTriggers::executeBeforeInsertTriggers(thread_db* tdbb, jrd_rel* relat
 
 		case rel_schemas:
 			beforeInsertSchema(tdbb, record);
+			break;
+
+		case rel_collations:
+			beforeInsertCollation(tdbb, record, relation);
 			break;
 	}
 }

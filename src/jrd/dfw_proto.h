@@ -27,10 +27,11 @@
 #include "../jrd/btr.h"		// defines SelectivityList
 #include "../jrd/intl.h"	// defined TTypeId
 #include "../jrd/Resources.h"
+#include "../common/classes/fb_string.h"
 
 namespace Jrd
 {
-	enum dfw_t;
+	enum dfw_t : int;
 
 	class thread_db;
 	class jrd_tra;
@@ -54,5 +55,6 @@ Jrd::DeferredWork* DFW_post_work_arg(Jrd::jrd_tra*, Jrd::DeferredWork*, const ds
 	USHORT, Jrd::dfw_t);
 void DFW_update_index(const Jrd::QualifiedName&, USHORT, const Jrd::SelectivityList&, Jrd::jrd_tra*);
 void DFW_reset_icu(Jrd::thread_db*);
+Firebird::string DFW_remove_icu_info_from_attributes(const Jrd::QualifiedName&, const Firebird::string&);
 
 #endif // JRD_DFW_PROTO_H

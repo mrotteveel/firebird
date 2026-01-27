@@ -475,7 +475,7 @@ inline bool jrd_tra::isDdl() const
 // of work deferred to commit time.  This are usually used to perform
 // meta data updates
 
-enum dfw_t {
+enum dfw_t : int {
 	dfw_null,
 	dfw_commit_relation,
 	dfw_create_relation,
