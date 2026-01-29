@@ -579,6 +579,8 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 			DeferredWork* dw2 =
 				DFW_post_work(transaction, dfw_modify_procedure, &nameDesc, &schemaDesc, PRC.RDB$PROCEDURE_ID);
 			DFW_post_work_arg(transaction, dw2, nullptr, nullptr, 0, dfw_arg_check_blr);
+
+			MetadataCache::newVersion<Cached::Procedure>(tdbb, PRC.RDB$PROCEDURE_ID);
 		}
 		END_FOR
 
@@ -629,6 +631,8 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 			DeferredWork* dw2 =
 				DFW_post_work(transaction, dfw_modify_function, &nameDesc, &schemaDesc, FUN.RDB$FUNCTION_ID);
 			DFW_post_work_arg(transaction, dw2, nullptr, nullptr, 0, dfw_arg_check_blr);
+
+			MetadataCache::newVersion<Cached::Function>(tdbb, FUN.RDB$FUNCTION_ID);
 		}
 		END_FOR
 	}
@@ -655,6 +659,8 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 		DeferredWork* dw2 =
 			DFW_post_work(transaction, dfw_modify_procedure, &nameDesc, &schemaDesc, PRC.RDB$PROCEDURE_ID);
 		DFW_post_work_arg(transaction, dw2, nullptr, nullptr, 0, dfw_arg_check_blr);
+
+		MetadataCache::newVersion<Cached::Procedure>(tdbb, PRC.RDB$PROCEDURE_ID);
 	}
 	END_FOR
 
@@ -679,6 +685,8 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 		DeferredWork* dw2 = DFW_post_work(transaction, dfw_modify_procedure, &nameDesc, &schemaDesc,
 			PRC.RDB$PROCEDURE_ID, PRC.RDB$PACKAGE_NAME);
 		DFW_post_work_arg(transaction, dw2, nullptr, nullptr, 0, dfw_arg_check_blr);
+
+		MetadataCache::newVersion<Cached::Procedure>(tdbb, PRC.RDB$PROCEDURE_ID);
 	}
 	END_FOR
 
@@ -727,6 +735,8 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 		DeferredWork* dw2 =
 			DFW_post_work(transaction, dfw_modify_function, &nameDesc, &schemaDesc, FUN.RDB$FUNCTION_ID);
 		DFW_post_work_arg(transaction, dw2, nullptr, nullptr, 0, dfw_arg_check_blr);
+
+		MetadataCache::newVersion<Cached::Function>(tdbb, FUN.RDB$FUNCTION_ID);
 	}
 	END_FOR
 
@@ -751,6 +761,8 @@ Cached::Relation* MET_change_fields(thread_db* tdbb, jrd_tra* transaction, const
 		DeferredWork* dw2 = DFW_post_work(transaction, dfw_modify_function, &nameDesc, &schemaDesc,
 			FUN.RDB$FUNCTION_ID, FUN.RDB$PACKAGE_NAME);
 		DFW_post_work_arg(transaction, dw2, nullptr, nullptr, 0, dfw_arg_check_blr);
+
+		MetadataCache::newVersion<Cached::Function>(tdbb, FUN.RDB$FUNCTION_ID);
 	}
 	END_FOR
 
@@ -2744,6 +2756,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 						{
 							StaticStatusVector temp_status;
 							ex.stuffException(temp_status);
+							flReload = true;
 							(Arg::Gds(isc_bad_proc_BLR) << name <<
 								Arg::StatusVector(temp_status.begin())).raise();
 						}
@@ -2773,7 +2786,7 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				setOutputFormat(
 					Routine::createFormat(getPermanent()->getPool(), outputMetadata, true));
 
-				if (compiling)
+				if (compiling || (flags & CacheFlag::MINISCAN))
 					flReload = true;
 				else
 					setImplemented(false);
@@ -2844,6 +2857,8 @@ ScanResult jrd_prc::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 			{
 				StaticStatusVector temp_status;
 				ex.stuffException(temp_status);
+
+				flReload = true;
 
 				(Arg::Gds(isc_bad_proc_BLR) << this->getName().toQuotedString()
 					<< Arg::StatusVector(temp_status.begin())).raise();
@@ -4736,11 +4751,6 @@ Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, Obje
 
 	MetadataCache* mdc = get(tdbb);
 	auto rc = mdc->mdc_relations.getData(tdbb, id, flags);
-	if (rc || !(flags & CacheFlag::AUTOCREATE))
-		return rc;
-
-	if (auto* rel = mdc->mdc_relations.getVersioned(tdbb, id, flags))
-		rc = rel->getPermanent();
 
 	return rc;
 }
@@ -4812,11 +4822,6 @@ Cached::Function* MetadataCache::lookupFunction(thread_db* tdbb, MetaId id, Obje
 
 	MetadataCache* mdc = MetadataCache::get(tdbb);
 	auto* rc = mdc->mdc_functions.getData(tdbb, id, flags);
-	if (rc || !(flags & CacheFlag::AUTOCREATE))
-		return rc;
-
-	if (auto* fun = mdc->mdc_functions.getVersioned(tdbb, id, flags))
-		rc = fun->getPermanent();
 
 	return rc;
 }
@@ -4827,11 +4832,6 @@ Cached::Procedure* MetadataCache::lookupProcedure(thread_db* tdbb, MetaId id, Ob
 
 	MetadataCache* mdc = MetadataCache::get(tdbb);
 	auto* rc = mdc->mdc_procedures.getData(tdbb, id, flags);
-	if (rc || !(flags & CacheFlag::AUTOCREATE))
-		return rc;
-
-	if (auto* prc = mdc->mdc_procedures.getVersioned(tdbb, id, flags))
-		rc = prc->getPermanent();
 
 	return rc;
 }
@@ -4842,11 +4842,6 @@ Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBas
 
 	MetadataCache* mdc = MetadataCache::get(tdbb);
 	auto* rc = mdc->mdc_charsets.getData(tdbb, id, flags);
-	if (rc || !(flags & CacheFlag::AUTOCREATE))
-		return rc;
-
-	if (auto* cs = mdc->mdc_charsets.getVersioned(tdbb, id, flags))
-		rc = cs->getContainer();
 
 	return rc;
 }

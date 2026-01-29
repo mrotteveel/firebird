@@ -742,10 +742,10 @@ public:
 				{
 				case ScanResult::COMPLETE:
 				case ScanResult::REPEAT:
+				case ScanResult::SKIP:
 					break;
 
 				case ScanResult::MISS:
-				case ScanResult::SKIP:
 				default:
 					return listEntry;	// nullptr
 				}
@@ -823,7 +823,7 @@ public:
 		if (!obj)
 			(Firebird::Arg::Gds(isc_random) << "Object create failed in makeObject()").raise();
 
-		switch (storeObject(tdbb, obj, fl))
+		switch (storeObject(tdbb, obj, fl & ~CacheFlag::ERASED))
 		{
 		case StoreResult::DUP:
 			Versioned::destroy(tdbb, obj);
@@ -1024,7 +1024,7 @@ public:
 		return data->hasEntries() ? data : nullptr;
 	}
 
-	StoredElement* getData(thread_db* tdbb, MetaId id, ObjectBase::Flag fl) const
+	StoredElement* getData(thread_db* tdbb, MetaId id, ObjectBase::Flag fl)
 	{
 		SubArrayData* ptr = getDataPointer(id);
 
@@ -1033,6 +1033,13 @@ public:
 			StoredElement* rc = ptr->load(atomics::memory_order_relaxed);
 			if (rc && rc->getEntry(tdbb, TransactionNumber::current(tdbb), fl))
 				return rc;
+		}
+
+		if (fl & CacheFlag::AUTOCREATE)
+		{
+			StoredElement* data = ensurePermanent(tdbb, id);
+			data->makeObject(tdbb, fl);
+			return data;
 		}
 
 		return nullptr;
