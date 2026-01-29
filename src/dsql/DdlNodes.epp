@@ -11206,7 +11206,13 @@ void CreateAlterViewNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	dsqlScratch->resetContextStack();
 
 	if (modifyingView)
-		MetadataCache::newVersion<Cached::Relation>(tdbb, modifyingView->rel_id);
+	{
+		auto* view = MetadataCache::newVersion<Cached::Relation>(tdbb, modifyingView->rel_id);
+		fb_assert(view);
+		if (view)
+			view->rel_flags |= REL_get_dependencies;
+		DFW_post_work(transaction, dfw_commit_relation, nullptr, nullptr, modifyingView->rel_id);
+	}
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, {});
 
