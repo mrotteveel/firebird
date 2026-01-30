@@ -3055,22 +3055,23 @@ static bool modify_field(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 				FOR(REQUEST_HANDLE handle)
 					RFL IN RDB$RELATION_FIELDS CROSS
 					REL IN RDB$RELATIONS
-					WITH REL.RDB$RELATION_NAME EQ RFL.RDB$RELATION_NAME AND
-						 RFL.RDB$SCHEMA_NAME EQ depName.schema.c_str() AND
-						 RFL.RDB$FIELD_NAME EQ depName.object.c_str() AND
+					WITH REL.RDB$SCHEMA_NAME EQ RFL.RDB$SCHEMA_NAME AND
+						 REL.RDB$RELATION_NAME EQ RFL.RDB$RELATION_NAME AND
+						 RFL.RDB$FIELD_SOURCE_SCHEMA_NAME EQ depName.schema.c_str() AND
+						 RFL.RDB$FIELD_SOURCE EQ depName.object.c_str() AND
 						 (RFL.RDB$NULL_FLAG MISSING OR RFL.RDB$NULL_FLAG = FALSE) AND
 						 REL.RDB$VIEW_BLR MISSING
-					REDUCED TO RFL.RDB$RELATION_NAME, RFL.RDB$FIELD_ID
+					REDUCED TO RFL.RDB$SCHEMA_NAME, RFL.RDB$RELATION_NAME, RFL.RDB$FIELD_ID
 				{
 					dsc schemaDesc;
 					schemaDesc.makeText(static_cast<USHORT>(strlen(RFL.RDB$SCHEMA_NAME)), CS_METADATA,
 						(UCHAR*) RFL.RDB$SCHEMA_NAME);
 
-					dsc desc;
-					desc.makeText(static_cast<USHORT>(strlen(RFL.RDB$RELATION_NAME)), CS_METADATA,
+					dsc nameDesc;
+					nameDesc.makeText(static_cast<USHORT>(strlen(RFL.RDB$RELATION_NAME)), CS_METADATA,
 						(UCHAR*) RFL.RDB$RELATION_NAME);
 
-					DeferredWork* work = DFW_post_work(transaction, dfw_check_not_null, &desc, &schemaDesc, 0);
+					DeferredWork* work = DFW_post_work(transaction, dfw_check_not_null, &nameDesc, &schemaDesc, 0);
 					SortedArray<int>& ids = DFW_get_ids(work);
 
 					FB_SIZE_T pos;
