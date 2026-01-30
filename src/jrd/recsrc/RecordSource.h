@@ -1175,8 +1175,11 @@ namespace Jrd
 			return true;
 		}
 
-		WriteLockResult lockRecord(thread_db* /*tdbb*/) const override
+		WriteLockResult lockRecord(thread_db* tdbb) const override
 		{
+			if (m_joinType == JoinType::SEMI || m_joinType == JoinType::ANTI)
+				return m_args.front()->lockRecord(tdbb);
+
 			Firebird::status_exception::raise(Firebird::Arg::Gds(isc_record_lock_not_supp));
 		}
 

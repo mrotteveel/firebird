@@ -53,6 +53,7 @@ inline constexpr double REDUCE_SELECTIVITY_FACTOR_LESS = 0.05;
 inline constexpr double REDUCE_SELECTIVITY_FACTOR_GREATER = 0.05;
 inline constexpr double REDUCE_SELECTIVITY_FACTOR_STARTING = 0.01;
 inline constexpr double REDUCE_SELECTIVITY_FACTOR_OTHER = 0.01;
+inline constexpr double REDUCE_SELECTIVITY_FACTOR_ANY = 0.5;
 
 // Cost of simple (CPU bound) operations is less than the page access cost
 inline constexpr double COST_FACTOR_MEMCOPY = 0.5;
