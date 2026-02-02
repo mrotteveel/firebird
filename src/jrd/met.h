@@ -166,6 +166,7 @@ private:
 public:
 	static jrd_prc* create(thread_db* tdbb, MemoryPool& p, Cached::Procedure* perm);
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag);
+	static std::optional<MetaId> getIdByName(thread_db* tdbb, const QualifiedName& name);
 
 	void releaseExternal() override
 	{
@@ -289,8 +290,6 @@ public:
 	static void clear(thread_db* tdbb);
 	static void update_partners(thread_db* tdbb);
 	void loadDbTriggers(thread_db* tdbb, unsigned int type);
-	static jrd_prc* lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
-	static jrd_prc* lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
 	static Function* lookup_function(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
@@ -418,6 +417,25 @@ public:
 		auto& vector = Vector<C>::get(getCache(tdbb));
 		return vector.erase(tdbb, id);
 	}
+
+	template <typename C, typename V = C::Versioned>
+	static V* getVersioned(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+	{
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		return vector.getVersioned(tdbb, id, flags);
+	}
+
+	template <typename C, typename V = C::Versioned>
+	static V* getVersioned(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
+	{
+		V* rc = nullptr;
+
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		vector.lookup(tdbb, name, flags, nullptr, &rc);
+
+		return rc;
+	}
+
 
 private:
 	// Hack with "typename Dummy" is needed to avoid incomplete support of c++ standard in gcc14.

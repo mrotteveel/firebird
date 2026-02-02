@@ -3602,9 +3602,9 @@ void DropProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	AutoSavePoint savePoint(tdbb, transaction);
 	bool found = false;
 
-	// missing ID in the node - therefore use lookup_procedure() with appropriate flags
+	// missing ID in the node - therefore use getVersioned<Cached::Procedure>() with appropriate flags
 	// instead: MetadataCache::oldVersion<Cached::Function>(tdbb, id);
-	MetadataCache::lookup_procedure(tdbb, name, CacheFlag::OLD_DROP);
+	MetadataCache::getVersioned<Cached::Procedure>(tdbb, name, CacheFlag::OLD_DROP);
 
 	dropParameters(tdbb, transaction, name);
 

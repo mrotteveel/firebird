@@ -2237,7 +2237,7 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 }
 
 
-jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
+std::optional<MetaId> jrd_prc::getIdByName(thread_db* tdbb, const QualifiedName& name)
 {
 /**************************************
  *
@@ -2246,29 +2246,15 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
  **************************************
  *
  * Functional description
- *      Lookup procedure by name.  Name passed in is
- *      ASCIZ name.
+ *      Lookup procedure by name.
  *
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = MetadataCache::get(tdbb);
-
-
-	// See if we already know the procedure by name
-
-	auto* proc = mdc->mdc_procedures.lookup(tdbb,
-		[name] (Cached::Procedure* proc) { return proc->getName() == name; }, flags);
-	if (proc)
-		return proc->getVersioned(tdbb, flags);
-
-	if (!(flags & CacheFlag::AUTOCREATE))
-		return nullptr;
-
 
 	// We need to look up the procedure name in RDB$PROCEDURES
 
-	jrd_prc* procedure = nullptr;
+	std::optional<MetaId> id;
 
 	AUTO_HANDLE(request);
 
@@ -2278,32 +2264,12 @@ jrd_prc* MetadataCache::lookup_procedure(thread_db* tdbb, const QualifiedName& n
 			 P.RDB$PROCEDURE_NAME EQ name.object.c_str() AND
 			 P.RDB$PACKAGE_NAME EQUIV NULLIF(name.package.c_str(), '')
 	{
-		fb_assert(!procedure);
-		procedure = mdc->mdc_procedures.getVersioned(tdbb, P.RDB$PROCEDURE_ID, flags);
+		fb_assert(!id.has_value());
+		id = P.RDB$PROCEDURE_ID;
 	}
 	END_FOR
 
-	return procedure;
-}
-
-
-jrd_prc* MetadataCache::lookup_procedure_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
-{
-/**************************************
- *
- *      M E T _ l o o k u p _ p r o c e d u r e _ i d
- *
- **************************************
- *
- * Functional description
- *      Lookup procedure by id.
- *
- **************************************/
-	SET_TDBB(tdbb);
-	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = MetadataCache::get(tdbb);
-
-	return mdc->mdc_procedures.getVersioned(tdbb, id, flags);
+	return id;
 }
 
 

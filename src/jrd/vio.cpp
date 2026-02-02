@@ -2105,7 +2105,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_prc_schema, &schemaDesc);
 			EVL_field(0, rpb->rpb_record, f_prc_name, &desc);
 
-			MetadataCache::lookup_procedure_id(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
+			MetadataCache::getVersioned<Cached::Procedure>(tdbb, id, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 			DFW_post_work(transaction, dfw_delete_procedure, &desc, &schemaDesc, id, object_name.package);
 			break;
 
@@ -2196,7 +2196,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 
 			EVL_field(0, rpb->rpb_record, f_prm_name, &desc2);
 
-			if ( (procedure = MetadataCache::lookup_procedure(tdbb, object_name,
+			if ( (procedure = MetadataCache::getVersioned<Cached::Procedure>(tdbb, object_name,
 				CacheFlag::AUTOCREATE | CacheFlag::NOSCAN)) )
 			{
 				work = DFW_post_work(transaction, dfw_delete_prm, &desc2, &schemaDesc, procedure->getId(),

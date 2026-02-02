@@ -335,7 +335,7 @@ static void get_object_info(thread_db* tdbb,
  **************************************
  *
  * Functional description
- *	This could be done in scan_relation () or lookup_procedure (),
+ *	This could be done in scan_relation () or getVersioned<Cached::Procedure> (),
  *	but presumably we wish to make sure the information we have is
  *	up-to-the-minute.
  *

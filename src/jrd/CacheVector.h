@@ -1178,8 +1178,8 @@ public:
 					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::MINISCAN);
 					if (listEntry && cmp(ptr))
 					{
-						if (!(fl & CacheFlag::ERASED))
-							ptr->reload(tdbb, fl);
+//						if (!(fl & CacheFlag::ERASED))
+//							ptr->reload(tdbb, fl);
 						return ptr;
 					}
 				}
@@ -1187,6 +1187,56 @@ public:
 		}
 
 		return nullptr;
+	}
+
+	bool lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag fl,
+		StoredElement** element, Versioned** versioned)
+	{
+		auto a = m_objects.readAccessor();
+		for (FB_SIZE_T i = 0; i < a->getCount(); ++i)
+		{
+			SubArrayData* sub = a->value(i).load(atomics::memory_order_relaxed);
+			if (!sub)
+				continue;
+
+			for (SubArrayData* const end = &sub[SUBARRAY_SIZE]; sub < end; ++sub)
+			{
+				StoredElement* ptr = sub->load(atomics::memory_order_relaxed);
+				if (ptr)
+				{
+					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::MINISCAN);
+					if (listEntry && ptr->getName() == name)
+					{
+//						if (!(fl & CacheFlag::ERASED))
+//							ptr->reload(tdbb, fl);
+						if (versioned)
+							*versioned = listEntry->getVersioned();
+						if (element)
+							*element = ptr;
+
+						return true;
+					}
+				}
+			}
+		}
+
+		if (!(fl & CacheFlag::AUTOCREATE))
+			return false;
+
+		auto id = Versioned::getIdByName(tdbb, name);
+		if (!id.has_value())
+			return false;
+
+		auto* v = getVersioned(tdbb, id.value(), fl);
+		if (!v)
+			return false;
+
+		if (versioned)
+			*versioned = v;
+		if (element)
+			*element = v->getPermanent();
+
+		return true;
 	}
 
 	~CacheVector()

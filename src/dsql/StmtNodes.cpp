@@ -3093,7 +3093,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 						else if (!node->procedure)
 						{
 							csb->qualifyExistingName(tdbb, name, obj_procedure);
-							auto* proc = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
+							auto* proc = MetadataCache::getVersioned<Cached::Procedure>(tdbb, name, CacheFlag::AUTOCREATE);
 							if (proc)
 								node->procedure = csb->csb_resources->procedures.registerResource(getPermanent(proc));
 						}
@@ -3197,7 +3197,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 		case blr_exec_pid:
 		{
 			const USHORT pid = blrReader.getWord();
-			auto* proc = MetadataCache::lookup_procedure_id(tdbb, pid, CacheFlag::AUTOCREATE);
+			auto* proc = MetadataCache::getVersioned<Cached::Procedure>(tdbb, pid, CacheFlag::AUTOCREATE);
 			if (proc)
 					node->procedure = csb->csb_resources->procedures.registerResource(getPermanent(proc));
 			else
@@ -3222,7 +3222,7 @@ DmlNode* ExecProcedureNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScr
 			else
 			{
 				csb->qualifyExistingName(tdbb, name, obj_procedure);
-				auto* proc = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
+				auto* proc = MetadataCache::getVersioned<Cached::Procedure>(tdbb, name, CacheFlag::AUTOCREATE);
 				if (proc)
 					node->procedure = csb->csb_resources->procedures.registerResource(getPermanent(proc));
 			}

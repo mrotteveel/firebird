@@ -625,7 +625,7 @@ dsql_prc* METD_get_procedure(jrd_tra* transaction, DsqlCompilerScratch* dsqlScra
 
 	// now see if it is in the metadata cache
 
-	auto* jproc = MetadataCache::lookup_procedure(tdbb, name, CacheFlag::AUTOCREATE);
+	auto* jproc = MetadataCache::getVersioned<Cached::Procedure>(tdbb, name, CacheFlag::AUTOCREATE);
 	if (jproc)
 	{
 		procedure = FB_NEW_POOL(dsqlScratch->getPool()) dsql_prc(dsqlScratch->getPool(), jproc);

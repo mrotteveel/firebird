@@ -1036,7 +1036,7 @@ namespace
 				 X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
 		{
 			blobId = X.RDB$PROCEDURE_BLR;
-			routine = MetadataCache::lookup_procedure(tdbb,
+			routine = MetadataCache::getVersioned<Cached::Procedure>(tdbb,
 				work->getQualifiedName(), compile ? 0 : CacheFlag::MINISCAN);
 		}
 		END_FOR
@@ -3271,7 +3271,7 @@ static bool delete_parameter(thread_db* tdbb, SSHORT phase, DeferredWork*, jrd_t
 		  will be implemented. This check never worked properly
 		  so no harm is done
 
-		if (MetadataCache::lookup_procedure_id(tdbb, work->dfw_id, CacheFlag::NOSCAN))
+		if (MetadataCache::getVersioned<Cached::Procedure>(tdbb, work->dfw_id, CacheFlag::NOSCAN))
 		{
 			const DeferredWork* arg = work->dfw_args;
 			fb_assert(arg && (arg->dfw_type == dfw_arg_proc_name));

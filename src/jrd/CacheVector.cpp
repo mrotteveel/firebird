@@ -133,7 +133,7 @@ int ElementBase::blockingAst(void* ast_object)
 			AsyncContextHolder tdbb(dbb, FB_FUNCTION);
 
 			LCK_downgrade(tdbb, cacheElement->lock);
-			const bool erase = (cacheElement->lock->lck_logical < LCK_SR);
+			const bool erase = (cacheElement->lock->lck_physical < LCK_SR);
 			if (!erase)
 				LCK_release(tdbb, cacheElement->lock);
 
