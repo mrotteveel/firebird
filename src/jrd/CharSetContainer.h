@@ -118,6 +118,7 @@ public:
 	static const enum lck_t LOCKTYPE = LCK_cs_rescan;
 
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
+	static std::optional<MetaId> getIdByName(thread_db* tdbb, const QualifiedName& name);
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);

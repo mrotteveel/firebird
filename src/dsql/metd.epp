@@ -534,7 +534,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	USHORT return_arg = 0;
 
-	auto* jfunc = MetadataCache::lookup_function(tdbb, name, CacheFlag::AUTOCREATE);
+	auto* jfunc = MetadataCache::getVersioned<Cached::Function>(tdbb, name, CacheFlag::AUTOCREATE);
 	if (jfunc)
 	{
 		userFunc = FB_NEW_POOL(dsqlScratch->getPool()) dsql_udf(dsqlScratch->getPool(), jfunc);

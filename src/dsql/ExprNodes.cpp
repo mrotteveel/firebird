@@ -13070,7 +13070,7 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 					else if (!node->function)
 					{
 						csb->qualifyExistingName(tdbb, name, obj_udf);
-						auto* func = MetadataCache::lookupFunction(tdbb, name, CacheFlag::AUTOCREATE);
+						auto* func = MetadataCache::getPerm<Cached::Function>(tdbb, name, CacheFlag::AUTOCREATE);
 						if (func)
 							node->function = csb->csb_resources->functions.registerResource(func);
 					}
@@ -13142,7 +13142,7 @@ DmlNode* UdfCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 		else if (!node->function)
 		{
 			csb->qualifyExistingName(tdbb, name, obj_udf);
-			auto* func = MetadataCache::lookupFunction(tdbb, name, CacheFlag::AUTOCREATE);
+			auto* func = MetadataCache::getPerm<Cached::Function>(tdbb, name, CacheFlag::AUTOCREATE);
 			if (func)
 				node->function = csb->csb_resources->functions.registerResource(func);
 		}
@@ -13437,7 +13437,7 @@ ValueExprNode* UdfCallNode::copy(thread_db* tdbb, NodeCopier& copier) const
 		node->function = function;
 	else
 	{
-		auto* func = MetadataCache::lookupFunction(tdbb, name, 0);
+		auto* func = MetadataCache::getPerm<Cached::Function>(tdbb, name, 0);
 		node->function = copier.csb->csb_resources->functions.registerResource(func);
 	}
 	return node;

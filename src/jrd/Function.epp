@@ -76,7 +76,7 @@ Function* Function::create(thread_db* tdbb, MemoryPool& pool, Cached::Function* 
 
 Function* Function::lookup(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
 {
-	return MetadataCache::lookup_function(tdbb, name, flags);
+	return MetadataCache::getVersioned<Cached::Function>(tdbb, name, flags);
 }
 
 ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)

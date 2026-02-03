@@ -74,6 +74,7 @@ namespace Jrd
 
 		static Function* create(thread_db* tdbb, MemoryPool& pool, Cached::Function* perm);
 		ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
+		static std::optional<MetaId> getIdByName(thread_db* tdbb, const QualifiedName& name);
 		void checkReload(thread_db* tdbb) const override;
 
 		static const char* objectFamily(void*)

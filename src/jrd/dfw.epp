@@ -902,7 +902,7 @@ namespace
 	};
 
 	class FunctionManager : public RoutineManager<FunctionManager, Cached::Function, obj_udf,
-		MetadataCache::lookupFunction, MetadataCache::lookupFunction>
+		MetadataCache::getPerm<Cached::Function>, MetadataCache::getPerm<Cached::Function>>
 	{
 	public:
 		static const char* const getTypeStr()
@@ -917,7 +917,7 @@ namespace
 	};
 
 	class ProcedureManager : public RoutineManager<ProcedureManager, Cached::Procedure, obj_procedure,
-		MetadataCache::lookupProcedure, MetadataCache::lookupProcedure>
+		MetadataCache::getPerm<Cached::Procedure>, MetadataCache::getPerm<Cached::Procedure>>
 	{
 	public:
 		static const char* const getTypeStr()
@@ -947,7 +947,7 @@ namespace
 				 X.RDB$PACKAGE_NAME EQUIV NULLIF(work->dfw_package.c_str(), '')
 		{
 			blobId = X.RDB$FUNCTION_BLR;
-			routine = Function::lookup(tdbb, QualifiedName(work->dfw_name, work->dfw_package),
+			routine = Function::lookup(tdbb,  work->getQualifiedName(),
 				(compile ? 0 : CacheFlag::MINISCAN) | CacheFlag::AUTOCREATE);
 		}
 		END_FOR

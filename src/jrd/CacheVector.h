@@ -1178,8 +1178,8 @@ public:
 					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::MINISCAN);
 					if (listEntry && cmp(ptr))
 					{
-//						if (!(fl & CacheFlag::ERASED))
-//							ptr->reload(tdbb, fl);
+						if (!(fl & CacheFlag::ERASED))
+							ptr->reload(tdbb, fl);		// found object to be reloaded w/o MINISCAN flag
 						return ptr;
 					}
 				}
@@ -1207,8 +1207,8 @@ public:
 					auto listEntry = ptr->getEntry(tdbb, TransactionNumber::current(tdbb), fl | CacheFlag::MINISCAN);
 					if (listEntry && ptr->getName() == name)
 					{
-//						if (!(fl & CacheFlag::ERASED))
-//							ptr->reload(tdbb, fl);
+						if (!(fl & CacheFlag::ERASED))
+							ptr->reload(tdbb, fl);		// found object to be reloaded w/o MINISCAN flag
 						if (versioned)
 							*versioned = listEntry->getVersioned();
 						if (element)

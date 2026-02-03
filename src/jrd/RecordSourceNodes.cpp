@@ -1211,7 +1211,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 						else if (!node->procedure)
 						{
 							csb->qualifyExistingName(tdbb, name, obj_procedure);
-							auto* proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+							auto* proc = MetadataCache::getPerm<Cached::Procedure>(tdbb, name, CacheFlag::AUTOCREATE);
 							if (proc)
 								node->procedure = csb->csb_resources->procedures.registerResource(proc);
 						}
@@ -1290,7 +1290,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			if (blrOp == blr_pid2)
 				blrReader.getString(node->alias);
 
-			auto* proc = MetadataCache::lookupProcedure(tdbb, procId, CacheFlag::AUTOCREATE);
+			auto* proc = MetadataCache::getPerm<Cached::Procedure>(tdbb, procId, CacheFlag::AUTOCREATE);
 			if (proc)
 			{
 				fb_assert(!node->procedure);
@@ -1326,7 +1326,7 @@ ProcedureSourceNode* ProcedureSourceNode::parse(thread_db* tdbb, CompilerScratch
 			else
 			{
 				csb->qualifyExistingName(tdbb, name, obj_procedure);
-				auto* proc = MetadataCache::lookupProcedure(tdbb, name, CacheFlag::AUTOCREATE);
+				auto* proc = MetadataCache::getPerm<Cached::Procedure>(tdbb, name, CacheFlag::AUTOCREATE);
 				if (proc)
 				{
 					fb_assert(!node->procedure);
@@ -1665,7 +1665,7 @@ ProcedureSourceNode* ProcedureSourceNode::copy(thread_db* tdbb, NodeCopier& copi
 		newSource->procedure = procedure;
 	else
 	{
-		auto proc = MetadataCache::lookupProcedure(tdbb, procedureId, CacheFlag::AUTOCREATE);
+		auto proc = MetadataCache::getPerm<Cached::Procedure>(tdbb, procedureId, CacheFlag::AUTOCREATE);
 		if (!proc)
 		{
 			string name;

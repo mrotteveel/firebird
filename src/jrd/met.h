@@ -290,12 +290,6 @@ public:
 	static void clear(thread_db* tdbb);
 	static void update_partners(thread_db* tdbb);
 	void loadDbTriggers(thread_db* tdbb, unsigned int type);
-	static Function* lookup_function(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
-	static Function* lookup_function(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	static Cached::Procedure* lookupProcedure(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
-	static Cached::Procedure* lookupProcedure(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
-	static Cached::Function* lookupFunction(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
-	static Cached::Function* lookupFunction(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation(thread_db*, const QualifiedName&, ObjectBase::Flag flags);
 	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
 	static Cached::Relation* lookupRelation(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
@@ -432,6 +426,24 @@ public:
 
 		auto& vector = Vector<C>::get(getCache(tdbb));
 		vector.lookup(tdbb, name, flags, nullptr, &rc);
+
+		return rc;
+	}
+
+	template <typename C>
+	static C* getPerm(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
+	{
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		return vector.getData(tdbb, id, flags);;
+	}
+
+	template <typename C>
+	static C* getPerm(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
+	{
+		C* rc = nullptr;
+
+		auto& vector = Vector<C>::get(getCache(tdbb));
+		vector.lookup(tdbb, name, flags, &rc, nullptr);
 
 		return rc;
 	}

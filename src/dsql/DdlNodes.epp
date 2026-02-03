@@ -2730,9 +2730,9 @@ void DropFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 	bool found = false;
 	MetaId id;
 
-	// missing ID in the node - therefore use lookup_function() with appropriate flags
+	// missing ID in the node - therefore use getVersioned<Cached::Function>() with appropriate flags
 	// instead: MetadataCache::oldVersion<Cached::Function>(tdbb, id);
-	MetadataCache::lookup_function(tdbb, name, CacheFlag::OLD_DROP);
+	MetadataCache::getVersioned<Cached::Function>(tdbb, name, CacheFlag::OLD_DROP);
 
 	dropArguments(tdbb, transaction, name);
 

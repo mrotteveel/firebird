@@ -233,6 +233,7 @@ public:
 
 	static const enum lck_t LOCKTYPE = LCK_dbwide_triggers;
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
+	static std::optional<MetaId> getIdByName(thread_db* tdbb, const QualifiedName& name);
 
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
@@ -509,6 +510,7 @@ public:
 	static void destroy(thread_db* tdbb, IndexVersion* idv);
 
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag flags);
+	static std::optional<MetaId> getIdByName(thread_db* tdbb, const QualifiedName& name);
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag flags)
 	{
 		return scan(tdbb, flags);
@@ -626,6 +628,7 @@ public:
 	static const enum lck_t LOCKTYPE = LCK_rel_rescan;
 
 	ScanResult scan(thread_db* tdbb, ObjectBase::Flag& flags);		// Scan the newly loaded relation for meta data
+	static std::optional<MetaId> getIdByName(thread_db* tdbb, const QualifiedName& name);
 	ScanResult reload(thread_db* tdbb, ObjectBase::Flag& flags)
 	{
 		return scan(tdbb, flags);
