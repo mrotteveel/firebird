@@ -1558,11 +1558,17 @@ void beforeInsertRelation(thread_db* tdbb, Record* record)
 	MetaName name;
 	MOV_get_metaname(tdbb, &desc2, name);
 
+	// Use datatype that satisfies dsc::makeShort()
 	short rel_id = RelationNode::generateRelId(tdbb, name);
 
 	desc2.makeShort(0, &rel_id);
 	MOV_move(tdbb, &desc2, &desc);
 	record->clearNull(f_rel_id);
+
+	auto* rel = MetadataCache::newVersion<Cached::Relation>(tdbb, rel_id);
+	fb_assert(rel);
+	if (rel)
+		rel->rel_flags |= REL_get_dependencies;
 }
 
 void afterInsertRelation(thread_db* tdbb, Record* record)
