@@ -431,7 +431,7 @@ bool SweepTask::handler(WorkItem& _item)
 
 		Database* dbb = tdbb->getDatabase();
 
-		relation = MetadataCache::lookup_relation_id(tdbb, relInfo->rel_id, CacheFlag::AUTOCREATE);
+		relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relInfo->rel_id, CacheFlag::AUTOCREATE);
 
 		if (relation &&
 			!getPermanent(relation)->isDropped() &&
@@ -2166,7 +2166,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
 			MOV_get_metaname(tdbb, &desc, object_name.object);
 
-			if ( (r2 = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE)) )
+			if ( (r2 = MetadataCache::getPerm<Cached::Relation>(tdbb, object_name, CacheFlag::AUTOCREATE)) )
 			{
 				EVL_field(0, rpb->rpb_record, f_rfr_fname, &desc2);
 				DFW_post_work(transaction, dfw_delete_rfr, &desc2, &schemaDesc, r2->getId());
@@ -2328,7 +2328,7 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				MOV_get_metaname(tdbb, &schemaDesc, relation_name.schema);
 				MOV_get_metaname(tdbb, &desc, relation_name.object);
 
-				r2 = MetadataCache::lookupRelation(tdbb, relation_name, CacheFlag::AUTOCREATE);
+				r2 = MetadataCache::getPerm<Cached::Relation>(tdbb, relation_name, CacheFlag::AUTOCREATE);
 				fb_assert(r2);
 				if (r2)
 					r2->scanPartners(tdbb);
@@ -3615,7 +3615,7 @@ bool VIO_modify(thread_db* tdbb, record_param* org_rpb, record_param* new_rpb, j
 
 				MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 				MOV_get_metaname(tdbb, &desc2, object_name.object);
-				auto* irel = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE);
+				auto* irel = MetadataCache::getPerm<Cached::Relation>(tdbb, object_name, CacheFlag::AUTOCREATE);
 				fb_assert(irel);
 				int idxId = MOV_get_long(tdbb, &dscId, 0);
 
@@ -4423,7 +4423,7 @@ void VIO_store(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 				EVL_field(0, rpb->rpb_record, f_idx_relation, &desc);
 				MOV_get_metaname(tdbb, &schemaDesc, object_name.schema);
 				MOV_get_metaname(tdbb, &desc, object_name.object);
-				auto* irel = MetadataCache::lookupRelation(tdbb, object_name, CacheFlag::AUTOCREATE);
+				auto* irel = MetadataCache::getPerm<Cached::Relation>(tdbb, object_name, CacheFlag::AUTOCREATE);
 				fb_assert(irel);
 
 				EVL_field(0, rpb->rpb_record, f_idx_id, &desc);
@@ -4754,7 +4754,7 @@ bool VIO_sweep(thread_db* tdbb, jrd_tra* transaction, TraceSweepEvent* traceSwee
 		MetadataCache* mdc = MetadataCache::get(tdbb);
 		for (FB_SIZE_T i = 1; i < mdc->relCount(); i++)
 		{
-			relation = MetadataCache::lookup_relation_id(tdbb, i, CacheFlag::AUTOCREATE);
+			relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, i, CacheFlag::AUTOCREATE);
 
 			if (relation &&
 				!(relation->getPermanent()->isDropped()) &&
@@ -5691,7 +5691,7 @@ void Database::garbage_collector(Database* dbb)
 				if ((dbb->dbb_flags & DBB_gc_pending) &&
 					(gc_bitmap = gc->getPages(dbb->dbb_oldest_snapshot, relID)))
 				{
-					relation = MetadataCache::lookup_relation_id(tdbb, relID, CacheFlag::AUTOCREATE);
+					relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relID, CacheFlag::AUTOCREATE);
 					if (!relation || getPermanent(relation)->isDropped())
 					{
 						delete gc_bitmap;

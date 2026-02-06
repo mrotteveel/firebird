@@ -12158,7 +12158,7 @@ static void preprocessAssignments(thread_db* tdbb, CompilerScratch* csb,
 					}
 					else if (relation->isView() && fld->fld_source_rel_field.first.hasData())
 					{
-						relation = MetadataCache::lookup_relation(tdbb, fld->fld_source_rel_field.first, CacheFlag::AUTOCREATE);
+						relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, fld->fld_source_rel_field.first, CacheFlag::AUTOCREATE);
 
 						fb_assert(relation);
 						if (!relation)

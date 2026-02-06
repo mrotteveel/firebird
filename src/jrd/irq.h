@@ -32,7 +32,6 @@ enum irq_type_t
 	irq_s_pages,			// store PAGES
 	irq_r_pages,			// read PAGES
 	irq_l_field,			// lookup field name
-	irq_l_relation,			// lookup relation name
 	irq_format1,			// make a new format for a record
 	irq_format2,			// make a new format for a record
 	irq_format3,			// make a new format for a record
@@ -173,7 +172,6 @@ enum irq_type_t
 	irq_grant18,			// process grant option (filters)
 	irq_grant19,			// process grant option (roles)
 	irq_l_curr_format,		// lookup table's current format
-	irq_c_relation3,		// lookup relation in phase 0 to cleanup
 	irq_linger,				// get database linger value
 	irq_dbb_ss_definer,		// get database sql security value
 	irq_proc_param_dep,		// check procedure parameter dependency

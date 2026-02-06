@@ -5121,7 +5121,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 	if (csb->collectingDependencies())
 	{
 		Dependency dependency(obj_relation);
-		dependency.relation = MetadataCache::lookupRelation(tdbb, relationName, CacheFlag::AUTOCREATE);
+		dependency.relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relationName, CacheFlag::AUTOCREATE);
 		dependency.subName = FB_NEW_POOL(pool) MetaName(fieldName);
 		csb->addDependency(dependency);
 	}
@@ -5130,7 +5130,7 @@ DmlNode* DefaultNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScratch* 
 
 	while (true)
 	{
-		auto relation = MetadataCache::lookup_relation(tdbb, relationName, CacheFlag::AUTOCREATE);
+		auto relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relationName, CacheFlag::AUTOCREATE);
 
 		if (relation && relation->rel_fields)
 		{
@@ -12407,7 +12407,7 @@ DmlNode* SysFuncCallNode::parse(thread_db* tdbb, MemoryPool& pool, CompilerScrat
 			auto relName = QualifiedName::parseSchemaObject(string(reinterpret_cast<const char*>(ptr), len));
 			csb->qualifyExistingName(tdbb, relName, obj_relation);
 
-			if (const auto* const relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE))
+			if (const auto* const relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relName, CacheFlag::AUTOCREATE))
 				node->args->items[0] = MAKE_const_slong(relation->rel_id);
 		}
 	}

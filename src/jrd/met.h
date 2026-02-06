@@ -290,10 +290,6 @@ public:
 	static void clear(thread_db* tdbb);
 	static void update_partners(thread_db* tdbb);
 	void loadDbTriggers(thread_db* tdbb, unsigned int type);
-	static jrd_rel* lookup_relation(thread_db*, const QualifiedName&, ObjectBase::Flag flags);
-	static jrd_rel* lookup_relation_id(thread_db*, MetaId, ObjectBase::Flag flags);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags);
-	static Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags);
 	Cached::Relation* lookupRelation(thread_db* tdbb, MetaId id);
 	Cached::Relation* lookupRelationNoChecks(MetaId id);
 	static Cached::Relation* ensureRelation(thread_db* tdbb, MetaId id);

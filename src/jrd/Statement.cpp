@@ -260,6 +260,7 @@ void Request::setResources(VersionedObjects* r, RecordParameters& rpbsSetup)
 	{
 		req_rpb[n] = rpbsSetup[n];
 		req_rpb[n].rpb_relation = rpbsSetup[n].rpb_relation(r);
+		//fb_assert(req_rpb[n].rpb_relation);
 	}
 }
 
@@ -619,7 +620,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 		}
 		else
 		{
-			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, CacheFlag::AUTOCREATE);
+			jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, item->exa_rel_id, CacheFlag::AUTOCREATE);
 
 			if (!relation)
 				continue;
@@ -627,7 +628,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 			MetaName userName = item->user;
 			if (item->exa_view_id)
 			{
-				auto view = MetadataCache::lookupRelation(tdbb, item->exa_view_id, CacheFlag::AUTOCREATE);
+				auto view = MetadataCache::getPerm<Cached::Relation>(tdbb, item->exa_view_id, CacheFlag::AUTOCREATE);
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
@@ -663,7 +664,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 			if (access.acc_ss_rel_id)
 			{
-				auto view = MetadataCache::lookupRelation(tdbb, access.acc_ss_rel_id, CacheFlag::AUTOCREATE);
+				auto view = MetadataCache::getPerm<Cached::Relation>(tdbb, access.acc_ss_rel_id, CacheFlag::AUTOCREATE);
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
@@ -731,7 +732,7 @@ void Statement::verifyAccess(thread_db* tdbb)
 
 		if (access->acc_ss_rel_id)
 		{
-			auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id, CacheFlag::AUTOCREATE);
+			auto view = MetadataCache::getPerm<Cached::Relation>(tdbb, access->acc_ss_rel_id, CacheFlag::AUTOCREATE);
 			if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 				userName = view->rel_owner_name;
 		}
@@ -850,7 +851,7 @@ void Statement::verifyTriggerAccess(thread_db* tdbb, const jrd_rel* ownerRelatio
 			// a direct access to an object from this trigger
 			if (access->acc_ss_rel_id)
 			{
-				auto view = MetadataCache::lookupRelation(tdbb, access->acc_ss_rel_id, CacheFlag::AUTOCREATE);
+				auto view = MetadataCache::getPerm<Cached::Relation>(tdbb, access->acc_ss_rel_id, CacheFlag::AUTOCREATE);
 				if (view && (view->getId() >= USER_DEF_REL_INIT_ID))
 					userName = view->rel_owner_name;
 			}
@@ -922,7 +923,7 @@ void Statement::buildExternalAccess(thread_db* tdbb, ExternalAccessList& list, c
 		}
 		else
 		{
-			jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, item->exa_rel_id, CacheFlag::AUTOCREATE);
+			jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, item->exa_rel_id, CacheFlag::AUTOCREATE);
 			if (!relation)
 				continue;
 

@@ -230,7 +230,7 @@ static void define_default_class(thread_db* tdbb,
  **************************************/
 	SET_TDBB(tdbb);
 
-	auto* relation = MetadataCache::lookupRelation(tdbb, relationName, CacheFlag::AUTOCREATE);
+	auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relationName, CacheFlag::AUTOCREATE);
 	fb_assert(relation);
 
 	if (default_class.isEmpty())

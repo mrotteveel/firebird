@@ -557,7 +557,7 @@ void Applier::insertRecord(thread_db* tdbb, TraNumber traNum,
 	QualifiedName qualifiedRelName(relName);
 	attachment->qualifyExistingName(tdbb, qualifiedRelName, {obj_relation});
 
-	const auto relation = MetadataCache::lookup_relation(tdbb, qualifiedRelName, CacheFlag::AUTOCREATE);
+	const auto relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, qualifiedRelName, CacheFlag::AUTOCREATE);
 	if (!relation)
 		raiseError("Table %s is not found", qualifiedRelName.toQuotedString().c_str());
 
@@ -721,7 +721,7 @@ void Applier::updateRecord(thread_db* tdbb, TraNumber traNum,
 	QualifiedName qualifiedRelName(relName);
 	attachment->qualifyExistingName(tdbb, qualifiedRelName, {obj_relation});
 
-	const auto relation = MetadataCache::lookup_relation(tdbb, qualifiedRelName, CacheFlag::AUTOCREATE);
+	const auto relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, qualifiedRelName, CacheFlag::AUTOCREATE);
 	if (!relation)
 		raiseError("Table %s is not found", qualifiedRelName.toQuotedString().c_str());
 
@@ -867,7 +867,7 @@ void Applier::deleteRecord(thread_db* tdbb, TraNumber traNum,
 	QualifiedName qualifiedRelName(relName);
 	attachment->qualifyExistingName(tdbb, qualifiedRelName, {obj_relation});
 
-	const auto relation = MetadataCache::lookup_relation(tdbb, qualifiedRelName, CacheFlag::AUTOCREATE);
+	const auto relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, qualifiedRelName, CacheFlag::AUTOCREATE);
 	if (!relation)
 		raiseError("Table %s is not found", qualifiedRelName.toQuotedString().c_str());
 

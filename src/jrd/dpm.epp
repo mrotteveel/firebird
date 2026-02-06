@@ -2162,7 +2162,7 @@ void DPM_scan_pages( thread_db* tdbb)
 	// infinite recursion from this internal request when RDB$PAGES
 	// has been extended with another pointer page.
 
-	auto* relation = MetadataCache::lookupRelation(tdbb, 0u, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+	auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, 0u, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 	RelationPages* relPages = relation->getBasePages();
 
 	vcl** address = &relPages->rel_pages;
@@ -2260,7 +2260,7 @@ void DPM_scan_marker(thread_db* tdbb, MetaId relId)
 	fb_assert(dbb->dbb_tip_cache);
 
 	bool doDel = false;
-	auto relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN | CacheFlag::ERASED);
+	auto relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN | CacheFlag::ERASED);
 	fb_assert(relation);
 	if (!relation)
 		return;

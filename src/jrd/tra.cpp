@@ -2224,7 +2224,7 @@ static void expand_view_lock(thread_db* tdbb, jrd_tra* transaction, jrd_rel* rel
 		if (ctx[i]->vcx_type == VCT_PROCEDURE)
 			continue;
 
-		jrd_rel* base_rel = MetadataCache::lookup_relation(tdbb, ctx[i]->vcx_relation_name, CacheFlag::AUTOCREATE);
+		jrd_rel* base_rel = MetadataCache::getVersioned<Cached::Relation>(tdbb, ctx[i]->vcx_relation_name, CacheFlag::AUTOCREATE);
 		if (!base_rel)
 		{
 			// should be a BUGCHECK
@@ -3222,7 +3222,7 @@ static void transaction_options(thread_db* tdbb,
 
 				attachment->qualifyExistingName(tdbb, relationName, {obj_relation});
 
-				jrd_rel* relation = MetadataCache::lookup_relation(tdbb, relationName, CacheFlag::AUTOCREATE);
+				jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relationName, CacheFlag::AUTOCREATE);
 				if (!relation)
 				{
 					ERR_post(
@@ -4224,7 +4224,7 @@ void TraceSweepEvent::beginSweepRelation(const jrd_rel* relation)
 	if (relation && relation->getName().isEmpty())
 	{
 		// don't accumulate per-relation stats for metadata query below
-		MetadataCache::lookup_relation_id(m_tdbb, relation->getId(), CacheFlag::AUTOCREATE);
+		MetadataCache::getVersioned<Cached::Relation>(m_tdbb, relation->getId(), CacheFlag::AUTOCREATE);
 	}
 
 	m_relation_clock = fb_utils::query_performance_counter();

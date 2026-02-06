@@ -726,7 +726,7 @@ RecordBuffer* SnapshotData::getData(int id) const noexcept
 
 RecordBuffer* SnapshotData::allocBuffer(thread_db* tdbb, MemoryPool& pool, int rel_id)
 {
-	jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, rel_id, 0);
+	jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, rel_id, 0);
 	fb_assert(relation);
 	fb_assert(relation->isVirtual());
 
@@ -785,7 +785,7 @@ void SnapshotData::putField(thread_db* tdbb, Record* record, const DumpField& fi
 		SLONG rel_id;
 		memcpy(&rel_id, field.data, field.length);
 
-		RelationPermanent* relation = MetadataCache::lookupRelation(tdbb, rel_id, 0);
+		RelationPermanent* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, rel_id, 0);
 		if (!relation || relation->rel_name.object.isEmpty())
 			return;
 

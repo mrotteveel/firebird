@@ -1651,7 +1651,7 @@ void Validation::walk_database()
 		if (i > dbb->dbb_max_sys_rel) // Why not system flag instead?
 			VAL_debug_level = 2;
 #endif
-		auto* relation = mdc->lookup_relation_id(vdr_tdbb, i, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
+		auto* relation = mdc->getVersioned<Cached::Relation>(vdr_tdbb, i, CacheFlag::AUTOCREATE | CacheFlag::MINISCAN);
 
 		if (relation && relation->hasData() && (!relation->isView()))
 		{

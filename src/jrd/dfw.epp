@@ -870,7 +870,7 @@ namespace
 						if (parameter->prm_type_of_table.object.hasData())
 						{
 							Dependency dependency(obj_relation);
-							dependency.relation = MetadataCache::lookupRelation(tdbb,
+							dependency.relation = MetadataCache::getPerm<Cached::Relation>(tdbb,
 								parameter->prm_type_of_table, CacheFlag::AUTOCREATE);
 							dependency.subName = &parameter->prm_type_of_column;
 							dependencies.push(dependency);
@@ -2577,7 +2577,7 @@ void DFW_reset_icu(thread_db* tdbb)
 
 				if (!tables.exists(rel_id))
 				{
-					if (auto* relation = MetadataCache::lookupRelation(tdbb, rel_id, CacheFlag::AUTOCREATE))
+					if (auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, rel_id, CacheFlag::AUTOCREATE))
 						tables.addRelation(relation);
 				}
 			}
@@ -3325,7 +3325,7 @@ static bool create_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, 0);
 			if (relation)
 			{
 				fb_assert(work->dfw_ids.getCount() == 1);
@@ -3385,7 +3385,7 @@ static bool set_statistics(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 			{
 				// we need to know if this relation is temporary or not
 				Cached::Relation* relation =
-					MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::AUTOCREATE);
+					MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, CacheFlag::AUTOCREATE);
 
 				// no need to recalculate statistics for base instance of GTT
 				RelationPages* relPages = relation->getPages(tdbb, MAX_TRA_NUMBER, false);
@@ -3438,7 +3438,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 	case 4:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (!relation)
 				break;
 
@@ -3471,7 +3471,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 					{
 						if (dep.dep_reference_id == index->getId())
 						{
-							partner = MetadataCache::lookupRelation(tdbb, dep.dep_relation, CacheFlag::ERASED | CacheFlag::AUTOCREATE);
+							partner = MetadataCache::getPerm<Cached::Relation>(tdbb, dep.dep_relation, CacheFlag::ERASED | CacheFlag::AUTOCREATE);
 							break;
 						}
 					}
@@ -3501,7 +3501,7 @@ static bool delete_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 			{
 				fb_assert(work->dfw_ids.getCount() == 1);
@@ -3543,7 +3543,7 @@ static bool create_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->getQualifiedName(), 0);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->getQualifiedName(), 0);
 			if (relation)
 				relation->commit(tdbb);
 		}
@@ -3580,7 +3580,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 	{
 	case 0:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 			{
 				if (relation->isDropped())
@@ -3618,7 +3618,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 		}
 
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (!relation)
 				return false;
 
@@ -3636,7 +3636,7 @@ static bool delete_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, CacheFlag::ERASED);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, CacheFlag::ERASED);
 			if (relation)
 				relation->commit(tdbb);
 		}
@@ -3667,9 +3667,9 @@ static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 		return true;
 
 	case 3:
-		MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+		MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, 0);
 /*		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, 0);
 			if (relation)
 				relation->removeDepends(tdbb);
 		} */
@@ -3682,7 +3682,7 @@ static bool commit_relation(thread_db* tdbb, SSHORT phase, DeferredWork* work, j
 
 	case 7:
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb, work->dfw_id, 0);
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, work->dfw_id, 0);
 			if (relation)
 				relation->commit(tdbb);
 		}
@@ -3723,7 +3723,7 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 		jrd_rel* relation = nullptr;
 		try
 		{
-			relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
+			relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, work->dfw_id,
 				CacheFlag::NOERASED | CacheFlag::AUTOCREATE | CacheFlag::NOCOMMIT);
 
 			// check - may be relation currently contains deleted field once again
@@ -3779,7 +3779,7 @@ static bool delete_rfr(thread_db* tdbb, SSHORT phase, DeferredWork* work, jrd_tr
 
 		if (!relation)
 		{
-			relation = MetadataCache::lookup_relation_id(tdbb, work->dfw_id,
+			relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, work->dfw_id,
 				CacheFlag::NOERASED | CacheFlag::MINISCAN | CacheFlag::NOCOMMIT);
 		}
 
@@ -4091,7 +4091,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 				const auto relation_name(arg->getQualifiedName());
 				fb_assert(relation_name.hasData());
 
-				auto* relation = MetadataCache::lookupRelation(tdbb, relation_name, 0);
+				auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relation_name, 0);
 				fb_assert(relation);	// must be scanned earlier
 				if (relation)
 				{
@@ -4117,7 +4117,7 @@ static bool modify_trigger(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 
 				try
 				{
-					auto* relation = MetadataCache::lookupRelation(tdbb, relation_name, 0);
+					auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relation_name, 0);
 					fb_assert(relation);	// must be scanned earlier
 
 					if (relation)
@@ -4273,7 +4273,7 @@ static void get_trigger_dependencies(DeferredWork* work, bool compile, jrd_tra* 
 	{
 		blob_id = X.RDB$TRIGGER_BLR;
 		type = (ISC_UINT64) X.RDB$TRIGGER_TYPE;
-		relation = MetadataCache::lookup_relation(tdbb, QualifiedName(X.RDB$RELATION_NAME, X.RDB$SCHEMA_NAME),
+		relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, QualifiedName(X.RDB$RELATION_NAME, X.RDB$SCHEMA_NAME),
 			CacheFlag::AUTOCREATE);
 	}
 	END_FOR
@@ -4334,7 +4334,7 @@ static bool check_not_null(thread_db* tdbb, SSHORT phase, DeferredWork* work, jr
 		{
 			if (work->dfw_ids.isEmpty())
 				break;
-			jrd_rel* relation = MetadataCache::lookup_relation(tdbb, work->getQualifiedName(), CacheFlag::AUTOCREATE);
+			jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, work->getQualifiedName(), CacheFlag::AUTOCREATE);
 			if ((!relation) || relation->isView())
 				break;
 

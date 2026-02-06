@@ -2056,7 +2056,7 @@ ElementBase::ReturnedId MetadataCache::lookup_index_name(thread_db* tdbb, const 
 
 		if (relationId)
 		{
-			auto* relation = MetadataCache::lookupRelation(tdbb,
+			auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb,
 				QualifiedName(X.RDB$RELATION_NAME, X.RDB$SCHEMA_NAME), CacheFlag::AUTOCREATE);
 			if (relation)
 				*relationId = relation->getId();
@@ -2184,7 +2184,7 @@ bool MET_lookup_partner(thread_db* tdbb, RelationPermanent* relation, index_desc
 
 				//// ASF: Hack fix for CORE-4304, until nasty interactions between dfw and met are not resolved.
 				const auto* partner_relation = relation->getName() == partnerRelationName ?
-					relation : MetadataCache::lookupRelation(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
+					relation : MetadataCache::getPerm<Cached::Relation>(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
 
 				if (partner_relation &&
 					MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
@@ -2251,10 +2251,9 @@ std::optional<MetaId> jrd_prc::getIdByName(thread_db* tdbb, const QualifiedName&
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
+	std::optional<MetaId> id;
 
 	// We need to look up the procedure name in RDB$PROCEDURES
-
-	std::optional<MetaId> id;
 
 	AUTO_HANDLE(request);
 
@@ -2287,10 +2286,9 @@ std::optional<MetaId> Function::getIdByName(thread_db* tdbb, const QualifiedName
  **************************************/
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
+	std::optional<MetaId> id;
 
 	// We need to look up the function in RDB$FUNCTIONS
-
-	std::optional<MetaId> id;
 
 	AUTO_HANDLE(request);
 
@@ -2309,73 +2307,27 @@ std::optional<MetaId> Function::getIdByName(thread_db* tdbb, const QualifiedName
 }
 
 
-Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
+std::optional<MetaId> jrd_rel::getIdByName(thread_db* tdbb, const QualifiedName& name)
 {
 	SET_TDBB(tdbb);
-
 	Attachment* attachment = tdbb->getAttachment();
-	MetadataCache* mdc = MetadataCache::get(tdbb);
-
-	// See if we already know the relation by name
-	auto* rc = mdc->mdc_relations.lookup(tdbb, [name](RelationPermanent* rel) { return rel->getName() == name; }, flags);
-
-	if (rc || !(flags & CacheFlag::AUTOCREATE))
-		return rc;
+	std::optional<MetaId> id;
 
 	// We need to look up the relation name in RDB$RELATIONS
-	AutoCacheRequest request(tdbb, irq_l_relation, IRQ_REQUESTS);
+
+	AUTO_HANDLE(request);
 
 	FOR(REQUEST_HANDLE request)
 		X IN RDB$RELATIONS
 		WITH X.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
 			 X.RDB$RELATION_NAME EQ name.object.c_str()
 	{
-		if (auto* relVers = mdc->mdc_relations.getVersioned(tdbb, X.RDB$RELATION_ID, flags))
-			rc = relVers->getPermanent();
+		fb_assert(!id.has_value());
+		id = X.RDB$RELATION_ID;
 	}
 	END_FOR
 
-	return rc;
-}
-
-jrd_rel* MetadataCache::lookup_relation(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
-{
-/**************************************
- *
- *      M E T _ l o o k u p _ r e l a t i o n
- *
- **************************************
- *
- * Functional description
- *      Lookup relation by name.  Name passed in is
- *      ASCIZ name.
- *
- **************************************/
-	SET_TDBB(tdbb);
-
-	auto* perm = lookupRelation(tdbb, name, flags);
-	if (!perm)
-		return nullptr;
-
-	return MetadataCache::get(tdbb)->mdc_relations.getVersioned(tdbb, perm->getId(), flags);
-}
-
-
-jrd_rel* MetadataCache::lookup_relation_id(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
-{
-/**************************************
- *
- *      M E T _ l o o k u p _ r e l a t i o n _ i d
- *
- **************************************
- *
- * Functional description
- *      Lookup relation by id. Make sure it really exists.
- *
- **************************************/
-	SET_TDBB(tdbb);
-
-	return MetadataCache::get(tdbb)->mdc_relations.getVersioned(tdbb, id, flags);
+	return id;
 }
 
 
@@ -2544,7 +2496,6 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			if (ssDefiner.asBool())
 				invoker = dbb->getUserId(getPermanent()->owner);
 
-			setImplemented(true);
 			setDefined(true);
 			getInputFields().resize(P.RDB$PROCEDURE_INPUTS);
 			getOutputFields().resize(P.RDB$PROCEDURE_OUTPUTS);
@@ -2690,13 +2641,16 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 						if (!getExternal())
 							setDefined(false);
+
+						setImplemented(true);
 					}
 					else if (compiling || (flags & CacheFlag::MINISCAN))
 						flReload = true;
 					else
 					{
-						const string name = getName().toQuotedString();
+						fb_assert(!P.RDB$PROCEDURE_BLR.NULL);
 
+						const string name = getName().toQuotedString();
 						try
 						{
 							TraceProcCompile trace(tdbb, name);
@@ -2742,8 +2696,6 @@ ScanResult jrd_prc::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 				if (compiling || (flags & CacheFlag::MINISCAN))
 					flReload = true;
-				else
-					setImplemented(false);
 			}
 
 			if (!dbb->readOnly() &&
@@ -4047,7 +3999,7 @@ void RelationPermanent::scanPartners(thread_db* tdbb)
 
 			//// ASF: Hack fix for CORE-4304, until nasty interactions between dfw and met are not resolved.
 			const auto* partner_relation = getName() == partnerRelationName ?
-				this : MetadataCache::lookupRelation(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
+				this : MetadataCache::getPerm<Cached::Relation>(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
 
 			if (partner_relation &&
 				MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
@@ -4090,7 +4042,7 @@ void RelationPermanent::scanPartners(thread_db* tdbb)
 
 			//// ASF: Hack fix for CORE-4304, until nasty interactions between dfw and met are not resolved.
 			const auto* partner_relation = getName() == partnerRelationName ?
-				this : MetadataCache::lookupRelation(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
+				this : MetadataCache::getPerm<Cached::Relation>(tdbb, partnerRelationName, CacheFlag::AUTOCREATE);
 
 			if (partner_relation &&
 				MetadataCache::getIndexActive(IDX.RDB$INDEX_INACTIVE.NULL, IDX.RDB$INDEX_INACTIVE) &&
@@ -4699,16 +4651,6 @@ void Trigger::compile(thread_db* tdbb)
 		statement->flags |= Statement::FLAG_IGNORE_PERM;
 }
 
-Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
-{
-	SET_TDBB(tdbb);
-
-	MetadataCache* mdc = get(tdbb);
-	auto rc = mdc->mdc_relations.getData(tdbb, id, flags);
-
-	return rc;
-}
-
 Cached::Relation* MetadataCache::lookupRelation(thread_db* tdbb, MetaId id)
 {
 	return mdc_relations.getData(tdbb, id, 0);
@@ -4846,7 +4788,7 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	}
 
 	auto* relation = (expression.hasData() || condition.hasData()) ?
-		MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE) : nullptr;
+		MetadataCache::getPerm<Cached::Relation>(tdbb, relId, CacheFlag::AUTOCREATE) : nullptr;
 
 	if (expression.hasData())
 	{

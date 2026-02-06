@@ -5415,7 +5415,7 @@ dsc* evlMakeDbkey(Jrd::thread_db* tdbb, const SysFunction* function, const NestV
 		auto relName = QualifiedName::parseSchemaObject(string((const char*) argPtr, len));
 		attachment->qualifyExistingName(tdbb, relName, {obj_relation});
 
-		jrd_rel* relation = MetadataCache::lookup_relation(tdbb, relName, CacheFlag::AUTOCREATE);
+		jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relName, CacheFlag::AUTOCREATE);
 		if (!relation)
 			(Arg::Gds(isc_relnotdef) << relName.toQuotedString()).raise();
 

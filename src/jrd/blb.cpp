@@ -1449,7 +1449,7 @@ blb* blb::open2(thread_db* tdbb,
 		// know about the relation, the blob id has got to be invalid
 		// anyway.
 
-		jrd_rel* relation = MetadataCache::lookup_relation_id(tdbb, blobId.bid_internal.bid_relation_id, 0);
+		jrd_rel* relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, blobId.bid_internal.bid_relation_id, 0);
 		if (!relation)
 				ERR_post(Arg::Gds(isc_bad_segstr_id));
 
@@ -1755,10 +1755,10 @@ void blb::put_slice(thread_db*	tdbb,
 	{
 		QualifiedName infoRelationName(info.sdl_info_relation);
 		tdbb->getAttachment()->qualifyExistingName(tdbb, infoRelationName, {obj_relation});
-		relation = MetadataCache::lookup_relation(tdbb, infoRelationName, CacheFlag::AUTOCREATE);
+		relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, infoRelationName, CacheFlag::AUTOCREATE);
 	}
 	else
-		relation = MetadataCache::lookup_relation_id(tdbb, info.sdl_info_rid, CacheFlag::AUTOCREATE);
+		relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, info.sdl_info_rid, CacheFlag::AUTOCREATE);
 
 	if (!relation)
 		IBERROR(196);			// msg 196 relation for array not known

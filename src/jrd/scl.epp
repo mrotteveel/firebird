@@ -924,7 +924,7 @@ SecurityClass::flags_t SCL_get_mask(thread_db* tdbb, const QualifiedName& relati
 	// If there's a relation, track it down
 	jrd_rel* relation;
 	if (relation_name.object.hasData() &&
-		( (relation = MetadataCache::lookup_relation(tdbb, relation_name, CacheFlag::AUTOCREATE)) ))
+		( (relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relation_name, CacheFlag::AUTOCREATE)) ))
 	{
 		const SecurityClass* s_class;
 		if ( (s_class = SCL_get_class(tdbb, relation->getPermanent()->rel_security_name.object)) )

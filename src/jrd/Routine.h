@@ -90,7 +90,7 @@ namespace Jrd
 	protected:
 		explicit Routine(MemoryPool& p)
 			: statement(NULL),
-			  implemented(true),
+			  implemented(false),
 			  defined(true),
 			  defaultCount(0),
 			  inputFormat(NULL),

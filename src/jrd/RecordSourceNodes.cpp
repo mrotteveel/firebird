@@ -795,7 +795,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookupRelation(tdbb, id,
+			rel = MetadataCache::getPerm<Cached::Relation>(tdbb, id,
 				CacheFlag::AUTOCREATE | (csb->csb_g_flags & csb_internal ? CacheFlag::NOSCAN : 0));
 			if (!rel)
 				name.object.printf("id %d", id);
@@ -819,7 +819,7 @@ RelationSourceNode* RelationSourceNode::parse(thread_db* tdbb, CompilerScratch* 
 				csb->csb_blr_reader.getString(*aliasString);
 			}
 
-			rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE);
+			rel = MetadataCache::getPerm<Cached::Relation>(tdbb, name, CacheFlag::AUTOCREATE);
 			break;
 		}
 

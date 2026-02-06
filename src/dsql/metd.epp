@@ -687,7 +687,7 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	// now see if it is in the metadata cache
 
-	auto* jrel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+	auto* jrel = MetadataCache::getVersioned<Cached::Relation>(tdbb, name, CacheFlag::AUTOCREATE);
 	if (!jrel)
 		return nullptr;
 

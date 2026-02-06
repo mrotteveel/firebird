@@ -170,8 +170,7 @@ void Routine::parseBlr(thread_db* tdbb, CompilerScratch* csb, const bid* blob_id
 	if (csb->csb_g_flags & csb_reload)
 		flReload = true;
 
-	if (!blob_id)
-		setImplemented(false);
+	setImplemented(blob_id);
 }
 
 // Parse the messages of a blr request. For specified message, allocate a format (Format) block.

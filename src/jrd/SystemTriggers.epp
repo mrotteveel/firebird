@@ -315,7 +315,7 @@ void afterUpdateIndex(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 
 		ModifyIndexList oneItemList(pool);
 		oneItemList.push(FB_NEW_POOL(pool) StoreIndexNode(indexName, expressionIndex));
-		auto* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
+		auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relName, CacheFlag::AUTOCREATE);
 		oneItemList.exec(tdbb, relation, tdbb->getTransaction());
 	}
 }
@@ -687,7 +687,7 @@ void afterDeleteRelationConstraint(thread_db* tdbb, Record* record)
 	{
 		static const CachedRequestId request3CacheId;
 		AutoCacheRequest request3(tdbb, request3CacheId);
-		auto* rel = MetadataCache::lookupRelation(tdbb, QualifiedName(relationName, schemaName), 0);
+		auto* rel = MetadataCache::getPerm<Cached::Relation>(tdbb, QualifiedName(relationName, schemaName), 0);
 
 		FOR (REQUEST_HANDLE request3 TRANSACTION_HANDLE transaction)
 			IND IN RDB$INDICES
@@ -1567,38 +1567,48 @@ void beforeInsertRelation(thread_db* tdbb, Record* record)
 
 void afterInsertRelation(thread_db* tdbb, Record* record)
 {
-	dsc desc;
-	bool idSet = EVL_field(nullptr, record, f_rel_id, &desc);
-	fb_assert(idSet);
-	if (!idSet)			// How can it be?
-		return;
-
-	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
-	fb_assert(id);
-	MetadataCache::newVersion<Cached::Relation>(tdbb, id);
-	auto* relation = MetadataCache::lookupRelation(tdbb, id, CacheFlag::MINISCAN);
-
-	// Do not access external file info from cache - it may be not usable yet
-	// On contrary rel_flags (and therefore check for view) are OK
-	if (relation && !EVL_field(nullptr, record, f_rel_ext_file, &desc) &&
-		!relation->isView())
+	if (tdbb->getAttachment()->isRWGbak())
 	{
-		// create the table
-		DPM_create_relation(tdbb, relation);
+		dsc desc;
+		bool idSet = EVL_field(nullptr, record, f_rel_id, &desc);
+		fb_assert(idSet);
+		if (!idSet)			// How can it be?
+			return;
+
+		MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
+		fb_assert(id > 127);
+
+		// Here minor optimization is possible - do it in single cache call
+		MetadataCache::newVersion<Cached::Relation>(tdbb, id);
+		auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, id, CacheFlag::MINISCAN);
+
+		// Do not access external file info from cache - it may be not usable yet
+		// On contrary rel_flags (and therefore check for view) are OK
+		if (relation && !EVL_field(nullptr, record, f_rel_ext_file, &desc) &&
+			!relation->isView())
+		{
+			// create the table
+			DPM_create_relation(tdbb, relation);
+		}
+
+		relation->rel_flags |= REL_get_dependencies;
 	}
-	relation->rel_flags |= REL_get_dependencies;
+
 }
 
 void afterInsertProcedure(thread_db* tdbb, Record* record)
 {
-	dsc desc;
-	bool idSet = EVL_field(nullptr, record, f_prc_id, &desc);
-	fb_assert(idSet);
-	if (!idSet)
-		return;
+	if (tdbb->getAttachment()->isRWGbak())
+	{
+		dsc desc;
+		bool idSet = EVL_field(nullptr, record, f_prc_id, &desc);
+		fb_assert(idSet);
+		if (!idSet)
+			return;
 
-	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
-	MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
+		MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
+		MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
+	}
 }
 
 void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)
@@ -1608,14 +1618,17 @@ void afterUpdateProcedure(thread_db* tdbb, Record* orgRecord, Record* newRecord)
 
 void afterInsertFunction(thread_db* tdbb, Record* record)
 {
-	dsc desc;
-	bool idSet = EVL_field(nullptr, record, f_fun_id, &desc);
-	fb_assert(idSet);
-	if (!idSet)
-		return;
+	if (tdbb->getAttachment()->isRWGbak())
+	{
+		dsc desc;
+		bool idSet = EVL_field(nullptr, record, f_fun_id, &desc);
+		fb_assert(idSet);
+		if (!idSet)
+			return;
 
-	MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
-	MetadataCache::newVersion<Cached::Function>(tdbb, id);
+		MetaId id = MetaId(MOV_get_long(tdbb, &desc, 0));
+		MetadataCache::newVersion<Cached::Function>(tdbb, id);
+	}
 }
 
 void afterUpdateFunction(thread_db* tdbb, Record* orgRecord, Record* newRecord)
@@ -1686,14 +1699,17 @@ void beforeInsertCollation(thread_db* tdbb, Record* record, jrd_rel* relation)
 
 void afterInsertCollation(thread_db* tdbb, Record* record)
 {
-	dsc desc;
-	bool idSet = EVL_field(nullptr, record, f_coll_cs_id, &desc);
-	fb_assert(idSet);
-	if (!idSet)
-		return;
+	if (tdbb->getAttachment()->isRWGbak())
+	{
+		dsc desc;
+		bool idSet = EVL_field(nullptr, record, f_coll_cs_id, &desc);
+		fb_assert(idSet);
+		if (!idSet)
+			return;
 
-	CSetId csId = CSetId(MOV_get_long(tdbb, &desc, 0));
-	MetadataCache::newVersion<Cached::CharSet>(tdbb, csId);
+		CSetId csId = CSetId(MOV_get_long(tdbb, &desc, 0));
+		MetadataCache::newVersion<Cached::CharSet>(tdbb, csId);
+	}
 }
 
 }	// anonymous

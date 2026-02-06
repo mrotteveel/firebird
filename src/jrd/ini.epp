@@ -84,7 +84,7 @@ namespace
 
 	unsigned getLatestFormat(thread_db* tdbb, int relId, int maxFieldId)
 	{
-		auto* const relation = MetadataCache::lookupRelation(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
+		auto* const relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relId, CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		fb_assert(relation);
 		auto formats = relation->getFormats();
 
@@ -649,7 +649,7 @@ namespace
 			for (auto relName : *this)
 			{
 				QualifiedName name(relName, SYSTEM_SCHEMA);
-				auto* oldRel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+				auto* oldRel = MetadataCache::getVersioned<Cached::Relation>(tdbb, name, CacheFlag::AUTOCREATE);
 				makeRelation(tdbb, oldRel);
 			}
 		}
@@ -701,7 +701,7 @@ void INI_format(thread_db* tdbb, const string& charset)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent)
 			{
-				DPM_create_relation(tdbb, MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID],
+				DPM_create_relation(tdbb, MetadataCache::getPerm<Cached::Relation>(tdbb, relfld[RFLD_R_ID],
 					CacheFlag::AUTOCREATE | CacheFlag::NOSCAN));
 			}
 
@@ -973,7 +973,7 @@ void INI_init(thread_db* tdbb)
 	{
 		const bool isPersistent = (relfld[RFLD_R_TYPE] == rel_persistent);
 
-		jrd_rel* relVers = MetadataCache::lookup_relation_id(tdbb, relfld[RFLD_R_ID],
+		jrd_rel* relVers = MetadataCache::getVersioned<Cached::Relation>(tdbb, relfld[RFLD_R_ID],
             CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		auto* relation = getPermanent(relVers);
 
@@ -1104,7 +1104,7 @@ void INI_init_sys_relations(thread_db* tdbb)
 	{
 		auto relId = relfld[RFLD_R_ID];
 		bool needsRdbRuntime = false;
-		auto relation = MetadataCache::lookup_relation_id(tdbb, relId, 0);
+		auto relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, relId, 0);
 		fb_assert(relation);
 
 		for (fld = relfld + RFLD_RPT; fld[RFLD_F_NAME]; fld += RFLD_F_LENGTH)
@@ -1246,7 +1246,7 @@ void INI_upgrade(thread_db* tdbb)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent && relfld[RFLD_R_ODS] > odsVersion)
 			{
-				DPM_create_relation(tdbb, MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID],
+				DPM_create_relation(tdbb, MetadataCache::getPerm<Cached::Relation>(tdbb, relfld[RFLD_R_ID],
 					CacheFlag::AUTOCREATE | CacheFlag::NOSCAN));
 			}
 
@@ -1367,7 +1367,7 @@ void INI_upgrade(thread_db* tdbb)
 		{
 			if (relfld[RFLD_R_TYPE] == rel_persistent && relfld[RFLD_R_ODS] > odsVersion)
 			{
-				const auto relation = MetadataCache::lookupRelation(tdbb, relfld[RFLD_R_ID], CacheFlag::NOSCAN);
+				const auto relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relfld[RFLD_R_ID], CacheFlag::NOSCAN);
 				if (relation && relation->getBasePages()->rel_pages)
 					DPM_delete_relation(tdbb, relation);
 			}
@@ -1684,7 +1684,7 @@ static void store_indices(thread_db* tdbb, USHORT odsVersion)
 	for (FB_SIZE_T n = 0; n < SYSTEM_INDEX_COUNT; n++)
 	{
 		const ini_idx_t* index = &indices[n];
-		auto* relVers = MetadataCache::lookup_relation_id(tdbb, index->ini_idx_relid,
+		auto* relVers = MetadataCache::getVersioned<Cached::Relation>(tdbb, index->ini_idx_relid,
 			CacheFlag::AUTOCREATE | CacheFlag::NOSCAN);
 		auto* relation = getPermanent(relVers);
 

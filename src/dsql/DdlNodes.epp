@@ -1857,29 +1857,37 @@ void CreateAlterFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsql
 
 	fb_assert(id);
 	auto* permanent = MetadataCache::newVersion<Cached::Function>(tdbb, id);
-	auto* prc = permanent ? permanent->getVersioned(tdbb, CacheFlag::NOCOMMIT | CacheFlag::MINISCAN) : nullptr;
+	try
 	{
-		bool dummy = false;
-		AutoSetRestore compiling(prc ? &(prc->compiling) : &dummy, true);
+		auto* prc = permanent ? permanent->getVersioned(tdbb, CacheFlag::NOCOMMIT | CacheFlag::MINISCAN) : nullptr;
+		{
+			bool dummy = false;
+			AutoSetRestore compiling(prc ? &(prc->compiling) : &dummy, true);
 
-		compile(tdbb, dsqlScratch);
+			compile(tdbb, dsqlScratch);
+		}
+
+		{ // scope
+			// avoid modify routine dfw during second pass on CREATE
+			AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, altered ? 0 : TDBB_dont_post_dfw, true);
+
+			// second pass
+			if (alterIndividualParameters)
+				executeAlterIndividualParameters(tdbb, dsqlScratch, transaction, true, false);
+			else
+				executeAlter(tdbb, dsqlScratch, transaction, true, false);
+		}
+
+		if (name.package.isEmpty())
+		{
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
+				(altered ? DDL_TRIGGER_ALTER_FUNCTION : DDL_TRIGGER_CREATE_FUNCTION), name, {});
+		}
 	}
-
-	{ // scope
-		// avoid modify routine dfw during second pass on CREATE
-		AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, altered ? 0 : TDBB_dont_post_dfw, true);
-
-		// second pass
-		if (alterIndividualParameters)
-			executeAlterIndividualParameters(tdbb, dsqlScratch, transaction, true, false);
-		else
-			executeAlter(tdbb, dsqlScratch, transaction, true, false);
-	}
-
-	if (name.package.isEmpty())
+	catch (const Exception&)
 	{
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
-			(altered ? DDL_TRIGGER_ALTER_FUNCTION : DDL_TRIGGER_CREATE_FUNCTION), name, {});
+		permanent->rollback(tdbb);
+		throw;
 	}
 
 	savePoint.release();	// everything is ok
@@ -2639,8 +2647,8 @@ void AlterExternalFunctionNode::execute(thread_db* tdbb, DsqlCompilerScratch* ds
 
 	if (found)
 	{
-		MetadataCache::newVersion<Cached::Function>(tdbb, id);
 		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_ALTER_FUNCTION, name, {});
+		MetadataCache::newVersion<Cached::Function>(tdbb, id);
 	}
 	else
 	{
@@ -2920,29 +2928,37 @@ void CreateAlterProcedureNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsq
 
 	fb_assert(id);
 	auto* permanent = MetadataCache::newVersion<Cached::Procedure>(tdbb, id);
-	auto* prc = permanent ? permanent->getVersioned(tdbb, CacheFlag::NOCOMMIT | CacheFlag::MINISCAN) : nullptr;
+	try
 	{
-		bool dummy = false;
-		AutoSetRestore compiling(prc ? &(prc->compiling) : &dummy, true);
+		auto* prc = permanent ? permanent->getVersioned(tdbb, CacheFlag::NOCOMMIT | CacheFlag::MINISCAN) : nullptr;
+		{
+			bool dummy = false;
+			AutoSetRestore compiling(prc ? &(prc->compiling) : &dummy, true);
 
-		compile(tdbb, dsqlScratch);
+			compile(tdbb, dsqlScratch);
+		}
+
+		{ // scope
+			// avoid modify routine dfw during second pass on CREATE
+			AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, altered ? 0 : TDBB_dont_post_dfw, true);
+
+			// second pass
+			if (alterIndividualParameters)
+				executeAlterIndividualParameters(tdbb, dsqlScratch, transaction, true, false);
+			else
+				executeAlter(tdbb, dsqlScratch, transaction, true, false);
+		}
+
+		if (name.package.isEmpty())
+		{
+			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
+				(altered ? DDL_TRIGGER_ALTER_PROCEDURE : DDL_TRIGGER_CREATE_PROCEDURE), name, {});
+		}
 	}
-
-	{ // scope
-		// avoid modify routine dfw during second pass on CREATE
-		AutoSetRestoreFlag<ULONG> noDfw(&tdbb->tdbb_flags, altered ? 0 : TDBB_dont_post_dfw, true);
-
-		// second pass
-		if (alterIndividualParameters)
-			executeAlterIndividualParameters(tdbb, dsqlScratch, transaction, true, false);
-		else
-			executeAlter(tdbb, dsqlScratch, transaction, true, false);
-	}
-
-	if (name.package.isEmpty())
+	catch (const Exception&)
 	{
-		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER,
-			(altered ? DDL_TRIGGER_ALTER_PROCEDURE : DDL_TRIGGER_CREATE_PROCEDURE), name, {});
+		permanent->rollback(tdbb);
+		throw;
 	}
 
 	savePoint.release();	// everything is ok
@@ -4420,6 +4436,8 @@ void CreateCollationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScra
 	storePrivileges(tdbb, transaction, name, obj_collation, USAGE_PRIVILEGES);
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_CREATE_COLLATION, name, {});
+
+	MetadataCache::newVersion<Cached::CharSet>(tdbb, forCharSetId);
 
 	savePoint.release();	// everything is ok
 
@@ -8101,7 +8119,7 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 					REL.RDB$RELATION_NAME EQ relName.object.c_str()
 
 		{
-			relation = MetadataCache::lookup_relation_id(tdbb, REL.RDB$RELATION_ID, CacheFlag::AUTOCREATE);
+			relation = MetadataCache::getVersioned<Cached::Relation>(tdbb, REL.RDB$RELATION_ID, CacheFlag::AUTOCREATE);
 			if (!relation)
 				return;
 
@@ -9047,6 +9065,8 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
+	Cached::Relation* relation = nullptr;
+	bool extFile = false;
 
 	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
 
@@ -9069,7 +9089,6 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 	DYN_UTIL_check_unique_name(tdbb, transaction, name, obj_relation);
 
 	fb_assert(relationType.has_value());
-
 	checkRelationTempScope(tdbb, transaction, name, relationType.value());
 
 	try
@@ -9115,6 +9134,8 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 				REL.RDB$EXTERNAL_FILE.NULL = FALSE;
 				strcpy(REL.RDB$EXTERNAL_FILE, externalFile->c_str());
 				REL.RDB$RELATION_TYPE = rel_external;
+
+				extFile = true;
 			}
 		}
 		END_STORE
@@ -9186,44 +9207,41 @@ void CreateRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScrat
 			defineConstraint(tdbb, dsqlScratch, transaction, constraint->name, *constraint->create);
 		}
 
-		auto* relation = RelationPermanent::newVersion(tdbb, name);
-		indexList.exec(tdbb, relation, transaction);
-	}
-	catch(const Exception&)
-	{
-		// We need to cleanup RDB$PAGES and pages if they were added at phase 3.
-		AutoCacheRequest request;
-		request.reset(tdbb, irq_c_relation3, IRQ_REQUESTS);
+		relation = RelationPermanent::newVersion(tdbb, name);
+		relation->rel_flags |= REL_get_dependencies;
 
-		FOR(REQUEST_HANDLE request)
-			X IN RDB$RELATIONS WITH
-				X.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-				X.RDB$RELATION_NAME EQ name.object.c_str() AND
-				X.RDB$RELATION_ID NOT MISSING
+		// Do not access external file info from cache - it may be not usable yet
+		// On contrary rel_flags (and therefore check for view) are OK
+		if (!(extFile || relation->isView()))
 		{
-			if (X.RDB$RELATION_ID)
-			{
-				auto* relation = MetadataCache::lookupRelation(tdbb, X.RDB$RELATION_ID, CacheFlag::MINISCAN);
-				if (relation)
-				{
-					RelationPages* const relPages = relation->getBasePages();
-
-					if (relPages->rel_index_root)
-						IDX_delete_indices(tdbb, relation, relPages, true);
-
-					if (relPages->rel_pages)
-						DPM_delete_relation(tdbb, relation);
-				}
-			}
+			// create the table
+			DPM_create_relation(tdbb, relation);
 		}
-		END_FOR
+
+		indexList.exec(tdbb, relation, transaction);
+
+		dsqlScratch->relation->rel_flags &= ~REL_creating;
+
+		executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_CREATE_TABLE, name, {});
+	}
+	catch (const Exception&)
+	{
+		if (relation)
+		{
+			// We need to cleanup RDB$PAGES and pages if they were added.
+			RelationPages* const relPages = relation->getBasePages();
+
+			if (relPages->rel_index_root)
+				IDX_delete_indices(tdbb, relation, relPages, true);
+
+			if (relPages->rel_pages)
+				DPM_delete_relation(tdbb, relation);
+
+			relation->rollback(tdbb);
+		}
 
 		throw;
 	}
-
-	dsqlScratch->relation->rel_flags &= ~REL_creating;
-
-	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, DDL_TRIGGER_CREATE_TABLE, name, {});
 
 	savePoint.release();	// everything is ok
 }
@@ -9267,7 +9285,7 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
 
 	// ensures oldVersion is present in cache
-	auto* rel = MetadataCache::lookupRelation(tdbb, name, CacheFlag::OLD_ALTER);
+	auto* rel = MetadataCache::getPerm<Cached::Relation>(tdbb, name, CacheFlag::OLD_ALTER);
 
 	dsql_rel* relation = saveRelation(tdbb, dsqlScratch, name, false, false);
 
@@ -10254,7 +10272,7 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 
 	AutoSetRestoreFlag dfwFlags(&tdbb->tdbb_flags, TDBB_use_db_page_space, true);
 
-	auto* rel = MetadataCache::lookup_relation(tdbb, name, CacheFlag::AUTOCREATE);
+	auto* rel = MetadataCache::getVersioned<Cached::Relation>(tdbb, name, CacheFlag::AUTOCREATE);
 	if (!rel && silent)
 		return;
 
@@ -10327,14 +10345,18 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 
 	request.reset(tdbb, drq_e_rel_idxs, DYN_REQUESTS);
 
+//			 IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop
+
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
 		IDX IN RDB$INDICES
 		WITH IDX.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-			 IDX.RDB$RELATION_NAME EQ name.object.c_str() AND
-			 IDX.RDB$INDEX_INACTIVE NE MET_index_deferred_drop
+			 IDX.RDB$RELATION_NAME EQ name.object.c_str()// AND
 	{
-		auto* node = FB_NEW_POOL(p) DropIndexNode(p, QualifiedName(IDX.RDB$INDEX_NAME, name.schema));
-		node->drop(tdbb, dsqlScratch, transaction, indexList, false);
+		if (IDX.RDB$INDEX_INACTIVE != MET_index_deferred_drop)
+		{
+			auto* node = FB_NEW_POOL(p) DropIndexNode(p, QualifiedName(IDX.RDB$INDEX_NAME, name.schema));
+			node->drop(tdbb, dsqlScratch, transaction, indexList, false);
+		}
 	}
 	END_FOR
 
@@ -10559,13 +10581,12 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 		if (relation->rel_partners_lock)
 			LCK_release(tdbb, relation->rel_partners_lock);
 	}
-	catch(const Exception&)
+	catch (const Exception&)
 	{
-		if (!relation)
-			return;
-
-		if (relation->isDropped())
+		if (relation && relation->isDropped())
 			relation->rollback(tdbb);
+
+		throw;
 	}
 
 	executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_AFTER, ddlTriggerAction, name, {});
@@ -11505,7 +11526,7 @@ Cached::Relation* ModifyIndexNode::getRelByIndex(thread_db* tdbb, const Qualifie
 			IDX.RDB$INDEX_NAME EQ index.object.c_str()
 	{
 		fb_assert(!relation);
-		relation = MetadataCache::lookupRelation(tdbb,
+		relation = MetadataCache::getPerm<Cached::Relation>(tdbb,
 			QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME), CacheFlag::AUTOCREATE);
 	}
 	END_FOR
@@ -11798,7 +11819,7 @@ MetaId StoreIndexNode::create(thread_db* tdbb, Cached::Relation* rel, jrd_tra* t
 
 		if (MET_lookup_partner(tdbb, rel, &idx, indexName))
 		{
-			partner_relation = MetadataCache::lookupRelation(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
+			partner_relation = MetadataCache::getPerm<Cached::Relation>(tdbb, idx.idx_primary_relation, CacheFlag::AUTOCREATE);
 		}
 
 		if (!partner_relation)
@@ -12526,7 +12547,7 @@ void CreateIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch,
 
 	ModifyIndexList oneItemList(*MemoryPool::getContextPool());
 	oneItemList.push(store(tdbb, oneItemList.getPool(), transaction, name, definition));
-	oneItemList.exec(tdbb, MetadataCache::lookupRelation(tdbb, definition.relation, CacheFlag::AUTOCREATE),
+	oneItemList.exec(tdbb, MetadataCache::getPerm<Cached::Relation>(tdbb, definition.relation, CacheFlag::AUTOCREATE),
 		transaction);
 }
 
@@ -12607,7 +12628,7 @@ void AlterIndexNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, 
 			executeDdlTrigger(tdbb, dsqlScratch, transaction, DTW_BEFORE, DDL_TRIGGER_ALTER_INDEX, indexName, {});
 
 			auto relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
-			relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
+			relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relName, CacheFlag::AUTOCREATE);
 			fb_assert(relation);
 
 			expressionIndex = !IDX.RDB$EXPRESSION_BLR.NULL;
@@ -12858,7 +12879,7 @@ Cached::Relation* DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsql
 	{
 
 		auto relName = QualifiedName(IDX.RDB$RELATION_NAME, IDX.RDB$SCHEMA_NAME);
-		rel = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::AUTOCREATE);
+		rel = MetadataCache::getPerm<Cached::Relation>(tdbb, relName, CacheFlag::AUTOCREATE);
 		fb_assert(rel);
 
 		if (runTriggers)
@@ -12982,7 +13003,7 @@ void DropIndexNode::clearFrgn(thread_db* tdbb, MetaId relId, MetaId indexId)
 	QualifiedName partnerIdxName;
 	bool processPartners = false;
 
-	auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
+	auto rel = MetadataCache::getPerm<Cached::Relation>(tdbb, relId, 0);
 
 	// FK cleanup is not related to current transaction
 	auto* transaction = attachment->getSysTransaction();
@@ -13045,7 +13066,7 @@ void DropIndexNode::clearId(thread_db* tdbb, MetaId relId, MetaId indexId)
 	QualifiedName indexName, partnerIdxName;
 	bool processPartners = false;
 
-	auto rel = MetadataCache::lookupRelation(tdbb, relId, 0);
+	auto rel = MetadataCache::getPerm<Cached::Relation>(tdbb, relId, 0);
 
 	// cleanup NOT related to current transaction
 	auto* transaction = attachment->getSysTransaction();

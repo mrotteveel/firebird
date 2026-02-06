@@ -290,7 +290,7 @@ void dumpIndexRoot(const char* up, const char* from, thread_db* tdbb, WIN* windo
 {
 	if (root->irt_relation > 127)
 	{
-		auto* rel = MetadataCache::lookupRelation(tdbb, root->irt_relation, 0);
+		auto* rel = MetadataCache::getPerm<Cached::Relation>(tdbb, root->irt_relation, 0);
 		printf("\n%sFrom %s page=%" ULONGFORMAT " len=%d rel=%s(%d) tra=%" SQUADFORMAT "\n",
 			up, from, window->win_page.getPageNum(), root->irt_count, rel->c_name(), root->irt_relation,
 			tdbb->getTransaction() ? tdbb->getTransaction()->tra_number : 0);
@@ -2714,7 +2714,7 @@ bool BTR_cleanup_index(thread_db* tdbb, const QualifiedName& relName, jrd_tra* t
  **************************************/
 	SET_TDBB(tdbb);
 
-	auto* relation = MetadataCache::lookupRelation(tdbb, relName, CacheFlag::ERASED);
+	auto* relation = MetadataCache::getPerm<Cached::Relation>(tdbb, relName, CacheFlag::ERASED);
 	if (!relation)
 		return false;
 

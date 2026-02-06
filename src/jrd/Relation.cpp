@@ -346,7 +346,7 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 		if (!idxTran)
 			idxTran = attachment->getSysTransaction();
 
-		jrd_rel* rel = MetadataCache::lookup_relation_id(tdbb, getId(), CacheFlag::AUTOCREATE);
+		jrd_rel* rel = MetadataCache::getVersioned<Cached::Relation>(tdbb, getId(), CacheFlag::AUTOCREATE);
 		fb_assert(rel);
 
 		IndexDescList indices;
@@ -581,13 +581,14 @@ PageNumber RelationPermanent::getIndexRootPage(thread_db* tdbb)
 
 Cached::Relation* RelationPermanent::newVersion(thread_db* tdbb, const QualifiedName& name)
 {
-	auto* relation = MetadataCache::lookupRelation(tdbb, name, CacheFlag::AUTOCREATE | CacheFlag::TAG_FOR_UPDATE);
-	fb_assert(relation);
-
-	if (relation && relation->getId())
+	auto id = jrd_rel::getIdByName(tdbb, name);
+	if (id.has_value())
 	{
-		relation->newVersion(tdbb);
-		DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, nullptr, relation->getId());
+		auto* relation = MetadataCache::newVersion<Cached::Relation>(tdbb, id.value());
+		fb_assert(relation);
+
+		if (relation)
+			DFW_post_work(tdbb->getTransaction(), dfw_commit_relation, nullptr, nullptr, id.value());
 
 		return relation;
 	}

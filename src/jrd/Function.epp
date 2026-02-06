@@ -281,7 +281,6 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			if (!X.RDB$DETERMINISTIC_FLAG.NULL)
 				fun_deterministic = (X.RDB$DETERMINISTIC_FLAG != 0);
 
-			setImplemented(true);
 			setDefined(true);
 
 			fun_entrypoint = nullptr;
@@ -303,6 +302,8 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 				if (!fun_entrypoint)
 					setDefined(false);
+
+				setImplemented(true);
 			}
 			else if (!X.RDB$ENGINE_NAME.NULL || !X.RDB$FUNCTION_BLR.NULL)
 			{
@@ -332,31 +333,31 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)
 
 						if (!fun_external)
 							setDefined(false);
+
+						setImplemented(true);
 					}
-					else if (!X.RDB$FUNCTION_BLR.NULL)
+					else if (compiling || (flags & CacheFlag::MINISCAN))
+						flReload = true;
+					else
 					{
-						if (compiling || (flags & CacheFlag::MINISCAN))
-							flReload = true;
-						else
+						fb_assert(!X.RDB$FUNCTION_BLR.NULL);
+
+						const string name = getName().toQuotedString();
+						try
 						{
-							const string name = getName().toQuotedString();
+							TraceFuncCompile trace(tdbb, name);
 
-							try
-							{
-								TraceFuncCompile trace(tdbb, name);
+							parseBlr(tdbb, csb, &X.RDB$FUNCTION_BLR,
+								X.RDB$DEBUG_INFO.NULL ? nullptr : &X.RDB$DEBUG_INFO);
 
-								parseBlr(tdbb, csb, &X.RDB$FUNCTION_BLR,
-									X.RDB$DEBUG_INFO.NULL ? nullptr : &X.RDB$DEBUG_INFO);
-
-								trace.finish(getStatement(), ITracePlugin::RESULT_SUCCESS);
-							}
-							catch (const Exception& ex)
-							{
-								StaticStatusVector temp_status;
-								ex.stuffException(temp_status);
-								(Arg::Gds(isc_bad_fun_BLR) << Arg::Str(name)
-									<< Arg::StatusVector(temp_status.begin())).raise();
-							}
+							trace.finish(getStatement(), ITracePlugin::RESULT_SUCCESS);
+						}
+						catch (const Exception& ex)
+						{
+							StaticStatusVector temp_status;
+							ex.stuffException(temp_status);
+							(Arg::Gds(isc_bad_fun_BLR) << Arg::Str(name)
+								<< Arg::StatusVector(temp_status.begin())).raise();
 						}
 					}
 				}
@@ -376,10 +377,8 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)
 				RefPtr<MsgMetadata> outputMetadata(REF_NO_INCR, createMetadata(getOutputFields(), false));
 				setOutputFormat(createFormat(pool, outputMetadata, true));
 
-				if (compiling)
+				if (compiling || (flags & CacheFlag::MINISCAN))
 					flReload = true;
-				else
-					setImplemented(false);
 			}
 
 			if (!dbb->readOnly() &&
@@ -414,8 +413,9 @@ ScanResult Function::reload(thread_db* tdbb, ObjectBase::Flag /*unused*/)
 		X IN RDB$FUNCTIONS
 		WITH X.RDB$FUNCTION_ID EQ this->getId()
 	{
-		if (X.RDB$FUNCTION_BLR.NULL)
-			continue;
+		// sanity check
+		if (compiling || X.RDB$FUNCTION_BLR.NULL)
+			return ScanResult::REPEAT;
 
 		found = true;
 
