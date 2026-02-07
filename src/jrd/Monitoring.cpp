@@ -1037,7 +1037,7 @@ void Monitoring::putDatabase(thread_db* tdbb, SnapshotData::DumpRecord& record)
 }
 
 
-void Monitoring::putAttachment(SnapshotData::DumpRecord& record, const Jrd::Attachment* attachment)
+void Monitoring::putAttachment(SnapshotData::DumpRecord& record, Jrd::Attachment* attachment)
 {
 	fb_assert(attachment);
 	if (!attachment->att_user)

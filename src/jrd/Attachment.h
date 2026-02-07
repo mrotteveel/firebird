@@ -739,14 +739,16 @@ public:
 
 	UserId* getUserId(const Firebird::MetaString& userName);
 
-	const Firebird::MetaString& getUserName(const Firebird::MetaString& emptyName = "") const
+	const Firebird::MetaString& getUserName(const Firebird::MetaString& emptyName = "")
 	{
-		return att_user ? att_user->getUserName() : emptyName;
+		saveMetaString(!att_user, att_retUser, emptyName);
+		return att_user ? att_user->getUserName() : *att_retUser;
 	}
 
-	const Firebird::MetaString& getSqlRole(const Firebird::MetaString& emptyName = "") const
+	const Firebird::MetaString& getSqlRole(const Firebird::MetaString& emptyName = "")
 	{
-		return att_user ? att_user->getSqlRole() : emptyName;
+		saveMetaString(!att_user, att_retRole, emptyName);
+		return att_user ? att_user->getSqlRole() : *att_retRole;
 	}
 
 	const UserId* getEffectiveUserId() const noexcept
@@ -811,6 +813,17 @@ private:
 
 	Lock* att_repl_lock;				// Replication set lock
 	JProvider* att_provider;	// Provider which created this attachment
+
+	Firebird::AutoPtr<Firebird::MetaString> att_retUser, att_retRole;
+	void saveMetaString(bool cond, Firebird::AutoPtr<Firebird::MetaString>& meta, const Firebird::MetaString& src)
+	{
+		if (cond)
+		{
+			if (!meta)
+				meta = FB_NEW_POOL(*att_pool) Firebird::MetaString(*att_pool);
+			meta->operator=(src);
+		}
+	}
 };
 
 
