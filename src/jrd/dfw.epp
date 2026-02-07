@@ -3192,7 +3192,7 @@ static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 
 	case 7:
 		{
-			auto* cs = MetadataCache::getCharSet(tdbb, id, 0);
+			auto* cs = MetadataCache::getPerm<Cached::CharSet>(tdbb, id, 0);
 			// fb_assert(cs);	--------------	breaks INI_ini()
 			if (cs)
 				cs->commit(tdbb);
@@ -3201,7 +3201,7 @@ static bool create_collation(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 
 	case 0:
 		{
-			auto* cs = MetadataCache::getCharSet(tdbb, id, CacheFlag::NOSCAN);
+			auto* cs = MetadataCache::getPerm<Cached::CharSet>(tdbb, id, CacheFlag::NOSCAN);
 			if (cs)
 				cs->rollback(tdbb);
 		}

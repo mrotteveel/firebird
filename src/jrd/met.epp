@@ -2331,14 +2331,6 @@ std::optional<MetaId> jrd_rel::getIdByName(thread_db* tdbb, const QualifiedName&
 }
 
 
-CharSetVers* MetadataCache::lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags)
-{
-	SET_TDBB(tdbb);
-
-	return MetadataCache::get(tdbb)->mdc_charsets.getVersioned(tdbb, id, flags);
-}
-
-
 DmlNode* MET_parse_blob(thread_db*					tdbb,
 						const MetaName*				schema,
 						Cached::Relation*			relation,
@@ -4667,16 +4659,6 @@ Cached::Relation* MetadataCache::ensureRelation(thread_db* tdbb, MetaId id)
 	return mdc->mdc_relations.ensurePermanent(tdbb, id);
 }
 
-Cached::CharSet* MetadataCache::getCharSet(thread_db* tdbb, CSetId id, ObjectBase::Flag flags)
-{
-	SET_TDBB(tdbb);
-
-	MetadataCache* mdc = MetadataCache::get(tdbb);
-	auto* rc = mdc->mdc_charsets.getData(tdbb, id, flags);
-
-	return rc;
-}
-
 MetadataCache* MetadataCache::getCache(thread_db* tdbb) noexcept
 {
 	return tdbb->getDatabase()->dbb_mdc;
@@ -4746,7 +4728,7 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	SET_TDBB(tdbb);
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
-	jrd_tra* transaction = tdbb->getTransaction() ? tdbb->getTransaction() : attachment->getSysTransaction();
+	jrd_tra* transaction = attachment->getMetaTransaction(tdbb);
 
 	bid expression, condition;
 	expression.clear();

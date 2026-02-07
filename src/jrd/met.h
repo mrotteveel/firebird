@@ -277,11 +277,8 @@ public:
 		return mdc_procedures.getVersioned(tdbb, id, CacheFlag::AUTOCREATE);
 	}
 
-	static Cached::CharSet* getCharSet(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
-
 	void cleanup(Jrd::thread_db*);
 
-	// former met_proto.h
 #ifdef NEVERDEF
 	static void verify_cache(thread_db* tdbb);
 #else
@@ -324,8 +321,6 @@ public:
 	static void dsql_cache_release(thread_db* tdbb, sym_type type, const QualifiedName& name);
 	static bool dsql_cache_use(thread_db* tdbb, sym_type type, const QualifiedName& name);
 	// end of former met_proto.h
-
-	static CharSetVers* lookup_charset(thread_db* tdbb, CSetId id, ObjectBase::Flag flags);
 
 	static void release_temp_tables(thread_db* tdbb, jrd_tra* transaction);
 	static void retain_temp_tables(thread_db* tdbb, jrd_tra* transaction, TraNumber new_number);
