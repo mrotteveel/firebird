@@ -211,8 +211,12 @@ endif
 	cd $(GEN_ROOT)/$(TARGET)/cloop && \
 	cmake --build .
 
-	CC="$(CC)" CFLAGS="$(CFLAGS)" AR="$(AR)" $(MAKE) -C $(SRCDIR)/extern/decNumber
-	ln -sf $(SRCDIR)/extern/decNumber/libdecFloat.a $(STATIC_LIB)
+	mkdir -p $(ROOT)/temp/extern/decNumber $(GEN_ROOT)/extern/decNumber
+	CC="$(CC)" CFLAGS="$(CFLAGS)" AR="$(AR)" $(MAKE) -C $(SRCDIR)/extern/decNumber \
+		SRCDIR=$(SRCDIR)/extern/decNumber \
+		OBJ_DIR=$(ROOT)/temp/extern/decNumber \
+		LIBRARY=$(GEN_ROOT)/extern/decNumber/libdecFloat.a
+	ln -sf $(GEN_ROOT)/extern/decNumber/libdecFloat.a $(STATIC_LIB)
 
 ifeq ($(ABSEIL_BUILD_FLG),Y)
 	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)" $(MAKE) -C $(SRCDIR)/extern/int128/absl/numeric
@@ -420,8 +424,12 @@ ifeq ($(CLIENT_ONLY_FLG),N)
 	$(MAKE) re2
 	$(MAKE) libcds
 endif
-	CC="$(CC)" CFLAGS="$(CFLAGS)" AR="$(AR)" $(MAKE) -C $(SRCDIR)/extern/decNumber
-	ln -sf $(SRCDIR)/extern/decNumber/libdecFloat$(CROSS).a $(STATIC_LIB)
+	mkdir -p $(ROOT)/temp/extern/decNumber $(GEN_ROOT)/extern/decNumber
+	CC="$(CC)" CFLAGS="$(CFLAGS)" AR="$(AR)" $(MAKE) -C $(SRCDIR)/extern/decNumber \
+		SRCDIR=$(SRCDIR)/extern/decNumber \
+		OBJ_DIR=$(ROOT)/temp/extern/decNumber \
+		LIBRARY=$(GEN_ROOT)/extern/decNumber/libdecFloat$(CROSS).a
+	ln -sf $(GEN_ROOT)/extern/decNumber/libdecFloat$(CROSS).a $(STATIC_LIB)
 	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)" $(MAKE) -C $(SRCDIR)/extern/int128/absl/numeric
 	ln -sf $(SRCDIR)/extern/int128/absl/numeric/libi128$(CROSS).a $(STATIC_LIB)
 	$(MAKE) cross_rest
@@ -872,7 +880,8 @@ clean_config clean_all: clean clean_makefiles
 	$(RM) $(ROOT)/config.status
 	$(RM) $(ROOT)/libtool
 	$(RM_R) $(ROOT)/autom4te.cache
-	-$(MAKE) -C $(SRCDIR)/extern/editline distclean
+	-if [ -d "$(ROOT)/temp/extern/editline" ]; then $(MAKE) -C $(ROOT)/temp/extern/editline distclean; fi
+	-$(RM_R) $(ROOT)/temp/extern/editline
 #	-$(MAKE) -C $(ROOT)/extern/icu/source distclean
 	-$(MAKE) -C $(SRCDIR)/extern/btyacc distclean
 
@@ -889,7 +898,7 @@ clean_examples:
 	$(RM) `find $(GEN_ROOT)/examples/ -type f ! -name 'Make*'`
 
 clean_editline:
-	-$(MAKE) -C $(SRCDIR)/extern/editline clean
+	-if [ -d "$(ROOT)/temp/extern/editline" ]; then $(MAKE) -C $(ROOT)/temp/extern/editline clean; fi
 
 #clean_icu:
 #	-$(MAKE) -C $(ROOT)/extern/icu/source clean
@@ -913,7 +922,8 @@ clean_tomcrypt:
 	-$(RM_R) $(TOMCRYPT_BUILD_DIR)
 
 clean_decfloat:
-	-$(MAKE) -C $(SRCDIR)/extern/decNumber clean
+	-$(MAKE) -C $(SRCDIR)/extern/decNumber clean SRCDIR=$(SRCDIR)/extern/decNumber OBJ_DIR=$(ROOT)/temp/extern/decNumber LIBRARY=$(GEN_ROOT)/extern/decNumber/libdecFloat.a
+	-$(RM_R) $(ROOT)/temp/extern/decNumber
 
 clean_int128:
 	-$(MAKE) -C $(SRCDIR)/extern/int128/absl/numeric clean
