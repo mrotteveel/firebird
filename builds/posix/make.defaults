@@ -283,12 +283,13 @@ LIBIBUTIL_SO = $(LIB)/$(IbUtilLibraryName)
 
 # Own tommath support
 TOMMATH=$(ROOT)/extern/libtommath
+TOMMATH_BUILD_DIR=$(ROOT)/temp/extern/libtommath/$(TARGET)
 TOMMATH_INC=$(TOMMATH)
 TOMMATH_VER=0
 ifeq ($(PLATFORM),DARWIN)
-TOMMATH_SO=$(TOMMATH)/.libs/libtommath.dylib
+TOMMATH_SO=$(TOMMATH_BUILD_DIR)/.libs/libtommath.dylib
 else
-TOMMATH_SO=$(TOMMATH)/.libs/libtommath.so
+TOMMATH_SO=$(TOMMATH_BUILD_DIR)/.libs/libtommath.so
 endif
 
 # Own tomcrypt support

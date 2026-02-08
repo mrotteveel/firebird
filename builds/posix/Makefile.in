@@ -227,11 +227,12 @@ endif
 endif
 
 ifeq ($(TOMMATH_BUILD_FLG),Y)
-	CC="$(CC)" CFLAGS="$(CFLAGS)" AR="$(AR)" $(MAKE) -C $(ROOT)/extern/libtommath -f makefile.shared GCC="$(CC)"
+	@mkdir -p $(TOMMATH_BUILD_DIR)
+	CC="$(CC)" CFLAGS="$(CFLAGS)" AR="$(AR)" $(MAKE) -C $(ROOT)/extern/libtommath -f makefile.shared GCC="$(CC)" OBJDIR=$(TOMMATH_BUILD_DIR) LIBNAME=$(TOMMATH_BUILD_DIR)/libtommath.la
 
 ifeq ($(PLATFORM),DARWIN)
-	install_name_tool -id "@rpath/lib/libtommath.dylib" $(TOMMATH)/.libs/libtommath.0.dylib
-	cp $(TOMMATH)/.libs/libtommath.0.dylib $(LIB)/libtommath.dylib
+	install_name_tool -id "@rpath/lib/libtommath.dylib" $(TOMMATH_BUILD_DIR)/.libs/libtommath.0.dylib
+	cp $(TOMMATH_BUILD_DIR)/.libs/libtommath.0.dylib $(LIB)/libtommath.dylib
 else
 	ln -sf $(TOMMATH_SO).$(TOMMATH_VER) $(LIB)
 	ln -sf $(TOMMATH_SO) $(LIB)
@@ -896,6 +897,7 @@ clean_cds_process:
 
 clean_tommath:
 	-$(MAKE) -C $(ROOT)/extern/libtommath clean
+	-$(RM_R) $(TOMMATH_BUILD_DIR)
 
 clean_tomcrypt:
 	-$(MAKE) -C $(ROOT)/extern/libtomcrypt clean

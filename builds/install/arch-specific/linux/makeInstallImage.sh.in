@@ -265,7 +265,7 @@ copyFiles() {
 
 	if [ "$TomMathBuild" = "Y" ]; then
 		makeDirs @FB_LIBDIR@/.tm
-		cp -df $BuildRootDir/extern/libtommath/.libs/libtommath.so* ${TargetDir}@FB_LIBDIR@/.tm
+		cp -df $BuildRootDir/temp/extern/libtommath/$BuildTarget/.libs/libtommath.so* ${TargetDir}@FB_LIBDIR@/.tm
 	fi
 
 	if [ "$TomCryptBuild" = "Y" ]; then
