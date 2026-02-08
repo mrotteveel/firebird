@@ -239,11 +239,12 @@ endif
 endif
 
 ifeq ($(TOMCRYPT_BUILD_FLG),Y)
-	CC="$(CC)" CFLAGS="$(CFLAGS) $(TOM2TOM_CFLAGS)" $(MAKE) -C $(ROOT)/extern/libtomcrypt -f makefile.shared GCC="$(CC)" LTC_LDFLAGS=$(LTC_LDFLAGS)
+	@mkdir -p $(TOMCRYPT_BUILD_DIR)
+	CC="$(CC)" CFLAGS="$(CFLAGS) $(TOM2TOM_CFLAGS)" $(MAKE) -C $(ROOT)/extern/libtomcrypt -f makefile.shared GCC="$(CC)" LTC_LDFLAGS=$(LTC_LDFLAGS) OBJDIR=$(TOMCRYPT_BUILD_DIR) LIBNAME=$(TOMCRYPT_BUILD_DIR)/libtomcrypt.la
 
 ifeq ($(PLATFORM),DARWIN)
-	install_name_tool -id "@rpath/lib/libtomcrypt.dylib" $(TOMCRYPT)/.libs/libtomcrypt.1.dylib
-	cp $(TOMCRYPT)/.libs/libtomcrypt.1.dylib $(LIB)/libtomcrypt.dylib
+	install_name_tool -id "@rpath/lib/libtomcrypt.dylib" $(TOMCRYPT_BUILD_DIR)/.libs/libtomcrypt.1.dylib
+	cp $(TOMCRYPT_BUILD_DIR)/.libs/libtomcrypt.1.dylib $(LIB)/libtomcrypt.dylib
 else
 	ln -sf $(TOMCRYPT_SO).$(TOMCRYPT_VER) $(LIB)
 	ln -sf $(TOMCRYPT_SO) $(LIB)
@@ -898,6 +899,7 @@ clean_tommath:
 
 clean_tomcrypt:
 	-$(MAKE) -C $(ROOT)/extern/libtomcrypt clean
+	-$(RM_R) $(TOMCRYPT_BUILD_DIR)
 
 clean_decfloat:
 	-$(MAKE) -C $(ROOT)/extern/decNumber clean

@@ -293,8 +293,9 @@ endif
 
 # Own tomcrypt support
 TOMCRYPT=$(ROOT)/extern/libtomcrypt
+TOMCRYPT_BUILD_DIR=$(ROOT)/temp/extern/libtomcrypt/$(TARGET)
 TOMCRYPT_INC=$(TOMCRYPT)/src/headers
-TOMCRYPT_SO=$(TOMCRYPT)/.libs/libtomcrypt.so
+TOMCRYPT_SO=$(TOMCRYPT_BUILD_DIR)/.libs/libtomcrypt.so
 TOMCRYPT_VER=1
 
 # Own libcds support
