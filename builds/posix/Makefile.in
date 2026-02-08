@@ -219,8 +219,9 @@ endif
 
 ifeq ($(CLIENT_ONLY_FLG),N)
 ifeq ($(RE2_BUILD_FLG),Y)
-	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS) -O3 -g -fPIC" AR="$(AR)" $(MAKE) -C $(ROOT)/extern/re2
-	ln -sf $(ROOT)/extern/re2/obj/libre2.a $(STATIC_LIB)
+	@mkdir -p $(RE2_BUILD_DIR)
+	CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS) -O3 -g -fPIC" AR="$(AR)" $(MAKE) -C $(ROOT)/extern/re2 OBJ_DIR=$(RE2_BUILD_DIR)
+	ln -sf $(RE2_BUILD_DIR)/libre2.a $(STATIC_LIB)
 endif
 
 	$(MAKE) libcds
@@ -841,7 +842,7 @@ clean:
 	$(MAKE) TARGET?=$(DefaultTarget) clean_process
 
 clean_process: clean_objects clean_dependencies clean_extern_objects clean_build \
-		clean_yacc_gen clean_gpre_gen clean_dbs clean_examples clean_cds clean_tommath \
+		clean_yacc_gen clean_gpre_gen clean_dbs clean_examples clean_cds clean_re2 clean_tommath \
 		clean_tomcrypt clean_decfloat clean_int128 clean_vers clean_misc
 
 clean_vers:
@@ -896,8 +897,11 @@ clean_cds_process:
 	-$(RM_R) $(LIBCDS_BUILD_DIR)
 
 clean_tommath:
-	-$(MAKE) -C $(ROOT)/extern/libtommath clean
 	-$(RM_R) $(TOMMATH_BUILD_DIR)
+
+clean_re2:
+	-$(RM_R) $(RE2_BUILD_DIR)
+
 
 clean_tomcrypt:
 	-$(MAKE) -C $(ROOT)/extern/libtomcrypt clean

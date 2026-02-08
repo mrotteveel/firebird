@@ -305,6 +305,10 @@ LIBCDS_INC=$(LIBCDS)
 LIBCDS_BUILD_DIR=$(ROOT)/temp/extern/libcds/$(TARGET)
 LIBCDS_DEF=CDS_BUILD_STATIC_LIB
 
+# Own re2 support
+RE2=$(ROOT)/extern/re2
+RE2_BUILD_DIR=$(ROOT)/temp/extern/re2/$(TARGET)
+
 # LINKER OPTIONS
 #
 
