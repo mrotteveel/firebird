@@ -1,5 +1,5 @@
 #!/bin/sh
-ARG_NATIVE_ARCH=linux/arm64
+ARG_NATIVE_ARCH=linux/arm
 docker buildx build \
 	--progress=plain \
 	--platform $ARG_NATIVE_ARCH \

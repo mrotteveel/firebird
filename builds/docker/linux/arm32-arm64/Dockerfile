@@ -1,4 +1,3 @@
-ARG ARG_NATIVE_ARCH=linux/amd64
 ARG ARG_BASE=arm64v8/debian:bookworm
 ARG ARG_TARGET_ARCH=aarch64-pc-linux-gnu
 ARG ARG_CTNF_CONFIG=crosstool-ng-config-arm64
@@ -16,7 +15,7 @@ ARG ARG_CTNG_UID=1000
 ARG ARG_CTNG_GID=1000
 
 
-FROM --platform=$ARG_NATIVE_ARCH debian:bookworm AS builder
+FROM $ARG_BASE AS builder
 
 ARG ARG_TARGET_ARCH
 ARG ARG_CTNF_CONFIG
@@ -26,8 +25,6 @@ ARG ARG_LIBTOOL_VERSION
 ARG ARG_NCURSES_VERSION
 ARG ARG_LTM_VERSION
 ARG ARG_ZLIB_VERSION
-# FIXME: Remove
-ARG ARG_ICU_VERSION
 
 ARG ARG_CPUCOUNT
 
@@ -75,9 +72,7 @@ USER ctng
 
 COPY --from=firebirdsql/firebird-builder-linux:fb6-x64-ng-v2 --chown=ctng:ctng /home/ctng/x-tools /home/ctng/x-tools
 
-# FIXME: Remove icu download here
 RUN mkdir ~/build && \
-	curl -SL --output ~/build/icu4c-${ARG_ICU_VERSION}-src.tgz https://github.com/unicode-org/icu/releases/download/release-${ARG_ICU_VERSION}/icu4c-`echo ${ARG_ICU_VERSION} | tr - _`-src.tgz && \
 	curl -SL --output ~/build/ncurses-${ARG_NCURSES_VERSION}.tar.gz https://ftp.gnu.org/pub/gnu/ncurses/ncurses-${ARG_NCURSES_VERSION}.tar.gz && \
 	curl -SL --output ~/build/libtool-${ARG_LIBTOOL_VERSION}.tar.gz https://ftpmirror.gnu.org/libtool/libtool-${ARG_LIBTOOL_VERSION}.tar.gz && \
 	curl -SL --output ~/build/ltm-${ARG_LTM_VERSION}.tar.xz https://github.com/libtom/libtommath/releases/download/v${ARG_LTM_VERSION}/ltm-${ARG_LTM_VERSION}.tar.xz && \
@@ -195,6 +190,7 @@ ARG ARG_CPUCOUNT
 RUN apt-get update && \
 	apt-get -y install \
 		cmake \
+		gosu \
 		curl \
 		libc6-amd64-cross \
 		libfile-copy-recursive-perl \
@@ -204,8 +200,6 @@ RUN apt-get update && \
 RUN ln -s /usr/x86_64-linux-gnu/lib64 /lib64 && \
 	groupadd -g $ARG_CTNG_GID ctng && \
 	useradd -d /home/ctng -m -g $ARG_CTNG_GID -u $ARG_CTNG_UID -s /bin/bash ctng
-
-USER ctng
 
 RUN mkdir /home/ctng/firebird-build && \
 	chown ctng:ctng /home/ctng/firebird-build && \

@@ -203,6 +203,7 @@ ARG ARG_ICU_VERSION
 RUN apt-get update && \
 	apt-get -y install \
 		cmake \
+		gosu \
 		libfile-copy-recursive-perl \
 		unzip \
 		xz-utils && \
@@ -210,8 +211,6 @@ RUN apt-get update && \
 
 RUN groupadd -g $ARG_CTNG_GID ctng && \
 	useradd -d /home/ctng -m -g $ARG_CTNG_GID -u $ARG_CTNG_UID -s /bin/bash ctng
-
-USER ctng
 
 RUN mkdir /home/ctng/firebird-build && \
 	chown ctng:ctng /home/ctng/firebird-build && \
@@ -226,6 +225,8 @@ ENV LD_LIBRARY_PATH="/home/ctng/x-tools/${ARG_TARGET_ARCH}/${ARG_TARGET_ARCH}/sy
 
 ENV BUILD_ARCH=$ARG_TARGET_ARCH
 ENV SET_ARCH=$ARG_SET_ARCH
+ENV CTNG_UID=1000
+ENV CTNG_GID=1000
 
 WORKDIR /firebird
 
