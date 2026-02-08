@@ -283,7 +283,8 @@ export_lists: $(ALLVERS)
 
 .PHONY:	tommath
 TOMMATH_LIB=$(STATIC_LIB)/libtommath.a
-TOM_Objs=$(addprefix $(SRCDIR)/extern/libtommath/,$(call doObjects,$(call dirFiles,$(SRCDIR)/extern/libtommath)))
+TOM_Src:=$(wildcard $(SRCDIR)/extern/libtommath/*.c)
+TOM_Objs=$(call doObjects,$(TOM_Src))
 
 tommath:	$(TOMMATH_LIB)
 
