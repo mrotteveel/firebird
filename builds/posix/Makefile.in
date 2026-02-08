@@ -321,17 +321,20 @@ $(RE2_LIB):	$(RE2_Objs)
 # libcds
 #
 
-.PHONY:	libcds
+.PHONY:	libcds libcds_process
 libcds:
-	mkdir -p $(LIBCDS)/lib/$(TARGET)
-	cd $(LIBCDS)/lib/$(TARGET); \
+	$(MAKE) TARGET?=$(DefaultTarget) libcds_process
+
+libcds_process:
+	mkdir -p $(LIBCDS_BUILD_DIR)
+	cd $(LIBCDS_BUILD_DIR); \
 	cmake -DCMAKE_BUILD_TYPE=$(FB_CMAKE_BUILD_TYPE) -DCMAKE_CXX_COMPILER="$(CXX)" -DCMAKE_CXX_FLAGS=-fPIC $(LIBCDS)
-	AR="$(AR)" $(MAKE) -C $(LIBCDS)/lib/$(TARGET)
+	AR="$(AR)" $(MAKE) -C $(LIBCDS_BUILD_DIR)
 
 ifeq ($(TARGET),Debug)
-	ln -sf $(LIBCDS)/lib/$(TARGET)/bin/libcds-s_d.a $(STATIC_LIB)/libcds.a
+	ln -sf $(LIBCDS_BUILD_DIR)/bin/libcds-s_d.a $(STATIC_LIB)/libcds.a
 else
-	ln -sf $(LIBCDS)/lib/$(TARGET)/bin/libcds-s.a $(STATIC_LIB)/libcds.a
+	ln -sf $(LIBCDS_BUILD_DIR)/bin/libcds-s.a $(STATIC_LIB)/libcds.a
 endif
 
 #___________________________________________________________________________
@@ -883,8 +886,12 @@ clean_editline:
 #clean_icu:
 #	-$(MAKE) -C $(ROOT)/extern/icu/source clean
 
+.PHONY: clean_cds clean_cds_process
 clean_cds:
-	-$(RM_R) $(LIBCDS)/lib/$(TARGET)
+	$(MAKE) TARGET?=$(DefaultTarget) clean_cds_process
+
+clean_cds_process:
+	-$(RM_R) $(LIBCDS_BUILD_DIR)
 
 clean_tommath:
 	-$(MAKE) -C $(ROOT)/extern/libtommath clean
