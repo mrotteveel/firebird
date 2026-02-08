@@ -45,7 +45,7 @@ $(OBJ_DIR):
 
 PRINT	      = pr -f -l88
 
-PROGRAM	      = btyacc
+PROGRAM	      = ../../gen/extern/btyacc/btyacc
 
 SRCS	      = closure.c error.c lalr.c lr0.c main.c mkpar.c output.c	\
 		mstring.c reader.c readskel.c skeleton.c symtab.c verbose.c warshall.c
@@ -57,6 +57,7 @@ OTHERS	      = README README.BYACC \
 all:		$(PROGRAM)
 
 $(PROGRAM):     $(OBJS) $(LIBS)
+		mkdir -p $(dir $(PROGRAM))
 		$(CC) $(LDFLAGS) -o $(PROGRAM) $(OBJS) $(LIBS)
 
 clean:;		rm -f $(OBJS)

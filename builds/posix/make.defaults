@@ -186,7 +186,7 @@ CAT=			cat
 AR=			ar @AR_OPTIONS@
 LN=			@LN_S@
 RANLIB=			@RANLIB@
-BTYACC=$(ROOT)/extern/btyacc/btyacc
+BTYACC=$(GEN_ROOT)/extern/btyacc/btyacc
 CLOOP=$(GEN_ROOT)/$(TARGET)/cloop/bin/cloop
 
 AR =	@AR@
