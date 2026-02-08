@@ -1272,14 +1272,14 @@ AC_SUBST(CAS_OPTIONS)
 dnl ##################### DO NOT ADD ANY TESTS BELOW ###########################
 
 dnl The following file defines the version number strings. Specially for install/uninstall routines
-CXX="$CXX" . ./src/misc/writeBuildNum.sh
+CXX="$CXX" . "$srcdir/src/misc/writeBuildNum.sh"
 
 AC_SUBST(FIREBIRD_VERSION)
 AC_SUBST(FIREBIRD_PACKAGE_VERSION)
 AC_SUBST(FB_BUILD_NUM, $BuildNum)
 
 BUILD_ROOT_DIR=`pwd`
-SRC_ROOT=$BUILD_ROOT_DIR/src
+SRC_ROOT=$srcdir/src
 GEN_ROOT=$BUILD_ROOT_DIR/gen
 NEW_FIREBIRD_DIR=$GEN_ROOT/firebird
 
@@ -1343,19 +1343,19 @@ dnl # output
   esac
 
 dnl ### TEMP ### directories for generated .cpp, .o and .d by module name
-	for src_dir in `cd src; ls -R -1 * | grep : | tr -d : | tr "\n" " "; cd ..`; do
+	for src_dir in `cd "$srcdir/src"; ls -R -1 * | grep : | tr -d : | tr "\n" " "; cd ..`; do
     	mkdir -p temp/\$fb_tgt/\$src_dir
 	done
 
-	for src_dir in `ls -R -1 examples | grep : | tr -d : | tr "\n" " "`; do
+	for src_dir in `cd "$srcdir/examples"; ls -R -1 * | grep : | tr -d : | tr "\n" " "`; do
    		mkdir -p temp/\$fb_tgt/\$src_dir
 	done
 
-	src/misc/writeBuildNum.sh createMakeVersion gen/Make.Version
+	"$srcdir/src/misc/writeBuildNum.sh" createMakeVersion gen/Make.Version
 done
 
 dnl # rebuild version header if needed
-./src/misc/writeBuildNum.sh rebuildHeader
+"$srcdir/src/misc/writeBuildNum.sh" rebuildHeader
 
 ])
 
