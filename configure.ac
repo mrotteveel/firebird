@@ -73,11 +73,11 @@ sinclude(binreloc.m4)
 
 dnl ############################# ADD TESTS BELOW ##############################
 
-AC_CANONICAL_BUILD
-CPU_TYPE=$build_cpu
+AC_CANONICAL_HOST
+CPU_TYPE=$host_cpu
 AC_SUBST(CPU_TYPE)
 
-case "$build" in
+case "$host" in
   aarch64-*-darwin*)
     VCPKG_TRIPLET=fb-arm64-osx
     ;;
@@ -118,7 +118,7 @@ STD_EDITLINE=false
 dnl Test for special ar options?
 AR_OPT_CHECK=false
 
-case "$build" in
+case "$host" in
   aarch64-*-darwin*)
     MAKEFILE_PREFIX=darwin_aarch64
     MAKEFILE_POSTFIX=darwin
@@ -176,7 +176,7 @@ dnl CPU_TYPE=ppc64
 
   amd64-*-freebsd* | x86_64*-*-freebsd* | x86_64*-*-k*bsd*-gnu)
     MAKEFILE_PREFIX=freebsd_amd64
-    case "$build" in
+    case "$host" in
         x86_64*-*-k*bsd-gnu)      # Debian/kFreeBSD
             PLATFORM=GENTOOFREEBSD
             INSTALL_PREFIX=linux
@@ -232,7 +232,7 @@ dnl CPU_TYPE=ppc64
 
   *-*-freebsd* | *-*-k*bsd*-gnu)
     MAKEFILE_PREFIX=freebsd
-    case "$build" in
+    case "$host" in
         *-*-k*bsd-gnu)      # Debian/kFreeBSD
             PLATFORM=GENTOOFREEBSD
             INSTALL_PREFIX=linux
@@ -534,7 +534,7 @@ dnl CPU_TYPE=ppc64
     ;;
 
   *)
-    AC_MSG_ERROR(unsupported platform ${build})
+    AC_MSG_ERROR(unsupported platform ${host})
     ;;
 esac
 
@@ -651,7 +651,7 @@ CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
 CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS"
 LIBS="$LIBS $PTHREAD_LIBS"
 
-case "$build" in
+case "$host" in
   *-*-darwin*)
     CFLAGS="$CFLAGS -I${VCPKG_INSTALLED}/include"
     CXXFLAGS="$CXXFLAGS -nostdinc++ -isystem ${VCPKG_INSTALLED}/include/c++/v1 -I${VCPKG_INSTALLED}/include"
@@ -1330,7 +1330,7 @@ dnl # output
 		fi
 	fi
 
-  case "$build" in
+  case "$host" in
     *-*-darwin*)
       cp -a $VCPKG_INSTALLED/lib/libicu* gen/\$fb_tgt/firebird/lib/
       install_name_tool -id @rpath/lib/libicuuc.dylib gen/\$fb_tgt/firebird/lib/libicuuc.dylib
