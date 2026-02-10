@@ -1251,7 +1251,7 @@ void SharedMemoryBase::internalUnmap()
 }
 
 
-ULONG SharedMemoryBase::getSystemPageSize()
+ULONG SharedMemoryBase::getSystemPageSize(CheckStatusWrapper* statusVector)
 {
 	// Get system page size as this is the unit of mapping.
 
@@ -1280,7 +1280,7 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 	sh_mem_mutex(0),
 #endif
 	sh_mem_length_mapped(0),
-	sh_mem_increment(FB_ALIGN(length, getSystemPageSize())),
+	sh_mem_increment(0),
 	sh_mem_header(NULL),
 	sh_mem_callback(callback)
 {
@@ -1312,8 +1312,16 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 	TEXT init_filename[MAXPATHLEN];
 	iscPrefixLock(init_filename, INIT_FILE, true);
 
-	if (length && length < sh_mem_increment)
-		length = sh_mem_increment;
+	if (length)
+	{
+		sh_mem_increment = FB_ALIGN(length, getSystemPageSize(&statusVector));
+
+		if (statusVector.hasData())
+			status_exception::raise(&statusVector);
+
+		if (length < sh_mem_increment)
+			length = sh_mem_increment;
+	}
 
 	const bool trunc_flag = (length != 0);
 
@@ -1599,7 +1607,7 @@ void SharedMemoryBase::internalUnmap()
 }
 
 
-ULONG SharedMemoryBase::getSystemPageSize()
+ULONG SharedMemoryBase::getSystemPageSize(CheckStatusWrapper* /*statusVector*/)
 {
 	SYSTEM_INFO sys_info;
 	GetSystemInfo(&sys_info);
@@ -1608,8 +1616,7 @@ ULONG SharedMemoryBase::getSystemPageSize()
 
 
 SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject* cb, bool /*skipLock*/)
-  :	sh_mem_mutex(0), sh_mem_length_mapped(0),
-	sh_mem_increment(FB_ALIGN(length, getSystemPageSize())),
+  :	sh_mem_mutex(0), sh_mem_length_mapped(0), sh_mem_increment(0),
 	sh_mem_handle(INVALID_HANDLE_VALUE), sh_mem_object(0), sh_mem_interest(0), sh_mem_hdr_object(0),
 	sh_mem_hdr_address(0), sh_mem_header(NULL), sh_mem_callback(cb), sh_mem_unlink(false)
 {
@@ -1637,8 +1644,19 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 	bool init_flag = false;
 	DWORD err = 0;
 
-	if (length && length < sh_mem_increment)
-		length = sh_mem_increment;
+	if (length)
+	{
+		LocalStatus ls;
+		CheckStatusWrapper statusVector(&ls);
+
+		sh_mem_increment = FB_ALIGN(length, getSystemPageSize(&statusVector));
+
+		if (statusVector.hasData())
+			status_exception::raise(&statusVector);
+
+		if (length < sh_mem_increment)
+			length = sh_mem_increment;
+	}
 
 	// retry to attach to mmapped file if the process initializing dies during initialization.
 
@@ -1967,7 +1985,7 @@ UCHAR* SharedMemoryBase::mapObject(CheckStatusWrapper* statusVector, ULONG objec
  *
  **************************************/
 
-	const ULONG page_size = getSystemPageSize();
+	const ULONG page_size = getSystemPageSize(statusVector);
 	if (!page_size)
 		return NULL;
 
@@ -2007,7 +2025,7 @@ void SharedMemoryBase::unmapObject(CheckStatusWrapper* statusVector, UCHAR** obj
  *	Zero the object pointer after a successful unmap.
  *
  **************************************/
-	const size_t page_size = getSystemPageSize();
+	const size_t page_size = getSystemPageSize(statusVector);
 	if (!page_size)
 		return;
 
@@ -2047,7 +2065,7 @@ UCHAR* SharedMemoryBase::mapObject(CheckStatusWrapper* statusVector,
  *
  **************************************/
 
-	const ULONG page_size = getSystemPageSize();
+	const ULONG page_size = getSystemPageSize(statusVector);
 
 	// Compute the start and end page-aligned offsets which
 	// contain the object being mapped.
@@ -2087,7 +2105,7 @@ void SharedMemoryBase::unmapObject(CheckStatusWrapper* statusVector,
  *	Zero the object pointer after a successful unmap.
  *
  **************************************/
-	const size_t page_size = getSystemPageSize();
+	const size_t page_size = getSystemPageSize(statusVector);
 
 	// Compute the start and end page-aligned offsets which
 	// contain the object being mapped.

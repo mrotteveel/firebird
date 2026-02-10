@@ -280,7 +280,7 @@ public:
 	int eventPost(event_t* event);
 
 	// Used as memory allocation unit and mapping alignment
-	static ULONG getSystemPageSize();
+	static ULONG getSystemPageSize(Firebird::CheckStatusWrapper* status);
 
 public:
 #ifdef UNIX
@@ -299,7 +299,7 @@ public:
 #endif
 
 	ULONG	sh_mem_length_mapped;
-	const ULONG	sh_mem_increment;			// Suggested growth increment
+	ULONG	sh_mem_increment;				// Suggested growth increment
 #ifdef WIN_NT
 	HANDLE	sh_mem_handle;					// file handle
 	HANDLE	sh_mem_object;					// file mapping
