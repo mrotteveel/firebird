@@ -1314,13 +1314,10 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 
 	if (length)
 	{
-		sh_mem_increment = FB_ALIGN(length, getSystemPageSize(&statusVector));
+		sh_mem_increment = length = FB_ALIGN(length, getSystemPageSize(&statusVector));
 
 		if (statusVector.hasData())
 			status_exception::raise(&statusVector);
-
-		if (length < sh_mem_increment)
-			length = sh_mem_increment;
 	}
 
 	const bool trunc_flag = (length != 0);
@@ -1649,13 +1646,10 @@ SharedMemoryBase::SharedMemoryBase(const TEXT* filename, ULONG length, IpcObject
 		LocalStatus ls;
 		CheckStatusWrapper statusVector(&ls);
 
-		sh_mem_increment = FB_ALIGN(length, getSystemPageSize(&statusVector));
+		sh_mem_increment = length = FB_ALIGN(length, getSystemPageSize(&statusVector));
 
 		if (statusVector.hasData())
 			status_exception::raise(&statusVector);
-
-		if (length < sh_mem_increment)
-			length = sh_mem_increment;
 	}
 
 	// retry to attach to mmapped file if the process initializing dies during initialization.
@@ -2525,6 +2519,8 @@ bool SharedMemoryBase::remapFile(CheckStatusWrapper* statusVector, ULONG new_len
 
 	if (flag)
 	{
+		new_length = FB_ALIGN(new_length, getSystemPageSize(statusVector));
+
 		FB_UNUSED(os_utils::ftruncate(mainLock->getFd(), new_length));
 
 		if (new_length > sh_mem_length_mapped)
@@ -2581,6 +2577,8 @@ bool SharedMemoryBase::remapFile(CheckStatusWrapper* statusVector,
 
 	if (flag)
 	{
+		new_length = FB_ALIGN(new_length, getSystemPageSize(statusVector));
+
 		LARGE_INTEGER offset;
 		offset.QuadPart = new_length;
 
