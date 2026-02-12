@@ -32,7 +32,7 @@
 
 
 # Please don't use compiler/platform specific flags here - nmcc 02-Nov-2002
-WFLAGS =-I$(ROOT)/src/include -I$(ROOT)/src/include/gen -I$(SRC_ROOT)/include/gen -I$(SRC_ROOT)/include $(CPPFLAGS) $(LTCSOURCE)
+WFLAGS =-I$(ROOT)/src/include -I$(ROOT)/src/include/gen -I$(TMP_ROOT)/include/gen -I$(SRC_ROOT)/include/gen -I$(SRC_ROOT)/include $(CPPFLAGS) $(LTCSOURCE)
 
 ifneq ($(SYSTEM_BOOST_FLG),Y)
   WFLAGS += -I$(SRCDIR)/extern/boost

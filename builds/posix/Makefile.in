@@ -118,6 +118,7 @@ IDL_ROOT=$(INCLD_ROOT)/firebird
 IDL_FILE=$(IDL_ROOT)/FirebirdInterface.idl
 API_H_FILE=$(IDL_ROOT)/IdlFbInterfaces.h
 API_PAS_FILE=$(INCLD_ROOT)/gen/Firebird.pas
+API_PAS_TMP_FILE=$(TMP_ROOT)/include/gen/Firebird.pas
 API_C_HEADER=fb_c_api.h
 API_C_H_FILE=$(FIREBIRD)/include/firebird/$(API_C_HEADER)
 API_C_TMP_FILE=$(TMP_ROOT)/fb_c_api.tmp
@@ -173,12 +174,17 @@ $(TMP_FUNCS_PAS): $(PASCAL_SOURCES) $(XPB_CONSTS) $(INF_CONSTS) $(TMP_ROOT)/iber
 	$(RPL_GREP) <$(TMP_ROOT)/iberror.pas >>$(TMP_FUNCS_PAS)
 
 $(API_PAS_FILE): $(IDL_FILE) $(PASCAL_SOURCES) $(TMP_FUNCS_PAS)
-	$(CLOOP) $(IDL_FILE) pascal $@ Firebird --uses SysUtils \
+	$(CLOOP) $(IDL_FILE) pascal $(API_PAS_TMP_FILE) Firebird --uses SysUtils \
 		--interfaceFile $(PAS_ROOT)/Pascal.interface.pas \
     	--implementationFile $(PAS_ROOT)/Pascal.implementation.pas \
     	--exceptionClass FbException \
     	--functionsFile $(TMP_FUNCS_PAS) \
     	--prefix I
+	if [ ! -f $@ ] || ! cmp -s $(API_PAS_TMP_FILE) $@; then \
+		mv -f $(API_PAS_TMP_FILE) $@; \
+	else \
+		rm -f $(API_PAS_TMP_FILE); \
+	fi
 
 updateBuildNum : $(SRC_ROOT)/jrd/build_no.h $(GEN_ROOT)/Make.Version
 
@@ -355,7 +361,7 @@ endif
 
 master_process:
 	mkdir -p $(ROOT)/src/include/gen
-	ln -sf $(ROOT)/src/include/gen/autoconfig.auto $(ROOT)/src/include/gen/autoconfig.h
+	ln -sf $(ROOT)/gen/autoconfig.auto $(ROOT)/src/include/gen/autoconfig.h
 	$(MAKE) updateBuildNum
 	$(MAKE) export_lists
 	$(MAKE) external
@@ -391,7 +397,7 @@ cross_process:
 
 cross1:
 	mkdir -p $(ROOT)/src/include/gen
-	ln -sf $(ROOT)/src/include/gen/autoconfig.auto $(ROOT)/src/include/gen/autoconfig.h
+	ln -sf $(ROOT)/gen/autoconfig.auto $(ROOT)/src/include/gen/autoconfig.h
 	$(MAKE) updateBuildNum
 	$(MAKE) export_lists
 	$(MAKE) external
@@ -966,7 +972,7 @@ clean_gpre_gen:
 	-$(RM) -f `find $(TMP_ROOT)/ -type f -name '*.cpp' -print`
 
 clean_yacc_gen:
-	$(RM) $(ROOT)/src/dsql/parse.cpp $(ROOT)/src/dsql/dsql.tab.h $(ROOT)/src/include/gen/parse.h types.y y.* $(OBJ)/.parse-gen-sentinel
+	$(RM) $(ROOT)/src/dsql/parse.cpp $(ROOT)/src/dsql/dsql.tab.h $(TMP_ROOT)/include/gen/parse.h types.y y.* $(OBJ)/.parse-gen-sentinel
 
 #___________________________________________________________________________
 # Extra platform specific targets

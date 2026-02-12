@@ -13,7 +13,7 @@ m4_ifdef([AC_CONFIG_MACRO_DIR],
          [m4_define([AC_CONFIG_MACRO_DIR], [])])
 AC_CONFIG_MACRO_DIR(m4)
 
-AC_CONFIG_HEADER(src/include/gen/autoconfig.auto:builds/make.new/config/config.h.in)
+AC_CONFIG_HEADER(gen/autoconfig.auto:builds/make.new/config/config.h.in)
 
 dnl XE_APPEND(value, varname)
 define([XE_APPEND],[[$2]="$[$2] [$1]"])
@@ -1293,6 +1293,9 @@ FB_TARGETS="Debug Release"
 test "x$CROSS" = "x" || FB_TARGETS="$FB_TARGETS Native"
 
 AC_CONFIG_COMMANDS(,,[
+
+mkdir -p src/dsql
+mkdir -p src/include/gen
 
 FB_TARGETS="$FB_TARGETS"
 for fb_tgt in \$FB_TARGETS; do
