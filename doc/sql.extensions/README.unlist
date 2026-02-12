@@ -17,7 +17,7 @@ Format
 
 	<separator> ::= <value>
 
-	<type-conversion> ::= RETURNING <data type>
+	<type-conversion> ::= RETURNING <data-type>
 
 Syntax Rules:
 
@@ -27,11 +27,10 @@ Syntax Rules:
    value from another inside the input string). It may also be a BLOB TEXT value, limited to 32KB. If an empty string is
    specified, the output will be just one record containing the input string. If omitted, the comma character is used as
    a delimiter.
-2) <data type>: target data type to convert the output values into. Alternatively, a domain can be specified as
+2) <data-type>: target data type to convert the output values into. Alternatively, a domain can be specified as
    the returned type. If omitted, VARCHAR(32) is implied. Feel free to suggest any better alternative default.
-3) <correlation name>: alias of the record set returned by the UNLIST function. It is a mandatory parameter.
-4) <derived column name>: optional alias of the column returned by the UNLIST function. If omitted, UNLIST is used as
-   an alias.
+3) <correlation-name>: alias of the record set returned by the UNLIST function. It is a mandatory parameter.
+4) <column-name>: optional alias of the column returned by the UNLIST function. If omitted, UNLIST is used as an alias.
 
 Example:
 A)
