@@ -1080,8 +1080,6 @@ RecordSource* Optimizer::compile(BoolExprNodeStack* parentStack)
 
 				if (dependentRivers.hasData())
 				{
-					fb_assert(joinType == INNER_JOIN);
-
 					for (const auto depRiver : dependentRivers)
 						depRiver->activate(csb);
 
