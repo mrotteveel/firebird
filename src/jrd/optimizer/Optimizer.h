@@ -511,11 +511,6 @@ public:
 		return rse->isOuterJoin();
 	}
 
-	bool isLeftJoin() const
-	{
-		return rse->isLeftJoin();
-	}
-
 	bool isFullJoin() const
 	{
 		return rse->isFullJoin();
