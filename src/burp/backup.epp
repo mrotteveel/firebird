@@ -4899,15 +4899,18 @@ void ReadRelationMeta::setRelation(const burp_rel* relation, bool partition)
 	{
 		if (field->fld_flags & FLD_computed)
 			continue;
+
 		SSHORT alignment = 4;
 		FLD_LENGTH length = field->fld_length;
-		SSHORT dtype = field->fld_type;
+		const auto blrType = field->fld_type;
+
 		if (field->fld_flags & FLD_array)
 		{
-			dtype = blr_blob;
+			blrType = blr_blob;
 			length = 8;
 		}
-		switch (dtype)
+
+		switch (blrType)
 		{
 		case blr_text:
 			alignment = type_alignments[dtype_text];
@@ -4999,8 +5002,12 @@ void ReadRelationMeta::setRelation(const burp_rel* relation, bool partition)
 			break;
 
 		case blr_dec64:
+			alignment = type_alignments[dtype_dec64];
+			add_byte(blr, field->fld_type);
+			break;
+
 		case blr_dec128:
-			alignment = type_alignments[dtype];
+			alignment = type_alignments[dtype_dec128];
 			add_byte(blr, field->fld_type);
 			break;
 
@@ -5009,8 +5016,10 @@ void ReadRelationMeta::setRelation(const burp_rel* relation, bool partition)
 			// msg 26 datatype %ld not understood
 			break;
 		}
+
 		if (alignment)
 			offset = FB_ALIGN(offset, alignment);
+
 		field->fld_offset = offset;
 		field->fld_parameter = count++;
 		offset += length;
