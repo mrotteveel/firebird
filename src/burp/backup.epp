@@ -4905,13 +4905,13 @@ void ReadRelationMeta::setRelation(const burp_rel* relation, bool partition)
 		auto blrType = field->fld_type;
 
 		if (field->fld_flags & FLD_array)
-		{
 			blrType = blr_blob;
-			length = 8;
-		}
 
-		const auto dtype = gds_cvt_blr_dtype[blrType];
-		alignment = type_alignments[dtype];
+		if (blrType <= DTYPE_BLR_MAX)
+		{
+			const auto dtype = gds_cvt_blr_dtype[blrType];
+			alignment = type_alignments[dtype];
+		}
 
 		switch (blrType)
 		{
@@ -4947,6 +4947,7 @@ void ReadRelationMeta::setRelation(const burp_rel* relation, bool partition)
 
 		case blr_blob:
 			alignment = type_alignments[dtype_blob];
+			length = type_lengths[dtype_blob];
 			add_byte(blr, blr_quad);
 			add_byte(blr, 0);
 			break;
