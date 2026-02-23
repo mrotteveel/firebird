@@ -587,6 +587,11 @@ public:
 		Permanent(tdbb, p, id, extend)
 	{ }
 
+	CacheElement(thread_db* tdbb, MemoryPool& p, MetaId id) :
+		ElementBase(),
+		Permanent(tdbb, p, id, {})
+	{ }
+
 	CacheElement(MemoryPool& p) :
 		ElementBase(),
 		Permanent(p)
@@ -1116,8 +1121,7 @@ public:
 		StoredElement* data = ptr->load(atomics::memory_order_acquire);
 		if (!data)
 		{
-			StoredElement* newData = FB_NEW_POOL(getPool())
-				StoredElement(tdbb, getPool(), id, m_extend);
+			StoredElement* newData = FB_NEW_POOL(getPool()) StoredElement(tdbb, getPool(), id, m_extend);
 			if (ptr->compare_exchange_strong(data, newData,
 				atomics::memory_order_release, atomics::memory_order_acquire))
 			{

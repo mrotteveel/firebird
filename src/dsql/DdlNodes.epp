@@ -9086,7 +9086,8 @@ Format* RelationNode::makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::
 	format->fmt_length = offset;
 
 	Format* old_format;
-	if (format->fmt_version &&
+	if (!(relation->rel_flags & REL_temp_ltt) &&
+		format->fmt_version &&
 		(old_format = MET_format(tdbb, relation, (format->fmt_version - 1))) &&
 		(*old_format == *format))
 	{
