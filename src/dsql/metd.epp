@@ -694,22 +694,15 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 	validateTransaction(transaction);
 
-	// 1. see if the relation is the one currently being defined in this statement
+	// see if the relation is the one currently being defined in this statement
 
 	auto* relation = dsqlScratch->relation;
 	if (relation != NULL && relation->rel_name == name)
 	{
 		return relation;
 	}
-/*
-	// 2. see if it is in the cache of own (self-modified) statements
 
-	if (transaction->tra_own_rels.get(name, relation))
-	{
-		return relation;
-	}
- */
-	// 3. check is regular cache still valid
+	// check is regular cache still valid
 
 	if (!dsqlScratch->regularCacheValid)
 	{
@@ -722,14 +715,14 @@ dsql_rel* METD_get_relation(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 		dsqlScratch->regularCacheValid = true;
 	}
 
-	// 4. see if it is in the regular cache
+	// see if it is in the regular cache
 
 	if (transaction->tra_cache_rels.get(name, relation))
 	{
 		return relation;
 	}
 
-	// 5. Is it LTT?
+	// Is it LTT?
 
 	const auto lttPtr = tdbb->getAttachment()->att_local_temporary_tables.get(name);
 	const auto ltt = lttPtr ? *lttPtr : nullptr;

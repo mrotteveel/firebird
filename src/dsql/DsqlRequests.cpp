@@ -979,27 +979,7 @@ void DsqlDdlRequest::execute(thread_db* tdbb, jrd_tra** traHandle,
 			node->executeDdl(tdbb, internalScratch, req_transaction);
 
 			if (req_transaction && req_transaction->tra_number)
-			{
 				req_transaction->tra_flags |= TRA_ddl_request;
-
-				// Had request created/modified DSQL relation?
-				// If yes copy it into transaction block for future use.
-
-				if (internalScratch->relation)
-				{
-					dsql_rel* existingRel = nullptr;
-					auto* rel = internalScratch->relation;
-					req_transaction->tra_own_rels.get(rel->rel_name, existingRel);
-					if (rel != existingRel)
-					{
-						req_transaction->tra_own_rels.remove(rel->rel_name);
-						auto traPool = req_transaction->getPool();
-						AutoPtr<dsql_rel> traRel = FB_NEW_POOL(traPool) dsql_rel(traPool, rel);
-						req_transaction->tra_own_rels.put(traRel->rel_name, traRel);
-						traRel.release();
-					}
-				}
-			}
 
 			const bool isInternalRequest =
 				(internalScratch->flags & DsqlCompilerScratch::FLAG_INTERNAL_REQUEST);

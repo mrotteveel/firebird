@@ -186,7 +186,6 @@ public:
 		tra_sorts(*p, attachment->att_database),
 		tra_gen_ids(NULL),
 		tra_replicator(NULL),
-		tra_own_rels(*p),
 		tra_cache_rels(*p),
 		tra_interface(NULL),
 		tra_blob_space(NULL),
@@ -313,7 +312,6 @@ public:
 	//Transaction *tra_ext_two_phase;
 	GenIdCache* tra_gen_ids;
 	Firebird::IReplicatedTransaction* tra_replicator;
-	Firebird::LeftPooledMap<QualifiedName, class dsql_rel*> tra_own_rels;	// created/modified DSQL relations
 	Firebird::LeftPooledMap<QualifiedName, class dsql_rel*> tra_cache_rels;	// accessed DSQL relations
 	MdcVersion tra_mdc_version = 0;
 
