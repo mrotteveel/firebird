@@ -444,7 +444,6 @@ inline constexpr ULONG TRA_ex_restart			= 0x80000L; 	// Exception was raised to 
 inline constexpr ULONG TRA_replicating			= 0x100000L;	// transaction is allowed to be replicated
 inline constexpr ULONG TRA_no_blob_check		= 0x200000L;	// disable blob access checking
 inline constexpr ULONG TRA_auto_release_temp_blobid = 0x400000L;// remove temp ids of materialized user blobs from tra_blobs
-inline constexpr ULONG TRA_ddl_request			= 0x800000L;	// DDL statement was running in transaction context
 
 // flags derived from TPB, see also transaction_options() at tra.cpp
 inline constexpr ULONG TRA_OPTIONS_MASK = (TRA_degree3 | TRA_readonly | TRA_ignore_limbo | TRA_read_committed |

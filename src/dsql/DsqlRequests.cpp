@@ -978,9 +978,6 @@ void DsqlDdlRequest::execute(thread_db* tdbb, jrd_tra** traHandle,
 
 			node->executeDdl(tdbb, internalScratch, req_transaction);
 
-			if (req_transaction && req_transaction->tra_number)
-				req_transaction->tra_flags |= TRA_ddl_request;
-
 			const bool isInternalRequest =
 				(internalScratch->flags & DsqlCompilerScratch::FLAG_INTERNAL_REQUEST);
 
