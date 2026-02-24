@@ -4741,6 +4741,17 @@ static bool create_ltt_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 		}
 	}
 
+	// Create index description in relation
+	auto* idp = relation->getPermanent()->rel_indices.ensurePermanent(tdbb, lttIndex->id);
+
+	// create versioned part
+	auto& attPool = *attachment->att_pool;
+	AutoPtr<IndexVersion> idv = FB_NEW_POOL(attPool) IndexVersion(attPool, idp);
+	idv->setLtt(tdbb, lttIndex);
+
+	idp->storeObject(tdbb, idv, 0);
+	idv.release();
+
 	return false;
 }
 
@@ -4783,12 +4794,14 @@ static bool delete_ltt_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 			return false;
 
 		// Delete the index by its ID
-		//IDX_delete_index(tdbb, relation, indexId);
 		WIN window(relPages->rel_pg_space_id, relPages->rel_index_root);
 		CCH_FETCH(tdbb, &window, LCK_write, pag_root);
 
 		BTR_delete_index(tdbb, &window, indexId, false);
 	}
+
+	auto* idp = relation->getPermanent()->eraseIndex(tdbb, indexId);
+	idp->commit(tdbb);
 
 	return false;
 }

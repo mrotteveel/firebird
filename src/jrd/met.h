@@ -429,13 +429,13 @@ public:
 		return rc;
 	}
 
-
-private:
 	static bool isLtt(MetaId id)
 	{
 		return (id >= MIN_LTT_ID && id <= MAX_LTT_ID);
 	}
 
+
+private:
 	static jrd_rel* getLtt(thread_db* tdbb, MetaId id);
 	static jrd_rel* getLtt(thread_db* tdbb, const QualifiedName& name);
 

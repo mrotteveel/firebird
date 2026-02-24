@@ -475,12 +475,6 @@ public:
 		return idp_id;
 	}
 
-	static FB_UINT64 makeLockId(MetaId relId, MetaId indexId)
-	{
-		const int REL_ID_KEY_OFFSET = 16;
-		return (FB_UINT64(relId) << REL_ID_KEY_OFFSET) + indexId;
-	}
-
 	void releaseLock(thread_db*) { }
 
 	RelationPermanent* getRelation()
@@ -488,6 +482,7 @@ public:
 		return idp_relation;
 	}
 
+	static FB_UINT64 makeLockId(MetaId relId, MetaId indexId);
 	const QualifiedName& getName();
 
 private:
@@ -553,6 +548,8 @@ public:
 		// to be done - take segments, expression & condition into an account
 		return true;
 	}
+
+	void setLtt(thread_db* tdbb, LocalTemporaryTable::Index* ltt);
 
 	static const enum lck_t LOCKTYPE = LCK_idx_rescan;
 

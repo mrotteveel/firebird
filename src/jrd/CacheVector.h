@@ -66,12 +66,14 @@ class ElementBase
 public:
 	ElementBase(thread_db* tdbb, MemoryPool& p, lck_t locktype, SINT64 key);
 	ElementBase()
-		: lock(nullptr)
 	{ }
 
 private:
 	virtual void reset(thread_db* tdbb, bool erase) = 0;
 	static int blockingAst(void* ast_object);
+
+public:
+	static constexpr FB_UINT64 NO_METALOCK = ~0u;
 
 public:
 	void pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, const char* family);
@@ -97,7 +99,7 @@ public:
 	}
 
 private:
-	Lock* lock;
+	Lock* lock = nullptr;
 	std::atomic<bool> locked = false;
 };
 

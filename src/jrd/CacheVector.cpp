@@ -147,9 +147,12 @@ int ElementBase::blockingAst(void* ast_object)
 }
 
 ElementBase::ElementBase(thread_db* tdbb, MemoryPool& p, lck_t locktype, SINT64 key)
-	: lock(FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), locktype, this, blockingAst))
 {
-	lock->setKey(key);
+	if (key != NO_METALOCK)
+	{
+		lock = FB_NEW_RPT(p, 0) Lock(tdbb, sizeof(SLONG), locktype, this, blockingAst);
+		lock->setKey(key);
+	}
 }
 
 void ElementBase::pingLock(thread_db* tdbb, ObjectBase::Flag flags, MetaId id, const char* family)

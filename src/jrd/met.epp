@@ -4814,6 +4814,10 @@ void MetadataCache::objectCleanup(TraNumber traNum, ElementBase* toClean)
 ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 {
 	SET_TDBB(tdbb);
+
+	if (getPermanent()->getRelation()->rel_flags & REL_temp_ltt)
+		return ScanResult::COMPLETE;
+
 	Attachment* attachment = tdbb->getAttachment();
 	Database* dbb = tdbb->getDatabase();
 	jrd_tra* transaction = attachment->getMetaTransaction(tdbb);
@@ -4899,6 +4903,19 @@ ScanResult IndexVersion::scan(thread_db* tdbb, ObjectBase::Flag flags)
 	}
 
 	return found ? ScanResult::COMPLETE : ScanResult::MISS;
+}
+
+void IndexVersion::setLtt(thread_db* tdbb, LocalTemporaryTable::Index* lttIndex)
+{
+	SET_TDBB(tdbb);
+
+	fb_assert(getPermanent()->getRelation()->rel_flags & REL_temp_ltt);
+
+	idv_name = lttIndex->name;
+	idv_uniqFlag = lttIndex->unique;
+	idv_segmentCount = lttIndex->columns.getCount();
+	idv_type = lttIndex->descending;
+	idv_active = lttIndex->inactive ? MET_index_inactive : MET_index_active;
 }
 
 IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, const QualifiedName& name, ObjectBase::Flag flags)
@@ -5381,13 +5398,6 @@ jrd_rel* MetadataCache::getLtt(thread_db* tdbb, MetaId id)
 			return ltt->relation;
 	}
 
-/*		we do check result returned from getVersioned/getPerm ?????????????????
-	// LTT not found (or not yet fully created)
-	fb_assert(false);
-	string lttWithIdMsg;
-	lttWithIdMsg.printf("LTT with ID %u not found", unsigned(id));
-	ERR_post(Arg::Gds(isc_relnotdef) << lttWithIdMsg);
- */
 	return nullptr;
 }
 
