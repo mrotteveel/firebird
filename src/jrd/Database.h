@@ -479,9 +479,6 @@ public:
 
 	MemoryPool* createPool(ALLOC_PARAMS1 bool separateStats = true);
 	void deletePool(MemoryPool* pool);
-#ifdef DEBUG_LOST_POOLS
-	void checkPool(MemoryPool* pool);
-#endif
 
 	void registerModule(Module&);
 

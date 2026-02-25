@@ -201,12 +201,6 @@ inline size_t get_map_page_size()
 
 } // anonymous namespace
 
-#ifdef DEBUG_LOST_POOLS
-namespace Jrd {
-	void checkPool(MemoryPool* pool);
-}
-#endif
-
 namespace Firebird {
 
 namespace SemiDoubleLink
@@ -2786,10 +2780,6 @@ void MemoryPool::deallocate(void* block) noexcept
 
 void MemoryPool::deletePool(MemoryPool* pool)
 {
-#ifdef DEBUG_LOST_POOLS
-	Jrd::checkPool(pool);
-#endif
-
 	while (pool->finalizers)
 	{
 		auto finalizer = pool->finalizers;

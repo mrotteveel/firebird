@@ -275,7 +275,7 @@ Statement* Statement::makeStatement(thread_db* tdbb, CompilerScratch* csb, bool 
 	const auto dbb = tdbb->getDatabase();
 	fb_assert(dbb);
 
-#ifdef DEV_BUILD
+#if defined(DEV_BUILD) && defined(DEBUG_LOST_POOLS)
 	MemoryPool* defPool = tdbb->getDefaultPool();
 	{ // scope
 		Firebird::SyncLockGuard guard(&dbb->dbb_pools_sync, Firebird::SYNC_SHARED, "Statement::makeStatement");
