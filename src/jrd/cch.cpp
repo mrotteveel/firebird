@@ -3128,6 +3128,7 @@ void BufferControl::cache_writer(BufferControl* bcb)
 		}
 
 		Monitoring::cleanupAttachment(tdbb);
+		attachment->rollbackMetaTransaction(tdbb);
 		attachment->releaseLocks(tdbb);
 		LCK_fini(tdbb, LCK_OWNER_attachment);
 	}	// try
