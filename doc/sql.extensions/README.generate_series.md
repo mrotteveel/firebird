@@ -28,7 +28,7 @@ where the scale is determined by the maximum of the scales of the function argum
 
 ## Rules
 
-* If `start > limit` and a postive `step` value is specified, an empty table is returned.
+* If `start > limit` and a positive `step` value is specified, an empty table is returned.
 
 * If `start < limit` and a negative `step` value is specified, an empty table is returned.
 
