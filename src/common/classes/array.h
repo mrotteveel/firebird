@@ -482,7 +482,7 @@ public:
 		return false;
 	}
 
-	bool find(std::function<int(const T& item)> compare, size_type& pos) const
+	bool find(const std::function<int(const T& item)>& compare, size_type& pos) const
 	{
 		for (size_type i = 0; i < count; i++)
 		{

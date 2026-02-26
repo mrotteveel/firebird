@@ -132,6 +132,7 @@ public:
 
 	dsql_dbb(MemoryPool& p, Attachment* attachment);
 	~dsql_dbb();
+
 	MemoryPool* createPool(ALLOC_PARAMS0);
 	void deletePool(MemoryPool* pool);
 };

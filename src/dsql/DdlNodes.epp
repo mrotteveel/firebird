@@ -13662,10 +13662,8 @@ void SetStatisticsNode::setStatisticsLocalTempIndex(thread_db* tdbb, DsqlCompile
 
 DropIndexNode::DropIndexNode(MemoryPool& p, const QualifiedName& name)
 	: ModifyIndexNode(name, false),
-	  DdlNode(p),
-	  idxId(MAX_META_ID)
+	  DdlNode(p)
 { }
-
 
 // Delete the records in RDB$INDEX_SEGMENTS pertaining to an index.
 bool DropIndexNode::deleteSegmentRecords(thread_db* tdbb, jrd_tra* transaction, const QualifiedName& name)
