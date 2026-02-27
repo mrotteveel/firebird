@@ -605,37 +605,36 @@ ALTER TABLE <name> ... [ {ENABLE | DISABLE} PUBLICATION ]
 Defines whether replication is enabled for the specified table.
 If not specified in the CREATE TABLE statement, the database-level default behaviour is applied.
 
-24) Added the ability to change deterministic and sql security option without specifying the entire body of the function.
+DDL enhancements in Firebird v6.
+--------------------------------
+
+1) Added the ability to change deterministic and sql security option without specifying the entire body of the function.
 (Alexander Zhdanov)
 
-ALTER FUNCTION <name> [ {DETERMINISTIC | NOT DETERMINISTIC} ] [ SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY ]
+ALTER FUNCTION <name> [ [NOT] DETERMINISTIC ] [ SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY ]
 
-25) Added the ability to change sql security option without specifying the entire body of the procedure
+2) Added the ability to change sql security option without specifying the entire body of the procedure
 (Alexander Zhdanov)
 
 ALTER PROCEDURE <name> SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY
 
-26) Added the ability to change sql security option without specifying the entire body of the package
+3) Added the ability to change sql security option without specifying the entire body of the package
 (Alexander Zhdanov)
 
 ALTER PACKAGE <name> SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY
 
-27) Added OWNER clause to CREATE DATABASE statement.
+4) Added OWNER clause to CREATE DATABASE statement.
 (Dmitry Sibiryakov)
 
 <db_initial_option> list is expanded by "OWNER username" clause which allows to set an owner user name for the created database.
 Only users with administrator rights can use this option.
 
-28) COLLATE clause can be used as a part of character data type as per SQL standard.
+5) COLLATE clause can be used as a part of character data type as per SQL standard.
 (Dmitry Sibiryakov)
 
 If is used twice, an error is returned.
 
-
-DDL enhancements in Firebird v6.
---------------------------------
-
-1) DROP [IF EXISTS]
+6) DROP [IF EXISTS]
 
 Using subclause IF EXISTS, it's now possible to try to drop objects and do not get errors when they did not exist.
 
@@ -668,7 +667,7 @@ DROP [GLOBAL] MAPPING [IF EXISTS] <mapping>
 ALTER TABLE <table> DROP [IF EXISTS] <column name>
 ALTER TABLE <table> DROP CONSTRAINT [IF EXISTS] <constraint name>
 
-2) CREATE [IF NOT EXISTS]
+7) CREATE [IF NOT EXISTS]
 
 Using subclause IF NOT EXISTS, it's now possible to try to create objects and do not get errors when they
 already exists.
@@ -710,7 +709,7 @@ CREATE [GLOBAL] MAPPING [IF NOT EXISTS] ...
 ALTER TABLE <table> ADD [IF NOT EXISTS] <column name> ...
 ALTER TABLE <table> ADD CONSTRAINT [IF NOT EXISTS] <constraint name> ...
 
-3) Creation of an inactive index
+8) Creation of an inactive index
 
 CREATE [UNIQUE] [ASC[ENDING] | DESC[ENDING]]
   INDEX indexname [{ACTIVE | INACTIVE}]
