@@ -9611,6 +9611,10 @@ void AlterRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratc
 	if (relation->rel_flags & REL_ltt_created)
 	{
 		alterLocalTempTable(tdbb, dsqlScratch, transaction);
+
+		// Update DSQL cache
+		METD_drop_relation(transaction, name);
+
 		return;
 	}
 
