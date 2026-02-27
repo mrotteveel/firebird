@@ -616,12 +616,12 @@ ALTER FUNCTION <name> [ [NOT] DETERMINISTIC ] [ SQL SECURITY {DEFINER | INVOKER}
 2) Added the ability to change sql security option without specifying the entire body of the procedure
 (Alexander Zhdanov)
 
-ALTER PROCEDURE <name> SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY
+ALTER PROCEDURE <name> { SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY }
 
 3) Added the ability to change sql security option without specifying the entire body of the package
 (Alexander Zhdanov)
 
-ALTER PACKAGE <name> SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY
+ALTER PACKAGE <name> { SQL SECURITY {DEFINER | INVOKER} | DROP SQL SECURITY }
 
 4) Added OWNER clause to CREATE DATABASE statement.
 (Dmitry Sibiryakov)
