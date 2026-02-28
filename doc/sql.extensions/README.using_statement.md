@@ -9,25 +9,25 @@ When adapting a standard DSQL command to use `EXECUTE BLOCK` (for instance, to u
 input parameter in multiple places), the developer is currently forced to explicitly declare all input parameters and,
 more tediously, all output fields.
 
-The `USING` statement simplifies this workflow. It provides the ability to declare parameters and sub-routines while
-allowing the engine to infer outputs automatically from the contained SQL command.
+The `USING` statement simplifies this workflow. It provides the ability to declare parameters, sub-routines and
+variables while allowing the engine to infer outputs automatically from the contained SQL command.
 
 ## Syntax
 
 ```sql
 USING [ ( <input_parameter_list> ) ]
-    [ <subroutines> ]
+    [ <local_declarations> ]
 DO <sql_command>
 ```
 
-**Note:** At least one of `<input_parameter_list>` or `<subroutines>` must be present. A `USING ... DO` statement
-without parameters and without subroutines is invalid.
+**Note:** At least one of `<input_parameter_list>` or `<local_declarations>` must be present. A `USING DO ...` statement
+without parameters and without local declarations is invalid.
 
 ### Components
 
 *  **`<input_parameter_list>`**: A strictly typed list of parameters. These can be bound to values using the `?`
    placeholder.
-*  **`<subroutines>`**: Standard PSQL function or procedure declarations.
+*  **`<local_declarations>`**: Standard PSQL local declarations (variables, sub-functions and sub-procedures).
 *  **`<sql_command>`**: The DSQL statement to execute. Supported statements include:
    *   `SELECT`
    *   `INSERT` (with or without `RETURNING`)
@@ -51,9 +51,9 @@ without parameters and without subroutines is invalid.
 
 ## Examples
 
-### 1. Basic Parameter Reuse and Subroutines
+### 1. Basic Parameter Reuse and Local Declarations
 
-This example demonstrates declaring typed parameters, defining local functions/procedures, and using them in a query.
+This example demonstrates declaring typed parameters, defining sub-routines, and using them in a query.
 
 ```sql
 using (p1 integer = ?, p2 integer = ?)
@@ -123,10 +123,10 @@ end
 
 ## Comparison
 
-| Feature                 | Standard DSQL                   | `EXECUTE BLOCK`                               | `USING`                                       |
-| :---------------------- | :------------------------------ | :-------------------------------------------- | :-------------------------------------------- |
-| **Subroutines**         | No                              | Yes                                           | Yes                                           |
-| **Input Declarations**  | Implicit (Positional)           | Explicit                                      | Hybrid (implicit and explicit)                |
-| **Output Declarations** | Inferred                        | Explicit (`RETURNS`)                          | Inferred                                      |
-| **Verbosity**           | Low                             | High                                          | Medium                                        |
-| **Use Case**            | Simple queries                  | Complex logic, loops, no result set inference | Reusing params, subroutines, standard queries |
+| Feature                 | Standard DSQL                   | `EXECUTE BLOCK`                               | `USING`                                                   |
+| :---------------------- | :------------------------------ | :-------------------------------------------- | :-------------------------------------------------------- |
+| **Local Declarations**  | No                              | Yes                                           | Yes                                                       |
+| **Input Declarations**  | Implicit (Positional)           | Explicit                                      | Hybrid (implicit and explicit)                            |
+| **Output Declarations** | Inferred                        | Explicit (`RETURNS`)                          | Inferred                                                  |
+| **Verbosity**           | Low                             | High                                          | Medium                                                    |
+| **Use Case**            | Simple queries                  | Complex logic, loops, no result set inference | Reusing params, variables, sub-routines, standard queries |

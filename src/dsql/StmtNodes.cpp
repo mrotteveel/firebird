@@ -11071,7 +11071,18 @@ void UsingNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 	if (genSelectWrapper)
 		GEN_port(dsqlScratch, sendMsg);
 
-	if (dsqlScratch->variables.hasData())
+	bool hasNonLocalVariables = false;
+
+	for (const auto var : dsqlScratch->variables)
+	{
+		if (var->type != dsql_var::TYPE_LOCAL)
+		{
+			hasNonLocalVariables = true;
+			break;
+		}
+	}
+
+	if (hasNonLocalVariables)
 	{
 		// Generate receive statement to get parameter values - only for SELECT statements
 		if (genSelectWrapper)
@@ -11083,7 +11094,10 @@ void UsingNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 		dsqlScratch->appendUChar(blr_begin);
 
 		for (const auto var : dsqlScratch->variables)
-			dsqlScratch->putLocalVariable(var);
+		{
+			if (var->type != dsql_var::TYPE_LOCAL)
+				dsqlScratch->putLocalVariable(var);
+		}
 	}
 
 	dsqlScratch->appendUChar(blr_begin);
@@ -11112,7 +11126,7 @@ void UsingNode::genBlr(DsqlCompilerScratch* dsqlScratch)
 
 	dsqlScratch->appendUChar(blr_end);
 
-	if (dsqlScratch->variables.hasData())
+	if (hasNonLocalVariables)
 		dsqlScratch->appendUChar(blr_end);
 
 	if (genSelectWrapper)
