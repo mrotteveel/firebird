@@ -664,7 +664,7 @@ DROP USER [IF EXISTS] <user> [USING PLUGIN <plugin>]
 DROP PACKAGE [IF EXISTS] <package>
 DROP PACKAGE BODY [IF EXISTS] <package>
 DROP [GLOBAL] MAPPING [IF EXISTS] <mapping>
-ALTER TABLE <table> DROP [IF EXISTS] <column name>
+ALTER TABLE <table> DROP [COLUMN] [IF EXISTS] <column name>
 ALTER TABLE <table> DROP CONSTRAINT [IF EXISTS] <constraint name>
 
 7) CREATE [IF NOT EXISTS]
