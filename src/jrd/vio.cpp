@@ -2166,7 +2166,8 @@ bool VIO_erase(thread_db* tdbb, record_param* rpb, jrd_tra* transaction)
 			EVL_field(0, rpb->rpb_record, f_rfr_rname, &desc);
 			MOV_get_metaname(tdbb, &desc, object_name.object);
 
-			if ( (r2 = MetadataCache::getPerm<Cached::Relation>(tdbb, object_name, CacheFlag::AUTOCREATE)) )
+			if ( (r2 = MetadataCache::getPerm<Cached::Relation>(tdbb, object_name,
+				  CacheFlag::AUTOCREATE | CacheFlag::MINISCAN)) )
 			{
 				EVL_field(0, rpb->rpb_record, f_rfr_fname, &desc2);
 				DFW_post_work(transaction, dfw_delete_rfr, &desc2, &schemaDesc, r2->getId());
