@@ -386,12 +386,12 @@ inline void* operator new[](size_t s, Firebird::MemoryPool& pool ALLOC_PARAMS)
 	return pool.allocate(s ALLOC_PASS_ARGS);
 }
 
-inline void operator delete(void* mem, Firebird::MemoryPool& pool ALLOC_PARAMS) noexcept
+inline void operator delete(void* mem, Firebird::MemoryPool& pool ALLOC_PARAMS_DEF) noexcept
 {
 	MemoryPool::globalFree(mem);
 }
 
-inline void operator delete[](void* mem, Firebird::MemoryPool& pool ALLOC_PARAMS) noexcept
+inline void operator delete[](void* mem, Firebird::MemoryPool& pool ALLOC_PARAMS_DEF) noexcept
 {
 	MemoryPool::globalFree(mem);
 }

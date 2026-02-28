@@ -137,7 +137,7 @@ private:
 	// Fool-proof requested by Alex
 	// Private memory operators to be sure that this class is used in heap only with launcher
 	void* operator new (size_t s, Firebird::MemoryPool& pool ALLOC_PARAMS) { return pool.allocate(s ALLOC_PASS_ARGS); }
-	void operator delete (void* mem, Firebird::MemoryPool& ALLOC_PARAMS) { MemoryPool::globalFree(mem); }
+	void operator delete (void* mem, Firebird::MemoryPool& ALLOC_PARAMS_DEF) { MemoryPool::globalFree(mem); }
 	void operator delete (void* mem) { MemoryPool::globalFree(mem); }
 
 public:
