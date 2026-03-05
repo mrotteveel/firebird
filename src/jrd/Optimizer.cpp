@@ -1555,6 +1555,7 @@ InversionCandidate* OptimizerRetrieval::makeInversion(InversionCandidateList* in
 
 					if (bestCandidate->condition)
 					{
+						bestCandidate->used = true;
 						bestCandidate = currentInv;
 						restartLoop = true;
 						break;
