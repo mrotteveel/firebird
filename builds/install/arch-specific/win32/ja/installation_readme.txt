@@ -1,4 +1,4 @@
-Firebird Database Server $MAJOR.$MINOR.$RELEASE
+﻿Firebird Database Server $MAJOR.$MINOR.$RELEASE
 ===============================================
 
 
