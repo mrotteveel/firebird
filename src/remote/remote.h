@@ -1086,7 +1086,7 @@ public:
 
 	~ClntAuthBlock()
 	{
-		releaseKeys(0);
+		releaseKeys();
 
 		if (createdInterface)
 			*createdInterface = nullptr;
@@ -1103,7 +1103,7 @@ public:
 	bool checkPluginName(Firebird::PathName& nameToCheck);
 	Firebird::PathName getPluginName();
 	void tryNewKeys(rem_port*);
-	void releaseKeys(unsigned from);
+	void releaseKeys();
 	Firebird::RefPtr<const Firebird::Config>* getConfig();
 	void createCryptCallback(Firebird::ICryptKeyCallback** callback);
 
