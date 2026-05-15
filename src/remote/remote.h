@@ -758,7 +758,7 @@ public:
 
 	~ClntAuthBlock()
 	{
-		releaseKeys(0);
+		releaseKeys();
 	}
 
 	void storeDataForPlugin(unsigned int length, const unsigned char* data);
@@ -772,7 +772,7 @@ public:
 	bool checkPluginName(Firebird::PathName& nameToCheck);
 	Firebird::PathName getPluginName();
 	void tryNewKeys(rem_port*);
-	void releaseKeys(unsigned from);
+	void releaseKeys();
 	Firebird::RefPtr<const Config>* getConfig();
 
 	// Firebird::IClientBlock implementation
