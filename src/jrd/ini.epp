@@ -1013,6 +1013,8 @@ void INI_init(thread_db* tdbb)
 			field->fld_name = localFields[fieldPos].name;
 			field->fld_source_name = QualifiedName(names[localFields[fieldPos].gfield->gfld_name], SYSTEM_SCHEMA);
 			field->fld_length = localFields[fieldPos].gfield->gfld_length;
+			if (!localFields[fieldPos].gfield->gfld_nullable)
+				field->fld_flags |= FLD_not_null;
 			*iter = field;
 			++fieldPos;
 		}
