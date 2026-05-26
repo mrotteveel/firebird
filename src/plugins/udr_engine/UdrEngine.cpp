@@ -507,7 +507,9 @@ UdrPluginImpl* Engine::loadModule(ThrowStatusWrapper* status, IRoutineMetadata* 
 
 	*moduleName = PathName(str.substr(0, pos).c_str());
 	// Do not allow module names with directory separators as a security measure.
-	if (moduleName->find_first_of("/\\") != string::npos)
+	if (moduleName->find_first_of("/\\") != string::npos ||
+		moduleName->equals(PathUtils::up_dir_link) ||
+		moduleName->isEmpty())
 	{
 		static const ISC_STATUS statusVector[] = {
 			isc_arg_gds, isc_random,
