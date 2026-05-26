@@ -544,15 +544,6 @@ UdrPluginImpl* Engine::loadModule(ThrowStatusWrapper* status, IRoutineMetadata* 
 		constexpr unsigned ARG_TEXT = 3;	// Keep both in sync
 		constexpr unsigned ARG_END = 4;		// with status initializer!
 
-		// Compare source and resulting path lengths to prevent empty, whitespace-only,
-		// or directory traversal ('..') module names.
-		if (path <= *i)
-		{
-			statusArray[ARG_TEXT] = (ISC_STATUS) "Invalid module name";
-
-			throw FbException(status, statusArray);
-		}
-
 		ModuleLoader::Module* module = ModuleLoader::fixAndLoadModule(&statusArray[ARG_END], path);
 		if (!module)
 			throw FbException(status, statusArray);
