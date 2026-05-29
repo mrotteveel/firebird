@@ -12524,6 +12524,7 @@ void ModifyIndexNode::modify(thread_db* tdbb, jrd_tra* transaction)
 	SET_TDBB(tdbb);
 
 	fb_assert(indexRelation);
+	indexRelation->fillPages(tdbb);
 
 	if (create)
 		step2(tdbb, transaction);
@@ -13927,6 +13928,7 @@ void AlterIndexNode::step2(thread_db* tdbb, jrd_tra* transaction)
 		{
 			// One way or another the index was just created, finalize it
 			StoreIndexNode storeNode(indexName, indexRelation, expressionIndex);
+			fb_assert(indexRelation->getBasePages()->rel_index_root);
 			storeNode.step2(tdbb, transaction);
 			return;
 		}
@@ -14278,12 +14280,8 @@ void DropIndexNode::step2(thread_db* tdbb, jrd_tra* transaction)
 
 	fb_assert(idxId >= 0 && idxId < dbb->dbb_max_idx);
 
-	RelationPages* relPages = indexRelation->getPages(tdbb, MAX_TRA_NUMBER, false);
-	if (relPages)
-	{
-		IDX_mark_index(tdbb, indexRelation, idxId);
+	if (IDX_mark_index(tdbb, indexRelation, idxId))
 		indexRelation->eraseIndex(tdbb, idxId);
-	}
 }
 
 

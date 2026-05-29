@@ -276,13 +276,12 @@ bool RelationPermanent::isReplicating(thread_db* tdbb)
 	return oldState == Bool3State::True;
 }
 
-RelationPages* RelationPermanent::fillPages(thread_db* tdbb)
+void RelationPermanent::fillPages(thread_db* tdbb)
 {
 	if (!rel_pages_base.rel_index_root)
 		DPM_scan_pages(tdbb);
 
 	fb_assert(rel_pages_base.rel_index_root);
-	return &rel_pages_base;
 }
 
 RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tran, bool allocPages)
