@@ -2521,7 +2521,7 @@ packaged_table_indexes_opt($createRelationNode)
 %type packaged_table_indexes(<createRelationNode>)
 packaged_table_indexes($createRelationNode)
 	: packaged_table_index($createRelationNode)
-	| packaged_table_indexes($createRelationNode) ',' packaged_table_index($createRelationNode)
+	| packaged_table_indexes packaged_table_index($createRelationNode)
 	;
 
 %type packaged_table_index(<createRelationNode>)
