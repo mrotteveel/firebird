@@ -271,6 +271,8 @@ ScanResult Function::scan(thread_db* tdbb, ObjectBase::Flag flags)
 			fun_return_arg = X.RDB$RETURN_ARGUMENT;
 			fun_temp_length = length;
 
+			flPrivate = !X.RDB$PRIVATE_FLAG.NULL && X.RDB$PRIVATE_FLAG != 0;
+
 			// Prepare the exception message to be used in case this function ever
 			// causes an exception.  This is done at this time to save us from preparing
 			// (thus allocating) this message every time the function is called.

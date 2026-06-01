@@ -572,7 +572,7 @@ dsql_udf* METD_get_function(jrd_tra* transaction, DsqlCompilerScratch* dsqlScrat
 
 		if (userFunc->udf_private && name.getSchemaAndPackage() != dsqlScratch->package)
 		{
-			status_exception::raise(Arg::Gds(isc_private_procedure) <<
+			status_exception::raise(Arg::Gds(isc_private_function) <<
 				Arg::Str(name.object) << Arg::Str(name.package));
 		}
 
