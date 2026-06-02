@@ -74,7 +74,7 @@ class Thread
 public:
 #ifdef WIN_NT
 	typedef HANDLE Handle;
-	constexpr static Handle INVALID_HANDLE = INVALID_HANDLE_VALUE;
+        inline static const Handle INVALID_HANDLE = INVALID_HANDLE_VALUE;
 #endif
 #ifdef USE_POSIX_THREADS
 	typedef pthread_t Handle;
