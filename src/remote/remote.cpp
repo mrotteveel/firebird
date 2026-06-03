@@ -1352,6 +1352,7 @@ bool rem_port::tryNewKey(InternalCryptKey* cryptKey)
 	{
 		if (tryKeyType(port_known_server_keys[t], cryptKey))
 		{
+			delete cryptKey;
 			return true;
 		}
 	}
