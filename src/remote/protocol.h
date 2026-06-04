@@ -287,6 +287,7 @@ typedef struct cstring
 	UCHAR*	cstr_address;
 
 	void	free(RemoteXdr* xdrs = NULL);
+	bool	alloc(RemoteXdr* xdrs = NULL);
 } CSTRING;
 
 // CVC: Only used in p_blob, p_sgmt & p_ddl, to validate constness.

@@ -94,7 +94,6 @@ enum SQL_STMT_TYPE
 	TYPE_PREPARED
 };
 
-static bool alloc_cstring(XDR*, CSTRING*);
 static void reset_statement(XDR*, SSHORT);
 static bool_t xdr_cstring(XDR*, CSTRING*);
 static bool_t xdr_response(XDR*, CSTRING*);
@@ -878,7 +877,7 @@ ULONG xdr_protocol_overhead(P_OP op)
 }
 
 
-static bool alloc_cstring(XDR* xdrs, CSTRING* cstring)
+bool CSTRING::alloc(RemoteXdr* xdrs)
 {
 /**************************************
  *
@@ -891,40 +890,39 @@ static bool alloc_cstring(XDR* xdrs, CSTRING* cstring)
  *
  **************************************/
 
-	if (!cstring->cstr_length)
+	if (!cstr_length)
 	{
-		if (cstring->cstr_allocated)
-			*cstring->cstr_address = '\0';
+		if (cstr_allocated)
+			*cstr_address = '\0';
 		else
-			cstring->cstr_address = NULL;
+			cstr_address = NULL;
 
 		return true;
 	}
 
-	if (cstring->cstr_length > cstring->cstr_allocated && cstring->cstr_allocated)
-	{
-		cstring->free(xdrs);
-	}
+	if (cstr_length > cstr_allocated && cstr_allocated)
+		free(xdrs);
 
-	if (!cstring->cstr_address)
+	if (!cstr_address)
 	{
-		// fb_assert(!cstring->cstr_allocated);
+		// fb_assert(!cstr_allocated);
 		try {
-			cstring->cstr_address = FB_NEW_POOL(*getDefaultMemoryPool()) UCHAR[cstring->cstr_length];
+			cstr_address = FB_NEW_POOL(*getDefaultMemoryPool()) UCHAR[cstr_length];
 		}
 		catch (const BadAlloc&) {
 			return false;
 		}
 
-		cstring->cstr_allocated = cstring->cstr_length;
-		DEBUG_XDR_ALLOC(xdrs, cstring, cstring->cstr_address, cstring->cstr_allocated);
+		cstr_allocated = cstr_length;
+		if (xdrs)
+			DEBUG_XDR_ALLOC(xdrs, this, cstr_address, cstr_allocated);
 	}
 
 	return true;
 }
 
 
-void CSTRING::free(XDR* xdrs)
+void CSTRING::free(RemoteXdr* xdrs)
 {
 /**************************************
  *
@@ -1040,7 +1038,7 @@ static bool_t xdr_cstring_with_limit( XDR* xdrs, CSTRING* cstring, ULONG limit)
 	case XDR_DECODE:
 		if (limit && cstring->cstr_length > limit)
 			return FALSE;
-		if (!alloc_cstring(xdrs, cstring))
+		if (!cstring->alloc(xdrs))
 			return FALSE;
 		if (!xdrs->x_getbytes(reinterpret_cast<SCHAR*>(cstring->cstr_address), cstring->cstr_length))
 			return FALSE;
@@ -1154,7 +1152,7 @@ static bool_t xdr_longs( XDR* xdrs, CSTRING* cstring)
 		break;
 
 	case XDR_DECODE:
-		if (!alloc_cstring(xdrs, cstring))
+		if (!cstring->alloc(xdrs))
 			return FALSE;
 		break;
 
@@ -1916,3 +1914,4 @@ static void reset_statement( XDR* xdrs, SSHORT statement_id)
 		{} // no-op
 	}
 }
+
