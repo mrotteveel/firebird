@@ -1727,6 +1727,8 @@ protected:
 
 public:
 	static void makeVersion(thread_db* tdbb, jrd_tra* transaction, const QualifiedName& relName);
+	static void makeLttVersion(thread_db* tdbb, jrd_tra* transaction, LocalTemporaryTable* ltt,
+		bool commitChanges);
 	static void raiseTooManyVersionsError(const int obj_type, const QualifiedName& obj_name);
 	static const Format* makeFormat(thread_db* tdbb, jrd_tra* transaction, Cached::Relation* relation,
 		USHORT* version, TemporaryField* stack);

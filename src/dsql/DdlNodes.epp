@@ -55,6 +55,7 @@
 #include "../common/isc_f_proto.h"
 #include "../jrd/lck.h"
 #include "../jrd/met_proto.h"
+#include "../jrd/par_proto.h"
 #include "../jrd/scl_proto.h"
 #include "../jrd/vio_proto.h"
 #include "../jrd/idx_proto.h"
@@ -8921,6 +8922,130 @@ void RelationNode::makeVersion(thread_db* tdbb, jrd_tra* transaction, const Qual
 }
 
 
+void RelationNode::makeLttVersion(thread_db* tdbb, jrd_tra* transaction, LocalTemporaryTable* ltt,
+	bool commitChanges)
+{
+	fb_assert(ltt);
+
+	if (!ltt->hasPendingChanges)
+		return;
+
+	fb_assert(ltt->pendingFields.hasData());
+
+	const auto attachment = tdbb->getAttachment();
+	const auto dbb = tdbb->getDatabase();
+	auto& attPool = *attachment->att_pool;
+
+	jrd_rel* relation = ltt->relation;
+
+	if (commitChanges && relation)
+	{
+		relation->getPermanent()->commit(tdbb);
+
+		ltt->fields = ltt->pendingFields;
+		ltt->pendingFields.clear();
+		ltt->hasPendingChanges = false;
+		return;
+	}
+
+	const bool creating = (relation == nullptr);
+
+	if (creating)
+	{
+		fb_assert(ltt->relationId != 0);
+
+		AutoPtr<Cached::Relation> permRel = FB_NEW_POOL(attPool) Cached::Relation(tdbb, attPool, ltt->relationId);
+		permRel->rel_name = ltt->name;
+		permRel->rel_flags = REL_sql_relation | REL_temp_ltt |
+			(ltt->relationType == rel_temp_preserve ? REL_temp_conn : REL_temp_tran);
+
+		permRel->getBasePages()->rel_pg_space_id = dbb->dbb_page_manager.getTempPageSpaceID(tdbb);
+		DPM_create_relation_pages(tdbb, permRel, permRel->getBasePages());
+
+		AutoPtr<jrd_rel> versRel = FB_NEW_POOL(attPool) jrd_rel(attPool, permRel);
+		permRel->storeObject(tdbb, versRel, CacheFlag::NOCOMMIT);
+		permRel.release();
+		relation = versRel.release();
+
+		relation->rel_current_fmt = 1;
+		relation->rel_dbkey_length = 8;
+	}
+	else if (!commitChanges)
+	{
+		if (relation->rel_current_fmt == MAX_TABLE_VERSIONS)
+			raiseTooManyVersionsError(obj_relation, ltt->name);
+
+		AutoPtr<jrd_rel> versRel = FB_NEW_POOL(attPool) jrd_rel(attPool, relation->getPermanent());
+		versRel->rel_current_fmt = relation->rel_current_fmt + 1;
+		versRel->rel_dbkey_length = relation->rel_dbkey_length;
+		relation->getPermanent()->storeObject(tdbb, versRel, CacheFlag::NOCOMMIT);
+		relation = versRel.release();
+	}
+
+	relation->rel_fields = vec<jrd_fld*>::newVector(attPool, relation->rel_fields,
+		ltt->pendingFields.getCount());
+
+	TemporaryField* tempFields = nullptr;
+
+	for (FB_SIZE_T i = 0; i < ltt->pendingFields.getCount(); ++i)
+	{
+		const auto& lttField = ltt->pendingFields[i];
+		auto& relField = (*relation->rel_fields)[i];
+
+		if (!relField)
+			relField = FB_NEW_POOL(attPool) jrd_fld(attPool);
+
+		relField->fld_name = lttField.name;
+		relField->fld_not_null = nullptr;
+		relField->fld_validation = nullptr;
+		relField->fld_length = lttField.desc.dsc_length;
+		relField->fld_segment_length = lttField.segLength;
+		relField->fld_character_length = lttField.charLength;
+		relField->fld_pos = lttField.position;
+		relField->fld_source_name = lttField.source;
+		relField->fld_flags = lttField.notNullFlag ? FLD_not_null : 0;
+
+		if (lttField.notNullFlag)
+		{
+			Jrd::ContextPoolHolder context(tdbb, &attPool);
+			relField->fld_not_null = PAR_validation_blr(tdbb, &relation->getName().schema,
+				relation->getPermanent(), nonnull_validation_blr, sizeof(nonnull_validation_blr),
+				NULL, NULL, 0);
+		}
+
+		const auto tempField = FB_NEW_POOL(attPool) TemporaryField();
+		tempField->tfb_next = tempFields;
+		tempFields = tempField;
+
+		tempField->tfb_desc = lttField.desc;
+
+		if (DTYPE_IS_TEXT(lttField.desc.dsc_dtype))
+		{
+			const auto charSetId = lttField.charSetId.value_or(CS_NONE);
+			const auto collationId = lttField.collationId.value_or(COLLATE_NONE);
+			tempField->tfb_desc.setTextType(TTypeId(charSetId, collationId));
+		}
+
+		memset(&tempField->tfb_default, 0, sizeof(tempField->tfb_default));
+		tempField->tfb_id = lttField.id;
+	}
+
+	relation->rel_current_format = makeFormat(tdbb, transaction,
+		relation->getPermanent(), &relation->rel_current_fmt, tempFields);
+
+	ltt->relation = relation;
+
+	if (commitChanges)
+	{
+		relation->getPermanent()->commit(tdbb);
+
+		ltt->fields = ltt->pendingFields;
+		ltt->pendingFields.clear();
+		ltt->hasPendingChanges = false;
+	}
+}
+
+
 blb* RelationNode::setupTriggers(thread_db* tdbb, jrd_rel* relation, bool null_view,
 	TrigArray* triggers, blb* blob)
 {
@@ -9864,6 +9989,7 @@ void CreateRelationNode::defineLocalTempTable(thread_db* tdbb, DsqlCompilerScrat
 
 	// Mark LTT as having uncommitted changes
 	ltt->hasPendingChanges = true;
+	makeLttVersion(tdbb, transaction, ltt, false);
 
 	DFW_post_work(transaction, dfw_update_ltt_format, string(ltt->name.object.c_str()), ltt->name.schema, 0);
 }
@@ -11183,6 +11309,7 @@ void AlterRelationNode::alterLocalTempTable(thread_db* tdbb, DsqlCompilerScratch
 
 	// Post deferred work to update the LTT format
 	ltt->hasPendingChanges = true;
+	makeLttVersion(tdbb, transaction, ltt, false);
 	DFW_post_work(transaction, dfw_update_ltt_format, string(ltt->name.object.c_str()), ltt->name.schema, 0);
 
 	savePoint.release();  // everything is ok
