@@ -623,18 +623,7 @@ IndexVersion* RelationPermanent::lookup_index(thread_db* tdbb, MetaId id, Object
 
 Cached::Index* RelationPermanent::lookupIndex(thread_db* tdbb, MetaId id, ObjectBase::Flag flags)
 {
-	auto* idp = rel_indices.getDataNoChecks(id);
-	if (idp)
-		return idp;
-
-	if (flags & CacheFlag::AUTOCREATE)
-	{
-		auto* idv = lookup_index(tdbb, id, flags);
-		if (idv)
-			return getPermanent(idv);
-	}
-
-	return nullptr;
+	return rel_indices.getData(tdbb, id, flags);
 }
 
 
