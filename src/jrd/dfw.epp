@@ -557,15 +557,6 @@ void Jrd::ProtectRelations::relLock::releaseLock(thread_db* tdbb, jrd_tra* trans
 	}
 }
 
-static inline constexpr UCHAR nonnull_validation_blr[] =
-{
-	blr_version5,
-	blr_not,
-	blr_missing,
-	blr_fid, 0, 0, 0,
-	blr_eoc
-};
-
 static void check_dependencies(thread_db* tdbb,
 							   const QualifiedName& dpdo_name,
 							   const MetaName& field_name,
