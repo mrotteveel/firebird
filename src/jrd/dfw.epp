@@ -5024,8 +5024,8 @@ static bool delete_ltt_index(thread_db* tdbb, SSHORT phase, DeferredWork* work, 
 		BTR_delete_index(tdbb, &window, indexId, false);
 	}
 
-	auto* idp = relation->getPermanent()->eraseIndex(tdbb, indexId);
-	idp->commit(tdbb);
+	if (auto* idp = relation->getPermanent()->eraseIndex(tdbb, indexId))
+		idp->commit(tdbb);
 
 	return false;
 }
