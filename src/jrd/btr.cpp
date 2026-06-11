@@ -694,12 +694,15 @@ idx_e IndexKey::compose(Record* record, bool skipNewFormat)
 
 	const bool descending = (m_index->idx_flags & idx_descending);
 
-	auto* idp = m_relation->getPermanent()->lookupIndex(m_tdbb, m_index->idx_id, CacheFlag::AUTOCREATE);
-	if (skipNewFormat && idp && (idp->getState() == Ods::irt_drop) && idp->getFormat() &&
-		(record->getFormat()->fmt_version > idp->getFormat()))
+	if (skipNewFormat)
 	{
-		// tried to insert fresh formatted record into old index - skip this
-		return idx_e_skip;
+		auto* idp = m_relation->getPermanent()->lookupIndex(m_tdbb, m_index->idx_id, CacheFlag::AUTOCREATE);
+		if (idp && (idp->getState() == Ods::irt_drop) && idp->getFormat() &&
+			(record->getFormat()->fmt_version > idp->getFormat()))
+		{
+			// tried to insert fresh formatted record into old index - skip this
+			return idx_e_skip;
+		}
 	}
 
 	try
