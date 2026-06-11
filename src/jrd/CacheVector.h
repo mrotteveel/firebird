@@ -1050,9 +1050,6 @@ public:
 		if ((!data) && (fl & CacheFlag::AUTOCREATE))
 			data = ensurePermanent(tdbb, id);
 
-		if (!data)
-			return nullptr;
-
 		if (data && data->getEntry(tdbb, TransactionNumber::current(tdbb), fl))
 			return data;
 
