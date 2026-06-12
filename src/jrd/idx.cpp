@@ -1945,6 +1945,9 @@ static idx_e check_partner_index(thread_db* tdbb,
 	// tmpIndex.idx_flags |= idx_unique;
 	tmpIndex.idx_flags = (tmpIndex.idx_flags & ~idx_unique) | (partner_idx.idx_flags & idx_unique);
 
+	// hvlad: The same about descending flag, it should be the same as in the partner index.
+	tmpIndex.idx_flags = (tmpIndex.idx_flags & ~idx_descending) | (partner_idx.idx_flags & idx_descending);
+
 	const auto keyType = starting ? INTL_KEY_PARTIAL :
 		(tmpIndex.idx_flags & idx_unique) ? INTL_KEY_UNIQUE : INTL_KEY_SORT;
 
@@ -1968,9 +1971,6 @@ static idx_e check_partner_index(thread_db* tdbb,
 
 		if (partner_idx.idx_flags & idx_descending)
 			retrieval.irb_generic |= irb_descending;
-
-		if ((idx->idx_flags & idx_descending) != (partner_idx.idx_flags & idx_descending))
-			BTR_complement_key(key);
 
 		RecordBitmap bm(*tdbb->getDefaultPool());
 		RecordBitmap* bitmap = &bm;
