@@ -1353,6 +1353,10 @@ static idx_e check_partner_index(thread_db* tdbb,
 	// Should not use an unique key to search a non-unique index.
 	// tmpIndex.idx_flags |= idx_unique;
 	tmpIndex.idx_flags = (tmpIndex.idx_flags & ~idx_unique) | (partner_idx.idx_flags & idx_unique);
+
+	// hvlad: The same about descending flag, it should be the same as in the partner index.
+	tmpIndex.idx_flags = (tmpIndex.idx_flags & ~idx_descending) | (partner_idx.idx_flags & idx_descending);
+
 	temporary_key key;
 
 	const USHORT keyType = starting ?
@@ -1377,9 +1381,6 @@ static idx_e check_partner_index(thread_db* tdbb,
 
 		if (partner_idx.idx_flags & idx_descending)
 			retrieval.irb_generic |= irb_descending;
-
-		if ((idx->idx_flags & idx_descending) != (partner_idx.idx_flags & idx_descending))
-			BTR_complement_key(&key);
 
 		RecordBitmap* bitmap = NULL;
 		BTR_evaluate(tdbb, &retrieval, &bitmap, NULL);
