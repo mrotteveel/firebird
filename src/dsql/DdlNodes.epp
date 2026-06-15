@@ -14427,6 +14427,18 @@ void DropIndexNode::drop(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch, jrd_
 						END_MODIFY
 					}
 					END_FOR
+
+					// New deps to be created also to be renamed
+					auto& arr = tdbb->getTransaction()->tra_dependencies;
+					for (unsigned n = 0; n < arr.getCount(); ++n)
+					{
+						if (arr[n].object_name == indexName &&
+							(arr[n].dependency_type == obj_index_expression ||
+							 arr[n].dependency_type == obj_index_condition))
+						{
+							arr[n].object_name.object = tempName;
+						}
+					}
 				}
 			END_MODIFY
 		}
