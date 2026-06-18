@@ -303,6 +303,12 @@ int SrpServer::authenticate(CheckStatusWrapper* status, IServerBlock* sb, IWrite
 				return AUTH_MORE_DATA;
 			}
 
+			// create SRP-calculating server
+			server = RemotePasswordFactory();
+
+			// validate client pubkey
+			server->clientPublicKey = server->setKey(clientPubKey.c_str());
+
 			// load verifier and salt from security database
 			Metadata messages;
 			messages.param->login.set(account.c_str());
@@ -333,8 +339,7 @@ int SrpServer::authenticate(CheckStatusWrapper* status, IServerBlock* sb, IWrite
 			BigInteger(s).getText(salt);
 			dumpIt("Srv: salt", salt);
 
-			// create SRP-calculating server
-			server = RemotePasswordFactory();
+			// calculate serverPubKey
 			server->genServerKey(serverPubKey, verifier);
 
 			// Ready to prepare data for client and calculate session key
@@ -355,7 +360,7 @@ int SrpServer::authenticate(CheckStatusWrapper* status, IServerBlock* sb, IWrite
 				return AUTH_FAILED;
 			}
 
-			server->serverSessionKey(sessionKey, clientPubKey.c_str(), verifier);
+			server->serverSessionKey(sessionKey, verifier);
 			dumpIt("Srv: sessionKey", sessionKey);
 			return AUTH_MORE_DATA;
 		}
