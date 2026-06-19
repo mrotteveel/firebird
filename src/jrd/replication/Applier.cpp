@@ -146,6 +146,10 @@ namespace
 		const MetaString& getMetaName()
 		{
 			const auto pos = getInt32();
+
+			if (pos < 0 || pos >= m_atoms.getCount())
+				malformed();
+
 			return m_atoms[pos];
 		}
 
@@ -153,7 +157,7 @@ namespace
 		{
 			const auto length = getInt32();
 
-			if (m_data + length > m_end)
+			if (length < 0 || m_end - m_data < length)
 				malformed();
 
 			const string str((const char*) m_data, length);
@@ -163,7 +167,7 @@ namespace
 
 		const UCHAR* getBinary(ULONG length)
 		{
-			if (m_data + length > m_end)
+			if (m_end - m_data < length)
 				malformed();
 
 			const auto ptr = m_data;
