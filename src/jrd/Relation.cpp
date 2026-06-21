@@ -376,17 +376,15 @@ RelationPages* RelationPermanent::getPagesInternal(thread_db* tdbb, TraNumber tr
 			QualifiedName idx_name;
 			auto* idp = this->lookupIndex(tdbb, idx.idx_id, CacheFlag::AUTOCREATE);
 			if (idp)
-			{
 				idx_name = idp->getName();
 
-				switch (idp->getState())
-				{
-				case Ods::irt_drop:
-				case Ods::irt_unused:
-					continue;
-				default:
-					break;
-				}
+			switch (idx.idx_state)
+			{
+			case Ods::irt_drop:
+			case Ods::irt_unused:
+				continue;
+			default:
+				break;
 			}
 
 			idx.idx_root = 0;

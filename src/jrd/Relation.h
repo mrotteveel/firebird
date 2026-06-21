@@ -496,7 +496,7 @@ private:
 	RelationPermanent*	idp_relation;
 	MetaId				idp_id;
 	TraNumber			idp_tranum = 0;
-	UCHAR				idp_state = 0;
+	UCHAR				idp_state = 0;		// Makes sense only for expression/conditional indices
 	UCHAR				idp_formatNumber = 0;
 
 	[[noreturn]] void errIndexGone();

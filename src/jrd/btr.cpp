@@ -1392,6 +1392,7 @@ bool BTR_description(thread_db* tdbb, Cached::Relation* relation, const index_ro
 	idx->idx_condition_node = nullptr;
 	idx->idx_condition_statement = nullptr;
 	idx->idx_fraction = 1.0;
+	idx->idx_state = irt_desc->getState();
 
 	// pick up field ids and type descriptions for each of the fields
 	const UCHAR* ptr = (UCHAR*) root + irt_desc->irt_desc;
