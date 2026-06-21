@@ -11597,6 +11597,24 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 
 	indexList.exec(tdbb, transaction);
 
+	if (name.package.isEmpty())
+	{
+		// Drop CHECK/NOT NULL constraints before fields, otherwise system triggers
+		// still see active constraints while RDB$RELATION_FIELDS is erased.
+		request.reset(tdbb, drq_e_rel_con3, DYN_REQUESTS);
+
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+			CRT IN RDB$RELATION_CONSTRAINTS
+			WITH CRT.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
+				 CRT.RDB$RELATION_NAME EQ name.object.c_str() AND
+				 (CRT.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT OR
+				  CRT.RDB$CONSTRAINT_TYPE EQ NOT_NULL_CNSTRT)
+		{
+			ERASE CRT;
+		}
+		END_FOR
+	}
+
 	request.reset(tdbb, drq_e_rel_flds, DYN_REQUESTS);
 
 	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
@@ -11636,20 +11654,6 @@ void DropRelationNode::execute(thread_db* tdbb, DsqlCompilerScratch* dsqlScratch
 				 TM.RDB$TRIGGER_NAME EQ T.RDB$TRIGGER_NAME
 		{
 			ERASE TM;
-		}
-		END_FOR
-
-		// CVC: Moved this block here to avoid SF Bug #1111570.
-		request.reset(tdbb, drq_e_rel_con3, DYN_REQUESTS);
-
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
-			CRT IN RDB$RELATION_CONSTRAINTS
-			WITH CRT.RDB$SCHEMA_NAME EQ name.schema.c_str() AND
-				 CRT.RDB$RELATION_NAME EQ name.object.c_str() AND
-				 (CRT.RDB$CONSTRAINT_TYPE EQ CHECK_CNSTRT OR
-				  CRT.RDB$CONSTRAINT_TYPE EQ NOT_NULL_CNSTRT)
-		{
-			ERASE CRT;
 		}
 		END_FOR
 
