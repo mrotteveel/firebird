@@ -3,7 +3,7 @@
 Tables may be created from a query result using the following syntax:
 
 ```sql
-CREATE [{GLOBAL | LOCAL} TEMPORARY TABLE] [IF NOT EXISTS] TABLE <table name>
+CREATE [{GLOBAL | LOCAL} TEMPORARY] TABLE [IF NOT EXISTS] <table name>
   [ (<column name> [, <column name> ...]) ]
   AS <query expression>
   [WITH [NO] DATA]
