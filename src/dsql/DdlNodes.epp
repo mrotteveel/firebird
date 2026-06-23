@@ -7134,11 +7134,13 @@ bool RelationNode::deleteLocalField(thread_db* tdbb, jrd_tra* transaction,
 		}
 	};
 
+	auto* metaTransaction = tdbb->getAttachment()->getMetaTransaction(tdbb);
+
 	AutoCacheRequest request(tdbb, drq_l_dep_flds, DYN_REQUESTS);
 
 	// Make sure that column is not referenced in any views.
 
-	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+	FOR(REQUEST_HANDLE request TRANSACTION_HANDLE metaTransaction)
 		X IN RDB$RELATION_FIELDS CROSS
 		Y IN RDB$RELATION_FIELDS CROSS
 		Z IN RDB$VIEW_RELATIONS
@@ -7176,7 +7178,7 @@ bool RelationNode::deleteLocalField(thread_db* tdbb, jrd_tra* transaction,
 
 		request.reset(tdbb, drq_g_rel_constr_nm, DYN_REQUESTS);
 
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE metaTransaction)
 			IDX IN RDB$INDICES CROSS
 			IDX_SEG IN RDB$INDEX_SEGMENTS CROSS
 			REL_CONST IN RDB$RELATION_CONSTRAINTS
@@ -7217,7 +7219,7 @@ bool RelationNode::deleteLocalField(thread_db* tdbb, jrd_tra* transaction,
 
 		request.reset(tdbb, drq_e_l_idx, DYN_REQUESTS);
 
-		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE transaction)
+		FOR(REQUEST_HANDLE request TRANSACTION_HANDLE metaTransaction)
 			IDX IN RDB$INDICES CROSS
 			IDX_SEG IN RDB$INDEX_SEGMENTS
 			WITH IDX.RDB$SCHEMA_NAME EQ IDX_SEG.RDB$SCHEMA_NAME AND
