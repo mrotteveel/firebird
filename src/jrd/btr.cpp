@@ -696,8 +696,9 @@ idx_e IndexKey::compose(Record* record, bool skipNewFormat)
 
 	if (skipNewFormat)
 	{
-		auto* idp = m_relation->getPermanent()->lookupIndex(m_tdbb, m_index->idx_id, CacheFlag::AUTOCREATE);
-		if (idp && (idp->getState() == Ods::irt_drop) && idp->getFormat() &&
+		auto* idp = m_relation->getPermanent()->lookupIndex(m_tdbb, m_index->idx_id,
+			CacheFlag::AUTOCREATE | CacheFlag::ERASED);
+		if (idp && (m_index->idx_state == Ods::irt_drop) && idp->getFormat() &&
 			(record->getFormat()->fmt_version > idp->getFormat()))
 		{
 			// tried to insert fresh formatted record into old index - skip this
